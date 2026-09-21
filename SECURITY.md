@@ -1,0 +1,107 @@
+# Security Policy
+
+ZynSign is intended to work with signing material and user data. This document
+sets out how sensitive material is handled during development and how to report
+a security problem.
+
+## Project State
+
+ZynSign is in a pre-development state. It contains documentation only. **No
+security-sensitive functionality exists yet** — there is no signing
+implementation, no key handling, no credential storage, no certificate or
+provisioning profile processing, and no device communication. Nothing in this
+document should be read as a claim that any of that is implemented or has been
+reviewed.
+
+This policy describes how such material will be treated as the project develops,
+and the rules that apply right now to the repository itself.
+
+## Never Commit Secrets
+
+Sensitive material must never enter the repository, in any file, in any
+directory, at any point in history.
+
+Never commit:
+
+- **Secrets** — API keys, access tokens, refresh tokens, session tokens,
+  passwords, passphrases, PINs, salts, or any other value used to authenticate.
+- **Credentials** — Apple ID or developer account credentials, service account
+  details, app-specific passwords, or any account material used to sign in to an
+  external service.
+- **Private keys** — signing keys, key stores, `.p12` / `.p8` / `.mobileprovision`
+  contents, certificates, or any exported key material, whether or not it is
+  encrypted.
+
+Also avoid:
+
+- real bundle identifiers, team identifiers, or provisioning profile UUIDs from
+  a personal or production account;
+- device identifiers (UDIDs) or other device-specific data;
+- user data, application data, or anything extracted from a real device;
+- internal URLs, hosts, or endpoints that are not meant to be public.
+
+Committing a secret is treated as an incident even when the value is a test
+value. Assume anything committed is public and permanent: removing a file in a
+later commit does not remove it from history.
+
+### If a Secret Is Committed
+
+1. Treat the value as compromised. Revoke or rotate it immediately.
+2. Tell the developer straight away, before doing anything else to the
+   repository.
+3. Let the developer decide how to remove it from history. Do not rewrite
+   history or force-push on your own.
+
+## Protecting Signing-Related Material
+
+Signing material is the most sensitive category this project will handle. The
+following applies now and will continue to apply as functionality is built.
+
+- Keep signing material **out of the repository entirely**. It belongs in the
+  developer's local environment, not in source control.
+- Keep it out of logs, error messages, crash reports, and diagnostic output. Do
+  not print key contents, profile contents, or account identifiers.
+- Keep it out of tests and fixtures. Use clearly synthetic placeholder values in
+  examples, and mark them as such.
+- Keep it out of screenshots, issue reports, task reports, and commit messages.
+- Do not copy signing material into temporary locations that outlive the
+  operation, and do not leave it in build output or caches.
+- Where the project later stores or reads such material, it must do so through
+  platform-provided secure storage, and that design must be documented under
+  [`docs/security/`](docs/security/) before it is implemented.
+
+## Sensitive Dependencies
+
+No third-party dependencies have been added. When dependencies are introduced,
+each one will be recorded, and anything that touches keys, profiles, or device
+communication will be justified in review before it is accepted.
+
+## Security Review
+
+Any change that touches authentication, cryptography, key handling, entitlements,
+device communication, or file transfer requires explicit review by the developer
+before it is committed, including a read of the full diff with attention to what
+is written to disk, to logs, and to the network.
+
+## Reporting a Vulnerability
+
+Please report security issues privately. **Do not open a public issue.**
+
+- Contact the project maintainer through a private channel — the private
+  reporting address configured for this repository, or the maintainer directly.
+- Include enough detail to reproduce: the affected component, the steps taken,
+  and the observed versus expected behaviour.
+- Do not include real signing material, real credentials, or real user data in
+  the report. Use placeholder values and describe the sensitive part instead.
+- Allow time for a fix before disclosing anything publicly.
+
+Reports are taken seriously regardless of the reporter. Credit will be given on
+request.
+
+## Scope of This Policy
+
+Because no application code exists yet, there is nothing in this repository that
+can be exploited at runtime. The rules above govern development conduct and
+repository hygiene. As functionality is added, this document will be updated to
+describe the actual security properties of the software, its threat model, and
+any supported versions.
