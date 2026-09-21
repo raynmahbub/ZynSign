@@ -9,9 +9,10 @@ taken from another project.
 
 **Pre-development — repository foundation only.**
 
-This repository currently contains documentation and no more. There is no source
-code, no project file, no build configuration, no automated tests, and no released
-build. Nothing here runs, and nothing here can be installed.
+This repository currently contains documentation and repository configuration.
+There is no source code, no project file, no build configuration, no automated
+tests, and no released build. Nothing here runs, and nothing here can be
+installed.
 
 | Area | State |
 | --- | --- |
@@ -20,7 +21,7 @@ build. Nothing here runs, and nothing here can be installed.
 | Automated tests | None |
 | Dependencies | None |
 | Releases | None |
-| Documentation | Foundation only |
+| Documentation / repository configuration | Foundation only |
 
 ## Intended Scope
 
@@ -82,6 +83,11 @@ README.md            Project overview (this file)
 CHANGELOG.md         Notable changes, by release
 CONTRIBUTING.md      How development work is carried out
 SECURITY.md          Handling of sensitive material and responsible disclosure
+.github/
+  ISSUE_TEMPLATE/    Bug report and feature request templates
+  workflows/         GitHub Actions workflow directory (no workflows yet)
+  pull_request_template.md
+                     Default pull request template
 docs/
   architecture/      Architectural records (none written yet)
   development/       Development guides (none written yet)

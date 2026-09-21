@@ -54,6 +54,24 @@ Follow these rules while working:
   report around it.
 - As the codebase grows, new functionality is expected to arrive with tests.
 
+## GitHub Issues and Pull Requests
+
+GitHub issue and pull request templates are provided under `.github/` to keep
+reports concise and reviewable.
+
+- Use the bug report template for reproducible, non-security problems.
+- Use the feature request template for proposed improvements. Feature requests
+  are reviewed for fit and feasibility, but they are not a promise that the
+  feature will be implemented.
+- Use the pull request template to summarize the change, list important changes,
+  and report only the testing and validation that were actually performed.
+- Do not include passwords, private keys, certificates containing sensitive
+  material, provisioning profiles containing sensitive information,
+  authentication tokens, or other secrets in issues, pull requests, logs, or
+  screenshots.
+- Report security vulnerabilities privately, as described in
+  [SECURITY.md](SECURITY.md), rather than opening a public issue.
+
 ## Code Review
 
 Every change is reviewed by the developer before it lands. Review covers:
