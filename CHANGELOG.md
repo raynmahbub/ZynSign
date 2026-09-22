@@ -135,6 +135,57 @@ All notable changes to ZynSign will be documented here.
   failed deletions leaving records and announcements intact, and the row
   and detail display mappings including missing and inconsistent artifacts
   and undeclared metadata.
+- Bundle explorer: a read-only browser of the files and folders inside a
+  library application's bundle, reached from the application detail screen
+  through an "Explore Bundle" entry that is offered only while the record's
+  package is available. The explorer lists each entry's name, its location
+  relative to the bundle root, its kind (folder, file, symbolic link, or
+  unsupported entry), the byte count the package declares for a regular
+  file, and a descriptive label on conventional locations — the bundle
+  information file, the declared executable, an embedded provisioning
+  profile, the code signature directory and its resource record, and the
+  frameworks, plug-ins, and extensions directories — with a "Notable
+  Entries" shortcut at the bundle root. Folders are entered in place;
+  files open a metadata screen. Explicit loading, empty, and failure states
+  with a retry action; the package is read once per visit and never again
+  on view recomputation or while descending into folders.
+- Bundle contents domain model: `BundlePath`, a bundle-relative location
+  constructed under the same safety rules as archive paths (no absolute
+  locations, no `..` or `.` components, no empty components, no NUL bytes
+  or backslashes, bounded length), so nothing above the bundle root is
+  representable; `BundleEntry` and `BundleEntryRole`, descriptions with no
+  handle to any file; and `BundleContents`, the bundle's structure derived
+  from a package's entry table — only entries strictly inside the bundle,
+  directories the container did not record implied from the entries beneath
+  them, deterministic ordering (folders first, then by name as Unicode
+  scalars) independent of container order, first-recorded entry kept for a
+  duplicated location, and entries with unsafe names counted rather than
+  listed.
+- Bundle contents inspection use case, composed from the existing library
+  use case and the existing archive boundary over library storage — no
+  second archive reader and no second artifact store. It reads a package's
+  entry table only: no entry content, no extraction, no hashing, no parsing
+  of any file inside the bundle. Typed errors for a record that no longer
+  exists, a package the library no longer holds, a package that has changed
+  since import, an unreadable container, and a package with no single
+  application bundle; foreign errors are normalised so no platform text
+  reaches the screen.
+- Tests for bundle paths (construction, refusals, containment, derivation
+  from archive locations), bundle contents (empty, single-file, nested, and
+  multi-level bundles; implied directories; ordering and its independence
+  from table order; the bundle boundary; unsafe names; duplicates; links and
+  unsupported kinds; declared sizes including very large ones without any
+  content read; unusual names; label recognition and its depth, kind, and
+  exact-name rules), the label vocabulary, the inspection error
+  constructors, the inspection use case (success, no content read for large
+  files, executable labelling from the record, empty bundles, missing
+  record, missing and inconsistent artifacts, typed and foreign open
+  failures, unreadable tables, packages without or with several bundles,
+  cancellation, and a synthetic container read through the platform
+  boundary), and the explorer presentation model and display mappings
+  (loading, loaded, empty, and failed phases; retry; idempotent and
+  overlapping loads; foreign-error rendering; the detail screen's entry
+  point; row, listing, and entry-detail content).
 
 ### Changed
 
@@ -144,6 +195,11 @@ All notable changes to ZynSign will be documented here.
 - The shell's Applications tab now shows the library instead of a
   placeholder, and the Import area, Settings, and the shell's section
   descriptions state that the Applications area lists the library.
+- The application detail screen receives the bundle inspection use case
+  from the library screen, which receives it from the shell; the
+  application environment carries it alongside the library and import use
+  cases. Settings and the shell's Applications description now state that
+  the Applications area shows what each application bundle contains.
 
 ### Notes
 
@@ -155,7 +211,16 @@ All notable changes to ZynSign will be documented here.
   only; declared metadata remains untrusted; no record is evidence that a
   package is signed, genuine, or installable. No key material, credentials,
   certificate bodies, or profile data are persisted.
+- The bundle explorer is a listing of what a package records inside its
+  application bundle. It reads the container's entry table and nothing else:
+  no file is opened, previewed, extracted, hashed, or parsed, and symbolic
+  links are shown as links and never followed. Its labels on conventional
+  locations describe what is usually found there; the presence of a code
+  signature directory, a resource record, or an embedded provisioning
+  profile is a filesystem observation and is not evidence that the
+  application is signed, that any signature is valid, or that the
+  application is trusted or installable.
 - No signing, signature verification, profile parsing, Mach-O inspection,
   packaging, extraction, or installation functionality exists. The
-  Applications area lists, imports, and deletes library records; it makes no
-  claim about signatures, trust, or installability.
+  Applications area lists, imports, browses, and deletes library records; it
+  makes no claim about signatures, trust, or installability.

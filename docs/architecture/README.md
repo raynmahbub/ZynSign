@@ -37,13 +37,25 @@ artifact availability, imports another package through the existing
 document-import workflow, opens a detail screen per record, and removes a
 record together with the package file behind it.
 
+Bundle inspection has also been added: from a record's detail screen, a
+read-only explorer lists the files and folders inside the application bundle
+— names, bundle-relative locations, kinds, declared sizes, and descriptive
+labels on conventional locations — derived from the package's entry table
+through the existing archive boundary. The decision — why the explorer reads
+the entry table rather than extracting, why it introduces no second reader or
+store, how bundle-relative paths keep navigation inside the bundle, how links
+and unsupported entries are treated, and why labels describe without
+establishing signing or trust — is recorded in Section 9 of
+[architecture.md](architecture.md).
+
 Everything else is intended structure only. The inspection stage is a partial
-capability: it reads containers, classifies layout, and reads one bundle's
-declared metadata; it does not verify signatures, parse profiles, inspect
-executables, extract content, or produce a package. Library records are kept
-across launches and are listed, imported, and removed in the Applications
-area. No other workflow behaviour is implemented, and no behaviour may be
-inferred from these documents.
+capability: it reads containers, classifies layout, reads one bundle's
+declared metadata, and describes a bundle's structure; it does not verify
+signatures, parse profiles, inspect executables, extract content, or produce
+a package. Library records are kept across launches and are listed,
+imported, browsed, and removed in the Applications area. No other workflow
+behaviour is implemented, and no behaviour may be inferred from these
+documents.
 
 ## Index
 

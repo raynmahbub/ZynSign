@@ -6,7 +6,7 @@ This document defines the architecture of ZynSign: the platform it runs on, the
 layers and boundaries the application is organised into, the decisions that are
 settled, and the capabilities that are not yet established.
 
-Five implementation increments exist. The first is an Xcode application
+Seven implementation increments exist. The first is an Xcode application
 target with a SwiftUI application shell, a composition root, a minimal pure
 domain layer, and a unit-test target; it establishes the layer boundaries of
 Section 4 and no workflow capability. The second adds the archive-reading
@@ -32,13 +32,18 @@ Applications area: a library screen that lists the persisted records with
 each record's current artifact availability, imports another package through
 the existing document-import workflow, opens a per-record detail screen, and
 removes a record together with the package file behind it through the
-library use case's removal operation. The inspection stage is therefore a
-partial capability: it reads containers, classifies layout, and reads one
-bundle's declared metadata, and it does not verify signatures, parse
+library use case's removal operation. The seventh adds bundle inspection: a
+read-only explorer, reached from the application detail screen, that lists
+the files and folders inside a library application's bundle from the
+package's entry table through the existing archive boundary, without
+extracting, opening, or evaluating any of them (Section 9, Bundle Inspection
+Decision). The inspection stage is therefore a partial capability: it reads
+containers, classifies layout, reads one bundle's declared metadata, and
+describes a bundle's structure, and it does not verify signatures, parse
 profiles, inspect executables, extract content, or produce a package.
 Accepted imports are recorded and kept across launches and are listed,
-imported, and removed in the Applications area; no signing, verification,
-packaging, or installation capability exists.
+imported, browsed, and removed in the Applications area; no signing,
+verification, packaging, or installation capability exists.
 
 Nothing else in this document is a claim that any behaviour works. Every
 feasibility boundary in Section 6 remains open except where noted here, and the
@@ -462,6 +467,82 @@ not implied by this one.
 that later workflows will need. Neither exists yet, and neither may be inferred
 from the reading decision above.
 
+### Bundle Inspection Decision
+
+The Applications area's bundle explorer is the first consumer of the archive
+boundary after import, and how it reaches a bundle is an architectural
+decision rather than a screen detail.
+
+**Accepted — inspection reads the container's entry table; it does not
+extract.** The library keeps each application as the package it was imported
+from, so the application bundle exists only inside that container. The
+explorer therefore derives the bundle's structure from the entry table
+`ArchiveReader` already produces — names, kinds, and declared sizes, read
+from the container's own records — restricted to the entries inside the
+discovered bundle directory. No entry's content is read, nothing is extracted
+to a filesystem, nothing is hashed, and no file inside the bundle is parsed:
+not the information file, not an embedded profile, not the code-signature
+records, not the executable. Enumerating a bundle costs the same whether its
+files are small or enormous, and the extraction boundary that later workflows
+may need remains as Unresolved as the Reading Decision left it; nothing here
+may be read as a step toward it.
+
+**Why no second reader or store.** The capability the explorer needs —
+enumerate, restrict, describe — is a subset of what the archive boundary
+already provides for import, and the bytes it describes are the bytes
+`LibraryArtifactStore` already owns. A second reader would duplicate the
+enforcement point for the resource policy and the path safety rules; a second
+storage convention would duplicate the artifact-ownership rules of Section 15.
+The use case (`IPABundleContentsInspection`) composes the existing library
+use case, which reports whether the record's artifact is available as
+recorded, with the existing `ArtifactArchiveReaderProvider` over library
+storage, and nothing else. A record whose artifact is missing or no longer
+matches the record is refused with a typed error before any container is
+opened, and the detail screen offers the explorer only for an available
+artifact.
+
+**Path safety, Accepted.** Locations inside a bundle are a domain value
+(`BundlePath`) relative to the bundle root, constructed under the same rules
+as `ArchivePath`: relative, canonical, no `..` or `.` components, no empty
+components, no NUL bytes or backslashes, bounded length. A location above the
+root is not representable, so navigation cannot be asked to leave the bundle;
+entries the container records outside the bundle — the payload directory,
+sibling bundles, package-level metadata — are excluded by construction rather
+than filtered after the fact, and entries whose recorded names fail the
+safety rules have no location, are never listed, and are counted so their
+existence is not concealed. Directories the container did not record are
+implied from the entries beneath them, so the tree is complete whatever the
+container omitted. Within a directory, entries are ordered deterministically
+— directories first, then by name compared as Unicode scalars — so the same
+package lists the same way on every device. The domain exposes no filesystem
+object and no absolute path.
+
+**Special entries, Accepted.** A symbolic link is listed as a link and
+nothing more: its target is content, content is never read, and so a link is
+never followed and can lead the explorer nowhere, inside the bundle or out of
+it. An entry of a kind the reader does not model is listed as unsupported and
+left alone. Neither is navigable, and neither is given a size, since the size
+of a link is the length of a target the explorer does not know.
+
+**Labels are descriptive, Accepted.** The explorer labels conventional
+locations — the bundle information file, the declared executable, an embedded
+provisioning profile, the code signature directory and its resource record,
+the frameworks, plug-ins, and extensions directories — from name, location,
+and kind alone, so they can be found among many resources. A label states
+what a file at that location conventionally is. It is not evidence that the
+file is well formed, that the application is signed, that any signature is
+valid, or that the application is trusted or installable; the presence of a
+code-signature directory is a filesystem observation and nothing else. This
+holds the line of Section 13: the UI does not decide signature status, and
+neither does a descriptive listing.
+
+**Relation to later inspection.** Signature, profile, entitlement, and
+executable inspection remain the subjects of feasibility research (Section 6)
+and will need their own vocabulary and their own boundaries. The explorer
+establishes where those objects are inside a bundle; establishing what they
+contain or what they prove is not implied by it, and none of it may be
+inferred from this decision.
+
 ## 10. Domain Layer
 
 The domain layer holds ZynSign's rules and vocabulary. It is pure, deterministic,
@@ -498,7 +579,7 @@ carried forward from Section 6.
 
 | Port | Boundary it marks | Declared in | Required for testing | iOS-specific | Feasibility |
 | --- | --- | --- | --- | --- | --- |
-| `ArchiveReader` | Untrusted container input, behind which parsing, limits, and content access live | Domain | Yes — substitutable with synthetic fixtures | Implementation is platform-dependent | **Reading implemented** for ZIP containers (Section 9); extraction remains Unresolved |
+| `ArchiveReader` | Untrusted container input, behind which parsing, limits, and content access live | Domain | Yes — substitutable with synthetic fixtures | Implementation is platform-dependent | **Reading implemented** for ZIP containers (Section 9) and reused, entry table only, by bundle inspection; extraction remains Unresolved |
 | `PlistDecoder` | Parsing of untrusted structured data with typed diagnostics | Domain | Yes | No — not platform-specific in principle | Examined during the metadata increment: the platform property-list API is total and deterministic, so parsing lives inside the metadata reader in Domain, tested through its bytes. A separate port is introduced only if parsing becomes platform-bound or needs substitution |
 | `ProfileParser` | Interpretation of provisioning-profile data as authorization input | Domain | Yes | Container validation likely platform-dependent | Requires feasibility research (item 8) |
 | `IdentityStore` | Resolution and presentation of available signing identities and their status | Application | Yes | Yes — key access is platform-bound | Requires feasibility research (items 2, 16) |
@@ -790,6 +871,7 @@ depend on iOS/iPadOS behaviour are recorded as *Provisional*, *Unresolved*, or
 | 24 | Installation in the first release | **Unresolved** |
 | 25 | Import intake and temporary staging | **Accepted** for the document-import path — one bounded-chunk staging per import, identifier-addressed application-owned temporary storage, security-scoped access held only while copying, staged archives adopted by the library or discarded before the import returns (Section 8) |
 | 26 | Persistence is not trust | **Accepted** — a library record states that a package passed inspection when imported and which bytes it refers to; the fingerprint identifies bytes only, declared metadata stays untrusted, and no record is evidence that a package is signed, genuine, or installable (Section 15) |
+| 27 | Bundle inspection is read-only and descriptive | **Accepted** — the explorer derives a bundle's structure from the container's entry table through the existing `ArchiveReader` and library storage, with no extraction, content reading, hashing, or parsing; locations are bundle-relative `BundlePath` values that cannot name anything above the root; links and unsupported entries are listed, never followed; labels on conventional locations describe and do not establish signing, trust, or installability (Section 9) |
 
 ## 19. Non-Goals of This Document
 

@@ -41,7 +41,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
     var statusSummary: String {
         switch self {
         case .applications:
-            return "Imported packages are recorded in ZynSign's library and kept across launches. The library lists them, imports new ones, and deletes them together with their package files; signing and installation are not part of this build yet."
+            return "Imported packages are recorded in ZynSign's library and kept across launches. The library lists them, imports new ones, shows the files and folders inside each application bundle, and deletes entries together with their package files; signing and installation are not part of this build yet."
         case .importPackage:
             return "Import brings a selected package into ZynSign, reads its structure and declared metadata, and records accepted packages in the library."
         case .signing:

@@ -5,25 +5,30 @@ import SwiftUI
 /// The screen presents the persisted records of accepted imports and offers
 /// the two operations this build supports: importing another package through
 /// the existing document-import workflow, and deleting an entry together
-/// with the package file behind it. There are deliberately no signing,
-/// installation, or verification controls — those capabilities do not exist
-/// in this build, and a control that pretended otherwise would misrepresent
-/// the application.
+/// with the package file behind it. Each record opens a detail screen, from
+/// which the bundle explorer lists the package's contents read-only. There
+/// are deliberately no signing, installation, or verification controls —
+/// those capabilities do not exist in this build, and a control that
+/// pretended otherwise would misrepresent the application.
 struct ApplicationLibraryView: View {
 
     @StateObject private var model: ApplicationLibraryModel
     @StateObject private var importing: PackageImportModel
     @State private var isShowingImporter = false
     @State private var entryPendingRemoval: LibraryEntry?
+    private let bundleInspection: IPABundleContentsInspection
 
-    /// Creates the screen over the library use case and the import use case
-    /// the composition root supplied. The import presentation model is the
-    /// same phase machine the Import area uses; the library model observes
-    /// its outcomes, so a successful import refreshes the list.
-    init(library: ApplicationLibrary, importing: IPAPackageImport) {
+    /// Creates the screen over the library, import, and bundle inspection
+    /// use cases the composition root supplied. The import presentation
+    /// model is the same phase machine the Import area uses; the library
+    /// model observes its outcomes, so a successful import refreshes the
+    /// list. The inspection use case is handed on to the detail screen,
+    /// which offers the bundle explorer.
+    init(library: ApplicationLibrary, importing: IPAPackageImport, bundleInspection: IPABundleContentsInspection) {
         let importModel = PackageImportModel(importing: importing)
         _importing = StateObject(wrappedValue: importModel)
         _model = StateObject(wrappedValue: ApplicationLibraryModel(library: library, importing: importModel))
+        self.bundleInspection = bundleInspection
     }
 
     private var noticeBinding: Binding<Bool> {
@@ -38,7 +43,7 @@ struct ApplicationLibraryView: View {
             content
                 .navigationTitle(ShellSection.applications.title)
                 .navigationDestination(for: LibraryEntry.self) { entry in
-                    ApplicationDetailView(entry: entry)
+                    ApplicationDetailView(entry: entry, bundleInspection: bundleInspection)
                 }
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
@@ -394,7 +399,8 @@ private enum PreviewFixtures {
 #Preview("Empty Library") {
     ApplicationLibraryView(
         library: previewEnvironment.library,
-        importing: previewEnvironment.packageImport
+        importing: previewEnvironment.packageImport,
+        bundleInspection: previewEnvironment.bundleInspection
     )
 }
 

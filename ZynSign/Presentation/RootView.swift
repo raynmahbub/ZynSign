@@ -27,7 +27,11 @@ struct RootView: View {
     private func content(for section: ShellSection) -> some View {
         switch section {
         case .applications:
-            ApplicationLibraryView(library: environment.library, importing: environment.packageImport)
+            ApplicationLibraryView(
+                library: environment.library,
+                importing: environment.packageImport,
+                bundleInspection: environment.bundleInspection
+            )
         case .importPackage:
             PackageImportView(importing: environment.packageImport)
         case .settings:

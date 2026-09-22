@@ -16,16 +16,18 @@ enum CompositionRoot {
     /// Builds the application environment for a fresh launch.
     ///
     /// One library use case is constructed per launch and shared by the
-    /// import use case and the environment, so the Import area and the
-    /// Applications area act on the same records and the same storage
-    /// wherever they admit, list, or remove entries.
+    /// import use case, the bundle inspection use case, and the environment,
+    /// so the Import area and the Applications area act on the same records
+    /// and the same storage wherever they admit, list, inspect, or remove
+    /// entries.
     static func makeApplicationEnvironment() -> ApplicationEnvironment {
         let intake = SecurityScopedArtifactIntake(directory: importStagingDirectory)
         let library = makeApplicationLibrary(intake: intake)
         return ApplicationEnvironment(
             applicationInfo: ApplicationInfo.current(bundle: .main),
             packageImport: makePackageImport(intake: intake, library: library),
-            library: library
+            library: library,
+            bundleInspection: makeBundleContentsInspection(intake: intake, library: library)
         )
     }
 
@@ -100,6 +102,29 @@ enum CompositionRoot {
             readerProvider: readerProvider,
             library: library,
             limits: limits
+        )
+    }
+
+    /// Builds the bundle contents inspection use case over the given library,
+    /// selecting the concrete archive implementation.
+    ///
+    /// The explorer describes applications the library holds, so its archive
+    /// boundary reads library storage only, under the same file-extension
+    /// convention and the same resource policy as import. It is the same
+    /// reader implementation import uses, chosen here and nowhere below;
+    /// inspection reads a package's entry table and never writes.
+    static func makeBundleContentsInspection(
+        intake: SecurityScopedArtifactIntake,
+        library: ApplicationLibrary,
+        limits: ArchiveLimits = .default
+    ) -> IPABundleContentsInspection {
+        IPABundleContentsInspection(
+            library: library,
+            readerProvider: DirectoryArtifactArchiveReaderProvider(
+                directory: libraryArtifactDirectory,
+                fileExtension: intake.fileExtension,
+                limits: limits
+            )
         )
     }
 

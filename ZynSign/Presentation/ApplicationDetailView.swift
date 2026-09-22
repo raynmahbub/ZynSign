@@ -12,9 +12,22 @@ import SwiftUI
 /// package declared and that the package passed inspection when it was
 /// imported. It is not a statement about signatures, trust, or
 /// installability, none of which this build evaluates.
+///
+/// When the record's package is available, the screen offers the bundle
+/// explorer, which lists the bundle's contents read-only. The offer follows
+/// the entry's availability as the library derived it; the screen does not
+/// re-examine storage to decide whether to show it.
 struct ApplicationDetailView: View {
 
     let entry: LibraryEntry
+    private let bundleInspection: IPABundleContentsInspection
+
+    /// Creates the screen for `entry`, with the inspection use case the
+    /// bundle explorer runs on.
+    init(entry: LibraryEntry, bundleInspection: IPABundleContentsInspection) {
+        self.entry = entry
+        self.bundleInspection = bundleInspection
+    }
 
     var body: some View {
         let content = ApplicationDetailContent(entry: entry)
@@ -25,12 +38,26 @@ struct ApplicationDetailView: View {
                 LabeledContent("Version", value: content.versionText)
                 LabeledContent("Build", value: content.buildText)
             }
-            Section("Package") {
+            Section {
                 LabeledContent("Status", value: content.artifactStatus)
                 if let explanation = content.artifactExplanation {
                     Text(explanation)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                }
+                if content.canExploreBundle {
+                    NavigationLink {
+                        BundleExplorerView(inspection: bundleInspection, entry: entry)
+                    } label: {
+                        Label("Explore Bundle", systemImage: "folder")
+                    }
+                    .accessibilityHint("Lists the files and folders inside the application bundle.")
+                }
+            } header: {
+                Text("Package")
+            } footer: {
+                if content.canExploreBundle {
+                    Text("Exploring lists the files and folders inside the application bundle. It reads the package's own records of them and does not open, run, or change any file.")
                 }
             }
             Section("Library Record") {
@@ -88,6 +115,12 @@ struct ApplicationDetailContent: Equatable {
     /// what the record expects, or `nil` when it is available.
     let artifactExplanation: String?
 
+    /// Whether the bundle explorer is offered. True exactly when the
+    /// library reports the package available; a missing or inconsistent
+    /// package has nothing trustworthy to explore, and the screen shows its
+    /// explanation instead.
+    let canExploreBundle: Bool
+
     /// When the record was created.
     let imported: Date
 
@@ -104,6 +137,7 @@ struct ApplicationDetailContent: Equatable {
         self.sourceFileName = record.sourceFileName ?? "—"
         self.imported = record.importedAt
         self.updated = record.updatedAt > record.importedAt ? record.updatedAt : nil
+        self.canExploreBundle = entry.isArtifactAvailable
         switch entry.artifactAvailability {
         case .available:
             self.artifactStatus = entry.artifactAvailability.displayName
@@ -209,20 +243,31 @@ private enum PreviewFixtures {
     )
 }
 
+private let previewEnvironment = CompositionRoot.makeApplicationEnvironment()
+
 #Preview("Application Detail") {
     NavigationStack {
-        ApplicationDetailView(entry: PreviewFixtures.completeEntry)
+        ApplicationDetailView(
+            entry: PreviewFixtures.completeEntry,
+            bundleInspection: previewEnvironment.bundleInspection
+        )
     }
 }
 
 #Preview("Application Detail, Missing Package") {
     NavigationStack {
-        ApplicationDetailView(entry: PreviewFixtures.missingArtifactEntry)
+        ApplicationDetailView(
+            entry: PreviewFixtures.missingArtifactEntry,
+            bundleInspection: previewEnvironment.bundleInspection
+        )
     }
 }
 
 #Preview("Application Detail, Undeclared Metadata") {
     NavigationStack {
-        ApplicationDetailView(entry: PreviewFixtures.undeclaredMetadataEntry)
+        ApplicationDetailView(
+            entry: PreviewFixtures.undeclaredMetadataEntry,
+            bundleInspection: previewEnvironment.bundleInspection
+        )
     }
 }
