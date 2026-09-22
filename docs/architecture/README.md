@@ -4,12 +4,19 @@ Architectural decisions for ZynSign are recorded here.
 
 ## Current State
 
-ZynSign is at the start of development. The first implementation increment —
-an Xcode application target with a SwiftUI shell, a composition root, minimal
-domain types, and a unit-test target — now exists, and establishes the layer
-boundaries the architecture describes. Everything beyond that foundation is
-intended structure only: no workflow behaviour is implemented, and no
-behaviour may be inferred from these documents.
+ZynSign is at the start of development. An Xcode application target with a
+SwiftUI shell, a composition root, minimal domain types, and a unit-test target
+establishes the layer boundaries the architecture describes. The archive layer
+the inspection stage depends on has since been added — bounded ZIP container
+reading behind the `ArchiveReader` boundary, application-bundle discovery, and
+structural validation of a package's layout — and its decision is recorded in
+Section 9 of [architecture.md](architecture.md).
+
+Everything else is intended structure only. Structural inspection is a partial
+capability: it reads containers and classifies layout, and it does not read
+bundle metadata, parse plists, verify signatures, extract content, or produce a
+package. No other workflow behaviour is implemented, and no behaviour may be
+inferred from these documents.
 
 ## Index
 

@@ -7,21 +7,30 @@ taken from another project.
 
 ## Current Status
 
-**Early development — application foundation only.**
+**Early development — application foundation and structural archive inspection.**
 
-The repository now contains the first implementation increment: an Xcode
-project with an iOS/iPadOS application target, a SwiftUI application shell, a
-minimal domain layer, and a unit-test target. The application launches into
-its shell; no workflow functionality exists yet. Nothing here inspects or
-signs packages, and no released build exists.
+The repository contains an Xcode project with an iOS/iPadOS application target,
+a SwiftUI application shell, a domain layer, and a unit-test target. The
+application launches into its shell, and there is no user-facing package import
+flow.
+
+One workflow capability has a partial implementation: **structural inspection**.
+It reads a ZIP-based package's entry table, discovers the application bundle it
+contains, and classifies the package's layout against ZynSign's own structural
+and safety rules. It stops there. It does not read bundle metadata, does not
+parse plists, does not verify or produce signatures, does not extract package
+contents, and does not install anything. A structurally valid result is not a
+statement about signatures, trust, or installability, and no released build
+exists.
 
 | Area | State |
 | --- | --- |
-| Source code | Application foundation only: shell UI, composition root, minimal domain types |
+| Source code | Shell UI, composition root, domain types, archive layer, structural inspection use case |
 | Build system / project file | Xcode project (`ZynSign.xcodeproj`): application target plus unit-test target |
-| Automated tests | Unit tests for the domain foundation, written to run with Xcode's test runner |
+| Automated tests | Unit and fixture-based tests for the domain foundation and the archive layer, written to run with Xcode's test runner |
 | Dependencies | None — Apple frameworks and the Swift standard library only |
-| Inspection, signing, installation | Not started |
+| Inspection | Partial: archive reading, application-bundle discovery, structural validation. No metadata or signature examination |
+| Signing, verification, packaging, installation | Not started |
 | Releases | None |
 
 ## Intended Scope

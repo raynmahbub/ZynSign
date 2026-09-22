@@ -6,12 +6,21 @@ This document defines the architecture of ZynSign: the platform it runs on, the
 layers and boundaries the application is organised into, the decisions that are
 settled, and the capabilities that are not yet established.
 
-The first implementation increment now exists: an Xcode application target with
-a SwiftUI application shell, a composition root, a minimal pure domain layer,
-and a unit-test target. That foundation establishes the layer boundaries of
-Section 4 and implements no workflow capability. Everything beyond that
-foundation is documentation of intended structure, and nothing described here
-should be read as a claim that any behaviour works.
+Two implementation increments exist. The first is an Xcode application target
+with a SwiftUI application shell, a composition root, a minimal pure domain
+layer, and a unit-test target; it establishes the layer boundaries of Section 4
+and no workflow capability. The second adds the archive-reading layer the
+inspection stage depends on: bounded ZIP container reading behind the
+`ArchiveReader` boundary, application-bundle discovery, structural validation of
+a package's layout, and their tests. Structural inspection is therefore the
+first capability with an implementation, and it is a partial one — it reads
+containers and classifies layout, and it does not read bundle metadata, parse
+plists, verify signatures, extract content, or produce a package.
+
+Nothing else in this document is a claim that any behaviour works. Every
+feasibility boundary in Section 6 remains open except where noted here, and the
+signing, verification, packaging, and installation stages are documentation of
+intended structure only.
 
 Earlier project documentation assumed a desktop runtime and desktop platform
 services. That assumption no longer holds. ZynSign is defined here as an
@@ -223,7 +232,7 @@ table below is the authoritative list of feasibility boundaries. Every row is
 | 10 | Nested-code handling | Deterministic discovery and signing order for frameworks, dynamic libraries, extensions, plug-ins, nested bundles, and nested applications, including exception cases. |
 | 11 | Signature verification | The system code-signing validation services used on macOS are not assumed available to iOS applications. On-device verification may have to be implemented, with all of the format knowledge that implies. |
 | 12 | IPA packaging | Archive writing and the layout, ordering, permissions, symlinks, and metadata the platform expects in a redistributable package. |
-| 13 | Archive reading capability | Which archive container features can be read reliably on-device, and what resource limits can be enforced while reading. Implementation choice stays **Unresolved** until the deployment target is fixed. |
+| 13 | Archive reading capability | Which archive container features can be read reliably on-device, and what resource limits can be enforced while reading. Narrowed by measurement rather than assumption: container reading is implemented and bounded (Section 9), but the deployment target is still Unresolved, so no claim is made yet about behaviour across the versions ZynSign may support. |
 | 14 | Filesystem and sandbox behaviour | Working space, large-file handling, atomic replacement, metadata fidelity, and lifecycle interruptions inside the application container. See Section 8. |
 | 15 | Installation mechanism | No public application-facing mechanism is known for installing an IPA onto the device running ZynSign. Candidate mechanisms are external to the application (managed-device installation, over-the-air distribution with user confirmation, host-based tooling). This is **Unresolved**; installation may not belong in the first release. |
 | 16 | Key import and export constraints | Whether existing developer key material can be imported at all, and what platform restrictions apply to imported material. |
@@ -353,12 +362,47 @@ Rules, **Accepted**:
   and structured diagnostics (Section 11).
 - Archive structure alone never establishes that a package is valid, signed, or
   installable.
-- **The archive implementation strategy is Unresolved.** No container-level
-  archive capability for the deployment target has been confirmed, and no
-  dependency is selected here. The decision depends on the deployment target, the
-  container features that must be supported, the resource limits that must be
-  enforceable, and the packaging requirements of Section 5. Selecting a library
-  for completeness would prejudge all of those.
+### Reading Decision
+
+The container-reading capability is no longer undecided for the inspection
+stage, and the decision is recorded here because it is architectural rather than
+incidental.
+
+**Accepted — reading:** ZynSign reads ZIP containers with an implementation it
+owns, in the Platform layer, behind the `ArchiveReader` boundary. No third-party
+archive library is introduced.
+
+**Why a library was not selected.** The premise that a library would have to
+supply this capability was re-examined rather than assumed. The platform was
+checked first, as this document requires: Apple provides no container-level
+archive interface on the product runtime, and the platform compression service
+operates on compressed byte streams rather than on the container that holds
+them, so no system interface answers the questions inspection asks. A library was
+therefore a genuine candidate and is not rejected on principle — but the
+capability inspection needs is a deliberately narrow subset: enumerate the
+container's entries, refuse unsafe names before anything is read, enforce a
+resource policy, and produce the content of one named entry within a bound. It
+does not need writing, updating, spanning, or decryption. Against that subset,
+introducing a general-purpose dependency would add a maintenance and security
+obligation to the product, and would place the enforcement point for this
+project's own resource policy outside this project's control. The architecture
+already requires those limits to be enforceable *before or during* work rather
+than discovered afterwards, and that requirement is easier to keep honest inside
+an implementation whose only job is reading.
+
+**Consequences, Accepted.** The implementation is a read-only inspector, not a
+ZIP implementation, and its limits are stated rather than implied: it supports
+the content encodings application packages use and reports everything else as
+unsupported. It is reached only through the `ArchiveReader` port, so replacing it
+— with a different engine, an optimized reader, or a library chosen later — is a
+change in the composition root and one Platform type. Packaging will need a
+writer, and that is a separate decision this does not settle; a writer has
+different requirements, different risks, and different consequences, and it is
+not implied by this one.
+
+**Still Unresolved:** the writing side of packaging, and the extraction boundary
+that later workflows will need. Neither exists yet, and neither may be inferred
+from the reading decision above.
 
 ## 10. Domain Layer
 
@@ -394,7 +438,7 @@ carried forward from Section 6.
 
 | Port | Boundary it marks | Declared in | Required for testing | iOS-specific | Feasibility |
 | --- | --- | --- | --- | --- | --- |
-| `ArchiveReader` | Untrusted container input, behind which parsing, limits, and extraction live | Domain | Yes — substitutable with synthetic fixtures | Implementation is platform-dependent | Unresolved (Section 6, item 13) |
+| `ArchiveReader` | Untrusted container input, behind which parsing, limits, and content access live | Domain | Yes — substitutable with synthetic fixtures | Implementation is platform-dependent | **Reading implemented** for ZIP containers (Section 9); extraction remains Unresolved |
 | `PlistDecoder` | Parsing of untrusted structured data with typed diagnostics | Domain | Yes | No — not platform-specific in principle | Accepted as a boundary; implementation Unresolved |
 | `ProfileParser` | Interpretation of provisioning-profile data as authorization input | Domain | Yes | Container validation likely platform-dependent | Requires feasibility research (item 8) |
 | `IdentityStore` | Resolution and presentation of available signing identities and their status | Application | Yes | Yes — key access is platform-bound | Requires feasibility research (items 2, 16) |
@@ -574,7 +618,7 @@ depend on iOS/iPadOS behaviour are recorded as *Provisional*, *Unresolved*, or
 | 8 | IPA packaging | **Provisional** — ZynSign is responsible for producing its own package; format rules depend on item 12 and the deployment target |
 | 9 | Installation mechanism | **Unresolved** — no known public application-facing mechanism (item 15); may be excluded from the first release |
 | 10 | Persistence | **Unresolved** — technology deferred until requirements exist (Section 15) |
-| 11 | Archive implementation | **Unresolved** — deferred until deployment target and archive capability requirements are established (Section 9) |
+| 11 | Archive implementation | **Accepted for reading** — ZIP container reading is implemented behind `ArchiveReader`, with no third-party dependency; **Unresolved for writing** (Section 9) |
 | 12 | Nested-code rules | **Provisional** — innermost-first ordering is the intended direction; the complete location and exception set requires research (item 10) |
 | 13 | Security and retention policy | **Provisional** — the prohibitions on key material in UI, logs, diagnostics, and ordinary persistence are **Accepted**; retention durations are Unresolved |
 | 14 | Testing strategy | **Accepted** as a four-tier structure with feasibility gating (Section 16) |
