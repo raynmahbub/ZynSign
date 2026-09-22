@@ -52,6 +52,31 @@ It also has tests for the application metadata layer:
 - the extended artifact lifecycle, including the metadata-examination
   transitions and the updated issue-code set.
 
+It also has tests for the package import workflow:
+
+- the import use case: a successful import returns an examined artifact with
+  declared metadata and retains the staged archive; packages without an
+  application, with malformed metadata, or with an unenumerable container
+  are returned as typed findings whose staged archives are discarded; the
+  file-type policy refuses non-`.ipa` input before anything is staged;
+  staging failures propagate as typed errors without cleanup; cancellation
+  during staging and cancellation after staging both stop the import, and
+  the latter discards the staged archive;
+- the platform intake, against containers written into a temporary
+  directory: staging under artifact identifiers, unique and contained
+  staged locations, readability of a staged archive through the established
+  archive boundary, refusal of missing documents and directories, discard
+  behaviour including discarding unknown identifiers, clearing of a
+  previous process's leftovers before the first staging, and cancellation
+  leaving nothing behind;
+- the import error constructors: honest categories, distinct non-empty
+  user messages free of detail and cause, and preserved diagnostics;
+- the import presentation model: the phase machine across success,
+  rejection, staging failure, import cancellation, and picker closure;
+  the success summary derived from declared metadata; the rejection
+  message composed from the primary finding; and staged-archive ownership
+  across a replaced result and across releasing the model.
+
 Test fixtures are generated programmatically. No binary fixture is committed,
 and no real package, signing material, profile, or certificate appears anywhere
 in the suite. Filesystem-backed tests write only into a temporary directory that

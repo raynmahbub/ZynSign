@@ -6,9 +6,7 @@ import SwiftUI
 /// hierarchy; views read it with `@Environment(\.applicationEnvironment)`.
 /// This is the only place where the application layer meets SwiftUI.
 private struct ApplicationEnvironmentKey: EnvironmentKey {
-    static let defaultValue = ApplicationEnvironment(
-        applicationInfo: ApplicationInfo.current(bundle: .main)
-    )
+    static let defaultValue = CompositionRoot.makeApplicationEnvironment()
 }
 
 extension EnvironmentValues {

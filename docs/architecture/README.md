@@ -17,10 +17,19 @@ application-layer use case — and the decision to parse property lists inside
 the metadata reader rather than behind a `PlistDecoder` port is recorded in
 Section 11 of [architecture.md](architecture.md).
 
+The document-import workflow has also been added: user-driven selection of
+an `.ipa` file through the system document picker, one security-scoped,
+bounded-chunk staging of the selected document into application-owned
+temporary storage addressed by the artifact identifier, and examination of
+the staged archive through the existing inspection use cases. The staging
+decision — including the staged archive's explicit lifetime — is recorded in
+Section 8 of [architecture.md](architecture.md).
+
 Everything else is intended structure only. The inspection stage is a partial
 capability: it reads containers, classifies layout, and reads one bundle's
 declared metadata; it does not verify signatures, parse profiles, inspect
-executables, extract content, or produce a package. No other workflow behaviour
+executables, extract content, or produce a package. Staged imports are
+session-scoped and are never persisted. No other workflow behaviour
 is implemented, and no behaviour may be inferred from these documents.
 
 ## Index
