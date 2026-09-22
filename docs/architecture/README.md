@@ -48,14 +48,29 @@ and unsupported entries are treated, and why labels describe without
 establishing signing or trust — is recorded in Section 9 of
 [architecture.md](architecture.md).
 
+The certificate and signing-identity foundation has also been added: a
+platform-independent certificate metadata model, validity evaluation that
+distinguishes parsing success from current validity, chain representation
+without trust evaluation, a narrow signing-capability abstraction that does
+not expose private-key bytes, a distinct signing-identity model, an
+identity-store boundary, and a certificate parser behind the
+`CertificateParser` port using Apple Security framework APIs where available.
+The decision — why certificate and signing identity are distinct, how the
+parsing boundary treats input as untrusted, how the private signing
+capability stays behind a security boundary, how the identity-store and
+trust-validation boundaries are separated, why PKCS#12 is a separate
+capability, and what platform questions remain unresolved — is recorded in
+Section 7 of [architecture.md](architecture.md).
+
 Everything else is intended structure only. The inspection stage is a partial
 capability: it reads containers, classifies layout, reads one bundle's
 declared metadata, and describes a bundle's structure; it does not verify
 signatures, parse profiles, inspect executables, extract content, or produce
 a package. Library records are kept across launches and are listed,
-imported, browsed, and removed in the Applications area. No other workflow
-behaviour is implemented, and no behaviour may be inferred from these
-documents.
+imported, browsed, and removed in the Applications area. Certificate parsing
+and identity modeling exist as domain foundation; no signing, verification,
+packaging, or installation is implemented. No other workflow behaviour is
+implemented, and no behaviour may be inferred from these documents.
 
 ## Index
 
