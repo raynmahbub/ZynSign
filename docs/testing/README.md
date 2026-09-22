@@ -16,10 +16,34 @@ domain foundation:
   classification proceeds to later stages;
 - resolution of the application's own descriptive information.
 
+It also has tests for the archive layer:
+
+- archive entry construction, name acceptance, and diagnostic name sanitisation;
+- the resource policy, including that its comparisons do not overflow on
+  hostile declared sizes;
+- application-bundle discovery, including determinism, missing payloads,
+  missing bundles, ambiguity, nested and misplaced bundles, and containers that
+  omit directory entries;
+- structural validation, including the classification precedence rules and the
+  bound on findings recorded for one issue;
+- the inspection use case, including that it reads no entry content, that it
+  closes its reader on every path, and that it does not copy arbitrary platform
+  error text into findings;
+- the ZIP container reader, against containers generated in memory by the test
+  fixture builder, covering valid packages, unreadable and damaged containers,
+  unsafe entry names, entry kinds, duplicates, the entry-count policy, bounded
+  reads, checksum failure, and reader lifecycle.
+
+Test fixtures are generated programmatically. No binary fixture is committed,
+and no real package, signing material, profile, or certificate appears anywhere
+in the suite. Filesystem-backed tests write only into a temporary directory that
+the test removes.
+
 The tests are written to run inside the unit-test target with Xcode's test
 runner (Product ▸ Test, or `xcodebuild test` against the shared `ZynSign`
-scheme). **They have not been executed yet** — the first execution is part of
-reviewing the foundation work, and results will be recorded here.
+scheme). **They have not been executed yet.** The checks that have actually been
+run against this code are recorded with the work that produced it, and none of
+them constitutes an executed test run.
 
 ## Expectations Today
 

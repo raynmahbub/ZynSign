@@ -3,10 +3,10 @@
 /// Codes are the stable, programmatically usable part of a finding:
 /// presentation and diagnostics switch on the code first, then read the
 /// finding's technical detail. The set covers structural examination only —
-/// archive readability, path safety, bundle presence, and basic metadata
-/// shape. Cryptographic and platform evaluations will carry their own finding
-/// vocabularies when those stages exist; they are not extensions of this
-/// enumeration.
+/// archive readability, path safety, resource limits, bundle presence, and
+/// basic metadata shape. Cryptographic and platform evaluations will carry
+/// their own finding vocabularies when those stages exist; they are not
+/// extensions of this enumeration.
 enum ValidationIssueCode: String, CaseIterable, Hashable {
 
     /// The container could not be read as an archive.
@@ -47,6 +47,10 @@ enum ValidationIssueCode: String, CaseIterable, Hashable {
     /// outside deliberately supported capability.
     case unsupportedArchiveFeature
 
+    /// The container declares more entries, more nesting, or more expanded
+    /// content than ZynSign's resource policy accepts.
+    case resourceLimitExceeded
+
     /// The diagnostic category this issue belongs to. Ambiguity and
     /// unsupported input keep their honest categories; every other
     /// structural issue reports invalid input.
@@ -54,7 +58,7 @@ enum ValidationIssueCode: String, CaseIterable, Hashable {
         switch self {
         case .multipleApplicationBundles:
             return .ambiguousInput
-        case .unsupportedArchiveFeature:
+        case .unsupportedArchiveFeature, .resourceLimitExceeded:
             return .unsupportedInput
         default:
             return .invalidInput
