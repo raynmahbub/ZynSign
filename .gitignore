@@ -1,0 +1,10 @@
+# macOS
+.DS_Store
+
+# Xcode user state — never commit; may contain personal paths
+xcuserdata/
+*.xcuserstate
+
+# Xcode build products and test results
+DerivedData/
+*.xcresult

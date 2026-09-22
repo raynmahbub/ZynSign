@@ -4,9 +4,14 @@
 
 This document defines the architecture of ZynSign: the platform it runs on, the
 layers and boundaries the application is organised into, the decisions that are
-settled, and the capabilities that are not yet established. It is documentation
-only: no part of ZynSign is implemented, and nothing described here should be
-read as a claim that any behaviour works.
+settled, and the capabilities that are not yet established.
+
+The first implementation increment now exists: an Xcode application target with
+a SwiftUI application shell, a composition root, a minimal pure domain layer,
+and a unit-test target. That foundation establishes the layer boundaries of
+Section 4 and implements no workflow capability. Everything beyond that
+foundation is documentation of intended structure, and nothing described here
+should be read as a claim that any behaviour works.
 
 Earlier project documentation assumed a desktop runtime and desktop platform
 services. That assumption no longer holds. ZynSign is defined here as an

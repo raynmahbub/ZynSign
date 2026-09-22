@@ -4,10 +4,23 @@ Guides for working on ZynSign will live here.
 
 ## Current State
 
-**No development guides exist yet.** The repository contains documentation only —
-there is no project file, no build system, no toolchain setup, and no source code
-to build or run. Setup instructions will be written here once there is something
-to set up.
+The repository contains an Xcode project (`ZynSign.xcodeproj`) with an
+iOS/iPadOS application target (`ZynSign`) and a unit-test target
+(`ZynSignTests`).
+
+- **Toolchain requirement:** Xcode 16 or later. The project uses synchronized
+  folder groups instead of per-file project entries, so sources are picked up
+  directly from the `ZynSign/` and `Tests/ZynSignTests/` directories.
+- **Platform:** the product runtime is iOS/iPadOS (iPhone and iPad). macOS is
+  developer tooling only, never a runtime platform.
+- **Deployment target:** the project currently builds against iOS 17.0. This
+  is a provisional build setting; the deployment-target decision remains open
+  in the architecture (Section 6, item 17) and the setting is expected to
+  change when that decision is made.
+- **Build and test:** open the project in Xcode and use Product ▸ Run /
+  Product ▸ Test, or the equivalent `xcodebuild` invocation against the
+  shared `ZynSign` scheme. These steps have not been executed and recorded
+  yet; the first run is part of reviewing the foundation work.
 
 ## Read First
 

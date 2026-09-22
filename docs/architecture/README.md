@@ -4,10 +4,12 @@ Architectural decisions for ZynSign are recorded here.
 
 ## Current State
 
-ZynSign is in a pre-development state. There is no source code, so the
-architecture describes intended structure and boundaries only: no module, layer,
-or interface below is implemented, and no behaviour may be inferred from these
-documents.
+ZynSign is at the start of development. The first implementation increment —
+an Xcode application target with a SwiftUI shell, a composition root, minimal
+domain types, and a unit-test target — now exists, and establishes the layer
+boundaries the architecture describes. Everything beyond that foundation is
+intended structure only: no workflow behaviour is implemented, and no
+behaviour may be inferred from these documents.
 
 ## Index
 
