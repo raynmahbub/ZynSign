@@ -5,10 +5,11 @@ Detailed security documentation for ZynSign will live here.
 ## Current State
 
 **No security documentation exists yet, because no security-sensitive
-functionality exists yet.** ZynSign is in a pre-development state and contains no
-source code. There is no signing implementation, no key handling, no credential
-storage, no certificate or provisioning profile processing, and no device
-communication. Nothing here should be read as describing implemented behaviour.
+functionality exists yet.** ZynSign contains only the application foundation:
+an application shell, a composition root, and minimal domain types. There is
+no signing implementation, no key handling, no credential storage, no
+certificate or provisioning profile processing, and no device communication.
+Nothing here should be read as describing implemented behaviour.
 
 ## Read First
 

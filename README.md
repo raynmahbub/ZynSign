@@ -7,21 +7,22 @@ taken from another project.
 
 ## Current Status
 
-**Pre-development — repository foundation only.**
+**Early development — application foundation only.**
 
-This repository currently contains documentation and repository configuration.
-There is no source code, no project file, no build configuration, no automated
-tests, and no released build. Nothing here runs, and nothing here can be
-installed.
+The repository now contains the first implementation increment: an Xcode
+project with an iOS/iPadOS application target, a SwiftUI application shell, a
+minimal domain layer, and a unit-test target. The application launches into
+its shell; no workflow functionality exists yet. Nothing here inspects or
+signs packages, and no released build exists.
 
 | Area | State |
 | --- | --- |
-| Source code | Not started |
-| Build system / project file | Not started |
-| Automated tests | None |
-| Dependencies | None |
+| Source code | Application foundation only: shell UI, composition root, minimal domain types |
+| Build system / project file | Xcode project (`ZynSign.xcodeproj`): application target plus unit-test target |
+| Automated tests | Unit tests for the domain foundation, written to run with Xcode's test runner |
+| Dependencies | None — Apple frameworks and the Swift standard library only |
+| Inspection, signing, installation | Not started |
 | Releases | None |
-| Documentation / repository configuration | Foundation only |
 
 ## Intended Scope
 

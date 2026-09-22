@@ -4,12 +4,22 @@ Testing strategy and practice for ZynSign will be recorded here.
 
 ## Current State
 
-**There is no test suite and no automated tests.** ZynSign is in a pre-development
-state and contains documentation only, so there is no code under test and no test
-tooling configured.
+The repository has a unit-test target (`ZynSignTests`) with pure tests for the
+domain foundation:
 
-No tests were run for the work that created this directory, because there is
-nothing yet that a test could exercise.
+- bundle identifier validation rules;
+- application identity construction, including its typed error;
+- the structured error model (user-presentable message, diagnostic rendering,
+  underlying-cause preservation, stable categories);
+- workflow stage set and pipeline order;
+- validation classification rules, including that only a `valid`
+  classification proceeds to later stages;
+- resolution of the application's own descriptive information.
+
+The tests are written to run inside the unit-test target with Xcode's test
+runner (Product ▸ Test, or `xcodebuild test` against the shared `ZynSign`
+scheme). **They have not been executed yet** — the first execution is part of
+reviewing the foundation work, and results will be recorded here.
 
 ## Expectations Today
 
