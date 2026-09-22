@@ -137,7 +137,7 @@ enum BundleEntryRole: String, CaseIterable, Hashable {
         case .executable:
             return "The file the bundle's information file names as the application's executable. ZynSign lists it and does not open, load, or run it."
         case .embeddedProvisioningProfile:
-            return "A provisioning profile embedded in the bundle. This build does not read or evaluate profiles, and the file's presence says nothing about whether the application can be installed."
+            return "A provisioning profile embedded in the bundle. The archive explorer does not read or evaluate this entry; the separate profile payload pipeline requires an explicit decoded payload, and the file's presence says nothing about whether the application can be installed."
         case .codeSignatureDirectory:
             return "The directory in which a code signature keeps its resource records. Its presence is a filesystem observation, not evidence that the application is signed or that any signature is valid."
         case .codeResources:

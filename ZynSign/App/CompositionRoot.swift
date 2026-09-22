@@ -118,6 +118,26 @@ enum CompositionRoot {
         CertificateInspector(parser: parser, clock: clock)
     }
 
+    /// Builds the provisioning-profile inspection use case. The container
+    /// decoder is supplied explicitly because CMS unwrapping and verification
+    /// are not implemented by ZS-017; the factory wires only the typed parser,
+    /// validator, and injected clock around that future boundary.
+    static func makeProvisioningProfileInspection(
+        payloadDecoder: any ProvisioningProfilePayloadDecoder,
+        certificateParser: (any CertificateParser)? = AppleCertificateParser(),
+        clock: any EvaluationClock = SystemEvaluationClock(),
+        limits: ProvisioningProfileParsingLimits = .default
+    ) -> ProvisioningProfileInspectionUseCase {
+        ProvisioningProfileInspectionUseCase(
+            payloadDecoder: payloadDecoder,
+            parser: PropertyListProvisioningProfileParser(
+                certificateParser: certificateParser,
+                limits: limits
+            ),
+            clock: clock
+        )
+    }
+
     /// Builds the bundle contents inspection use case over the given library,
     /// selecting the concrete archive implementation.
     ///

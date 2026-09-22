@@ -49,14 +49,20 @@ Certificate and Signing Identity Foundation). The ninth refines that foundation
 with explicit signing algorithms, structured identity failures, a secure registry
 and capability resolver, and an experimental Keychain adapter. It is not composed
 into the app: physical-device experiment E7 still gates production use. The
-inspection stage is therefore a partial capability: it reads containers,
-classifies layout, reads one bundle's declared metadata, and describes a
-bundle's structure, and it does not verify signatures, parse profiles,
-inspect executables, extract content, or produce a package. Accepted imports
-are recorded and kept across launches and are listed, imported, browsed,
-and removed in the Applications area; certificate parsing and identity
-modeling exist as domain foundation; an experimental signature primitive exists,
-but no application-signing, verification, packaging, or installation workflow exists.
+provisioning-profile parsing increment then adds a bounded raw profile input,
+a CMS/container-decoder port, a decoded-payload property-list parser, typed
+profile and entitlement values, an injected-clock period validator, and an
+application-layer inspection use case. It does not implement CMS unwrapping or
+verification, certificate-chain trust, entitlement/device/platform
+authorization, embedded-profile archive inspection, signing, or persistence.
+The inspection stage is therefore a partial capability: it reads containers,
+classifies layout, reads one bundle's declared metadata, describes a bundle's
+structure, and can separately inspect a caller-supplied decoded profile payload.
+Accepted imports are recorded and kept across launches and are listed, imported,
+browsed, and removed in the Applications area; certificate and profile parsing
+and identity modeling exist as domain foundation; an experimental signature
+primitive exists, but no application-signing, verification, packaging, or
+installation workflow exists.
 
 Nothing else in this document is a claim that any behaviour works. Every
 feasibility boundary in Section 6 remains open except where noted here, and the
@@ -587,6 +593,65 @@ has no field that can carry them, verified by tests.
 milestone. No controls for sign, resign, install, select provisioning
 profile, select device, export private key are added.
 
+### Provisioning Profile Parsing Foundation
+
+**Accepted for ZS-017 — input and CMS boundary.** A profile enters the
+pipeline as `ProvisioningProfileInput`, a bounded value containing only the
+untrusted bytes presented by the caller. `ProvisioningProfilePayloadDecoder`
+is the explicit seam for CMS/container handling. It returns decoded property-list
+bytes in `ProvisioningProfilePayload`; it does not make those bytes authentic by
+itself. No CMS decoder or verifier is implemented in this increment, and no
+embedded `embedded.mobileprovision` entry is read by the existing archive
+inspection workflow.
+
+**Observed in the implementation — typed payload model.**
+`PropertyListProvisioningProfileParser` accepts binary or XML property-list
+payloads, rejects empty, oversized, malformed, non-dictionary, and unsupported
+OpenStep payloads, and ignores unknown top-level fields. It produces
+`ProvisioningProfile` with optional UUID/name/date/platform/prefix/team/device,
+certificate-reference, classification, and flag fields. The application
+identifier keeps its full value separate from an explicit prefix and derives a
+`BundleIdentifier` component only when the prefix boundary makes that
+interpretation safe. Exact wildcard components are represented separately; a
+prefix is never inferred by splitting at the first period.
+
+Entitlements are `ProvisioningProfileValue` trees, not `[String: Any]` blobs.
+Strings, booleans, integer and real numbers, data, dates, arrays, and
+string-keyed dictionaries retain their types. Unknown entitlement names are
+preserved, while unsupported types and bounded resource violations fail closed.
+The parser may attach `CertificateMetadata` to full `DeveloperCertificates`
+entries through the existing `CertificateParser` port. That metadata is public
+certificate information only and never implies a matching private key.
+
+**Accepted — structural validation boundary.** `ProvisioningProfileValidator`
+checks required metadata, date ordering, identifier/prefix consistency,
+collection invariants, and the injected creation/expiration period. It returns period states of
+malformed, not-yet-valid, currently-valid, or expired; ordered intervals use
+inclusive boundaries. Parser-level date type/encoding failures are controlled
+errors, while a reversed ordered interval is a parsed `.malformed` period
+state. An expired or future profile can be structurally parseable; period
+status is not trust or platform authorization. Profile classification is
+`development`, `adHoc`, `appStore`, `enterprise`, or `unknown`; the known cases
+require multiple coherent fields and conflicting or insufficient evidence stays
+unknown.
+
+**Trust boundary, Accepted.** ZS-017 exposes four distinct facts: a payload was
+parsed; its required fields passed the structural validator; CMS authenticity is
+`notEvaluated`; and authorization is `notEvaluated`. Neither parsing nor
+structural validity proves a CMS signature, an Apple certificate chain, private
+key possession, entitlement authorization, device authorization, bundle
+compatibility, platform support, installability, or signing permission. A later
+CMS verifier may attach authenticity evidence through the payload/result seam;
+a later policy stage must still evaluate authorization separately.
+
+**Evidence status.** The type and dependency boundaries above are **Observed**
+from this repository's implementation. The profile/CMS structure and the
+absence of a documented iOS CMS decoder remain **Verified/Requires feasibility
+research** as recorded in `on-device-signing-feasibility.md`; no local iOS
+build or device experiment was available in this environment. Entitlement
+authorization rules, DER-encoded profile precedence, signer-chain policy, and
+platform acceptance remain **Unknown or Requires experiment**.
+
 ## 8. Filesystem, Sandbox, and Document Handling
 
 ZynSign runs inside the application sandbox. It has **no** unrestricted
@@ -831,7 +896,11 @@ and testable without a device, a simulator, a keychain, or a network. This is
   `CertificateData` with explicit raw-bytes ownership boundary,
   `CodeSigningSuitability`, `SigningIdentity`, `SigningIdentityMetadata`,
   `SigningIdentityIdentifier`, `SigningKeyAvailability`,
-  `SigningCapability`, `DigestAlgorithm`, `ProvisioningProfile`
+  `SigningCapability`, `DigestAlgorithm`, `ProvisioningProfileInput`,
+  `ProvisioningProfilePayload`, `ProvisioningProfileAuthenticityStatus`,
+  `ProvisioningProfile`, `ProvisioningApplicationIdentifier`,
+  `ProvisioningProfileEntitlements`, `ProvisioningProfileValue`,
+  `ProvisioningProfileValidity`, and `ProvisioningProfileClassification`
 - `SigningConfiguration`, `PackagingPolicy`
 - `ValidationResult`, `VerificationResult`, `Diagnostics`
 - domain errors and their categories
@@ -867,7 +936,8 @@ carried forward from Section 6.
 | `PlistDecoder` | Parsing of untrusted structured data with typed diagnostics | Domain | Yes | No — not platform-specific in principle | Examined during the metadata increment: the platform property-list API is total and deterministic, so parsing lives inside the metadata reader in Domain, tested through its bytes. A separate port is introduced only if parsing becomes platform-bound or needs substitution |
 | `CertificateParser` | Parsing of untrusted X.509 certificate data, with typed diagnostics, without trust evaluation | Domain | Yes — substitutable with synthetic DER fixtures | The reader is not Security-framework-specific. `SecCertificateCopyValues` is not available on iOS (**Verified**) | **Implemented** for metadata extraction by a bounded DER reader (Section 7); trust evaluation remains Requires feasibility research |
 | `SigningCapability` | The single narrow abstraction where signing happens, returning signature bytes only, without exposing private-key material | Domain | Yes — stub capability keeps orchestration testable | Yes — key access is platform-bound, non-exportable keys expected | **Implemented** as protocol (Section 7); concrete Keychain implementation Requires feasibility research (items 2, 16) |
-| `ProfileParser` | Interpretation of provisioning-profile data as authorization input | Domain | Yes | Container validation likely platform-dependent | Requires feasibility research (item 8) |
+| `ProvisioningProfilePayloadDecoder` | CMS/container boundary that supplies decoded profile payload bytes without making metadata trusted | Domain | Yes — synthetic payload decoder | CMS handling is platform-constrained; no complete iOS CMS API is assumed | **Integration point implemented**; CMS unwrap and verification remain Requires feasibility research (item 8) |
+| `ProvisioningProfileParser` | Interpretation of decoded provisioning-profile metadata as typed domain values | Domain | Yes — synthetic plist payloads | Property-list parsing is not platform-specific in principle | **Implemented** for the property-list payload; trust and authorization remain separate |
 | `IdentityStore` | Resolution and presentation of available signing identities and their status, plus access to signing capability | Application | Yes — in-memory in tests | Yes — key access is platform-bound | **Protocol implemented** for this increment (Section 7); concrete Keychain store Requires feasibility research (items 2, 16); PKCS#12 import is separate capability |
 | `SigningEngine` | The single place where code-signing blob assembly happens, and the only consumer of signing capability | Domain | Yes — a stub engine keeps orchestration testable | Yes | Requires feasibility research (items 1–7, 9, 10) |
 | `SignatureVerifier` | Independent evaluation of an artifact, with no access to signing state | Domain | Yes | Yes — no system verifier may be assumed | Requires feasibility research (item 11) |
@@ -893,9 +963,10 @@ Rules, **Accepted**:
 **Accepted**: the application layer owns workflow orchestration and is the only
 place where stages are sequenced and composed.
 
-- Use cases express user-visible operations (inspect a package, produce a signed
-  artifact, verify an artifact, prepare a package for export) in terms of domain
-  logic and ports.
+- Use cases express user-visible operations (inspect a package, parse and
+  structurally validate a decoded provisioning profile, produce a signed
+  artifact, verify an artifact, prepare a package for export) in terms of
+  domain logic and ports.
 - Workflow state — progress, cancellation, per-stage outcome, recoverable versus
   terminal failure — is an application concern, not a UI concern and not a domain
   concern.
@@ -941,7 +1012,7 @@ Section 6.
 | Malformed binary and structured data | Parsers fail closed, report structured diagnostics, and never fall back to a permissive interpretation. |
 | Private-key protection | Key material is confined to the signing boundary, with no export, no logging, and no persistence outside the platform mechanism chosen after research. |
 | Key access control | Access is scoped, requires explicit user intent, and is subject to whatever per-use authorization the platform offers. |
-| Certificate and profile data | Treated as sensitive: parsed only as needed, displayed only as metadata, and redacted from diagnostics. |
+| Certificate and profile data | Treated as sensitive: parsed only as needed, displayed only as metadata, and redacted from diagnostics; raw profile payloads are not persisted by ZS-017. |
 | Temporary files | Application-owned, restrictively used, and removed on success, failure, and cancellation. |
 | Signed artifacts | Written to controlled locations, validated before being offered to the user, and not retained beyond their purpose without an explicit retention decision. |
 | Logs and diagnostics | Redaction is a domain rule with tests; keys, credentials, profile bodies, device identifiers, and personal paths must not appear in output. |
@@ -1135,7 +1206,7 @@ depend on iOS/iPadOS behaviour are recorded as *Provisional*, *Unresolved*, or
 | 2 | On-device signing feasibility | **Requires feasibility research** — items 1–7, 9, 10, 11 |
 | 3 | Private-key storage and access | **Requires feasibility research** — items 2, 16 |
 | 4 | Certificate handling | **Requires feasibility research** — item 3 |
-| 5 | Provisioning-profile parsing | **Requires feasibility research** — item 8 |
+| 5 | Provisioning-profile parsing and CMS verification | **Accepted for decoded-payload parsing in ZS-017; Requires feasibility research for CMS unwrapping, signature verification, and trust** — item 8 |
 | 6 | Mach-O and code-signature handling | **Requires feasibility research** — items 5, 6 |
 | 7 | Signature verification | **Requires feasibility research** — item 11 |
 | 8 | IPA packaging | **Provisional** — ZynSign is responsible for producing its own package; format rules depend on item 12 and the deployment target |

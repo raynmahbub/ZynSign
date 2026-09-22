@@ -16,9 +16,12 @@ identity-store boundary, and a certificate parser behind the
 `SecCertificateCopyValues` is not available on iOS and is not used.
 An experimental Keychain registry/resolver and explicit signature primitive now
 exist, without production composition or UI. They use existing protected keys;
-there is no key import, application-signing engine, provisioning profile processing,
-or device communication. Production activation remains gated by experiment E7.
-The security boundaries for private-key material, certificate parsing as
+there is no key import, application-signing engine, provisioning-profile
+trust/authorization, or device communication. ZS-017 does add bounded parsing
+of a caller-supplied decoded profile payload; it does not verify CMS, authorize
+entitlements or devices, persist profile data, or read embedded profiles from
+an archive. Production activation remains gated by experiment E7. The security
+boundaries for private-key material, certificate and profile parsing as
 untrusted input, and raw certificate bytes ownership are established in
 [architecture.md](../architecture/architecture.md) Section 7. Nothing else
 here should be read as describing implemented signing behaviour.

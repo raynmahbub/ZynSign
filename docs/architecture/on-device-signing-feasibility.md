@@ -380,6 +380,16 @@ read, not assumed.
   product ever obtains one legitimately (Open Question 9), and profile type
   versus intended distribution. **Classification: Feasible** (domain logic).
 
+**Observed — ZS-017 payload boundary and parser.** The implementation now has a
+bounded `ProvisioningProfileInput`, a `ProvisioningProfilePayloadDecoder` port,
+and a property-list payload parser. The parser preserves optional profile
+metadata, exact application identifiers and device strings, typed entitlement
+values, and certificate references; a separate validator evaluates required
+fields and an injected-clock period. Tests use synthetic payloads only. This
+closes neither CMS extraction nor authenticity: the application-layer result
+marks container authenticity and authorization as `notEvaluated`, and the
+archive inspection workflow does not read embedded profiles.
+
 ### 7.3 What must be cryptographically verified
 
 Parsing is not trust. Before ZynSign *acts* on profile contents — selecting a
@@ -709,7 +719,7 @@ is never a runtime assumption.
 | `codesign` / static code-signature validation APIs | Not available to applications (no `SecStaticCode`, no tool execution) | `codesign`, `security`, `SecStaticCode` available | All signing and verification logic must live in-process; macOS is only an independent validator of ZynSign output |
 | Mach-O manipulation | No APIs needed or provided; SDK structure headers available | `otool`/`lipo`/`codesign` for inspection; same format | One custom parser/writer serves the runtime; macOS tooling cross-checks it |
 | CMS (PKCS#7) | **No API** (vendor-confirmed, 2017–2023) | `CMSEncoder`/`CMSDecoder` documented | CMS must be custom-built for the runtime; macOS CMS must not appear in any runtime code path |
-| Provisioning profiles | No parser API; CMS container must be custom-parsed; trust step Uncertain (E3/E13) | `security cms -D`, developer portal, Xcode | Profile parsing joins the custom-implementation list; macOS only prepares fixtures and cross-checks |
+| Provisioning profiles | No complete parser API; CMS container must be custom-parsed; decoded payload parsing is implemented in ZS-017; trust step Uncertain (E3/E13) | `security cms -D`, developer portal, Xcode | CMS handling remains a custom component; macOS only prepares fixtures and cross-checks |
 | ZIP/archive handling | No documented ZIP-container API; Compression framework supplies DEFLATE-class codecs; Apple Archive ≠ ZIP | `ditto`, `zip`, full POSIX filesystem | Container reader/writer is a ZynSign component (or future approved dependency); implementation choice deferred |
 | Device communication | Peer file transfer possible; **no install-targeting API** | USB/pairing, Xcode/Configurator, device consoles | Cross-device flows can only move artifacts; installation stays external/restricted |
 | Installation | System channels only (App Store, OTA `itms-services`, MDM); no in-app install API | Finder/Xcode/Configurator install to *other* devices | Installation feasibility is separate from signing and remains *Unresolved* in product scope |
