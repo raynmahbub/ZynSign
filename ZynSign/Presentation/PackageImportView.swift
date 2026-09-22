@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// The Import area of the shell: the document-import flow for `.ipa`
 /// packages.
@@ -41,7 +40,7 @@ struct PackageImportView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .fileImporter(
                 isPresented: $isShowingImporter,
-                allowedContentTypes: Self.acceptedContentTypes
+                allowedContentTypes: ImportablePackage.contentTypes
             ) { result in
                 model.handlePickerResult(result)
             }
@@ -86,7 +85,7 @@ struct PackageImportView: View {
             }
             Section("Library") {
                 Text(summary.libraryMessage)
-                Text("Library records are kept across launches. A library screen is not part of this build, and no signing or installation is involved.")
+                Text("Library records are kept across launches and are listed in the Applications area. No signing or installation is involved.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 Button("Import Another Package…") { isShowingImporter = true }
@@ -119,21 +118,8 @@ struct PackageImportView: View {
             }
         }
     }
-
-    /// The content types the document picker offers, derived from the same
-    /// file-type policy the import use case enforces. The picker restricts
-    /// the choice; it is still not trusted as evidence about content.
-    private static var acceptedContentTypes: [UTType] {
-        if let packageType = UTType(
-            filenameExtension: IPAFileFormat.pathExtension,
-            conformingTo: .data
-        ) {
-            return [packageType]
-        }
-        return [.data]
-    }
 }
 
 #Preview {
-    PackageImportView(importing: CompositionRoot.makePackageImport())
+    PackageImportView(importing: CompositionRoot.makeApplicationEnvironment().packageImport)
 }

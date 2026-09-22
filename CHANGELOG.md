@@ -116,12 +116,34 @@ All notable changes to ZynSign will be documented here.
   availability, removal), the import flow's library integration, the
   library error constructors, and an end-to-end persistence lifecycle over
   the real platform stores in a temporary directory.
+- Applications Library screen: the Applications area of the shell lists the
+  persisted records with their declared metadata and current artifact
+  availability, opens a detail screen per record, imports another package
+  through the existing document-import workflow with the list refreshed on
+  success, and deletes a record together with the package file behind it
+  through the library use case's removal operation, behind an explicit
+  confirmation. Explicit loading, empty, and failure states keep an empty
+  library from being presented while records are still being read and keep
+  persistence failures surfaced with a retry action. The import
+  presentation model gained a settlement hook so a screen embedding the
+  import can react to its outcome without a second import flow.
+- Tests for the library screen's presentation model over in-memory stores
+  and synthetic import ports: loading into loaded, empty, and failed
+  phases, retry after failure, import settlement refreshing the library,
+  picker cancellation as an ordinary outcome, rejected and failed imports
+  surfaced without library changes, removal with its in-flight state,
+  failed deletions leaving records and announcements intact, and the row
+  and detail display mappings including missing and inconsistent artifacts
+  and undeclared metadata.
 
 ### Changed
 
 - Staged imports are no longer retained by the presentation model. An
   accepted import's archive belongs to the library once recorded; the model
   owns no storage.
+- The shell's Applications tab now shows the library instead of a
+  placeholder, and the Import area, Settings, and the shell's section
+  descriptions state that the Applications area lists the library.
 
 ### Notes
 
@@ -134,5 +156,6 @@ All notable changes to ZynSign will be documented here.
   package is signed, genuine, or installable. No key material, credentials,
   certificate bodies, or profile data are persisted.
 - No signing, signature verification, profile parsing, Mach-O inspection,
-  packaging, extraction, or installation functionality exists, and no screen
-  for browsing or managing the library exists yet.
+  packaging, extraction, or installation functionality exists. The
+  Applications area lists, imports, and deletes library records; it makes no
+  claim about signatures, trust, or installability.

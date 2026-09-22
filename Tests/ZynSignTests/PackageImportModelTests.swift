@@ -271,4 +271,52 @@ final class PackageImportModelTests: XCTestCase {
             "No application was found inside the package."
         )
     }
+
+    // MARK: - Settlement hook
+
+    func testTheSettlementHookReportsAPickerCancellationExactlyOnce() {
+        var settlements: [PackageImportModel.Phase] = []
+        let intake = SyntheticIntake()
+        let model = PackageImportModel(importing: IPAPackageImport(
+            intake: intake,
+            readerProvider: SyntheticArchiveReaderProvider.providing(ImportFixtures.validReader()),
+            library: library
+        ))
+        model.onSettlement = { settlements.append($0) }
+
+        struct PickerFailure: Error {}
+        model.handlePickerResult(.failure(PickerFailure()))
+
+        XCTAssertEqual(model.phase, .cancelled)
+        XCTAssertEqual(settlements, [.cancelled])
+    }
+
+    func testTheSettlementHookReportsASuccessfulImportExactlyOnce() async {
+        var settlements: [PackageImportModel.Phase] = []
+        let intake = SyntheticIntake()
+        intake.artifactStore = artifacts
+        let model = PackageImportModel(importing: IPAPackageImport(
+            intake: intake,
+            readerProvider: SyntheticArchiveReaderProvider.providing(ImportFixtures.validReader()),
+            library: library
+        ))
+        model.onSettlement = { settlements.append($0) }
+
+        model.beginImport(from: ImportFixtures.sourceURL())
+        var spins = 0
+        while case .importing = model.phase {
+            spins += 1
+            if spins > 10_000 {
+                XCTFail("The import phase never settled.")
+                break
+            }
+            await Task.yield()
+        }
+
+        guard case .succeeded(let summary) = model.phase else {
+            return XCTFail("Expected a succeeded phase, got \(model.phase)")
+        }
+        XCTAssertEqual(settlements, [.succeeded(summary)])
+        XCTAssertEqual(summary.libraryMessage, "The package was added to ZynSign's library.")
+    }
 }
