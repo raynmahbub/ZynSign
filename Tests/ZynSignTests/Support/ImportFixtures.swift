@@ -126,6 +126,12 @@ enum ImportFixtures {
 /// It exists so import orchestration can be exercised without a filesystem,
 /// and so the two cancellation windows — during staging, and after staging
 /// completes — can be produced on demand instead of by racing a real copy.
+///
+/// When an `artifactStore` is attached, a completed staging places
+/// `nextStagedContent` in that store's staging area under the artifact's
+/// identifier and a discard removes it again, mirroring the shared staging
+/// directory the composition root binds the real intake and artifact store
+/// to. The library can then describe and adopt what the intake staged.
 final class SyntheticIntake: ArtifactIntake {
 
     /// The staging behaviour of the next call.
@@ -153,6 +159,13 @@ final class SyntheticIntake: ArtifactIntake {
         diagnosticDetail: "synthetic intake failure"
     )
 
+    /// The artifact store sharing this intake's staging area, if any.
+    var artifactStore: SyntheticLibraryArtifactStore?
+
+    /// The bytes the next completed staging places in the shared staging
+    /// area. Distinct content produces distinct fingerprints.
+    var nextStagedContent = Data("synthetic package content".utf8)
+
     private var stagedIDs: [ArtifactIdentifier] = []
     private var attemptedIDs: [ArtifactIdentifier] = []
     private var discardedIDs: [ArtifactIdentifier] = []
@@ -177,7 +190,7 @@ final class SyntheticIntake: ArtifactIntake {
 
         switch behaviour {
         case .stages:
-            lock.withLock { stagedIDs.append(artifact) }
+            completeStaging(of: artifact)
 
         case .fails:
             throw preparedError
@@ -188,12 +201,18 @@ final class SyntheticIntake: ArtifactIntake {
 
         case .waitsUntilCancelledThenSucceeds:
             waitUntilCancelled()
-            lock.withLock { stagedIDs.append(artifact) }
+            completeStaging(of: artifact)
         }
     }
 
     func discardStagedDocument(for artifact: ArtifactIdentifier) {
         lock.withLock { discardedIDs.append(artifact) }
+        artifactStore?.unstage(artifact)
+    }
+
+    private func completeStaging(of artifact: ArtifactIdentifier) {
+        lock.withLock { stagedIDs.append(artifact) }
+        artifactStore?.stage(nextStagedContent, as: artifact)
     }
 
     /// Blocks the calling thread until the surrounding task is cancelled.

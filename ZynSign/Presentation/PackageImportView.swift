@@ -10,8 +10,8 @@ import UniformTypeIdentifiers
 /// reached, staged, and examined lives below the application boundary.
 ///
 /// The screen states plainly what an import is and is not: ZynSign reads the
-/// package's structure and declared metadata; it does not install, sign, or
-/// keep the package beyond this session.
+/// package's structure and declared metadata and keeps accepted packages in
+/// its library; it does not install or sign them.
 struct PackageImportView: View {
 
     @StateObject private var model: PackageImportModel
@@ -55,7 +55,7 @@ struct PackageImportView: View {
             ContentUnavailableView {
                 Label("Import a Package", systemImage: ShellSection.importPackage.symbolName)
             } description: {
-                Text("Choose an .ipa file to bring it into ZynSign. ZynSign reads the package's structure and the information its application declares. Import does not install, sign, or modify the package.")
+                Text("Choose an .ipa file to bring it into ZynSign. ZynSign reads the package's structure and the information its application declares, then keeps accepted packages in its library. Import does not install, sign, or modify the package.")
             } actions: {
                 Button("Choose Package…") { isShowingImporter = true }
                     .buttonStyle(.borderedProminent)
@@ -84,8 +84,9 @@ struct PackageImportView: View {
                 LabeledContent("Version", value: summary.marketingVersion ?? "—")
                 LabeledContent("Build", value: summary.buildVersion ?? "—")
             }
-            Section {
-                Text("The package was read successfully. This import is held in temporary working storage and is not kept after ZynSign exits. No library, signing, or installation is involved.")
+            Section("Library") {
+                Text(summary.libraryMessage)
+                Text("Library records are kept across launches. A library screen is not part of this build, and no signing or installation is involved.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 Button("Import Another Package…") { isShowingImporter = true }

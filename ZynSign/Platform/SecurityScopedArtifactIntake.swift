@@ -25,10 +25,17 @@ import Foundation
 ///   previous process are cleared, so nothing large is left in temporary
 ///   storage indefinitely.
 ///
-/// The staging directory is owned exclusively by this type: the composition
-/// root binds the archive-reader provider to the same directory and the same
-/// file-extension convention, so a staged archive is discoverable by the
-/// artifact's identifier alone. No domain or application type sees a URL.
+/// Staging is transient by design. An accepted package is moved out of the
+/// staging directory by the library's artifact store when the library adopts
+/// it; every other outcome discards the staged copy. The staging directory
+/// therefore never holds anything a record depends on, and clearing it is
+/// always safe.
+///
+/// The staging directory is written only by this type: the composition root
+/// binds the archive-reader provider and the library's artifact store to the
+/// same directory and the same file-extension convention, so a staged
+/// archive is discoverable by the artifact's identifier alone. No domain or
+/// application type sees a URL.
 ///
 /// Imports are not concurrent by design — the import use case is the only
 /// caller, and the presentation layer serializes imports — so the type is
@@ -36,7 +43,8 @@ import Foundation
 final class SecurityScopedArtifactIntake: ArtifactIntake {
 
     /// The application-owned directory staged archives are copied into.
-    /// Owned exclusively by this type; created on first use.
+    /// Written only by this type and created on first use; the library's
+    /// artifact store moves adopted archives out of it.
     let directory: URL
 
     /// The file extension a staged archive carries. The composition root
@@ -192,11 +200,12 @@ final class SecurityScopedArtifactIntake: ArtifactIntake {
     // MARK: - Leftover lifecycle
 
     /// Clears, once per process, everything a previous process left in the
-    /// staging directory. Staged archives are session-scoped: identifiers
-    /// are freshly minted every launch and nothing is persisted yet, so any
-    /// pre-existing file is a leftover whose owner is gone. Failure to clear
-    /// is not allowed to block an import — the destination is emptied
-    /// regardless — and nothing here runs automatically at launch.
+    /// staging directory. Staged archives are session-scoped: an accepted
+    /// package is moved out of staging when the library adopts it and every
+    /// other outcome discards the staged copy, so any pre-existing file is a
+    /// leftover whose owner is gone and which no record refers to. Failure
+    /// to clear is not allowed to block an import — the destination is
+    /// emptied regardless — and nothing here runs automatically at launch.
     private func clearStaleImportsIfNeeded() {
         guard !hasClearedStaleImports else { return }
         hasClearedStaleImports = true
@@ -215,8 +224,9 @@ final class SecurityScopedArtifactIntake: ArtifactIntake {
     /// The file name is the artifact's own identifier — an opaque, freshly
     /// minted value ZynSign generates and never derives from package
     /// content — carrying the staged-archive extension. This mirrors the
-    /// archive storage convention of `DirectoryArtifactArchiveReaderProvider`;
-    /// the composition root binds both to the same directory and extension.
+    /// archive storage convention of `DirectoryArtifactArchiveReaderProvider`
+    /// and `FileLibraryArtifactStore`; the composition root binds all three
+    /// to the same directory and extension.
     private func location(for artifact: ArtifactIdentifier) -> URL {
         directory
             .appendingPathComponent(artifact.rawValue, isDirectory: false)

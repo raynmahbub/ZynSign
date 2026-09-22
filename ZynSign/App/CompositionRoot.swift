@@ -9,8 +9,8 @@ import Foundation
 ///
 /// Concrete implementations are selected here and nowhere below. Where a
 /// capability has more than one possible implementation — the archive reader
-/// above all — the choice is made here, so that the layers beneath the choice
-/// depend only on the port.
+/// and the persistence stores above all — the choice is made here, so that
+/// the layers beneath the choice depend only on the port.
 enum CompositionRoot {
 
     /// Builds the application environment for a fresh launch.
@@ -31,11 +31,8 @@ enum CompositionRoot {
     /// be substituted here alone.
     ///
     /// The directory is supplied by the caller rather than created here.
-    /// ZynSign does not persist imported packages yet, and inspection neither
-    /// extracts a package nor writes into the directory; it reads the entry
-    /// table of the archive the directory holds. When package storage becomes a
-    /// real concern, the storage decision belongs to its own task and its own
-    /// documentation, not to this factory.
+    /// Inspection neither extracts a package nor writes into the directory; it
+    /// reads the entry table of the archive the directory holds.
     static func makeArchiveInspection(
         artifactDirectory: URL,
         limits: ArchiveLimits = .default
@@ -69,27 +66,46 @@ enum CompositionRoot {
         )
     }
 
-    /// Builds the package import use case, selecting the concrete intake and
-    /// archive implementations.
+    /// Builds the package import use case, selecting the concrete intake,
+    /// archive, and persistence implementations.
     ///
     /// The intake copies a user-selected document into the application-owned
-    /// staging directory, owning security-scoped access and cleanup; the
-    /// archive boundary reads staged archives from that same directory. Both
-    /// sides are bound to the same directory and the same file-extension
-    /// convention here, so a staged archive is discoverable through the
-    /// artifact's identifier alone and no other type knows the location.
-    /// The default resource policy applies to staged archives exactly as it
-    /// would to any other artifact.
+    /// staging directory, owning security-scoped access and cleanup. The
+    /// library adopts accepted packages out of that directory into durable
+    /// library storage and records them in the catalog. The archive boundary
+    /// searches library storage first and staging second, so an artifact is
+    /// readable by identifier both while it is being examined and after it
+    /// has been recorded. All four are bound to the same directories and the
+    /// same file-extension convention here, and no other type knows the
+    /// locations. The default resource policy applies to every archive.
     static func makePackageImport(limits: ArchiveLimits = .default) -> IPAPackageImport {
         let intake = SecurityScopedArtifactIntake(directory: importStagingDirectory)
         let readerProvider = DirectoryArtifactArchiveReaderProvider(
-            directory: intake.directory,
+            directories: [libraryArtifactDirectory, intake.directory],
+            fileExtension: intake.fileExtension,
             limits: limits
         )
         return IPAPackageImport(
             intake: intake,
             readerProvider: readerProvider,
+            library: makeApplicationLibrary(intake: intake),
             limits: limits
+        )
+    }
+
+    /// Builds the library use case over the selected persistence
+    /// implementations: a versioned catalog file for records, and
+    /// application-owned artifact storage fed from the intake's staging
+    /// directory for the bytes behind them. Nothing is created on disk at
+    /// composition time; both stores create their directories on first use.
+    private static func makeApplicationLibrary(intake: SecurityScopedArtifactIntake) -> ApplicationLibrary {
+        ApplicationLibrary(
+            records: FileApplicationRecordStore(catalogLocation: libraryCatalogLocation),
+            artifacts: FileLibraryArtifactStore(
+                stagingDirectory: intake.directory,
+                libraryDirectory: libraryArtifactDirectory,
+                fileExtension: intake.fileExtension
+            )
         )
     }
 
@@ -99,5 +115,28 @@ enum CompositionRoot {
     private static var importStagingDirectory: URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("ZynSignImports", isDirectory: true)
+    }
+
+    /// The root of durable library storage, inside the application
+    /// container's Application Support directory: a location the system
+    /// does not purge, private to the application, and covered by the
+    /// container's default file protection.
+    private static var libraryRootDirectory: URL {
+        let applicationSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return applicationSupport.appendingPathComponent("ZynSignLibrary", isDirectory: true)
+    }
+
+    /// The catalog file holding every library record.
+    private static var libraryCatalogLocation: URL {
+        libraryRootDirectory.appendingPathComponent("catalog.json", isDirectory: false)
+    }
+
+    /// The directory adopted artifacts are kept in, named by identifier.
+    private static var libraryArtifactDirectory: URL {
+        libraryRootDirectory.appendingPathComponent("Artifacts", isDirectory: true)
     }
 }

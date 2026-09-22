@@ -25,12 +25,21 @@ the staged archive through the existing inspection use cases. The staging
 decision — including the staged archive's explicit lifetime — is recorded in
 Section 8 of [architecture.md](architecture.md).
 
+Application persistence has also been added: accepted imports become durable
+library records held in a versioned catalog file, their archives are adopted
+into application-owned artifact storage, and a content-based duplicate policy
+decides whether an import is already held. The persistence decision — record
+model, storage mechanism and why it was chosen, artifact ownership, duplicate
+policy, failure and cleanup behaviour, and the migration rule — is recorded in
+Section 15 of [architecture.md](architecture.md).
+
 Everything else is intended structure only. The inspection stage is a partial
 capability: it reads containers, classifies layout, and reads one bundle's
 declared metadata; it does not verify signatures, parse profiles, inspect
-executables, extract content, or produce a package. Staged imports are
-session-scoped and are never persisted. No other workflow behaviour
-is implemented, and no behaviour may be inferred from these documents.
+executables, extract content, or produce a package. Library records are kept
+across launches, but no screen for browsing or managing them exists. No other
+workflow behaviour is implemented, and no behaviour may be inferred from these
+documents.
 
 ## Index
 
