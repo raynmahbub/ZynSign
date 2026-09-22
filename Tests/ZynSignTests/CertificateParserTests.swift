@@ -17,35 +17,28 @@ final class CertificateParserTests: XCTestCase {
         XCTAssertEqual(malformed, Data("not a certificate".utf8))
     }
 
-    // MARK: - Platform-dependent parsing (Apple Security framework)
-
-    #if canImport(Security)
     func testParseValidCertificate() throws {
         let parser = AppleCertificateParser()
         let metadata = try parser.parseCertificate(derData: CertificateFixtures.validDER)
 
-        // Subject should contain expected common name
-        XCTAssertTrue(metadata.subject.rawRepresentation.contains("ZynSign Test Valid") || metadata.subject.commonName == "ZynSign Test Valid")
-        // Issuer should be Test CA
-        XCTAssertTrue(metadata.issuer.rawRepresentation.contains("Test CA") || metadata.issuer.commonName == "Test CA")
-        // Public key should be RSA 2048
+        XCTAssertEqual(metadata.subject.commonName, "ZynSign Test Valid")
+        XCTAssertEqual(metadata.issuer.commonName, "Test CA")
+        XCTAssertEqual(metadata.issuer.organization, "ZynSign Test")
+        XCTAssertEqual(metadata.issuer.country, "US")
         XCTAssertEqual(metadata.publicKeyInfo.algorithm, .rsa)
         XCTAssertEqual(metadata.publicKeyInfo.keySizeInBits, 2048)
-        // Signature algorithm should be SHA256 with RSA
         XCTAssertEqual(metadata.signatureAlgorithm, .sha256WithRSAEncryption)
-        // Fingerprint should match expected
         XCTAssertEqual(metadata.sha256Fingerprint.hexDigest, CertificateFixtures.validFingerprintHex)
-        // Serial number should be present
-        XCTAssertFalse(metadata.serialNumber.isEmpty)
+        XCTAssertEqual(metadata.serialNumber.hexadecimal, "1000")
     }
 
     func testParseExpiredCertificate() throws {
         let parser = AppleCertificateParser()
         let metadata = try parser.parseCertificate(derData: CertificateFixtures.expiredDER)
 
-        XCTAssertTrue(metadata.subject.rawRepresentation.contains("Expired") || metadata.subject.commonName == "ZynSign Test Expired")
-        // Validity period should be expired when evaluated now
-        let validity = CertificateValidity.evaluate(certificate: metadata, at: Date())
+        XCTAssertEqual(metadata.subject.commonName, "ZynSign Test Expired")
+        let afterExpiry = Date(timeIntervalSince1970: 1_609_459_201)
+        let validity = CertificateValidity.evaluate(certificate: metadata, at: afterExpiry)
         XCTAssertEqual(validity.periodStatus, .expired)
     }
 
@@ -53,7 +46,8 @@ final class CertificateParserTests: XCTestCase {
         let parser = AppleCertificateParser()
         let metadata = try parser.parseCertificate(derData: CertificateFixtures.futureDER)
 
-        let validity = CertificateValidity.evaluate(certificate: metadata, at: Date())
+        let beforeStart = Date(timeIntervalSince1970: 1_798_761_599)
+        let validity = CertificateValidity.evaluate(certificate: metadata, at: beforeStart)
         XCTAssertEqual(validity.periodStatus, .notYetValid)
     }
 
@@ -62,20 +56,22 @@ final class CertificateParserTests: XCTestCase {
         let metadata = try parser.parseCertificate(derData: CertificateFixtures.ecDER)
 
         XCTAssertEqual(metadata.publicKeyInfo.algorithm, .ec)
-        // EC key size should be at least 256
-        if let size = metadata.publicKeyInfo.keySizeInBits {
-            XCTAssertGreaterThanOrEqual(size, 256)
-        }
+        XCTAssertEqual(metadata.publicKeyInfo.keySizeInBits, 256)
+        XCTAssertEqual(metadata.publicKeyInfo.curveName, "P-256")
+        XCTAssertEqual(metadata.publicKeyInfo.curveIdentifier, "1.2.840.10045.3.1.7")
+        XCTAssertEqual(metadata.signatureAlgorithm, .sha256WithRSAEncryption)
     }
 
     func testParseUnusualSubject() throws {
         let parser = AppleCertificateParser()
         let metadata = try parser.parseCertificate(derData: CertificateFixtures.unusualDER)
 
-        // Should parse without crashing, even with unusual subject.
-        XCTAssertFalse(metadata.subject.rawRepresentation.isEmpty)
-        // Common name may be space or empty, but raw representation preserved.
-        XCTAssertTrue(metadata.subject.rawRepresentation.contains("ZynSign Test Org") || metadata.subject.organization == "ZynSign Test Org")
+        XCTAssertEqual(metadata.subject.commonName, " ")
+        XCTAssertNil(metadata.subject.organization)
+        XCTAssertEqual(metadata.subject.attributes.count, 1)
+        XCTAssertEqual(metadata.subject.rawRepresentation, "CN= ")
+        XCTAssertEqual(metadata.issuer.commonName, "Test CA")
+        XCTAssertEqual(metadata.issuer.organization, "ZynSign Test")
     }
 
     func testMalformedDERThrows() {
@@ -112,7 +108,7 @@ final class CertificateParserTests: XCTestCase {
         let parser = AppleCertificateParser()
         let chain = try parser.parseChain(derDatas: [CertificateFixtures.validDER, CertificateFixtures.expiredDER])
         XCTAssertEqual(chain.count, 2)
-        XCTAssertEqual(chain.leaf.sha256Fingerprint.hexDigest, CertificateFixtures.validFingerprintHex)
+        XCTAssertEqual(chain.leaf?.sha256Fingerprint.hexDigest, CertificateFixtures.validFingerprintHex)
     }
 
     func testParseEmptyChainThrows() {
@@ -128,32 +124,24 @@ final class CertificateParserTests: XCTestCase {
     func testParsingDoesNotImplyValidity() throws {
         let parser = AppleCertificateParser()
         let metadata = try parser.parseCertificate(derData: CertificateFixtures.expiredDER)
-        // Parsing succeeded
-        XCTAssertNotNil(metadata)
-        // But certificate is expired
-        let validity = CertificateValidity.evaluate(certificate: metadata)
+        XCTAssertEqual(metadata.subject.commonName, "ZynSign Test Expired")
+        let validity = CertificateValidity.evaluate(
+            certificate: metadata,
+            at: Date(timeIntervalSince1970: 1_609_459_201)
+        )
         XCTAssertEqual(validity.periodStatus, .expired)
-        // Parsing succeeded ≠ currently valid
     }
 
     func testParsingDoesNotImplyTrust() throws {
         let parser = AppleCertificateParser()
         let metadata = try parser.parseCertificate(derData: CertificateFixtures.validDER)
-        // Parsing succeeded
-        XCTAssertNotNil(metadata)
-        // Trust not evaluated
-        let validity = CertificateValidity.evaluate(certificate: metadata)
+        XCTAssertEqual(metadata.sha256Fingerprint.hexDigest, CertificateFixtures.validFingerprintHex)
+        let validity = CertificateValidity.evaluate(
+            certificate: metadata,
+            at: Date(timeIntervalSince1970: 1_790_100_870)
+        )
         let trust = CertificateTrustEvaluation(period: validity)
         XCTAssertEqual(trust.trust, .notEvaluated)
-        // Parsing succeeded ≠ trusted
+        XCTAssertEqual(trust.usage, .notEvaluated)
     }
-
-    #else
-    func testPlatformParserNotAvailable() {
-        // On non-Apple platforms, Security framework is not available.
-        // This test documents that parsing is platform-dependent.
-        // Domain tests still run.
-        XCTAssertTrue(true)
-    }
-    #endif
 }

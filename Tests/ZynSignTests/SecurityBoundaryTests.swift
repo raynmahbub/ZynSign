@@ -39,7 +39,7 @@ final class SecurityBoundaryTests: XCTestCase {
         let metadata = CertificateMetadata(
             subject: subject,
             issuer: issuer,
-            serialNumber: "01",
+            serialNumber: CertificateSerialNumber(hexadecimal: "01")!,
             notValidBefore: Date(),
             notValidAfter: Date().addingTimeInterval(3600),
             publicKeyInfo: PublicKeyInfo(algorithm: .rsa, keySizeInBits: 2048),
@@ -66,7 +66,7 @@ final class SecurityBoundaryTests: XCTestCase {
         let metadata = CertificateMetadata(
             subject: subject,
             issuer: issuer,
-            serialNumber: "01",
+            serialNumber: CertificateSerialNumber(hexadecimal: "01")!,
             notValidBefore: Date(),
             notValidAfter: Date().addingTimeInterval(3600),
             publicKeyInfo: PublicKeyInfo(algorithm: .rsa, keySizeInBits: 2048),
@@ -123,17 +123,10 @@ final class SecurityBoundaryTests: XCTestCase {
 
     func testCertificateParsingDoesNotExecuteArbitraryContent() {
         // Parsing malformed input should throw, not crash or execute.
-        // This is a safety check: malformed input cannot cause arbitrary execution.
-        #if canImport(Security)
         let parser = AppleCertificateParser()
-        // These should throw, not crash
         XCTAssertThrowsError(try parser.parseCertificate(derData: CertificateFixtures.malformedDER))
         XCTAssertThrowsError(try parser.parseCertificate(derData: CertificateFixtures.randomDER))
         XCTAssertThrowsError(try parser.parseCertificate(derData: CertificateFixtures.emptyDER))
-        #else
-        // On non-Apple platforms, we still verify fixtures are not executed
-        XCTAssertEqual(CertificateFixtures.malformedDER, Data("not a certificate".utf8))
-        #endif
     }
 
     func testSensitiveValuesNotLoggedInErrorMessages() {

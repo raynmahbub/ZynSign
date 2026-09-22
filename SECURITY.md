@@ -6,12 +6,12 @@ a security problem.
 
 ## Project State
 
-ZynSign is in a pre-development state. It contains documentation only. **No
-security-sensitive functionality exists yet** — there is no signing
-implementation, no key handling, no credential storage, no certificate or
-provisioning profile processing, and no device communication. Nothing in this
-document should be read as a claim that any of that is implemented or has been
-reviewed.
+ZynSign can inspect untrusted public certificate bytes and record metadata.
+That inspection does not handle private keys, does not persist certificates,
+does not evaluate trust, and is not a signing implementation. There is no
+credential storage, no provisioning-profile processing, and no device
+communication. Nothing in this document should be read as a claim that signing
+is implemented or has been reviewed.
 
 This policy describes how such material will be treated as the project develops,
 and the rules that apply right now to the repository itself.

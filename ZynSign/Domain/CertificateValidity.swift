@@ -75,10 +75,12 @@ struct CertificateValidity: Equatable, Hashable {
     /// considered valid when `date` equals `notValidBefore` or
     /// `notValidAfter`. This matches common X.509 evaluation practice and is
     /// documented explicitly here so that callers know what is being checked.
+    ///
+    /// The date is required. Domain evaluation does not read the system clock.
     static func evaluate(
         notValidBefore: Date,
         notValidAfter: Date,
-        at date: Date = Date()
+        at date: Date
     ) -> CertificateValidity {
         let status: CertificateValidityPeriodStatus
         if date < notValidBefore {
@@ -96,16 +98,24 @@ struct CertificateValidity: Equatable, Hashable {
         )
     }
 
-    /// Convenience that evaluates a `CertificateMetadata`'s validity period.
+    /// Evaluates a `CertificateMetadata`'s validity period at `date`.
     static func evaluate(
         certificate: CertificateMetadata,
-        at date: Date = Date()
+        at date: Date
     ) -> CertificateValidity {
         evaluate(
             notValidBefore: certificate.notValidBefore,
             notValidAfter: certificate.notValidAfter,
             at: date
         )
+    }
+
+    /// Evaluates a certificate's validity period at `clock.now()`.
+    static func evaluate(
+        certificate: CertificateMetadata,
+        clock: any EvaluationClock
+    ) -> CertificateValidity {
+        evaluate(certificate: certificate, at: clock.now())
     }
 }
 

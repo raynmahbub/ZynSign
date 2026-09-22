@@ -15,7 +15,7 @@ final class SigningIdentityTests: XCTestCase {
         return CertificateMetadata(
             subject: subject,
             issuer: issuer,
-            serialNumber: "01",
+            serialNumber: CertificateSerialNumber(hexadecimal: "01")!,
             notValidBefore: Date(timeIntervalSince1970: 1_000_000),
             notValidAfter: Date(timeIntervalSince1970: 4_000_000_000),
             publicKeyInfo: PublicKeyInfo(algorithm: .rsa, keySizeInBits: 2048),

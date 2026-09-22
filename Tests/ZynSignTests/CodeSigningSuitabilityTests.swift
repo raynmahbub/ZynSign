@@ -14,7 +14,7 @@ final class CodeSigningSuitabilityTests: XCTestCase {
         return CertificateMetadata(
             subject: subject,
             issuer: issuer,
-            serialNumber: "01",
+            serialNumber: CertificateSerialNumber(hexadecimal: "01")!,
             notValidBefore: notBefore,
             notValidAfter: notAfter,
             publicKeyInfo: publicKeyInfo,

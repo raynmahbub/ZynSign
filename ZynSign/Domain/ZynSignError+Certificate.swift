@@ -13,6 +13,103 @@
 /// credentials.
 extension ZynSignError {
 
+    /// No certificate bytes were provided.
+    static func emptyCertificateInput(
+        diagnosticDetail: String? = nil,
+        underlyingError: (any Error)? = nil
+    ) -> ZynSignError {
+        ZynSignError(
+            category: .invalidInput,
+            userMessage: "The certificate file is empty.",
+            diagnosticDetail: diagnosticDetail,
+            underlyingError: underlyingError
+        )
+    }
+
+    /// The certificate encoding ends before the structure it declares.
+    static func truncatedCertificate(
+        diagnosticDetail: String? = nil,
+        underlyingError: (any Error)? = nil
+    ) -> ZynSignError {
+        ZynSignError(
+            category: .invalidInput,
+            userMessage: "The certificate file is incomplete.",
+            diagnosticDetail: diagnosticDetail,
+            underlyingError: underlyingError
+        )
+    }
+
+    /// The bytes are a recognised container the parser does not accept, such
+    /// as PEM text. This is not a claim that the payload inside would be a
+    /// valid certificate.
+    static func unsupportedCertificateFormat(
+        diagnosticDetail: String? = nil,
+        underlyingError: (any Error)? = nil
+    ) -> ZynSignError {
+        ZynSignError(
+            category: .unsupportedInput,
+            userMessage: "The certificate is not in a supported format.",
+            diagnosticDetail: diagnosticDetail,
+            underlyingError: underlyingError
+        )
+    }
+
+    /// The input is larger than the inspection bound.
+    static func certificateInputTooLarge(
+        diagnosticDetail: String? = nil,
+        underlyingError: (any Error)? = nil
+    ) -> ZynSignError {
+        ZynSignError(
+            category: .invalidInput,
+            userMessage: "The certificate file is too large to inspect.",
+            diagnosticDetail: diagnosticDetail,
+            underlyingError: underlyingError
+        )
+    }
+
+    /// The encoding is a certificate-shaped structure that is internally
+    /// inconsistent.
+    static func invalidCertificateStructure(
+        diagnosticDetail: String? = nil,
+        underlyingError: (any Error)? = nil
+    ) -> ZynSignError {
+        ZynSignError(
+            category: .invalidInput,
+            userMessage: "The certificate is not a valid certificate.",
+            diagnosticDetail: diagnosticDetail,
+            underlyingError: underlyingError
+        )
+    }
+
+    /// A field the metadata model requires was absent or could not be read.
+    /// The diagnostic must not include certificate bytes.
+    static func unavailableCertificateMetadata(
+        diagnosticDetail: String? = nil,
+        underlyingError: (any Error)? = nil
+    ) -> ZynSignError {
+        ZynSignError(
+            category: .invalidInput,
+            userMessage: "Required certificate information could not be read.",
+            diagnosticDetail: diagnosticDetail,
+            underlyingError: underlyingError
+        )
+    }
+
+    /// An operation required a recognised algorithm and the certificate does
+    /// not declare one. Parsing itself does not throw this: an unrecognised
+    /// algorithm is recorded on the metadata.
+    static func unsupportedCertificateAlgorithm(
+        diagnosticDetail: String? = nil,
+        underlyingError: (any Error)? = nil
+    ) -> ZynSignError {
+        ZynSignError(
+            category: .unsupportedInput,
+            userMessage: "The certificate uses an algorithm ZynSign does not recognise.",
+            diagnosticDetail: diagnosticDetail,
+            underlyingError: underlyingError
+        )
+    }
+
     /// The data could not be parsed as a certificate at all — it is not DER,
     /// it is truncated, or its structure is too damaged to interpret.
     static func invalidCertificateData(

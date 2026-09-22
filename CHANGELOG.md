@@ -186,6 +186,19 @@ All notable changes to ZynSign will be documented here.
   (loading, loaded, empty, and failed phases; retry; idempotent and
   overlapping loads; foreign-error rendering; the detail screen's entry
   point; row, listing, and entry-detail content).
+- Certificate inspection: untrusted certificate bytes are parsed by a bounded
+  DER reader into the existing certificate metadata model. Subject and issuer
+  attributes are kept in certificate order, including unrecognised attributes.
+  The serial number is the exact INTEGER content, including leading zero
+  octets, and is not a machine integer. Validity is evaluated against an
+  injected clock and is not a trust decision. The SHA-256 fingerprint is of
+  the accepted DER bytes. An unrecognised key or signature algorithm is
+  recorded rather than rejected. Inspection does not persist certificates,
+  does not handle private keys, and is not wired into the interface.
+- Tests for certificate parsing, distinguished-name variants, serial-number
+  variants, validity boundaries, algorithm combinations, fingerprint
+  determinism, and structured input failures. The tests use synthetic public
+  certificates and do not include private keys.
 
 ### Changed
 

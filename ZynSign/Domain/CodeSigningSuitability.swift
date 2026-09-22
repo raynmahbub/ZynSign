@@ -83,7 +83,7 @@ struct CodeSigningSuitability: Equatable, Hashable {
     static func evaluate(
         metadata: CertificateMetadata,
         validity: CertificateValidity? = nil,
-        evaluationDate: Date = Date()
+        evaluationDate: Date
     ) -> CodeSigningSuitability {
         let resolvedValidity = validity ?? CertificateValidity.evaluate(certificate: metadata, at: evaluationDate)
 

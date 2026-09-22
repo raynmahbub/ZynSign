@@ -15,7 +15,7 @@ final class CertificateChainTests: XCTestCase {
         return CertificateMetadata(
             subject: subject,
             issuer: issuer,
-            serialNumber: "01",
+            serialNumber: CertificateSerialNumber(hexadecimal: "01")!,
             notValidBefore: Date(timeIntervalSince1970: 1_000_000),
             notValidAfter: Date(timeIntervalSince1970: 2_000_000),
             publicKeyInfo: PublicKeyInfo(algorithm: .rsa, keySizeInBits: 2048),
@@ -32,8 +32,8 @@ final class CertificateChainTests: XCTestCase {
         let chain = CertificateChain(certificates: [leaf, intermediate, root])
         XCTAssertNotNil(chain)
         XCTAssertEqual(chain?.count, 3)
-        XCTAssertEqual(chain?.leaf, leaf)
-        XCTAssertEqual(chain?.root, root)
+        XCTAssertEqual(chain?.leaf, leaf as CertificateMetadata?)
+        XCTAssertEqual(chain?.root, root as CertificateMetadata?)
     }
 
     func testEmptyChainRejected() {
@@ -45,7 +45,7 @@ final class CertificateChainTests: XCTestCase {
         let leaf = makeMetadata(commonName: "Leaf", fingerprintHex: CertificateFixtures.validFingerprintHex)
         let chain = CertificateChain(certificates: [leaf])!
         XCTAssertTrue(chain.isSingleCertificate)
-        XCTAssertEqual(chain.leaf, leaf)
+        XCTAssertEqual(chain.leaf, leaf as CertificateMetadata?)
         XCTAssertNil(chain.root)
         XCTAssertTrue(chain.intermediates.isEmpty)
     }
