@@ -1,13 +1,15 @@
 import Foundation
 
-/// The import use case: it brings one user-selected package into ZynSign and
-/// records what the inspection stage established about it.
+/// The import use case: it brings one user-selected package into ZynSign,
+/// records what the inspection stage established about it, and hands an
+/// accepted package to the library.
 ///
 /// The use case composes capabilities that already exist rather than
-/// duplicating them: staging is delegated to the `ArtifactIntake` port, and
+/// duplicating them: staging is delegated to the `ArtifactIntake` port,
 /// examination is delegated to the structural and metadata inspection use
-/// cases over the same archive-reader boundary every other consumer uses.
-/// The flow it coordinates is:
+/// cases over the same archive-reader boundary every other consumer uses,
+/// and persistence is delegated to the library use case. The flow it
+/// coordinates is:
 ///
 ///     selected document
 ///         ↓  file-type policy (cheap gate, not trusted)
@@ -18,6 +20,10 @@ import Foundation
 ///     metadata inspection of the established bundle
 ///         ↓
 ///     examined artifact
+///         ↓  accepted packages only
+///     library admission: duplicate policy, artifact adoption, record
+///         ↓
+///     import result
 ///
 /// Three properties are deliberate.
 ///
@@ -30,53 +36,56 @@ import Foundation
 /// tables and one bounded information-file read, no unpacked content, and no
 /// signature, trust, or installation claims of any kind.
 ///
-/// Ownership of the staged archive is explicit. A rejected import's archive
-/// is discarded before the result is returned. An accepted import's archive
-/// is retained deliberately — it is what the future persistence stage will
-/// adopt — and is released through `discardStagedArtifact` when the result's
-/// owner drops or replaces it. Nothing staged survives implicitly: a new
-/// process clears what previous processes left behind.
+/// Ownership of the staged archive is explicit and ends inside this use
+/// case. A rejected import's archive is discarded before the result is
+/// returned. An accepted import's archive is offered to the library, which
+/// either adopts it into durable library storage — after which the record's
+/// artifact reference is the only way to reach it — or recognises it as
+/// content the library already holds, in which case it is discarded here.
+/// If admission fails, the archive is discarded here as well. Nothing staged
+/// survives an import in any outcome, and the caller never owns a staged
+/// archive.
 ///
-/// The use case is `async` because staging copies files, but it performs no
-/// actor hop of its own: called from an isolated context, the nonisolated
-/// function runs on the cooperative executor, so file copying, archive
-/// reading, and property-list parsing never occupy the caller's actor.
-/// Cancellation is honoured at every stage boundary, and a cancelled import
+/// The use case is `async` because staging copies files and admission
+/// hashes and moves them, but it performs no main-actor work: called from an
+/// isolated context, the nonisolated function runs on the cooperative
+/// executor, and admission runs on the library actor. Cancellation is
+/// honoured at every stage boundary up to admission, and a cancelled import
 /// is an ordinary outcome, not an application error.
 struct IPAPackageImport {
 
     private let intake: any ArtifactIntake
     private let structuralInspection: IPAArchiveInspection
     private let metadataInspection: IPABundleMetadataInspection
+    private let library: ApplicationLibrary
 
-    /// Creates the use case from the intake port and the archive boundary
-    /// the composition root selected. Both inspection use cases are built
-    /// over the same reader provider, so a staged archive is examined by
-    /// exactly the machinery any other artifact would be examined with.
+    /// Creates the use case from the intake port, the archive boundary, and
+    /// the library the composition root selected. Both inspection use cases
+    /// are built over the same reader provider, so a staged archive is
+    /// examined by exactly the machinery any other artifact would be
+    /// examined with.
     init(
         intake: any ArtifactIntake,
         readerProvider: any ArtifactArchiveReaderProvider,
+        library: ApplicationLibrary,
         limits: ArchiveLimits = .default
     ) {
         self.intake = intake
         self.structuralInspection = IPAArchiveInspection(readerProvider: readerProvider, limits: limits)
         self.metadataInspection = IPABundleMetadataInspection(readerProvider: readerProvider, limits: limits)
+        self.library = library
     }
 
-    /// Imports the package the user selected and returns it with the
-    /// inspection outcome recorded.
+    /// Imports the package the user selected and returns the examined
+    /// artifact together with the library's decision.
     ///
-    /// The returned artifact is the imported-artifact result for this stage:
-    /// its identifier is the stable reference to the staged archive, and it
-    /// carries the discovered bundle, the declared metadata, and the
-    /// validation outcome. A `nil`-metadata or non-`valid` outcome is a
-    /// result, not an exception — its findings say what was wrong. Only
-    /// intake and infrastructure failures throw, and they throw typed errors.
-    ///
-    /// The staged archive's lifetime is decided by the outcome: a rejected
-    /// artifact's archive is discarded here, an accepted one is retained
-    /// until its owner releases it through `discardStagedArtifact(_:)`.
-    func importArtifact(from source: URL) async throws -> IPAArtifact {
+    /// The returned artifact carries the discovered bundle, the declared
+    /// metadata, and the validation outcome; its identifier is the stable
+    /// reference to the artifact wherever the library now holds it. A
+    /// rejected package is a result, not an exception — its findings say
+    /// what was wrong and its admission is `nil`. Only intake, library, and
+    /// infrastructure failures throw, and they throw typed errors.
+    func importArtifact(from source: URL) async throws -> PackageImportResult {
         try Task.checkCancellation()
 
         guard IPAFileFormat.accepts(source) else {
@@ -112,23 +121,39 @@ struct IPAPackageImport {
             // A rejected package's bytes have no future use; the findings on
             // the returned artifact are the record.
             intake.discardStagedDocument(for: artifact.id)
-            return examined
+            return PackageImportResult(artifact: examined, admission: nil)
         }
 
-        // The staged archive stays. Its owner releases it explicitly.
-        return examined
+        // The last cancellation window: once the library begins adopting
+        // the archive, the admission runs to completion.
+        do {
+            try Task.checkCancellation()
+        } catch {
+            intake.discardStagedDocument(for: artifact.id)
+            throw error
+        }
+
+        let admission: LibraryAdmission
+        do {
+            admission = try await library.admit(examined)
+        } catch {
+            // Whatever the library did, it holds nothing for this artifact
+            // now; anything still staged is this flow's to discard.
+            intake.discardStagedDocument(for: artifact.id)
+            throw Self.normalized(error)
+        }
+
+        if case .alreadyRecorded = admission {
+            // The library already holds these bytes and took nothing; the
+            // staged copy is surplus.
+            intake.discardStagedDocument(for: artifact.id)
+        }
+
+        return PackageImportResult(artifact: examined, admission: admission)
     }
 
-    /// Releases the staged archive for `artifact`. This is the explicit
-    /// ownership-transfer endpoint for an accepted import: the owner of an
-    /// import result calls it when the result is dropped or replaced, and
-    /// never assumes the archive is cleaned up by anything else.
-    func discardStagedArtifact(_ artifact: ArtifactIdentifier) {
-        intake.discardStagedDocument(for: artifact)
-    }
-
-    /// Normalizes a staging failure into a typed error without ever letting
-    /// a foreign error's rendered text become user-facing.
+    /// Normalizes a staging or admission failure into a typed error without
+    /// ever letting a foreign error's rendered text become user-facing.
     private static func normalized(_ error: any Error) -> any Error {
         switch error {
         case let zynSignError as ZynSignError:

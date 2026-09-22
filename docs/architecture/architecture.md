@@ -6,7 +6,7 @@ This document defines the architecture of ZynSign: the platform it runs on, the
 layers and boundaries the application is organised into, the decisions that are
 settled, and the capabilities that are not yet established.
 
-Four implementation increments exist. The first is an Xcode application
+Five implementation increments exist. The first is an Xcode application
 target with a SwiftUI application shell, a composition root, a minimal pure
 domain layer, and a unit-test target; it establishes the layer boundaries of
 Section 4 and no workflow capability. The second adds the archive-reading
@@ -23,12 +23,17 @@ security-scoped, bounded-chunk staging of the selected document into
 application-owned temporary storage addressed by the artifact identifier,
 examination of the staged archive by the existing inspection use cases, and
 an Import area that renders the outcome through an explicit phase machine.
-The inspection stage is therefore a partial capability: it
-reads containers, classifies layout, and reads one bundle's declared metadata,
-and it does not verify signatures, parse profiles, inspect executables,
-extract content, or produce a package. Staged archives are session-scoped
-and are never persisted; no package library, signing, verification,
-packaging, or installation capability exists.
+The fifth adds application persistence: a durable, value-typed library
+record for each accepted import, a versioned catalog file that holds those
+records, application-owned artifact storage that adopts the staged archive,
+a deterministic content-based duplicate policy, and the library use case
+that sequences them behind the import flow (Section 15). The inspection
+stage is therefore a partial capability: it reads containers, classifies
+layout, and reads one bundle's declared metadata, and it does not verify
+signatures, parse profiles, inspect executables, extract content, or produce
+a package. Accepted imports are recorded and kept across launches; there is
+no screen for browsing or managing the library yet, and no signing,
+verification, packaging, or installation capability exists.
 
 Nothing else in this document is a claim that any behaviour works. Every
 feasibility boundary in Section 6 remains open except where noted here, and the
@@ -358,15 +363,16 @@ a cheap gate; the extension is never trusted as evidence about content, and
 only the archive and metadata examinations decide whether a staged file is a
 valid package.
 
-The staged archive's lifetime is explicit. It is discarded when staging
-fails, when the import is cancelled, and when the package is rejected by
-examination. An accepted import's archive is retained deliberately for the
-life of the import result, is released by its owner when the result is
-dropped or replaced, and is cleared with the rest of the staging directory
-before the first import of a new process. Nothing staged survives
-implicitly, and nothing is persisted: when package persistence becomes a
-capability, it will adopt staged archives explicitly or replace this
-mechanism.
+The staged archive's lifetime is explicit and ends inside the import use
+case. It is discarded when staging fails, when the import is cancelled, and
+when the package is rejected by examination. An accepted import's archive is
+offered to the library, which either adopts it — moves it, under the same
+identifier, into durable application-owned artifact storage (Section 15) —
+or recognises it as content the library already holds, in which case the
+staged copy is discarded. Whatever is left in the staging directory by an
+interrupted process is cleared before the first import of the next one;
+because adoption moves the file out of staging, nothing a record depends on
+is ever there to be cleared. Nothing staged survives implicitly.
 
 **Still Unresolved:** file coordination for provider-backed locations,
 concurrent imports into shared staging space, storage-pressure handling, and
@@ -458,6 +464,8 @@ and testable without a device, a simulator, a keychain, or a network. This is
 **Accepted**. Domain concepts include:
 
 - `IPA`, `ArchiveEntry`, `Bundle`, `ApplicationMetadata`
+- `ApplicationRecord`, `ArtifactReference`, `ArtifactFingerprint`, and the
+  duplicate policy over them
 - `NestedCode` and its dependency ordering
 - `CertificateMetadata`, `SigningIdentity` metadata, `ProvisioningProfile`
 - `SigningConfiguration`, `PackagingPolicy`
@@ -492,7 +500,8 @@ carried forward from Section 6.
 | `SigningEngine` | The single place where signing happens, and the only consumer of usable key material | Domain | Yes — a stub engine keeps orchestration testable | Yes | Requires feasibility research (items 1–7, 9, 10) |
 | `SignatureVerifier` | Independent evaluation of an artifact, with no access to signing state | Domain | Yes | Yes — no system verifier may be assumed | Requires feasibility research (item 11) |
 | `TemporaryStorage` | Controlled working space with lifetime, cleanup, and cancellation semantics | Application | Yes — in-memory or directory-backed | Partly — directories and lifecycle are platform-bound | Accepted as a boundary; mechanism Unresolved |
-| `ApplicationRecordStore` | Persistence of non-sensitive library records and preferences | Application | Yes | No | Accepted as a boundary; technology Unresolved (Section 15) |
+| `ApplicationRecordStore` | Persistence of non-sensitive library records: insert, update, fetch by identifier, list, delete | Application | Yes — in-memory in tests | No | **Implemented** as a versioned catalog file (Section 15) |
+| `LibraryArtifactStore` | Ownership of the package bytes behind library records: describe a staged archive, adopt it into library storage, observe, remove, enumerate | Application | Yes — in-memory in tests | Partly — directories and moves are platform-bound | **Implemented** over application-owned storage (Section 15) |
 | `DeviceInstaller` | Delivery of a signed artifact to a device | Application | Contingent | Yes | **Provisional** — may never exist (item 15); no implementation may be built against it before installation scope is decided |
 
 Rules, **Accepted**:
@@ -579,12 +588,7 @@ No claim of security properties may rest on a type wrapper alone.
 
 ## 15. Persistence
 
-Persistence technology is **Unresolved** and is not selected here. Choosing a
-technology requires requirements that do not yet exist: query patterns, data
-volume, migration expectations, synchronization needs, and confirmation of what
-is available on the deployment target chosen for item 17 in Section 6.
-
-The architecture does require that persistent data be classified:
+The architecture requires that persistent data be classified:
 
 | Class | Examples | Treatment |
 | --- | --- | --- |
@@ -594,6 +598,105 @@ The architecture does require that persistent data be classified:
 **Accepted:** persistence is never used as a shortcut for convenience with
 sensitive material. If a value is classified sensitive, it belongs to the
 mechanism chosen for secrets or it does not persist at all.
+
+### Library Records Decision
+
+The persistence increment settles the first class of the table — library
+records — for the document-import path. The sensitive class remains
+untouched: nothing in this decision stores, references, or provides a place
+for key material, credentials, certificate bodies, or profile data, and the
+record type has no field that could carry them.
+
+**Record model, Accepted.** `ApplicationRecord` is a domain value type with
+no framework, filesystem, archive, or storage dependency. It carries a stable
+record identifier (distinct from the artifact identifier, so a record can
+outlive a replacement of its bytes), the identity the package declared
+(bundle identifier, declared names, marketing and build versions, preserved
+exactly as declared and untrusted), the declared executable name, the
+selected file's name as a provenance label, an `ArtifactReference` (artifact
+identifier, byte count, and content fingerprint), an inspection summary (the
+classification and the codes of any non-rejecting findings; finding details
+are diagnostics and are not persisted), and import and last-updated
+timestamps. A record can only be created from an artifact that passed
+inspection; the constructor enforces it. The fingerprint is a SHA-256 digest
+over the artifact's bytes and identifies bytes only: it is not a signature
+and is never presented as evidence that a package is genuine, trusted, or
+installable. Persistence of a record is not a trust statement about the
+package.
+
+**Storage mechanism, Accepted for this increment.** Records are kept in one
+JSON catalog document, `Application Support/ZynSignLibrary/catalog.json`,
+encoded with Foundation's `Codable` and replaced atomically on every change.
+The document declares an explicit `schemaVersion`, currently `1`, and holds a
+flat array of stored records whose every value is re-validated through the
+domain's own rules when read. The reasons this was chosen over a database
+framework: the record set is a small collection of flat values with no
+relationships and no query pattern beyond "list" and "by identifier"; the
+deployment target is still Unresolved (Section 6, item 17), and a catalog
+file binds the application to nothing beyond Foundation; the schema version is
+explicit and inspectable rather than implied by a model file; the store is
+testable against a temporary directory with no container or context; and a
+whole-file rewrite is proportionate to the volume a library of packages
+reaches. The choice is confined behind `ApplicationRecordStore` and made in
+the composition root; a database-backed store, should query or volume
+requirements appear, replaces one platform type and one line of wiring.
+Application Support was chosen because the system does not purge it, it is
+private to the application container, and it is covered by the container's
+default file protection.
+
+**Artifact ownership, Accepted.** The bytes behind a record are owned by the
+library, never by an external document provider. On admission the staged
+archive is moved — a rename within the container — into
+`Application Support/ZynSignLibrary/Artifacts/<artifact identifier>.ipa`, and
+from then on the record's artifact reference is the only way the bytes are
+reached; no provider URL, bookmark, or security-scoped grant is retained. A
+record whose artifact is absent, or whose file size no longer matches the
+recorded byte count, is listed with availability `missing` or
+`inconsistent`, with its metadata intact for diagnosis; it is never repaired,
+recreated, or reported as available, and the archive boundary refuses to open
+what is not there. Removing an entry deletes the record first and the
+artifact second. Replacing an artifact behind an existing record is not an
+operation this increment provides: a later import of different bytes is a new
+record, and a later import of identical bytes while the earlier artifact is
+missing is likewise a new record with its own artifact, related to the stale
+one, which stays until removed. Artifacts in library storage that no record
+refers to — orphans — are detected on request and removed only on request.
+
+**Duplicate and identity policy, Accepted.** The policy is a pure domain
+function and is deterministic. A candidate whose fingerprint and byte count
+match the artifact of a record whose artifact is currently held is the same
+package, whatever its metadata declares, and is not recorded again; the
+existing record is reported. A candidate whose bytes differ is a distinct
+artifact and is recorded even when its bundle identifier, marketing version,
+and build match an existing record: a rebuilt package is a different
+package, and the relation — other versions of the same bundle, or the same
+declared version with different content — is reported so the outcome can be
+explained, never used to replace or suppress a record.
+
+**Failure and cleanup, Accepted.** Admission is artifact first, record
+second, so a record is never written for bytes the library does not hold. If
+the record cannot be written after the artifact was adopted, the artifact is
+removed again; if that removal fails, or the process ends between the two
+steps, the artifact is an orphan, detectable as above. The two stores are
+independent and no transactional guarantee across them is claimed. The
+catalog itself is written atomically, so an interrupted write cannot leave a
+truncated catalog; a failed write leaves the previously stored records, on
+disk and in memory, as they were. A catalog that cannot be decoded, carries a
+value the domain rejects, or declares a schema version this build does not
+know fails closed: every operation reports a typed error, the file is left in
+place for diagnosis, and it is never reset, truncated, or partially loaded. A
+catalog newer than the build is reported as unsupported, not as damage.
+
+**Migration, Accepted as a rule.** The schema version is read before the
+record shape is assumed. When the schema changes, the version is incremented
+and a conversion from each earlier version is added at the read boundary; no
+conversion exists yet because no earlier version exists. No field is stored
+in anticipation of a future need.
+
+**Still Unresolved:** whether library storage should be excluded from device
+backups, eviction or retention limits under storage pressure, repair or
+replacement of a missing artifact as a user-facing operation, and the
+presentation of the library (no library screen exists in this build).
 
 ## 16. Testing Architecture
 
@@ -664,7 +767,7 @@ depend on iOS/iPadOS behaviour are recorded as *Provisional*, *Unresolved*, or
 | 7 | Signature verification | **Requires feasibility research** — item 11 |
 | 8 | IPA packaging | **Provisional** — ZynSign is responsible for producing its own package; format rules depend on item 12 and the deployment target |
 | 9 | Installation mechanism | **Unresolved** — no known public application-facing mechanism (item 15); may be excluded from the first release |
-| 10 | Persistence | **Unresolved** — technology deferred until requirements exist (Section 15) |
+| 10 | Persistence of library records | **Accepted** for this increment — value-typed `ApplicationRecord`, a versioned JSON catalog behind `ApplicationRecordStore`, library-owned artifact storage behind `LibraryArtifactStore`, content-based duplicate policy, artifact-first admission with cleanup on failure (Section 15); backup and retention treatment Unresolved |
 | 11 | Archive implementation | **Accepted for reading** — ZIP container reading is implemented behind `ArchiveReader`, with no third-party dependency; **Unresolved for writing** (Section 9) |
 | 12 | Nested-code rules | **Provisional** — innermost-first ordering is the intended direction; the complete location and exception set requires research (item 10) |
 | 13 | Security and retention policy | **Provisional** — the prohibitions on key material in UI, logs, diagnostics, and ordinary persistence are **Accepted**; retention durations are Unresolved |
@@ -679,7 +782,8 @@ depend on iOS/iPadOS behaviour are recorded as *Provisional*, *Unresolved*, or
 | 22 | UI/application/domain separation and the UI prohibition list | **Accepted** (Section 13) |
 | 23 | Ports declared by their consuming layer | **Accepted** (Sections 4, 11) |
 | 24 | Installation in the first release | **Unresolved** |
-| 25 | Import intake and temporary staging | **Accepted** for the document-import path — one bounded-chunk staging per import, identifier-addressed application-owned temporary storage, security-scoped access held only while copying, session-scoped retention with explicit release (Section 8) |
+| 25 | Import intake and temporary staging | **Accepted** for the document-import path — one bounded-chunk staging per import, identifier-addressed application-owned temporary storage, security-scoped access held only while copying, staged archives adopted by the library or discarded before the import returns (Section 8) |
+| 26 | Persistence is not trust | **Accepted** — a library record states that a package passed inspection when imported and which bytes it refers to; the fingerprint identifies bytes only, declared metadata stays untrusted, and no record is evidence that a package is signed, genuine, or installable (Section 15) |
 
 ## 19. Non-Goals of This Document
 
@@ -688,8 +792,7 @@ This document deliberately does not:
 - contain or describe production code, project files, dependencies, or tests;
 - select concrete signing algorithms, code-directory versions, or entitlement
   derivations before feasibility research;
-- select an archive library, a persistence technology, or a certificate-handling
-  dependency;
+- select an archive library or a certificate-handling dependency;
 - specify UI design, navigation, or screen structure;
 - design installation, or commit to installation being in any release;
 - introduce abstractions that no identified boundary requires.

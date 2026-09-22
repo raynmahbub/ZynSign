@@ -12,10 +12,10 @@ import Combine
 /// off the main actor inside the use case; every phase transition happens
 /// here, on the main actor.
 ///
-/// Staged-archive ownership lives here too. An accepted import's archive is
-/// retained for as long as its result is shown, released when the result is
-/// replaced by another accepted import or when the model is dropped. The
-/// model never assumes any other owner will clean up.
+/// The model owns no storage. An accepted package is taken into the library
+/// by the import use case and reached through its record from then on; a
+/// rejected, duplicate, failed, or cancelled import leaves nothing behind.
+/// There is nothing for the model to retain or release.
 @MainActor
 final class PackageImportModel: ObservableObject {
 
@@ -40,9 +40,9 @@ final class PackageImportModel: ObservableObject {
         case cancelled
     }
 
-    /// What the success screen shows: what arrived, and what the package's
-    /// application declares about itself. Display values only — no
-    /// locations, signatures, or trust claims.
+    /// What the success screen shows: what arrived, what the package's
+    /// application declares about itself, and what the library did with
+    /// it. Display values only — no locations, signatures, or trust claims.
     struct Summary: Equatable {
 
         /// The selected file's name, when one was available.
@@ -60,6 +60,9 @@ final class PackageImportModel: ObservableObject {
 
         /// The declared build version, or `nil` when undeclared.
         let buildVersion: String?
+
+        /// A user-presentable statement of the library's decision.
+        let libraryMessage: String
     }
 
     /// The current phase of the import.
@@ -68,30 +71,15 @@ final class PackageImportModel: ObservableObject {
     private let importing: IPAPackageImport
     private var importTask: Task<Void, Never>?
 
-    /// The identifier of the staged archive this model currently owns, if
-    /// any. Released explicitly; see `releaseRetainedArchive` and `deinit`.
-    private var retainedArtifactID: ArtifactIdentifier?
-
     init(importing: IPAPackageImport) {
         self.importing = importing
-    }
-
-    deinit {
-        if let retainedArtifactID {
-            importing.discardStagedArtifact(retainedArtifactID)
-        }
     }
 
     // MARK: - Transitions
 
     /// Begins importing the document the user selected.
-    ///
-    /// Any staged archive the model currently owns is released first: its
-    /// result is being replaced, and a large file must not linger in
-    /// temporary storage behind whatever this import turns out to be.
     func beginImport(from source: URL) {
         guard phase != .importing else { return }
-        releaseRetainedArchive()
         phase = .importing
         importTask = Task {
             await runImport(from: source)
@@ -122,13 +110,11 @@ final class PackageImportModel: ObservableObject {
 
     private func runImport(from source: URL) async {
         do {
-            let artifact = try await importing.importArtifact(from: source)
-            if artifact.permitsLaterStages {
-                retainStagedArchive(of: artifact)
-                phase = .succeeded(Self.summary(for: artifact))
+            let result = try await importing.importArtifact(from: source)
+            if result.isAccepted {
+                phase = .succeeded(Self.summary(for: result))
             } else {
-                retainedArtifactID = nil
-                phase = .failed(Self.rejectionMessage(for: artifact))
+                phase = .failed(Self.rejectionMessage(for: result.artifact))
             }
         } catch is CancellationError {
             phase = .cancelled
@@ -142,28 +128,44 @@ final class PackageImportModel: ObservableObject {
         }
     }
 
-    /// Transfers ownership of the newly accepted import's staged archive to
-    /// this model, releasing the archive of any result it replaces.
-    private func retainStagedArchive(of artifact: IPAArtifact) {
-        if let retainedArtifactID, retainedArtifactID != artifact.id {
-            importing.discardStagedArtifact(retainedArtifactID)
-        }
-        retainedArtifactID = artifact.id
-    }
-
     // MARK: - Rendering
 
-    /// Derives the success summary from the examined artifact. The artifact
-    /// is the record of what arrived; the summary is only its display half.
-    static func summary(for artifact: IPAArtifact) -> Summary {
-        let identity = artifact.metadata?.identity
+    /// Derives the success summary from the import result. The artifact is
+    /// the record of what arrived; the summary is only its display half.
+    static func summary(for result: PackageImportResult) -> Summary {
+        let identity = result.artifact.metadata?.identity
         return Summary(
-            sourceFileName: artifact.sourceFileName,
+            sourceFileName: result.artifact.sourceFileName,
             displayName: identity?.displayName,
             bundleIdentifier: identity?.bundleIdentifier.rawValue,
             marketingVersion: identity?.shortVersionString,
-            buildVersion: identity?.buildVersion
+            buildVersion: identity?.buildVersion,
+            libraryMessage: Self.libraryMessage(for: result.admission)
         )
+    }
+
+    /// Composes the user-facing statement of the library's decision. The
+    /// wording describes what was stored and what it relates to; it makes no
+    /// claim about signatures, trust, or installability.
+    static func libraryMessage(for admission: LibraryAdmission?) -> String {
+        switch admission {
+        case .none:
+            return "The package was not added to ZynSign's library."
+        case .some(.alreadyRecorded):
+            return "This exact package is already in ZynSign's library, so it was not added again."
+        case .some(.recorded(_, let relation)):
+            switch relation {
+            case .unrelated:
+                return "The package was added to ZynSign's library."
+            case .otherVersions(let others):
+                let count = others.count
+                return count == 1
+                    ? "The package was added to ZynSign's library alongside one other version of this application."
+                    : "The package was added to ZynSign's library alongside \(count) other versions of this application."
+            case .sameDeclaredVersion:
+                return "The package was added to ZynSign's library. An earlier import declares the same version and build but has different content; both are kept."
+            }
+        }
     }
 
     /// Composes the user-facing explanation for a rejected package from its

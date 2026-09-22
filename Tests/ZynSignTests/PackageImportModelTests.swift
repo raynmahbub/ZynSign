@@ -2,7 +2,7 @@ import XCTest
 @testable import ZynSign
 
 /// Tests for the import presentation model's phase machine and its
-/// staged-archive ownership.
+/// rendering of the library's decision.
 ///
 /// The model is exercised with the real import use case over synthetic
 /// ports, so the phases it renders are the phases the application layer
@@ -12,14 +12,26 @@ final class PackageImportModelTests: XCTestCase {
 
     // MARK: - Helpers
 
+    // One test-case instance exists per test method, so these are fresh
+    // for every test.
+    private let artifacts = SyntheticLibraryArtifactStore()
+    private let clock = SyntheticClock()
+    private lazy var library = ApplicationLibrary(
+        records: InMemoryApplicationRecordStore(),
+        artifacts: artifacts,
+        now: { [clock] in clock.now() }
+    )
+
     private func makeModel(
         intake: SyntheticIntake,
         reader: any ArchiveReader
     ) -> PackageImportModel {
-        PackageImportModel(
+        intake.artifactStore = artifacts
+        return PackageImportModel(
             importing: IPAPackageImport(
                 intake: intake,
-                readerProvider: SyntheticArchiveReaderProvider.providing(reader)
+                readerProvider: SyntheticArchiveReaderProvider.providing(reader),
+                library: library
             )
         )
     }
@@ -41,7 +53,7 @@ final class PackageImportModelTests: XCTestCase {
 
     // MARK: - Phases
 
-    func testSuccessfulImportShowsSummaryAndRetainsTheStagedArchive() async {
+    func testSuccessfulImportShowsSummaryAndTheLibraryDecision() async {
         let intake = SyntheticIntake()
         let model = makeModel(intake: intake, reader: ImportFixtures.validReader())
 
@@ -58,7 +70,33 @@ final class PackageImportModelTests: XCTestCase {
         XCTAssertEqual(summary.bundleIdentifier, "com.example.synthetic")
         XCTAssertEqual(summary.marketingVersion, "1.2")
         XCTAssertEqual(summary.buildVersion, "34")
+        XCTAssertEqual(summary.libraryMessage, "The package was added to ZynSign's library.")
+        // The archive now belongs to the library; nothing was discarded and
+        // nothing is left staged.
         XCTAssertTrue(intake.discarded.isEmpty)
+        XCTAssertEqual(artifacts.held, Set(intake.staged))
+        XCTAssertTrue(artifacts.staged.isEmpty)
+    }
+
+    func testImportingTheSamePackageAgainSucceedsAndSaysItWasNotAddedAgain() async {
+        let intake = SyntheticIntake()
+        let model = makeModel(intake: intake, reader: ImportFixtures.validReader())
+        model.beginImport(from: ImportFixtures.sourceURL())
+        _ = await awaitSettledPhase(of: model)
+
+        model.beginImport(from: ImportFixtures.sourceURL(name: "Copy.ipa"))
+        let phase = await awaitSettledPhase(of: model)
+
+        guard case .succeeded(let summary) = phase else {
+            return XCTFail("Expected a succeeded phase, got \(phase)")
+        }
+        XCTAssertEqual(
+            summary.libraryMessage,
+            "This exact package is already in ZynSign's library, so it was not added again."
+        )
+        XCTAssertEqual(intake.staged.count, 2)
+        XCTAssertEqual(intake.discarded, [intake.staged[1]])
+        XCTAssertEqual(artifacts.held, [intake.staged[0]])
     }
 
     func testRejectedImportShowsFailureExplanation() async {
@@ -122,17 +160,18 @@ final class PackageImportModelTests: XCTestCase {
         XCTAssertTrue(intake.attempted.isEmpty)
     }
 
-    // MARK: - Staged-archive ownership
+    // MARK: - Library storage
 
-    func testImportingAgainAfterSuccessReleasesTheReplacedArchive() async {
+    func testImportingAgainAfterSuccessKeepsBothRecordedArchives() async {
         let intake = SyntheticIntake()
         let model = makeModel(intake: intake, reader: ImportFixtures.validReader())
 
         model.beginImport(from: ImportFixtures.sourceURL())
         _ = await awaitSettledPhase(of: model)
-        let firstStaged = intake.staged
 
-        // A second successful import replaces the first result.
+        // A second import of different content replaces the shown result
+        // but not the library's holdings: the model owns no archive.
+        intake.nextStagedContent = Data("different package content".utf8)
         model.beginImport(from: ImportFixtures.sourceURL(name: "Other.ipa"))
         _ = await awaitSettledPhase(of: model)
 
@@ -140,10 +179,11 @@ final class PackageImportModelTests: XCTestCase {
             return XCTFail("Expected the second import to succeed, got \(model.phase)")
         }
         XCTAssertEqual(intake.staged.count, 2)
-        XCTAssertEqual(intake.discarded.map { $0.rawValue }, [firstStaged[0].rawValue])
+        XCTAssertTrue(intake.discarded.isEmpty)
+        XCTAssertEqual(artifacts.held, Set(intake.staged))
     }
 
-    func testDroppingTheModelReleasesTheRetainedArchive() async {
+    func testDroppingTheModelLeavesTheLibraryUntouched() async {
         let intake = SyntheticIntake()
         weak var weakModel: PackageImportModel?
 
@@ -152,7 +192,6 @@ final class PackageImportModelTests: XCTestCase {
             weakModel = model
             model.beginImport(from: ImportFixtures.sourceURL())
             _ = await awaitSettledPhase(of: model)
-            XCTAssertTrue(intake.discarded.isEmpty)
         }
 
         // The import task releases the model shortly after the phase
@@ -167,31 +206,55 @@ final class PackageImportModelTests: XCTestCase {
             await Task.yield()
         }
         XCTAssertNil(weakModel)
-        XCTAssertEqual(intake.discarded.count, 1)
+        XCTAssertTrue(intake.discarded.isEmpty)
+        XCTAssertEqual(artifacts.held, Set(intake.staged))
     }
 
     // MARK: - Rendering rules
 
-    func testSummaryIsDerivedFromDeclaredMetadata() {
-        var artifact = IPAArtifact(sourceFileName: "Example.ipa")
-        let identity = ApplicationIdentity(
-            bundleIdentifier: BundleIdentifier(rawValue: "com.example.synthetic")!,
-            displayName: "Example",
-            shortVersionString: "1.2",
-            buildVersion: "34"
-        )
-        artifact = artifact.metadataExamined(
-            bundle: nil,
-            metadata: ApplicationMetadata(identity: identity),
-            validation: .valid()
-        )
+    func testSummaryIsDerivedFromDeclaredMetadataAndTheAdmission() {
+        let artifact = LibraryFixtures.acceptedArtifact()
+        let record = LibraryFixtures.record()
 
-        let summary = PackageImportModel.summary(for: artifact)
+        let summary = PackageImportModel.summary(
+            for: PackageImportResult(artifact: artifact, admission: .recorded(record, relation: .unrelated))
+        )
         XCTAssertEqual(summary.sourceFileName, "Example.ipa")
         XCTAssertEqual(summary.displayName, "Example")
         XCTAssertEqual(summary.bundleIdentifier, "com.example.synthetic")
         XCTAssertEqual(summary.marketingVersion, "1.2")
         XCTAssertEqual(summary.buildVersion, "34")
+        XCTAssertEqual(summary.libraryMessage, "The package was added to ZynSign's library.")
+    }
+
+    func testLibraryMessageDescribesEachAdmissionOutcome() {
+        let record = LibraryFixtures.record()
+        let other = LibraryFixtures.record()
+
+        XCTAssertEqual(
+            PackageImportModel.libraryMessage(for: .recorded(record, relation: .unrelated)),
+            "The package was added to ZynSign's library."
+        )
+        XCTAssertEqual(
+            PackageImportModel.libraryMessage(for: .recorded(record, relation: .otherVersions([other]))),
+            "The package was added to ZynSign's library alongside one other version of this application."
+        )
+        XCTAssertEqual(
+            PackageImportModel.libraryMessage(for: .recorded(record, relation: .otherVersions([other, other]))),
+            "The package was added to ZynSign's library alongside 2 other versions of this application."
+        )
+        XCTAssertEqual(
+            PackageImportModel.libraryMessage(for: .recorded(record, relation: .sameDeclaredVersion([other]))),
+            "The package was added to ZynSign's library. An earlier import declares the same version and build but has different content; both are kept."
+        )
+        XCTAssertEqual(
+            PackageImportModel.libraryMessage(for: .alreadyRecorded(existing: other)),
+            "This exact package is already in ZynSign's library, so it was not added again."
+        )
+        XCTAssertEqual(
+            PackageImportModel.libraryMessage(for: nil),
+            "The package was not added to ZynSign's library."
+        )
     }
 
     func testRejectionMessageIsComposedFromThePrimaryFinding() {

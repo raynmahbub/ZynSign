@@ -5,13 +5,37 @@ final class IPAPackageImportTests: XCTestCase {
 
     // MARK: - Helpers
 
+    private var records: InMemoryApplicationRecordStore!
+    private var artifacts: SyntheticLibraryArtifactStore!
+    private var library: ApplicationLibrary!
+
+    override func setUp() {
+        super.setUp()
+        records = InMemoryApplicationRecordStore()
+        artifacts = SyntheticLibraryArtifactStore()
+        let clock = SyntheticClock()
+        library = ApplicationLibrary(records: records, artifacts: artifacts, now: { clock.now() })
+    }
+
+    override func tearDown() {
+        library = nil
+        artifacts = nil
+        records = nil
+        super.tearDown()
+    }
+
+    /// Builds the use case over synthetic ports. The intake shares its
+    /// staging area with the library's artifact store, as the composition
+    /// root arranges for the real implementations.
     private func makeUseCase(
         intake: SyntheticIntake,
         reader: any ArchiveReader
     ) -> IPAPackageImport {
-        IPAPackageImport(
+        intake.artifactStore = artifacts
+        return IPAPackageImport(
             intake: intake,
-            readerProvider: SyntheticArchiveReaderProvider.providing(reader)
+            readerProvider: SyntheticArchiveReaderProvider.providing(reader),
+            library: library
         )
     }
 
@@ -21,8 +45,10 @@ final class IPAPackageImportTests: XCTestCase {
         let intake = SyntheticIntake()
         let useCase = makeUseCase(intake: intake, reader: ImportFixtures.validReader())
 
-        let artifact = try await useCase.importArtifact(from: ImportFixtures.sourceURL())
+        let result = try await useCase.importArtifact(from: ImportFixtures.sourceURL())
+        let artifact = result.artifact
 
+        XCTAssertTrue(result.isAccepted)
         XCTAssertEqual(artifact.state, .inspected)
         XCTAssertEqual(artifact.validation?.classification, .valid)
         XCTAssertTrue(artifact.permitsLaterStages)
@@ -35,15 +61,85 @@ final class IPAPackageImportTests: XCTestCase {
         XCTAssertEqual(artifact.discoveredBundle?.executablePath?.rawValue, "Payload/Example.app/Example")
     }
 
-    func testSuccessfulImportRetainsTheStagedArchive() async throws {
+    func testSuccessfulImportRecordsThePackageAndAdoptsTheStagedArchive() async throws {
         let intake = SyntheticIntake()
         let useCase = makeUseCase(intake: intake, reader: ImportFixtures.validReader())
 
-        let artifact = try await useCase.importArtifact(from: ImportFixtures.sourceURL())
+        let result = try await useCase.importArtifact(from: ImportFixtures.sourceURL())
 
+        guard case .recorded(let record, let relation) = result.admission else {
+            return XCTFail("Expected a recorded admission, got \(String(describing: result.admission))")
+        }
+        XCTAssertEqual(relation, .unrelated)
+        XCTAssertEqual(record.artifact.artifactID, result.artifact.id)
+        XCTAssertEqual(record.identity, result.artifact.metadata?.identity)
+        XCTAssertEqual(record.executableName, "Example")
+        XCTAssertEqual(record.sourceFileName, "Example.ipa")
+
+        // The staged archive was moved into library storage, not discarded
+        // and not left staged; the record is what refers to it now.
         XCTAssertEqual(intake.attempted.count, 1)
-        XCTAssertEqual(intake.staged, [artifact.id])
+        XCTAssertEqual(intake.staged, [result.artifact.id])
         XCTAssertTrue(intake.discarded.isEmpty)
+        XCTAssertEqual(artifacts.adopted, [result.artifact.id])
+        XCTAssertEqual(artifacts.held, [result.artifact.id])
+        XCTAssertTrue(artifacts.staged.isEmpty)
+        let stored = try await records.record(withID: record.id)
+        XCTAssertEqual(stored, record)
+    }
+
+    func testImportingIdenticalContentAgainReportsTheExistingRecordAndDiscardsTheCopy() async throws {
+        let intake = SyntheticIntake()
+        let useCase = makeUseCase(intake: intake, reader: ImportFixtures.validReader())
+        let first = try await useCase.importArtifact(from: ImportFixtures.sourceURL())
+
+        let second = try await useCase.importArtifact(from: ImportFixtures.sourceURL(name: "Copy.ipa"))
+
+        XCTAssertTrue(second.isAccepted)
+        XCTAssertEqual(second.admission, .alreadyRecorded(existing: first.admission!.record))
+        XCTAssertEqual(intake.discarded, [second.artifact.id])
+        XCTAssertEqual(artifacts.held, [first.artifact.id])
+        XCTAssertTrue(artifacts.staged.isEmpty)
+        let count = await records.count
+        XCTAssertEqual(count, 1)
+    }
+
+    func testImportingDifferentContentOfTheSameApplicationRecordsBoth() async throws {
+        let intake = SyntheticIntake()
+        let useCase = makeUseCase(intake: intake, reader: ImportFixtures.validReader())
+        let first = try await useCase.importArtifact(from: ImportFixtures.sourceURL())
+        intake.nextStagedContent = Data("a rebuilt package with the same declared metadata".utf8)
+
+        let second = try await useCase.importArtifact(from: ImportFixtures.sourceURL())
+
+        guard case .recorded(let record, let relation) = second.admission else {
+            return XCTFail("Expected a recorded admission, got \(String(describing: second.admission))")
+        }
+        XCTAssertEqual(relation, .sameDeclaredVersion([first.admission!.record]))
+        XCTAssertNotEqual(record.id, first.admission!.record.id)
+        XCTAssertTrue(intake.discarded.isEmpty)
+        XCTAssertEqual(artifacts.held, [first.artifact.id, second.artifact.id])
+    }
+
+    func testAdmissionFailureIsTypedAndLeavesNothingStagedOrHeld() async throws {
+        let intake = SyntheticIntake()
+        let useCase = makeUseCase(intake: intake, reader: ImportFixtures.validReader())
+        await records.failInserts(with: ZynSignError.libraryStorageFailure(diagnosticDetail: "synthetic"))
+
+        do {
+            _ = try await useCase.importArtifact(from: ImportFixtures.sourceURL())
+            XCTFail("Expected the admission failure to be thrown.")
+        } catch let error as ZynSignError {
+            XCTAssertEqual(error.category, .storageFailure)
+            XCTAssertEqual(error.userMessage, ZynSignError.libraryStorageFailure().userMessage)
+        }
+
+        XCTAssertEqual(intake.staged.count, 1)
+        XCTAssertEqual(intake.discarded, intake.staged)
+        XCTAssertTrue(artifacts.held.isEmpty)
+        XCTAssertTrue(artifacts.staged.isEmpty)
+        let count = await records.count
+        XCTAssertEqual(count, 0)
     }
 
     // MARK: - Rejected imports
@@ -52,13 +148,20 @@ final class IPAPackageImportTests: XCTestCase {
         let intake = SyntheticIntake()
         let useCase = makeUseCase(intake: intake, reader: ImportFixtures.emptyPayloadReader())
 
-        let artifact = try await useCase.importArtifact(from: ImportFixtures.sourceURL())
+        let result = try await useCase.importArtifact(from: ImportFixtures.sourceURL())
+        let artifact = result.artifact
 
+        XCTAssertFalse(result.isAccepted)
+        XCTAssertNil(result.admission)
         XCTAssertEqual(artifact.state, .invalid)
         XCTAssertFalse(artifact.permitsLaterStages)
         XCTAssertNil(artifact.metadata)
         XCTAssertEqual(artifact.validation?.errors.first?.code, .missingApplicationBundle)
         XCTAssertEqual(intake.discarded, [artifact.id])
+        XCTAssertTrue(artifacts.adopted.isEmpty)
+        XCTAssertTrue(artifacts.staged.isEmpty)
+        let count = await records.count
+        XCTAssertEqual(count, 0)
     }
 
     func testImportWithMalformedMetadataIsRejectedAndDiscarded() async throws {
@@ -66,23 +169,29 @@ final class IPAPackageImportTests: XCTestCase {
         let reader = ImportFixtures.validReader(metadata: Data("not a property list".utf8))
         let useCase = makeUseCase(intake: intake, reader: reader)
 
-        let artifact = try await useCase.importArtifact(from: ImportFixtures.sourceURL())
+        let result = try await useCase.importArtifact(from: ImportFixtures.sourceURL())
+        let artifact = result.artifact
 
+        XCTAssertNil(result.admission)
         XCTAssertEqual(artifact.state, .invalid)
         XCTAssertFalse(artifact.permitsLaterStages)
         XCTAssertEqual(artifact.validation?.errors.first?.code, .unreadableInfoPlist)
         XCTAssertEqual(intake.discarded, [artifact.id])
+        XCTAssertTrue(artifacts.adopted.isEmpty)
     }
 
     func testUnreadableContainerIsRecordedAsRejectionAndDiscarded() async throws {
         let intake = SyntheticIntake()
         let useCase = makeUseCase(intake: intake, reader: ImportFixtures.unreadableReader())
 
-        let artifact = try await useCase.importArtifact(from: ImportFixtures.sourceURL())
+        let result = try await useCase.importArtifact(from: ImportFixtures.sourceURL())
+        let artifact = result.artifact
 
+        XCTAssertNil(result.admission)
         XCTAssertEqual(artifact.state, .invalid)
         XCTAssertEqual(artifact.validation?.errors.first?.code, .unreadableArchive)
         XCTAssertEqual(intake.discarded, [artifact.id])
+        XCTAssertTrue(artifacts.adopted.isEmpty)
     }
 
     // MARK: - File-type policy
@@ -119,8 +228,8 @@ final class IPAPackageImportTests: XCTestCase {
         let intake = SyntheticIntake()
         let useCase = makeUseCase(intake: intake, reader: ImportFixtures.validReader())
 
-        let artifact = try await useCase.importArtifact(from: ImportFixtures.sourceURL(name: "Package.IPA"))
-        XCTAssertTrue(artifact.permitsLaterStages)
+        let result = try await useCase.importArtifact(from: ImportFixtures.sourceURL(name: "Package.IPA"))
+        XCTAssertTrue(result.isAccepted)
         XCTAssertEqual(intake.staged.count, 1)
     }
 
@@ -198,6 +307,10 @@ final class IPAPackageImportTests: XCTestCase {
         if let stagedID = intake.staged.first, let discardedID = intake.discarded.first {
             XCTAssertEqual(stagedID, discardedID)
         }
+        XCTAssertTrue(artifacts.adopted.isEmpty)
+        XCTAssertTrue(artifacts.staged.isEmpty)
+        let count = await records.count
+        XCTAssertEqual(count, 0)
     }
 
     /// A cancelled import must surface as an ordinary cancellation — either

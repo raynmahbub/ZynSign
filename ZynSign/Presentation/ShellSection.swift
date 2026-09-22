@@ -40,9 +40,9 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
     var statusSummary: String {
         switch self {
         case .applications:
-            return "The library of packages brought into ZynSign is not part of this build yet."
+            return "Imported packages are recorded in ZynSign's library and kept across launches. A screen for browsing and managing the library is not part of this build yet."
         case .importPackage:
-            return "Import brings a selected package into ZynSign and reads its structure and declared metadata. A library of imported packages is not part of this build yet."
+            return "Import brings a selected package into ZynSign, reads its structure and declared metadata, and records accepted packages in the library."
         case .signing:
             return "Signing a package with an identity and provisioning profile is not part of this build yet."
         case .settings:

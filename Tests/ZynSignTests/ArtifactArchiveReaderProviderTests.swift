@@ -83,6 +83,34 @@ final class ArtifactArchiveReaderProviderTests: XCTestCase {
         XCTAssertFalse(try reader.readEntryTable().isEmpty)
     }
 
+    func testProviderSearchesDirectoriesInOrderAndFallsBackToLaterOnes() throws {
+        let artifact = try identifier()
+        let first = temporaryDirectory.appendingPathComponent("Library", isDirectory: true)
+        let second = temporaryDirectory.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: first, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+        let fileName = "\(artifact.rawValue).ipa"
+        // The two copies differ in entry count so the resolved one is observable.
+        try Data(ZipFixtureBuilder.archive(ZipFixtureBuilder.validPackage()))
+            .write(to: first.appendingPathComponent(fileName, isDirectory: false))
+        try Data(ZipFixtureBuilder.archive([.directory("Payload")]))
+            .write(to: second.appendingPathComponent(fileName, isDirectory: false))
+
+        let provider = DirectoryArtifactArchiveReaderProvider(directories: [first, second])
+
+        let fromFirst = try provider.archiveReader(for: artifact)
+        openedReaders.append(fromFirst)
+        XCTAssertEqual(try fromFirst.readEntryTable().count, ZipFixtureBuilder.validPackage().count)
+
+        try FileManager.default.removeItem(at: first.appendingPathComponent(fileName, isDirectory: false))
+        let fromSecond = try provider.archiveReader(for: artifact)
+        openedReaders.append(fromSecond)
+        XCTAssertEqual(try fromSecond.readEntryTable().count, 1)
+
+        try FileManager.default.removeItem(at: second.appendingPathComponent(fileName, isDirectory: false))
+        XCTAssertThrowsError(try provider.archiveReader(for: artifact))
+    }
+
     /// End-to-end exercise of the composition root's selection: an artifact
     /// identifier, the directory convention, the ZIP reader, the structural
     /// validator, and the examined artifact.

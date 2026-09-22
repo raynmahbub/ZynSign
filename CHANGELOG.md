@@ -61,13 +61,12 @@ All notable changes to ZynSign will be documented here.
   location named only by the artifact's identifier; security-scoped access
   is acquired for the copy and released on every outcome. Failed, cancelled,
   and rejected imports discard the staged copy; leftovers from a previous
-  process are cleared before the first import of a new process. Nothing is
-  persisted.
+  process are cleared before the first import of a new process.
 - Import use case that composes the existing structural and metadata
   inspection use cases over the staged archive, with an explicit staged-
   archive lifetime: rejected imports' archives are discarded before the
-  result is returned, and an accepted import's archive is released by its
-  owner when the result is dropped or replaced.
+  result is returned, and an accepted import's archive is handed to the
+  library (below), which adopts it or has it discarded.
 - SwiftUI Import area with an explicit phase machine (idle, importing,
   succeeded, failed, cancelled), a success summary of the declared
   application metadata, user-facing rejection explanations composed from
@@ -80,6 +79,49 @@ All notable changes to ZynSign will be documented here.
   behaviour, leftover clearing, cancellation cleanup), the import error
   constructors, and the presentation model's phases and staged-archive
   ownership.
+- Application persistence and library records: a domain `ApplicationRecord`
+  value (stable record identifier, declared identity, executable name,
+  source file name, artifact reference with byte count and SHA-256 content
+  fingerprint, inspection summary, import and last-updated timestamps) that
+  can only be created from a package that passed inspection; an
+  `ApplicationRecordStore` port (insert, update, fetch by identifier, list,
+  delete) implemented as an explicitly versioned JSON catalog (`schemaVersion`
+  1) in the application container's Application Support directory, replaced
+  atomically on every change and failing closed on catalogs it cannot read or
+  that are newer than the build; a `LibraryArtifactStore` port implemented
+  over application-owned artifact storage that adopts an accepted import's
+  staged archive by moving it under its artifact identifier.
+- Library use case that admits accepted imports artifact-first and record-
+  second, removes the adopted artifact again if the record cannot be written,
+  lists records with their artifact's current availability (available,
+  missing, or inconsistent — never repaired or recreated), removes an entry
+  record-first and artifact-second, and detects and removes orphaned
+  artifacts only on request.
+- Deterministic duplicate policy: identical bytes held by an existing record
+  are recognised and not recorded again, whatever the package declares;
+  different bytes are always a new record, with the relation to existing
+  records of the same bundle identifier (other versions, or the same
+  declared version with different content) reported rather than used to
+  replace anything.
+- The import flow now hands accepted packages to the library, so nothing
+  staged survives an import: the archive is adopted into library storage or
+  discarded. The Import area states the library's decision and no longer
+  describes imports as temporary.
+- Tests for the record model and value types, the duplicate policy, the
+  catalog-file record store (CRUD, persistence across store instances,
+  ordering, catalog format, damaged and newer-schema catalogs, write
+  failure), the artifact store (describing, adopting, refusing overwrites,
+  observing, removing, enumerating, readability after adoption), the library
+  use case over in-memory stores (admission outcomes, rollback, orphans,
+  availability, removal), the import flow's library integration, the
+  library error constructors, and an end-to-end persistence lifecycle over
+  the real platform stores in a temporary directory.
+
+### Changed
+
+- Staged imports are no longer retained by the presentation model. An
+  accepted import's archive belongs to the library once recorded; the model
+  owns no storage.
 
 ### Notes
 
@@ -87,5 +129,10 @@ All notable changes to ZynSign will be documented here.
   says nothing about signatures, entitlements, trust, or installability.
 - Extracted metadata is a record of what a bundle's information file declares.
   It makes no claim that the application is signed, genuine, or installable.
+- A library record is not a trust statement. Its fingerprint identifies bytes
+  only; declared metadata remains untrusted; no record is evidence that a
+  package is signed, genuine, or installable. No key material, credentials,
+  certificate bodies, or profile data are persisted.
 - No signing, signature verification, profile parsing, Mach-O inspection,
-  packaging, extraction, or installation functionality exists.
+  packaging, extraction, or installation functionality exists, and no screen
+  for browsing or managing the library exists yet.
