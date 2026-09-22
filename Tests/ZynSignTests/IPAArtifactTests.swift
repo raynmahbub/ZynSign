@@ -26,6 +26,28 @@ final class IPAArtifactTests: XCTestCase {
         )
     }
 
+    private func identity() throws -> ApplicationIdentity {
+        try ApplicationIdentity(
+            bundleIdentifier: "com.example.application",
+            displayName: "Example",
+            shortVersionString: "1.0",
+            buildVersion: "1"
+        )
+    }
+
+    private func metadata() throws -> ApplicationMetadata {
+        ApplicationMetadata(identity: try identity(), executableName: "Example")
+    }
+
+    private func identifiedBundle() throws -> ApplicationBundle {
+        let bundlePath = try XCTUnwrap(ArchivePath(rawValue: "Payload/Example.app"))
+        return try ApplicationBundle(
+            bundlePath: bundlePath,
+            identity: try identity(),
+            executablePath: try XCTUnwrap(ArchivePath(rawValue: "Payload/Example.app/Example"))
+        )
+    }
+
     func testFreshImportStartsUnexamined() throws {
         let artifact = IPAArtifact(id: identifier(), sourceFileName: "Example.ipa")
         XCTAssertEqual(artifact.id, identifier())
@@ -98,5 +120,67 @@ final class IPAArtifactTests: XCTestCase {
         let first = IPAArtifact(id: identifier(), sourceFileName: "Example.ipa")
         let second = IPAArtifact(sourceFileName: "Example.ipa")
         XCTAssertNotEqual(first, second)
+    }
+
+    // MARK: - Metadata examination
+
+    func testFreshImportHasNoMetadata() throws {
+        let artifact = IPAArtifact(id: identifier(), sourceFileName: "Example.ipa")
+        XCTAssertNil(artifact.metadata)
+    }
+
+    func testStructuralExaminationRecordsNoMetadata() throws {
+        let artifact = IPAArtifact(id: identifier())
+        let examined = artifact.examined(bundle: bundle(), validation: ValidationResult.valid())
+        XCTAssertNil(examined.metadata)
+    }
+
+    func testMetadataExaminationRecordsMetadataAndIdentifiedBundle() throws {
+        let artifact = IPAArtifact(id: identifier(), sourceFileName: "Example.ipa")
+        let examined = artifact.examined(bundle: bundle(), validation: ValidationResult.valid())
+        let identified = try identifiedBundle()
+        let updated = examined.metadataExamined(
+            bundle: identified,
+            metadata: try metadata(),
+            validation: ValidationResult.valid()
+        )
+        XCTAssertEqual(updated.state, .inspected)
+        XCTAssertEqual(updated.discoveredBundle, identified)
+        XCTAssertEqual(updated.metadata, metadata())
+        XCTAssertTrue(updated.permitsLaterStages)
+    }
+
+    func testMetadataExaminationFailureInvalidatesArtifact() throws {
+        let artifact = IPAArtifact(id: identifier())
+        let examined = artifact.examined(bundle: bundle(), validation: ValidationResult.valid())
+        let updated = examined.metadataExamined(
+            bundle: bundle(),
+            metadata: nil,
+            validation: ValidationResult.invalid(
+                findings: [
+                    ValidationFinding(
+                        severity: .error,
+                        code: .missingRequiredMetadata,
+                        detail: "synthetic metadata failure detail"
+                    )
+                ]
+            )
+        )
+        XCTAssertEqual(updated.state, .invalid)
+        XCTAssertNil(updated.metadata)
+        XCTAssertFalse(updated.permitsLaterStages)
+        XCTAssertEqual(updated.validation?.errors.map(\.code), [.missingRequiredMetadata])
+    }
+
+    func testMetadataExaminationDoesNotMutateOriginal() throws {
+        let artifact = IPAArtifact(id: identifier())
+        let examined = artifact.examined(bundle: bundle(), validation: ValidationResult.valid())
+        _ = examined.metadataExamined(
+            bundle: try identifiedBundle(),
+            metadata: try metadata(),
+            validation: ValidationResult.valid()
+        )
+        XCTAssertNil(examined.metadata)
+        XCTAssertNil(examined.discoveredBundle?.identity)
     }
 }

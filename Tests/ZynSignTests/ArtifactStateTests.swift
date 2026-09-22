@@ -19,21 +19,26 @@ final class ArtifactStateTests: XCTestCase {
         XCTAssertEqual(Set(names).count, names.count)
     }
 
-    func testOnlyImportedIsNonTerminal() {
+    func testOnlyRejectedArtifactsAreTerminal() {
         XCTAssertFalse(ArtifactState.imported.isTerminal)
-        XCTAssertTrue(ArtifactState.inspected.isTerminal)
+        XCTAssertFalse(ArtifactState.inspected.isTerminal)
         XCTAssertTrue(ArtifactState.invalid.isTerminal)
     }
 
-    func testImportedTransitionsToExaminationOutcomesOnly() {
+    func testImportedTransitionsToStructuralExaminationOutcomesOnly() {
         XCTAssertTrue(ArtifactState.imported.canTransition(to: .inspected))
         XCTAssertTrue(ArtifactState.imported.canTransition(to: .invalid))
         XCTAssertFalse(ArtifactState.imported.canTransition(to: .imported))
     }
 
-    func testExaminationOutcomesAreTerminal() {
+    func testInspectedTransitionsToMetadataExaminationOutcomesOnly() {
+        XCTAssertTrue(ArtifactState.inspected.canTransition(to: .inspected))
+        XCTAssertTrue(ArtifactState.inspected.canTransition(to: .invalid))
+        XCTAssertFalse(ArtifactState.inspected.canTransition(to: .imported))
+    }
+
+    func testRejectedArtifactsTransitionNowhere() {
         for state in ArtifactState.allCases {
-            XCTAssertFalse(ArtifactState.inspected.canTransition(to: state))
             XCTAssertFalse(ArtifactState.invalid.canTransition(to: state))
         }
     }

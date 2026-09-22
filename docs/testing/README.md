@@ -34,6 +34,24 @@ It also has tests for the archive layer:
   unsafe entry names, entry kinds, duplicates, the entry-count policy, bounded
   reads, checksum failure, and reader lifecycle.
 
+It also has tests for the application metadata layer:
+
+- the metadata model: the display-name fallback policy, preservation of
+  declared values, device-family interpretation including unknown values, and
+  value equality;
+- the metadata reader, against property lists generated in memory and written
+  by hand, covering complete and partial metadata, missing required and
+  optional fields, wrong value types, non-dictionary roots, malformed and
+  truncated property lists, unsupported property list formats, unknown keys,
+  and hostile declared values;
+- the metadata inspection use case, including that it reads exactly the
+  bundle's information file, that it closes its reader on every path, that a
+  failed metadata examination invalidates a structurally valid artifact, that
+  declared executables are resolved only when present as regular files, and
+  that foreign failure text is not copied into findings;
+- the extended artifact lifecycle, including the metadata-examination
+  transitions and the updated issue-code set.
+
 Test fixtures are generated programmatically. No binary fixture is committed,
 and no real package, signing material, profile, or certificate appears anywhere
 in the suite. Filesystem-backed tests write only into a temporary directory that
