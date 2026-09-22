@@ -62,13 +62,18 @@ trust-validation boundaries are separated, why PKCS#12 is a separate
 capability, and what platform questions remain unresolved — is recorded in
 Section 7 of [architecture.md](architecture.md).
 
+An experimental secure identity registry and Keychain signing-capability adapter
+now refine that foundation. They remain uncomposed pending physical-device E7
+validation. See the [security design](../security/signing-identities.md) for
+protection semantics, ownership, API evidence, and import limitations.
+
 Everything else is intended structure only. The inspection stage is a partial
 capability: it reads containers, classifies layout, reads one bundle's
 declared metadata, and describes a bundle's structure; it does not verify
 signatures, parse profiles, inspect executables, extract content, or produce
 a package. Library records are kept across launches and are listed,
 imported, browsed, and removed in the Applications area. Certificate parsing
-and identity modeling exist as domain foundation; no signing, verification,
+and identity modeling exist as domain foundation; no application-signing, verification,
 packaging, or installation is implemented. No other workflow behaviour is
 implemented, and no behaviour may be inferred from these documents.
 

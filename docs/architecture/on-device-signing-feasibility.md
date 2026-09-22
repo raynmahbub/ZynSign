@@ -31,6 +31,15 @@ Two separations are load-bearing throughout:
   independent implementation inside the application sandbox. It does not mean
   the operation is implemented, specified, or safe to start building.
 
+### Implementation follow-up: secure identity boundary
+
+The project now targets iOS/iPadOS 17.0. ZS-016 adds an uncomposed experimental
+Keychain adapter and a signature-only capability boundary; see the
+[security design](../security/signing-identities.md). This does not close E1 or
+E7, does not establish PKCS#12 compatibility, and does not supersede Section
+16.2's physical-device gate for production identity storage. Historical research
+assumptions below remain recorded as originally investigated.
+
 ## 2. Product and Runtime Assumptions
 
 The following assumptions frame every conclusion below.

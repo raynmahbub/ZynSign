@@ -14,11 +14,12 @@ not expose private-key bytes, a distinct signing-identity model, an
 identity-store boundary, and a certificate parser behind the
 `CertificateParser` port. Metadata is read by a bounded DER reader.
 `SecCertificateCopyValues` is not available on iOS and is not used.
-There is no signing implementation, no key handling beyond the capability
-abstraction, no credential storage, no provisioning profile processing, no
-PKCS#12 import, and no device communication. The security boundaries for
-private-key material, certificate parsing as untrusted input, and raw
-certificate bytes ownership are established in
+An experimental Keychain registry/resolver and explicit signature primitive now
+exist, without production composition or UI. They use existing protected keys;
+there is no key import, application-signing engine, provisioning profile processing,
+or device communication. Production activation remains gated by experiment E7.
+The security boundaries for private-key material, certificate parsing as
+untrusted input, and raw certificate bytes ownership are established in
 [architecture.md](../architecture/architecture.md) Section 7. Nothing else
 here should be read as describing implemented signing behaviour.
 
@@ -53,4 +54,5 @@ built, not before:
 
 ## Index
 
-No documents yet.
+- [signing-identities.md](signing-identities.md) — capability boundary, experimental
+  Keychain ownership/protection, platform evidence, and validation gates.
