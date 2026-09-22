@@ -4,9 +4,18 @@
 
 Establish the technical facts, constraints, and unresolved questions needed before ZynSign's application architecture is designed. This document describes future capabilities only; none of the parsing, signing, packaging, or installation behavior described here is implemented.
 
+## Relationship to the Architecture Document
+
+ZynSign's product runtime is iOS and iPadOS, as set out in [architecture.md](architecture.md). This document is the findings record that feeds that architecture; where the two disagree on a platform question, the architecture document is authoritative.
+
+Two consequences apply throughout the findings below:
+
+- Capabilities described here are capabilities of the product's own runtime. The availability of an equivalent capability on a desktop operating system does not establish that it is available to a sandboxed iOS/iPadOS application, and nothing in this document should be read as claiming otherwise.
+- macOS and Xcode appear in this document only as developer-side tooling: for generating controlled fixtures, for independently inspecting and validating artifacts, and for compatibility experiments. They are not part of the product runtime, and no workflow may depend on them at run time.
+
 ## Scope
 
-The scope is inspection and eventual preparation of iOS application packages, together with the signing material and platform services those workflows may require. Findings are classified as **Verified**, **Observed**, **Inferred**, or **Unknown**. A classification applies to the statement it follows, not to an entire section.
+The scope is inspection and eventual preparation of iOS application packages, together with the signing material and platform services those workflows may require. Findings are classified as **Verified**, **Observed**, **Inferred**, or **Unknown**, with **Unresolved** and **Requires feasibility research** used where a finding depends on iOS/iPadOS platform behavior that has not been established. A classification applies to the statement it follows, not to an entire section.
 
 ## IPA Structure
 
@@ -64,10 +73,11 @@ Required validation stages are:
 ## Certificates and Signing Identities
 
 - **Verified:** A signing certificate contains a public key and is signed by an issuer; the corresponding private key is required to create signatures. Possession of a certificate alone does not provide the private key.
-- **Verified:** A signing identity is an operational pairing of a certificate and an available matching private key, normally resolved through a keychain and security APIs.
+- **Verified:** A signing identity is an operational pairing of a certificate and an available matching private key, resolved through the platform's protected key storage and certificate APIs.
 - **Verified:** Relevant certificate metadata includes subject and issuer, serial number, validity interval, public-key algorithm and size, key-usage or extended-key-usage information, and chain information.
 - **Inferred:** ZynSign should represent certificate inspection, identity resolution, and signing authorization as separate operations. Expiration, trust, revocation status, team association, and private-key availability must be reported independently.
 - **Unknown:** The supported identity types, certificate-chain policy, UI for identity selection, and whether any signing operation will be permitted by the first release are not decided.
+- **Unresolved:** Whether code-signing identity material can be imported, stored, and used for signing by an iOS/iPadOS application at all, and which platform mechanism would provide that capability, is not established. Key storage and access control on iOS/iPadOS differ from macOS, and the differences must be researched before any identity workflow is designed. Certificate parsing and chain interpretation are subject to the same reservation.
 
 No real credentials, certificates, private keys, or keychain items are to be accessed or created during discovery.
 
@@ -77,7 +87,8 @@ No real credentials, certificates, private keys, or keychain items are to be acc
 - **Verified:** Relevant fields include the application identifier, team identifier, bundle identifier relationship, entitlements, profile UUID/name, creation and expiration dates, and development/distribution indicators. Device identifiers may be present for device-bound development or ad hoc profiles.
 - **Verified:** The application identifier commonly combines a team identifier with a bundle identifier pattern. The effective application bundle identifier and profile authorization must be compared rather than displayed independently.
 - **Inferred:** Compatibility evaluation must consider bundle identifier, entitlements, certificate/identity, platform, profile type, expiration, and device authorization where applicable. Entitlements should be treated as constrained authorization data, not arbitrary application metadata.
-- **Unknown:** The exact profile types, entitlement allowlist, platform versions, and distribution workflows ZynSign will support require later macOS/Xcode testing and product decisions.
+- **Unknown:** The exact profile types, entitlement allowlist, platform versions, and distribution workflows ZynSign will support require later platform research and product decisions.
+- **Unresolved:** A provisioning profile is signed structured data. Interpreting its contents and validating the container signature are separate problems, and on-device support for either — in particular signed-data encoding and decoding, for which no documented iOS/iPadOS equivalent has been confirmed — must be established before profile handling is designed.
 
 Provisioning-profile parsing is outside this phase; no profile is opened or modified here.
 
@@ -88,7 +99,9 @@ Provisioning-profile parsing is outside this phase; no profile is opened or modi
 - **Verified:** Code signing is not equivalent to checking that a file exists. Verification must account for the executable format, signature structure, hashes, certificate chain, requirements, entitlements, and platform policy.
 - **Verified:** Bundle resource sealing is represented separately from the executable's embedded signature; `_CodeSignature/CodeResources` is relevant when resources are signed.
 - **Inferred:** A future signing pipeline will need explicit policies for hash algorithms, requirements, entitlements, certificate selection, profile compatibility, and preservation or replacement of existing signatures.
-- **Unknown:** The precise supported Mach-O architectures, signature versions, entitlement rules, and verification behavior must be confirmed against the target macOS toolchain and Apple platform behavior.
+- **Unresolved:** No assumptions may be made about which signing-related cryptographic operations are available to an iOS/iPadOS application. Digest and signature primitives, key types and attributes, and the usable algorithm set must each be established for the product's own runtime rather than inferred from another Apple platform.
+- **Unresolved:** Signed-data (CMS/PKCS#7) construction is a specific concern. Apple's signed-data encoding and decoding services are documented for macOS and are not documented for iOS; whether a supported on-device equivalent exists, and what would be used in its place if not, is unresolved.
+- **Unknown:** The precise supported Mach-O architectures, signature versions, entitlement rules, and verification behavior must be confirmed against the target iOS/iPadOS deployment target and the behavior of the platform that evaluates signed content.
 
 Additional research is required for fat/universal Mach-O handling, arm64 variants, code-directory versions, special slots, designated requirements, library validation, detached signatures, and how each platform evaluates nested signatures. No signing or signature verification is implemented in this phase.
 
@@ -97,7 +110,7 @@ Additional research is required for fat/universal Mach-O handling, arm64 variant
 Potential code-bearing nested components include frameworks, dynamic libraries, app extensions, plug-ins, nested applications, and other signed bundles. Each may have its own executable, bundle metadata, resource seal, and signature.
 
 - **Verified:** An outer application can depend on nested code, so changing or replacing nested content can invalidate its signature or its resource seal.
-- **Inferred:** A future traversal must identify nested code deterministically, establish dependency relationships, and process innermost dependencies before containers. The exact traversal order and exceptions require validation with real signed packages and Apple tooling.
+- **Inferred:** A future traversal must identify nested code deterministically, establish dependency relationships, and process innermost dependencies before containers. The exact traversal order and exceptions require validation with real signed packages; developer-side Apple tooling may be used as a reference for generating and inspecting such fixtures, but it is not part of the product runtime.
 - **Unknown:** The complete set of supported nested-code locations and platform-specific signing rules is not established.
 
 No signing traversal is implemented.
@@ -116,17 +129,18 @@ A future repackaging workflow will need to:
 
 - **Verified:** Rebuilding a ZIP is not a byte-preserving operation. ZIP entry names, permissions, compression, timestamps, directory entries, and ordering can change.
 - **Inferred:** Metadata preservation must be policy-driven. Keeping stale signatures after content changes is unsafe; deleting signature material without a complete replacement produces an unsigned or invalid artifact.
-- **Unknown:** Required archive layout, permission policy, reproducibility requirements, and supported preservation of extended attributes require macOS testing and product decisions.
+- **Unknown:** Required archive layout, permission policy, reproducibility requirements, and supported preservation of extended attributes require iOS/iPadOS feasibility research — including what the application sandbox and the available archive capabilities permit — together with product decisions.
 
 No extraction, modification, signature removal, signing, or archive rebuilding is implemented.
 
 ## Installation
 
-Before installation functionality is designed, ZynSign must establish which mechanisms and targets are supported, how device communication is performed, and what authorization is required.
+Before installation functionality is designed, ZynSign must establish which mechanisms and targets are supported, how a signed artifact reaches a device, and what authorization is required. Installation is a separate capability boundary from signing: producing a validly signed package does not establish that the package can be installed, or that it can be installed on the device ZynSign itself is running on.
 
 - **Verified:** Installation suitability depends on platform policy, a compatible signed application, provisioning and entitlement constraints, device state, and a trust relationship or authorization path.
-- **Inferred:** Developer-mode requirements, device pairing, developer authorization, OS compatibility, transport, and failure reporting are platform- and workflow-specific and cannot be inferred from IPA structure alone.
-- **Unknown:** Supported devices, macOS APIs or tools, transport mechanisms, authorization UX, and whether installation is in scope for an initial release are undecided.
+- **Inferred:** Developer-mode requirements, device authorization, OS compatibility, transport, and failure reporting are platform- and workflow-specific and cannot be inferred from IPA structure alone.
+- **Unresolved:** No public, application-facing mechanism is known through which a sandboxed iOS/iPadOS application installs an IPA onto its own device. The candidate mechanisms sit outside the application — managed-device installation on managed or supervised devices, over-the-air installation through a manifest served over HTTPS with explicit user confirmation, and host-based developer tooling that is not part of the product runtime. Each requires an authorization, a managed relationship, or a user action that ZynSign cannot supply by itself.
+- **Unknown:** Which of those mechanisms, if any, fits the product; what authorization and user-consent model applies; and whether installation is in scope for an initial release are undecided.
 
 ZynSign currently does not support installation. No device communication, authorization, simulator, or installation testing is performed here.
 
@@ -151,28 +165,28 @@ Future security requirements should include:
 
 ## Platform Constraints
 
-- **Verified:** Swift and Foundation are appropriate candidates for pure data models, plist handling, path logic, diagnostics, and policy code, subject to platform availability.
+- **Verified:** Swift and Foundation are appropriate candidates for pure data models, plist handling, path logic, diagnostics, and policy code, subject to platform availability on the deployment target.
 - **Verified:** SwiftUI is a UI framework and should not be the boundary for archive parsing, validation, or signing policy.
-- **Verified:** The Security framework and Keychain Services are the relevant platform areas for certificate, identity, private-key, and protected-secret access; their behavior is macOS-specific and permission-sensitive.
-- **Inferred:** Filesystem and archive handling should use controlled URLs and explicit security policy. The eventual archive implementation must define support for ZIP features, symlinks, permissions, malformed entries, and resource limits.
-- **Unknown:** The available system archive APIs, required third-party dependencies (if any), and their behavior across supported macOS versions are not established.
-- **Unknown:** Device communication APIs, developer-mode behavior, installation tooling, and platform restrictions must be validated on actual supported macOS and device combinations.
+- **Requires feasibility research:** The Security framework and Keychain Services are the relevant platform areas for certificate, identity, private-key, and protected-secret access, but their iOS/iPadOS behavior has not been verified for the operations ZynSign needs. Availability, access control, protection classes, key attributes, import restrictions, and per-use authorization each differ from macOS and must be established rather than assumed.
+- **Inferred:** Filesystem and archive handling should use controlled URLs and explicit security policy inside the application sandbox. The eventual archive implementation must define support for ZIP features, symlinks, permissions, malformed entries, and resource limits, and must account for user-selected document access rather than unrestricted filesystem access.
+- **Unknown:** The available system archive APIs, required third-party dependencies (if any), and their behavior across supported iOS/iPadOS deployment targets are not established.
+- **Unknown:** Device communication mechanisms, developer-mode behavior, installation tooling, and platform restrictions must be validated on actual supported device and OS combinations.
 
-Actual macOS/Xcode testing is required for Security framework and keychain behavior, Mach-O and signing-tool interoperability, archive permissions and extended attributes, Swift/SwiftUI deployment targets, and every device or installation workflow. No such testing is expected or performed in Phase 0.
+Platform research on iOS/iPadOS is required for key storage and access behavior, the availability of the cryptographic primitives the signing formats need, archive capability and filesystem metadata fidelity, and the deployment target itself. macOS and Xcode may be used alongside that research for developer-side fixture generation and independent artifact inspection, which is not the same as proving on-device capability. No such testing is expected or performed in Phase 0.
 
 ## Architecture Implications
 
 - Define domain models for archive entries, application bundles, metadata, nested code, certificates, profiles, diagnostics, validation results, and signed artifacts. Keep raw values and normalized values distinguishable.
 - Put ZIP access, plist decoding, bundle discovery, Mach-O inspection, profile inspection, and certificate inspection behind narrow parsing boundaries that accept untrusted input and return diagnostics.
 - Keep structural validation, metadata validation, signing compatibility, signature verification, and installation readiness as separate boundaries with explicit Valid, Invalid, Unsupported, and Ambiguous outcomes.
-- Isolate keychain, Security framework, signing tools, filesystem extraction, and device communication behind platform-specific adapters. Keep policy and most transformations in testable pure Swift.
+- Isolate key storage and access, certificate and profile services, filesystem and document access, temporary storage, and device integration behind platform-specific adapters that implement ports declared by the layers that consume them. Keep policy and most transformations in testable pure Swift. Developer-side desktop tooling is not an adapter and does not appear in the runtime layer model.
 - Treat temporary extraction and artifact storage as controlled services with cleanup, permissions, retention, and cancellation semantics.
 - Make nested-code discovery deterministic and preserve enough provenance to explain signing-order and dependency decisions.
-- Reserve macOS/Xcode/device integration tests for behavior that cannot be established with fixture-based pure-Swift tests.
+- Reserve physical-device and simulator tests for behavior that cannot be established with fixture-based pure tests, and gate any test of a capability on that capability having been verified as available. Developer-side macOS/Xcode tooling is used to generate fixtures and inspect artifacts; it is not a substitute for product testing.
 
 ## Open Questions
 
-1. Which macOS versions and device OS versions are in the supported target matrix?
+1. Which iOS/iPadOS versions are in the supported target matrix, and therefore which platform capabilities are available?
 2. Is ZynSign intended to inspect only, or will a later release produce signed and installable artifacts?
 3. Which IPA layouts, ZIP features, symlinks, permissions, and archive limits are supported?
 4. What is the policy when multiple application bundles or nested applications are present?
@@ -183,7 +197,10 @@ Actual macOS/Xcode testing is required for Security framework and keychain behav
 9. Which archive metadata and filesystem attributes must be preserved when repackaging?
 10. What installation mechanisms, device transports, developer-mode states, and authorization flows are in scope?
 11. What is the threat model, retention policy, and cleanup guarantee for imported files, temporary data, logs, profiles, and signed artifacts?
-12. Which behaviors require Apple tooling or real macOS/device fixtures rather than portable unit tests?
+12. Which behaviors require physical-device or simulator execution rather than portable unit tests, and which fixtures must be produced with developer-side tooling?
+13. Which cryptographic primitives needed by the signing formats are usable from an iOS/iPadOS application, and how is signed-data construction handled if no supported on-device encoder exists?
+14. Can code-signing identity material be imported, protected, and used on-device, and under what access control?
+15. Is on-device installation of a produced artifact possible at all through supported means, and if so, what authorization and consent model applies?
 
 ## Non-Goals
 
