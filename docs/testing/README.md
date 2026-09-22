@@ -134,6 +134,69 @@ It also has tests for application persistence and library records:
   rather than recreated; stray artifacts detected and removed on request;
   and a rejected package leaving no record and no artifact.
 
+It also has tests for bundle inspection and the bundle explorer:
+
+- bundle paths: the root, single and nested components, case, spaces, and
+  Unicode preserved, a tolerated trailing separator, agreement between the
+  component and textual constructors, refusal of absolute locations,
+  traversal and dot components, empty components, separators inside
+  components, backslashes, NUL bytes, and over-long paths, dot-prefixed names
+  as ordinary names, strict containment, validated appending, and derivation
+  of bundle-relative locations from archive locations with everything
+  outside the bundle refused;
+- bundle contents, over synthetic entry tables and no reader at all: empty,
+  single-file, nested, and multi-level bundles; directories the container
+  did not record implied from the entries beneath them; empty directories
+  answering empty and unknown or non-directory locations answering nothing;
+  ordering with directories first and then by name, identical for forward,
+  reversed, and shuffled tables; only entries strictly inside the bundle
+  included, with the bundle directory itself, the payload directory, sibling
+  and look-alike bundles, and package-level files excluded; every listed
+  location relative, inside the root, and parented correctly; entries with
+  unsafe names counted rather than listed; the first recorded entry kept for
+  a duplicated location; links and unsupported entries listed with their
+  kind, without a size, and not descended into; declared sizes carried for
+  regular files only, including sizes near the integer maximum with a
+  saturating total; unusual names carried verbatim; labels on conventional
+  locations in a fixed order, absent locations simply absent, the executable
+  labelled from the declared name only, and labels requiring the
+  conventional depth, kind, and exact name; value equality and hashing;
+- the label vocabulary: recognition rules for root-level files and
+  directories and the code-signature resource record, exact-name matching,
+  the required kind and depth, the executable's dependence on a declared
+  name, distinct non-empty text for every label, no affirmative trust
+  claims, and explicit statements of what the security-sensitive labels do
+  not establish;
+- the bundle inspection error constructors: honest categories, distinct
+  non-empty user messages free of detail, cause, trust claims, and
+  locations, and preserved diagnostics;
+- the bundle inspection use case, over the real library use case with
+  in-memory stores and a synthetic archive boundary: the described bundle
+  with the reader closed and no content requested; no content requested
+  however large the declared files; the executable labelled from the
+  record's declared name; an empty bundle described as empty; a missing
+  record, a missing artifact, and an inconsistent artifact each reported
+  without any package being opened; a typed open failure passing through
+  and a foreign one normalised without its text; an unreadable entry table
+  reported with the reader closed; packages without an application bundle
+  and with several reported with their categories; cancellation honoured
+  before the package is opened; and a synthetic container — with a deflated
+  file, nested directories, Unicode and long names, a symbolic link, an
+  empty directory, an undecodable name, and a package-level file — read
+  through the real artifact store and archive-reader provider in a
+  temporary directory;
+- the explorer presentation model and display mappings: the loading phase
+  until the package is read; loaded, empty, and failed phases with the
+  typed messages; retry after a failure reading the package again; loading
+  again once content or an empty bundle is on screen reading nothing;
+  overlapping loads reading the package once; foreign errors never rendered
+  verbatim; the detail screen offering the explorer only for an available
+  package; row content for directories, files, links, unsupported entries,
+  and long or unusual names; root and nested listing content including
+  notable entries, headers, locations, item counts, and the note on
+  entries that could not be listed; and entry-detail content including the
+  statements of what the explorer does not do with each kind.
+
 Test fixtures are generated programmatically. No binary fixture is committed,
 and no real package, signing material, profile, or certificate appears anywhere
 in the suite. Filesystem-backed tests write only into a temporary directory that

@@ -19,7 +19,7 @@ struct SettingsView: View {
                     LabeledContent("Version", value: versionText)
                 }
                 Section("Capabilities") {
-                    Text("This build can import a package you select, read its structure and the metadata its application declares, and keep accepted packages in its library across launches. The Applications area lists the library, imports new packages, and deletes entries together with their package files. Signing, verification, packaging, and installation are not implemented.")
+                    Text("This build can import a package you select, read its structure and the metadata its application declares, and keep accepted packages in its library across launches. The Applications area lists the library, imports new packages, shows the files and folders inside each application bundle without opening them, and deletes entries together with their package files. Signing, verification, packaging, and installation are not implemented.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

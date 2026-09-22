@@ -10,9 +10,10 @@ import Foundation
 ///
 /// The environment carries the application's own descriptive information,
 /// the package-import use case coordinated by the Import area, and the
-/// library use case coordinated by the Applications area. Future use cases
-/// — signing — will be constructed by the composition root and surfaced
-/// here, which keeps dependency substitution and testing straightforward.
+/// library and bundle-inspection use cases coordinated by the Applications
+/// area. Future use cases — signing — will be constructed by the
+/// composition root and surfaced here, which keeps dependency substitution
+/// and testing straightforward.
 struct ApplicationEnvironment {
     /// Facts about the running application, shown by the shell.
     let applicationInfo: ApplicationInfo
@@ -23,4 +24,8 @@ struct ApplicationEnvironment {
     /// The library use case: lists, admits, and removes the application
     /// records behind the Applications area.
     let library: ApplicationLibrary
+
+    /// The bundle contents inspection use case: describes, read-only, the
+    /// structure of a library application's bundle for the explorer.
+    let bundleInspection: IPABundleContentsInspection
 }

@@ -35,19 +35,26 @@ bytes it refers to; it is not a trust statement. The **Applications area**
 lists the library: it shows each record's declared metadata and the current
 state of its package file, imports another package through the same
 document-import workflow, and deletes a record together with the package file
-behind it. It makes no claim that any application is signed, trusted, or
-installable: no signing, verification, packaging, or installation exists. No
-released build exists.
+behind it. From a record's detail screen, the **bundle explorer** lists the
+files and folders inside the application bundle — names, locations relative to
+the bundle, kinds, and the sizes the package declares — read from the
+package's own entry table. It is read-only: nothing is extracted, opened,
+hashed, or parsed, symbolic links are listed but never followed, and the
+labels it puts on conventional locations such as `Info.plist` or
+`_CodeSignature` describe what is usually found there and nothing more. It
+makes no claim that any application is signed, trusted, or installable: no
+signing, verification, packaging, or installation exists. No released build
+exists.
 
 | Area | State |
 | --- | --- |
-| Source code | Shell UI, composition root, domain types, archive layer, inspection use cases, document-import workflow, library records and persistence, Applications library screen |
+| Source code | Shell UI, composition root, domain types, archive layer, inspection use cases, document-import workflow, library records and persistence, Applications library screen, bundle explorer |
 | Build system / project file | Xcode project (`ZynSign.xcodeproj`): application target plus unit-test target |
-| Automated tests | Unit and fixture-based tests for the domain foundation, the archive layer, the import workflow, its presentation model, the library's persistence, and the library screen's presentation model, written to run with Xcode's test runner |
+| Automated tests | Unit and fixture-based tests for the domain foundation, the archive layer, the import workflow, its presentation model, the library's persistence, the library screen's presentation model, and the bundle explorer's domain, use case, and presentation model, written to run with Xcode's test runner |
 | Dependencies | None — Apple frameworks and the Swift standard library only |
 | Import | Partial: document selection, security-scoped staging into temporary storage, archive validation, declared-metadata extraction, library admission |
-| Library | Partial: durable records for accepted imports, application-owned artifact storage, content-based duplicate recognition, missing-artifact detection, an Applications screen that lists, imports, and deletes records. No repair or replacement of missing artifacts |
-| Inspection | Partial: archive reading, application-bundle discovery, structural validation, declared metadata. No signature examination |
+| Library | Partial: durable records for accepted imports, application-owned artifact storage, content-based duplicate recognition, missing-artifact detection, an Applications screen that lists, imports, and deletes records and opens a read-only explorer of each available package's application bundle. No repair or replacement of missing artifacts |
+| Inspection | Partial: archive reading, application-bundle discovery, structural validation, declared metadata, read-only bundle structure listing. No signature examination, no file content access |
 | Signing, verification, packaging, installation | Not started |
 | Releases | None |
 
