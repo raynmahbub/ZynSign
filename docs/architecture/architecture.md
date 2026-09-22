@@ -6,16 +6,21 @@ This document defines the architecture of ZynSign: the platform it runs on, the
 layers and boundaries the application is organised into, the decisions that are
 settled, and the capabilities that are not yet established.
 
-Two implementation increments exist. The first is an Xcode application target
-with a SwiftUI application shell, a composition root, a minimal pure domain
-layer, and a unit-test target; it establishes the layer boundaries of Section 4
-and no workflow capability. The second adds the archive-reading layer the
-inspection stage depends on: bounded ZIP container reading behind the
-`ArchiveReader` boundary, application-bundle discovery, structural validation of
-a package's layout, and their tests. Structural inspection is therefore the
-first capability with an implementation, and it is a partial one — it reads
-containers and classifies layout, and it does not read bundle metadata, parse
-plists, verify signatures, extract content, or produce a package.
+Three implementation increments exist. The first is an Xcode application
+target with a SwiftUI application shell, a composition root, a minimal pure
+domain layer, and a unit-test target; it establishes the layer boundaries of
+Section 4 and no workflow capability. The second adds the archive-reading
+layer the inspection stage depends on: bounded ZIP container reading behind
+the `ArchiveReader` boundary, application-bundle discovery, structural
+validation of a package's layout, and their tests. The third adds the
+application metadata layer: a pure domain reader that extracts and validates
+the metadata a bundle declares in its bundle information file, an
+application-layer use case that reads that one entry through the archive
+boundary for an established bundle and records the outcome on the artifact,
+and their tests. The inspection stage is therefore a partial capability: it
+reads containers, classifies layout, and reads one bundle's declared metadata,
+and it does not verify signatures, parse profiles, inspect executables,
+extract content, or produce a package.
 
 Nothing else in this document is a claim that any behaviour works. Every
 feasibility boundary in Section 6 remains open except where noted here, and the
@@ -439,7 +444,7 @@ carried forward from Section 6.
 | Port | Boundary it marks | Declared in | Required for testing | iOS-specific | Feasibility |
 | --- | --- | --- | --- | --- | --- |
 | `ArchiveReader` | Untrusted container input, behind which parsing, limits, and content access live | Domain | Yes — substitutable with synthetic fixtures | Implementation is platform-dependent | **Reading implemented** for ZIP containers (Section 9); extraction remains Unresolved |
-| `PlistDecoder` | Parsing of untrusted structured data with typed diagnostics | Domain | Yes | No — not platform-specific in principle | Accepted as a boundary; implementation Unresolved |
+| `PlistDecoder` | Parsing of untrusted structured data with typed diagnostics | Domain | Yes | No — not platform-specific in principle | Examined during the metadata increment: the platform property-list API is total and deterministic, so parsing lives inside the metadata reader in Domain, tested through its bytes. A separate port is introduced only if parsing becomes platform-bound or needs substitution |
 | `ProfileParser` | Interpretation of provisioning-profile data as authorization input | Domain | Yes | Container validation likely platform-dependent | Requires feasibility research (item 8) |
 | `IdentityStore` | Resolution and presentation of available signing identities and their status | Application | Yes | Yes — key access is platform-bound | Requires feasibility research (items 2, 16) |
 | `SigningEngine` | The single place where signing happens, and the only consumer of usable key material | Domain | Yes — a stub engine keeps orchestration testable | Yes | Requires feasibility research (items 1–7, 9, 10) |

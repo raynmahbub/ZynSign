@@ -34,10 +34,29 @@ All notable changes to ZynSign will be documented here.
 - Tests covering entry validation, the resource policy, bundle discovery,
   structural validation, the inspection use case, and the ZIP reader against
   programmatically generated containers.
+- Application metadata layer: a strongly typed domain model for the metadata a
+  bundle declares in its bundle information file (bundle identifier, display
+  name with a deterministic fallback, version and build strings, executable
+  name, minimum OS version, device families, and icon name), a pure domain
+  reader that extracts and validates it with structured, deterministic
+  failures, and an application-layer use case that reads the one information
+  file entry for an established bundle and records the outcome on the
+  artifact.
+- Metadata extraction: bundle identifier is required; name, version, build,
+  executable, and supplementary values are optional and preserved exactly as
+  declared. Malformed property lists, non-dictionary roots, wrong value types,
+  missing required fields, and unsupported property list formats fail with
+  typed findings rather than by guessing. Unknown keys are ignored, and the
+  declared executable is resolved only when present as a regular file.
+- Tests covering the metadata model, the metadata reader (valid, missing,
+  mistyped, malformed, hostile, and unsupported inputs), the metadata
+  inspection use case, and the extended artifact lifecycle.
 
 ### Notes
 
 - Structural validity is not cryptographic validity. A `valid` structural outcome
   says nothing about signatures, entitlements, trust, or installability.
-- No signing, bundle-metadata inspection, signature verification, packaging,
-  extraction, or installation functionality exists.
+- Extracted metadata is a record of what a bundle's information file declares.
+  It makes no claim that the application is signed, genuine, or installable.
+- No signing, signature verification, profile parsing, Mach-O inspection,
+  packaging, extraction, or installation functionality exists.

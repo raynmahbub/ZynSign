@@ -109,7 +109,7 @@ final class ValidationResultTests: XCTestCase {
             switch code {
             case .multipleApplicationBundles:
                 XCTAssertEqual(code.category, .ambiguousInput)
-            case .unsupportedArchiveFeature:
+            case .unsupportedArchiveFeature, .resourceLimitExceeded, .unsupportedMetadataFormat:
                 XCTAssertEqual(code.category, .unsupportedInput)
             default:
                 XCTAssertEqual(code.category, .invalidInput, "\(code.rawValue) must report invalid input.")
@@ -118,7 +118,7 @@ final class ValidationResultTests: XCTestCase {
     }
 
     func testIssueCodesAreStable() {
-        XCTAssertEqual(ValidationIssueCode.allCases.count, 12)
+        XCTAssertEqual(ValidationIssueCode.allCases.count, 15)
         XCTAssertEqual(
             Set(ValidationIssueCode.allCases.map(\.rawValue)),
             [
@@ -131,9 +131,12 @@ final class ValidationResultTests: XCTestCase {
                 "missingInfoPlist",
                 "unreadableInfoPlist",
                 "malformedMetadata",
+                "missingRequiredMetadata",
+                "unsupportedMetadataFormat",
                 "inconsistentMetadata",
                 "missingExecutable",
                 "unsupportedArchiveFeature",
+                "resourceLimitExceeded",
             ]
         )
     }

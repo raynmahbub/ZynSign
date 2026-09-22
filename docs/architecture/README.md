@@ -10,13 +10,18 @@ establishes the layer boundaries the architecture describes. The archive layer
 the inspection stage depends on has since been added — bounded ZIP container
 reading behind the `ArchiveReader` boundary, application-bundle discovery, and
 structural validation of a package's layout — and its decision is recorded in
-Section 9 of [architecture.md](architecture.md).
+Section 9 of [architecture.md](architecture.md). The application metadata layer
+has also been added — extraction and validation of the metadata a bundle
+declares in its bundle information file, behind a pure domain reader and an
+application-layer use case — and the decision to parse property lists inside
+the metadata reader rather than behind a `PlistDecoder` port is recorded in
+Section 11 of [architecture.md](architecture.md).
 
-Everything else is intended structure only. Structural inspection is a partial
-capability: it reads containers and classifies layout, and it does not read
-bundle metadata, parse plists, verify signatures, extract content, or produce a
-package. No other workflow behaviour is implemented, and no behaviour may be
-inferred from these documents.
+Everything else is intended structure only. The inspection stage is a partial
+capability: it reads containers, classifies layout, and reads one bundle's
+declared metadata; it does not verify signatures, parse profiles, inspect
+executables, extract content, or produce a package. No other workflow behaviour
+is implemented, and no behaviour may be inferred from these documents.
 
 ## Index
 

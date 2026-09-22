@@ -47,4 +47,24 @@ enum CompositionRoot {
             limits: limits
         )
     }
+
+    /// Builds the bundle metadata inspection use case, selecting the
+    /// concrete archive implementation.
+    ///
+    /// It reads the bundle's information file from the same storage
+    /// convention as structural inspection and applies the same resource
+    /// policy, so the two halves of the inspection stage stay consistent
+    /// when the composition root is the only place that changes them.
+    static func makeBundleMetadataInspection(
+        artifactDirectory: URL,
+        limits: ArchiveLimits = .default
+    ) -> IPABundleMetadataInspection {
+        IPABundleMetadataInspection(
+            readerProvider: DirectoryArtifactArchiveReaderProvider(
+                directory: artifactDirectory,
+                limits: limits
+            ),
+            limits: limits
+        )
+    }
 }
