@@ -67,14 +67,24 @@ now refine that foundation. They remain uncomposed pending physical-device E7
 validation. See the [security design](../security/signing-identities.md) for
 protection semantics, ownership, API evidence, and import limitations.
 
-Everything else is intended structure only. The inspection stage is a partial
-capability: it reads containers, classifies layout, reads one bundle's
+The provisioning-profile parsing increment now adds a bounded raw-input and
+CMS-decoder port, a decoded-payload property-list parser, typed entitlement and
+metadata values, injected-clock period validation, and an application-layer
+inspection use case. It intentionally does not unwrap or verify CMS, inspect an
+embedded profile through the archive workflow, authorize entitlements, or
+persist profile data. The decision is recorded in Section 7 of
+[architecture.md](architecture.md).
+
+Everything else is intended structure only. The archive inspection stage is a
+partial capability: it reads containers, classifies layout, reads one bundle's
 declared metadata, and describes a bundle's structure; it does not verify
-signatures, parse profiles, inspect executables, extract content, or produce
-a package. Library records are kept across launches and are listed,
-imported, browsed, and removed in the Applications area. Certificate parsing
-and identity modeling exist as domain foundation; no application-signing, verification,
-packaging, or installation is implemented. No other workflow behaviour is
+signatures, inspect executables, extract content, or produce a package. The
+separate profile payload pipeline can parse decoded profile metadata, but it
+does not establish authenticity or authorization. Library records are kept
+across launches and are listed, imported, browsed, and removed in the
+Applications area. Certificate parsing and identity modeling exist as domain
+foundation; no application-signing, verification, packaging, or installation is
+implemented. No other workflow behaviour is
 implemented, and no behaviour may be inferred from these documents.
 
 ## Index

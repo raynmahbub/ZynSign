@@ -88,9 +88,9 @@ No real credentials, certificates, private keys, or keychain items are to be acc
 - **Verified:** The application identifier commonly combines a team identifier with a bundle identifier pattern. The effective application bundle identifier and profile authorization must be compared rather than displayed independently.
 - **Inferred:** Compatibility evaluation must consider bundle identifier, entitlements, certificate/identity, platform, profile type, expiration, and device authorization where applicable. Entitlements should be treated as constrained authorization data, not arbitrary application metadata.
 - **Unknown:** The exact profile types, entitlement allowlist, platform versions, and distribution workflows ZynSign will support require later platform research and product decisions.
-- **Unresolved:** A provisioning profile is signed structured data. Interpreting its contents and validating the container signature are separate problems, and on-device support for either — in particular signed-data encoding and decoding, for which no documented iOS/iPadOS equivalent has been confirmed — must be established before profile handling is designed.
+- **Unresolved:** A provisioning profile is signed structured data. Interpreting its contents and validating the container signature are separate problems, and on-device support for CMS signed-data handling — for which no documented iOS/iPadOS equivalent has been confirmed — remains a feasibility question.
 
-Provisioning-profile parsing is outside this phase; no profile is opened or modified here.
+**Observed after ZS-017:** ZynSign now parses a caller-supplied decoded XML or binary property-list payload into typed profile metadata and performs bounded structural/date validation. The raw container-to-payload seam is explicit, but no CMS unwrap or signature verification is implemented; an embedded profile is not opened by the archive inspection workflow. Parsed fields remain untrusted observations and no profile is modified or persisted.
 
 ## Code Signing
 
@@ -204,4 +204,4 @@ Platform research on iOS/iPadOS is required for key storage and access behavior,
 
 ## Non-Goals
 
-This document does not create an Xcode project, production Swift or SwiftUI code, dependencies, CI, or GitHub configuration. It does not implement IPA parsing or extraction, certificate or provisioning-profile parsing or management, signing, signature verification, entitlement processing, repackaging, installation, device communication, or tests against real credentials, certificates, private keys, profiles, macOS, Xcode, simulators, or devices.
+This document does not create an Xcode project, production Swift or SwiftUI code, dependencies, CI, or GitHub configuration. It does not implement IPA parsing or extraction, CMS/profile authenticity or management, signing, signature verification, entitlement authorization, repackaging, installation, device communication, or tests against real credentials, certificates, private keys, profiles, macOS, Xcode, simulators, or devices. ZS-017's decoded-payload parser is implementation work recorded separately in the architecture document.

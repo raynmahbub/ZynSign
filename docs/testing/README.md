@@ -52,6 +52,35 @@ It also has tests for the application metadata layer:
 - the extended artifact lifecycle, including the metadata-examination
   transitions and the updated issue-code set.
 
+It also has tests for the provisioning-profile payload pipeline:
+
+- the typed profile model: optional metadata, platform values including unknown
+  values, exact full application identifiers, explicit prefix/component
+  separation, wildcard components, team identifiers, flags, classifications,
+  device identifiers, and certificate references;
+- the property-list payload parser, over synthetic binary payloads, covering
+  minimal and optional profiles, unknown fields, malformed and truncated
+  payloads, non-dictionary roots, wrong types, empty-versus-missing arrays,
+  strings, booleans, integer and real numbers, data, dates, nested arrays and
+  dictionaries, resource bounds, date ordering, and redacted failures;
+- application-identifier handling, including prefix mismatch, no-prefix
+  non-inference, and wildcard preservation;
+- certificate references, multiple entries, optional attachment of the
+  existing certificate metadata model, and malformed certificate values;
+- injected-clock validity boundaries for malformed, not-yet-valid,
+  currently-valid, and expired profiles; missing required metadata; and
+  conservative development, ad hoc, App Store, enterprise, and unknown
+  classification;
+- the application inspection use case, including the raw-input decoder seam,
+  empty and oversized input rejection before decoding, foreign-error
+  sanitization, explicit `notEvaluated` authenticity/authorization state, and
+  deterministic synthetic payload results.
+
+The profile suite does not decode or verify CMS, use device authorization APIs,
+inspect embedded profile archive entries, persist profile bytes, or exercise
+signing. Those tests belong to later CMS, trust, authorization, and signing
+increments.
+
 It also has tests for the package import workflow:
 
 - the import use case: a successful import returns an examined artifact with

@@ -7,7 +7,9 @@ It adds deterministic store logic and an **experimental**, deliberately
 uncomposed Keychain adapter. It is not a code-signing engine. Production use
 remains blocked by feasibility experiment E7; see
 [on-device-signing-feasibility.md](../architecture/on-device-signing-feasibility.md),
-Sections 15–16. There is no identity UI, profile processing, or installation.
+Sections 15–16. There is no identity UI, profile trust/authorization, or
+installation. ZS-017's separate decoded-payload parser is described in the
+architecture document; it does not change the identity or private-key boundary.
 
 ## Model and capability
 
