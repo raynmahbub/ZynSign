@@ -6,7 +6,7 @@ This document defines the architecture of ZynSign: the platform it runs on, the
 layers and boundaries the application is organised into, the decisions that are
 settled, and the capabilities that are not yet established.
 
-Seven implementation increments exist. The first is an Xcode application
+Eight implementation increments exist. The first is an Xcode application
 target with a SwiftUI application shell, a composition root, a minimal pure
 domain layer, and a unit-test target; it establishes the layer boundaries of
 Section 4 and no workflow capability. The second adds the archive-reading
@@ -37,13 +37,22 @@ read-only explorer, reached from the application detail screen, that lists
 the files and folders inside a library application's bundle from the
 package's entry table through the existing archive boundary, without
 extracting, opening, or evaluating any of them (Section 9, Bundle Inspection
-Decision). The inspection stage is therefore a partial capability: it reads
-containers, classifies layout, reads one bundle's declared metadata, and
-describes a bundle's structure, and it does not verify signatures, parse
-profiles, inspect executables, extract content, or produce a package.
-Accepted imports are recorded and kept across launches and are listed,
-imported, browsed, and removed in the Applications area; no signing,
-verification, packaging, or installation capability exists.
+Decision). The eighth adds the certificate and signing-identity domain
+foundation: a platform-independent certificate metadata model, validity
+evaluation that distinguishes parsing success from current validity, chain
+representation without trust evaluation, a narrow signing-capability
+abstraction that does not expose private-key bytes, a distinct signing
+identity model, an identity-store boundary, and a certificate parser behind
+the `CertificateParser` port using Apple Security framework APIs where
+available (Section 7, Certificate and Signing Identity Foundation). The
+inspection stage is therefore a partial capability: it reads containers,
+classifies layout, reads one bundle's declared metadata, and describes a
+bundle's structure, and it does not verify signatures, parse profiles,
+inspect executables, extract content, or produce a package. Accepted imports
+are recorded and kept across launches and are listed, imported, browsed,
+and removed in the Applications area; certificate parsing and identity
+modeling exist as domain foundation; no signing, verification, packaging,
+or installation capability exists.
 
 Nothing else in this document is a claim that any behaviour works. Every
 feasibility boundary in Section 6 remains open except where noted here, and the
@@ -315,6 +324,206 @@ of those differences may be assumed away. The implementation mechanism for key
 storage and use is deliberately not chosen here: it is a research outcome, and no
 API is specified in this document before that research exists.
 
+### Certificate and Signing Identity Foundation
+
+This increment establishes the domain foundation required before any signing
+engine is built. It is architecture and safe metadata handling, not signing.
+
+**Accepted — certificate vs signing identity distinction.** A certificate is
+public, inspectable metadata; a signing identity is certificate information
+plus access to the corresponding private signing capability. The domain model
+makes this explicit:
+
+```
+Certificate
+     +
+Private Signing Capability
+     =
+Signing Identity
+```
+
+A certificate can exist independently. A signing identity exists only when a
+matching private capability is available or its absence is explicitly
+represented. The two are never equated. **Verified** from X.509 and platform
+documentation that possession of a certificate does not provide the private
+key.
+
+**Accepted — certificate domain model.** `CertificateMetadata` is a
+platform-independent value type that records what a certificate declares:
+subject, issuer, serial number, validity start/end, public-key algorithm and
+size/curve where applicable, signature algorithm, SHA-256 fingerprint, and
+chain relationship where known. It carries no raw DER bytes, no platform
+`SecCertificate` object, no private-key material, and no trust evaluation.
+Raw DER bytes, when needed for later CMS construction, are represented by
+`Certificate` and `CertificateData` with an explicit ownership boundary:
+owned by Platform, provided to the signing boundary only when needed, never
+persisted in `ApplicationRecordStore`, never logged, never exposed through
+UI beyond metadata and fingerprint. **Verified** that `SecCertificate` APIs
+exist on iOS 17; **Inferred** that uncommon extensions may require custom
+parsing.
+
+**Accepted — distinguished name handling.** Subject and issuer are
+`CertificateDistinguishedName`: common name, organization, organizational
+unit, country where extractable, plus the raw platform-provided string that
+preserves unusual structures. Unusual subject/issuer structures are not
+rejected; they are preserved as raw representation.
+
+**Accepted — public-key and signature algorithm modeling.** `PublicKeyInfo`
+holds algorithm (RSA, EC, unknown), key size in bits, and curve name where
+known. `SignatureAlgorithm` enumerates common Apple code-signing algorithms
+(sha256WithRSAEncryption, ecdsa variants, etc.) with `unknown` preserving
+raw OID for diagnostics. Both types expose `appearsAdequateForCodeSigning`
+heuristics (RSA ≥ 2048, EC ≥ P-256) that are domain heuristics, not platform
+policy decisions.
+
+**Accepted — fingerprint.** `CertificateFingerprint` is SHA-256 over DER,
+lowercased hex, 64 characters. Computed in Platform via CryptoKit
+(**Verified** CryptoKit SHA256 available on iOS 17). Identifies bytes only,
+not trust.
+
+**Accepted — validity vs parsing vs trust vs suitability.** Four concepts
+are kept distinct:
+
+- structurally parseable (existence of `CertificateMetadata`),
+- validity-period status (`CertificateValidity` with `notYetValid`,
+  `currentlyValid`, `expired`, evaluated inclusively against an explicit
+  date),
+- intended usage where verifiable (key usage, extended key usage) — not
+  evaluated in this milestone, represented as `notEvaluated`,
+- trust/chain evaluation — not implemented in this milestone,
+  represented as `notEvaluated`.
+
+Parsing succeeded ≠ currently valid ≠ trusted ≠ suitable for code signing.
+`CertificateTrustEvaluation` and `CodeSigningSuitability` make the
+distinction explicit. `CodeSigningSuitability` documents exactly what is
+checked in this milestone: parsing, validity period currently valid,
+recognised key algorithm with adequate size/curve, recognised signature
+algorithm not SHA-1 based. What is **not** checked: key usage/EKU, trust,
+Apple policy, profile association, private-key availability. Final policy
+decision belongs to later work.
+
+**Accepted — certificate chain.** `CertificateChain` holds
+`[CertificateMetadata]` leaf-first, with `leaf`, `intermediates`, `root`
+conveniences. It represents relationship, not trust. Empty chain is invalid
+and not constructible. The domain can represent chain relationships without
+hard-coding one-certificate-equals-identity.
+
+**Accepted — certificate parsing boundary.** `CertificateParser` protocol
+declared in Domain, implemented in Platform as `AppleCertificateParser`.
+Input is treated as untrusted: empty, malformed DER, random bytes, unsupported
+features all produce typed `ZynSignError` with `invalidInput` or
+`unsupportedInput`, never crash, never execute arbitrary content. Parsing
+uses Apple-supported APIs where available:
+
+- `SecCertificateCreateWithData` (**Verified** on iOS 17),
+- `SecCertificateCopyValues` for subject, issuer, serial, validity,
+  signature algorithm, public-key algorithm (**Verified**),
+- `SecCertificateCopyKey` and `SecKeyCopyAttributes` for key type and size
+  (**Verified**),
+- `SecCertificateCopyData` for DER round-trip where needed (**Verified**),
+- CryptoKit `SHA256` for fingerprint (**Verified**).
+
+No third-party ASN.1/X.509 dependency is introduced; platform capabilities
+are demonstrably sufficient for the metadata required by this milestone.
+Uncommon fields that `SecCertificateCopyValues` does not provide are
+tolerated as missing rather than failing the whole parse, unless they are
+required (validity dates).
+
+**Accepted — signing capability protocol.** `SigningCapability` is a narrow
+abstraction for future cryptographic signing, declared in Domain:
+
+```
+SigningCapability
+    sign(data) -> signature
+    sign(digest, algorithm) -> signature
+```
+
+It exposes identity ID, public-key algorithm, availability, and signing
+methods that return signature bytes only. It does not expose private-key
+bytes, does not reveal storage location, and supports future
+implementations where signing occurs through a protected key handle
+(Keychain `SecKey` non-exportable, Secure Enclave-backed where applicable).
+It does not implement the code-signing engine.
+
+**Accepted — identity store boundary.** `IdentityStore` protocol declared in
+Application (per Section 11), implementation in Platform. It answers list
+identities, retrieve identity metadata, access signing capability. Security
+boundary:
+
+- Private key material never exposed; callers receive `SigningCapability`.
+- Private keys not persisted in `ApplicationRecordStore`.
+- No automatic import of arbitrary certificates or private keys.
+- `.p12` / PKCS#12 import not implemented in this milestone; treated as
+  separate capability.
+
+**Accepted — PKCS#12 as separate capability.** PKCS#12 import is not
+`.p12 → certificate + exportable private key` only. Feasibility research
+records:
+
+- `SecPKCS12Import` available on iOS (**Verified**),
+- only legacy PBE algorithms supported (SHA1/3DES, SHA1/RC2-era); modern
+  AES-based PBE fails (**Verified** via Apple DTS 2021–2023),
+- imported keys are non-extractable yet usable for signing (**Verified** via
+  DTS), attribute control at import time **Unknown — Requires experiment**,
+- per-use authorization (biometrics on key use) **Unknown — Requires
+  experiment**,
+- Device-only accessibility, uninstall semantics, and access-control flags
+  require physical-device validation.
+
+No PKCS#12 import is implemented in this milestone. A dedicated feasibility
+experiment is required before implementation.
+
+**Accepted — code-signing suitability.** `CodeSigningSuitability` evaluates
+whether a certificate appears suitable for code signing based on checks
+performed in this milestone, with explicit unsuitability reasons. It does not
+label every certificate as valid signing certificate and does not claim
+platform acceptance.
+
+**Security boundary, Accepted:**
+
+- Private key bytes are never persisted, never logged, never appear in
+  `ApplicationRecord`, `CertificateMetadata`, `SigningIdentity`, or
+  diagnostics.
+- Certificate parsing does not execute arbitrary content; malformed input
+  produces structured errors.
+- Raw certificate DER is public but treated as untrusted and not logged in
+  full; owned by Platform, provided to signing boundary only when needed.
+- Sensitive values (private key material, passwords, auth tokens, complete
+  credentials) are never logged.
+- Identity abstractions do not require key export.
+
+**Unresolved — Requires experiment:**
+
+- Exact iOS Keychain behavior for imported signing keys: extractability
+  control at import time, accessibility classes, per-use authorization,
+  lock-state behavior, background access, uninstall retention — needs
+  physical-device experiment E7 from feasibility doc.
+- `SecTrust` with code-signing policy (`kSecPolicyAppleCodeSigning`)
+  behavior on iOS for Apple-issued chains — needs experiment E13.
+- CMS SignedData construction/verification on iOS — no CMS API (**Verified**
+  absence via DTS 2017–2023), custom implementation required, highest-risk
+  component — needs experiment E4.
+- Provisioning-profile container verification — needs experiment E3.
+- Whether `SecCertificateCopyValues` returns all fields needed for full
+  code-signing evaluation on iOS 17 across certificate types (RSA, EC,
+  unusual subjects) — **Inferred** sufficient for this milestone, **Requires
+  experiment** for full coverage.
+
+**Trust-validation boundary, Accepted:** No trust evaluation is implemented
+in this milestone. `CertificateTrustEvaluation` represents trust as
+`notEvaluated`. A successfully parsed certificate is not proof that an
+application is trusted. Full Apple trust validation is not claimed unless
+implemented and verified.
+
+**Persistence boundary, Accepted:** Certificate raw bodies and private keys
+are classified sensitive per Section 15. They are not stored in ordinary
+application storage (`ApplicationRecordStore`, catalog JSON). `ApplicationRecord`
+has no field that can carry them, verified by tests.
+
+**UI scope, Accepted:** No certificate-management UI is built in this
+milestone. No controls for sign, resign, install, select provisioning
+profile, select device, export private key are added.
+
 ## 8. Filesystem, Sandbox, and Document Handling
 
 ZynSign runs inside the application sandbox. It has **no** unrestricted
@@ -553,10 +762,22 @@ and testable without a device, a simulator, a keychain, or a network. This is
 - `ApplicationRecord`, `ArtifactReference`, `ArtifactFingerprint`, and the
   duplicate policy over them
 - `NestedCode` and its dependency ordering
-- `CertificateMetadata`, `SigningIdentity` metadata, `ProvisioningProfile`
+- `CertificateMetadata`, `CertificateDistinguishedName`, `PublicKeyInfo`,
+  `SignatureAlgorithm`, `CertificateFingerprint`, `CertificateValidity`,
+  `CertificateTrustEvaluation`, `CertificateChain`, `Certificate` and
+  `CertificateData` with explicit raw-bytes ownership boundary,
+  `CodeSigningSuitability`, `SigningIdentity`, `SigningIdentityMetadata`,
+  `SigningIdentityIdentifier`, `SigningKeyAvailability`,
+  `SigningCapability`, `DigestAlgorithm`, `ProvisioningProfile`
 - `SigningConfiguration`, `PackagingPolicy`
 - `ValidationResult`, `VerificationResult`, `Diagnostics`
 - domain errors and their categories
+
+The certificate and signing-identity foundation is **Accepted** for this
+increment (Section 7). It establishes the distinction between certificate
+metadata that can exist independently and signing identities that pair a
+certificate with a private-key capability, without storing private-key bytes
+in ordinary domain models.
 
 Rules, **Accepted**:
 
@@ -581,9 +802,11 @@ carried forward from Section 6.
 | --- | --- | --- | --- | --- | --- |
 | `ArchiveReader` | Untrusted container input, behind which parsing, limits, and content access live | Domain | Yes — substitutable with synthetic fixtures | Implementation is platform-dependent | **Reading implemented** for ZIP containers (Section 9) and reused, entry table only, by bundle inspection; extraction remains Unresolved |
 | `PlistDecoder` | Parsing of untrusted structured data with typed diagnostics | Domain | Yes | No — not platform-specific in principle | Examined during the metadata increment: the platform property-list API is total and deterministic, so parsing lives inside the metadata reader in Domain, tested through its bytes. A separate port is introduced only if parsing becomes platform-bound or needs substitution |
+| `CertificateParser` | Parsing of untrusted X.509 certificate data, with typed diagnostics, without trust evaluation | Domain | Yes — substitutable with synthetic DER fixtures | Implementation is platform-dependent (Security framework) | **Implemented** for metadata extraction using `SecCertificate` APIs (Section 7); trust evaluation remains Requires feasibility research |
+| `SigningCapability` | The single narrow abstraction where signing happens, returning signature bytes only, without exposing private-key material | Domain | Yes — stub capability keeps orchestration testable | Yes — key access is platform-bound, non-exportable keys expected | **Implemented** as protocol (Section 7); concrete Keychain implementation Requires feasibility research (items 2, 16) |
 | `ProfileParser` | Interpretation of provisioning-profile data as authorization input | Domain | Yes | Container validation likely platform-dependent | Requires feasibility research (item 8) |
-| `IdentityStore` | Resolution and presentation of available signing identities and their status | Application | Yes | Yes — key access is platform-bound | Requires feasibility research (items 2, 16) |
-| `SigningEngine` | The single place where signing happens, and the only consumer of usable key material | Domain | Yes — a stub engine keeps orchestration testable | Yes | Requires feasibility research (items 1–7, 9, 10) |
+| `IdentityStore` | Resolution and presentation of available signing identities and their status, plus access to signing capability | Application | Yes — in-memory in tests | Yes — key access is platform-bound | **Protocol implemented** for this increment (Section 7); concrete Keychain store Requires feasibility research (items 2, 16); PKCS#12 import is separate capability |
+| `SigningEngine` | The single place where code-signing blob assembly happens, and the only consumer of signing capability | Domain | Yes — a stub engine keeps orchestration testable | Yes | Requires feasibility research (items 1–7, 9, 10) |
 | `SignatureVerifier` | Independent evaluation of an artifact, with no access to signing state | Domain | Yes | Yes — no system verifier may be assumed | Requires feasibility research (item 11) |
 | `TemporaryStorage` | Controlled working space with lifetime, cleanup, and cancellation semantics | Application | Yes — in-memory or directory-backed | Partly — directories and lifecycle are platform-bound | Accepted as a boundary; mechanism Unresolved |
 | `ApplicationRecordStore` | Persistence of non-sensitive library records: insert, update, fetch by identifier, list, delete | Application | Yes — in-memory in tests | No | **Implemented** as a versioned catalog file (Section 15) |
@@ -872,6 +1095,7 @@ depend on iOS/iPadOS behaviour are recorded as *Provisional*, *Unresolved*, or
 | 25 | Import intake and temporary staging | **Accepted** for the document-import path — one bounded-chunk staging per import, identifier-addressed application-owned temporary storage, security-scoped access held only while copying, staged archives adopted by the library or discarded before the import returns (Section 8) |
 | 26 | Persistence is not trust | **Accepted** — a library record states that a package passed inspection when imported and which bytes it refers to; the fingerprint identifies bytes only, declared metadata stays untrusted, and no record is evidence that a package is signed, genuine, or installable (Section 15) |
 | 27 | Bundle inspection is read-only and descriptive | **Accepted** — the explorer derives a bundle's structure from the container's entry table through the existing `ArchiveReader` and library storage, with no extraction, content reading, hashing, or parsing; locations are bundle-relative `BundlePath` values that cannot name anything above the root; links and unsupported entries are listed, never followed; labels on conventional locations describe and do not establish signing, trust, or installability (Section 9) |
+| 28 | Certificate and signing identity foundation | **Accepted** for this increment — platform-independent `CertificateMetadata`, `CertificateDistinguishedName`, `PublicKeyInfo`, `SignatureAlgorithm`, `CertificateFingerprint`, `CertificateValidity` that distinguishes parsing success from currently valid, `CertificateChain` leaf-first without trust evaluation, `CodeSigningSuitability` with explicit checks and unsuitability reasons, `SigningCapability` narrow protocol that returns signatures without exposing private-key bytes, `SigningIdentity` distinct from certificate with `SigningIdentityIdentifier` and `SigningKeyAvailability`, `IdentityStore` protocol in Application, `CertificateParser` port in Domain with `AppleCertificateParser` in Platform using `SecCertificate` and CryptoKit (**Verified** on iOS 17), PKCS#12 treated as separate capability not implemented, trust validation boundary not implemented and represented as `notEvaluated`, raw certificate bytes ownership boundary owned by Platform and not persisted in ordinary storage, no certificate-management UI, no signing engine, no private keys stored in application database (Section 7) |
 
 ## 19. Non-Goals of This Document
 

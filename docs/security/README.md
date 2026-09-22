@@ -4,12 +4,22 @@ Detailed security documentation for ZynSign will live here.
 
 ## Current State
 
-**No security documentation exists yet, because no security-sensitive
-functionality exists yet.** ZynSign contains only the application foundation:
-an application shell, a composition root, and minimal domain types. There is
-no signing implementation, no key handling, no credential storage, no
-certificate or provisioning profile processing, and no device communication.
-Nothing here should be read as describing implemented behaviour.
+**Limited security-sensitive foundation exists.** ZynSign contains the
+application foundation — shell, composition root, archive reading, library
+records, bundle inspection — and the certificate and signing-identity domain
+foundation: platform-independent certificate metadata, validity evaluation
+that distinguishes parsing from current validity, chain representation
+without trust evaluation, a narrow signing-capability abstraction that does
+not expose private-key bytes, a distinct signing-identity model, an
+identity-store boundary, and a certificate parser behind the
+`CertificateParser` port using Apple Security framework APIs where available.
+There is no signing implementation, no key handling beyond the capability
+abstraction, no credential storage, no provisioning profile processing, no
+PKCS#12 import, and no device communication. The security boundaries for
+private-key material, certificate parsing as untrusted input, and raw
+certificate bytes ownership are established in
+[architecture.md](../architecture/architecture.md) Section 7. Nothing else
+here should be read as describing implemented signing behaviour.
 
 ## Read First
 
