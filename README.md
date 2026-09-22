@@ -43,8 +43,8 @@ hashed, or parsed, symbolic links are listed but never followed, and the
 labels it puts on conventional locations such as `Info.plist` or
 `_CodeSignature` describe what is usually found there and nothing more. It
 makes no claim that any application is signed, trusted, or installable: no
-signing, verification, packaging, or installation exists. No released build
-exists.
+application-signing, verification, packaging, or installation workflow exists.
+No released build exists.
 
 | Area | State |
 | --- | --- |
@@ -55,7 +55,8 @@ exists.
 | Import | Partial: document selection, security-scoped staging into temporary storage, archive validation, declared-metadata extraction, library admission |
 | Library | Partial: durable records for accepted imports, application-owned artifact storage, content-based duplicate recognition, missing-artifact detection, an Applications screen that lists, imports, and deletes records and opens a read-only explorer of each available package's application bundle. No repair or replacement of missing artifacts |
 | Inspection | Partial: archive reading, application-bundle discovery, structural validation, declared metadata, read-only bundle structure listing. No signature examination, no file content access |
-| Signing, verification, packaging, installation | Not started |
+| Identity security | Explicit signature capability and experimental Keychain registry/resolver; not composed into the app, pending physical-device validation. No private-key import. See [security design](docs/security/signing-identities.md) |
+| Signing, verification, packaging, installation | No application workflow implemented |
 | Releases | None |
 
 ## Intended Scope

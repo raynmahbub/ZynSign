@@ -6,6 +6,16 @@ All notable changes to ZynSign will be documented here.
 
 ### Added
 
+- Secure identity capability foundation: explicit message/digest algorithms,
+  separate key-association and readiness states, structured safe identity errors,
+  stable registration records, and a signature-only resolver boundary.
+- Experimental Keychain registry and protected-key resolver, with public-key
+  association checks and per-operation resolution. Not composed into the app;
+  physical-device validation remains required before production use. No PKCS#12
+  import, private-key export, signing workflow, or identity-management UI.
+- Deterministic identity-store/security-boundary tests and opt-in disposable-key
+  iOS integration tests, with protection choices and validation gates documented.
+
 - Initial repository foundation.
 - iOS/iPadOS application foundation: an Xcode project with an application
   target and a unit-test target, a SwiftUI application shell whose future

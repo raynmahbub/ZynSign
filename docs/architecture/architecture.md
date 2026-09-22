@@ -6,7 +6,7 @@ This document defines the architecture of ZynSign: the platform it runs on, the
 layers and boundaries the application is organised into, the decisions that are
 settled, and the capabilities that are not yet established.
 
-Eight implementation increments exist. The first is an Xcode application
+Nine implementation increments exist. The first is an Xcode application
 target with a SwiftUI application shell, a composition root, a minimal pure
 domain layer, and a unit-test target; it establishes the layer boundaries of
 Section 4 and no workflow capability. The second adds the archive-reading
@@ -45,15 +45,18 @@ abstraction that does not expose private-key bytes, a distinct signing
 identity model, an identity-store boundary, and a certificate parser behind
 the `CertificateParser` port. Metadata is read by a bounded DER reader
 because `SecCertificateCopyValues` is not available on iOS (Section 7,
-Certificate and Signing Identity Foundation). The
+Certificate and Signing Identity Foundation). The ninth refines that foundation
+with explicit signing algorithms, structured identity failures, a secure registry
+and capability resolver, and an experimental Keychain adapter. It is not composed
+into the app: physical-device experiment E7 still gates production use. The
 inspection stage is therefore a partial capability: it reads containers,
 classifies layout, reads one bundle's declared metadata, and describes a
 bundle's structure, and it does not verify signatures, parse profiles,
 inspect executables, extract content, or produce a package. Accepted imports
 are recorded and kept across launches and are listed, imported, browsed,
 and removed in the Applications area; certificate parsing and identity
-modeling exist as domain foundation; no signing, verification, packaging,
-or installation capability exists.
+modeling exist as domain foundation; an experimental signature primitive exists,
+but no application-signing, verification, packaging, or installation workflow exists.
 
 Nothing else in this document is a claim that any behaviour works. Every
 feasibility boundary in Section 6 remains open except where noted here, and the
@@ -469,13 +472,12 @@ abstraction for future cryptographic signing, declared in Domain:
 
 ```
 SigningCapability
-    sign(data) -> signature
-    sign(digest, algorithm) -> signature
+    sign(data, explicit message-or-digest algorithm) -> signature
 ```
 
-It exposes identity ID, public-key algorithm, availability, and signing
-methods that return signature bytes only. It does not expose private-key
-bytes, does not reveal storage location, and supports future
+It exposes identity ID, public-key algorithm, supported algorithms, availability,
+and a signing method that returns signature bytes only. It does not expose
+private-key bytes, does not reveal storage location, and supports future
 implementations where signing occurs through a protected key handle
 (Keychain `SecKey` non-exportable, Secure Enclave-backed where applicable).
 It does not implement the code-signing engine.
@@ -490,6 +492,32 @@ boundary:
 - No automatic import of arbitrary certificates or private keys.
 - `.p12` / PKCS#12 import not implemented in this milestone; treated as
   separate capability.
+
+### Secure Identity Storage Decision
+
+**Accepted — capability instead of key bytes.** ZS-016 retains the existing
+Domain/Application ports. `SigningAlgorithm` makes message hashing, digest
+length, key family, and signature encoding explicit. The earlier default
+forwarding a digest as a message was ambiguous and is removed. Identity
+snapshots distinguish key availability, public-key association, and primitive
+readiness; none implies trust or a successful signing operation.
+
+**Provisional — experimental Keychain adapter.** `SecureIdentityStore` uses a
+Platform registry and resolver. `KeychainIdentityRegistry` stores a minted UUID,
+public certificate DER, and an opaque persistent key locator in device-only,
+unlocked, non-synchronizable Keychain records. Registration validates already
+stored keys; it does not import keys. Removal deletes the registration, never a
+borrowed private key. Capabilities re-resolve on every operation, comparing the
+certificate and key's actual public representations. Only signatures cross the
+private-key boundary. No identity storage is added to the application catalog,
+composition root, or presentation environment.
+
+**Requires experiment — production activation.** Feasibility Section 16.2's E7
+gate is preserved. The adapter is not a production storage claim; protection
+attribute behavior, persistent-reference lifecycle, lock state, and signing
+must be established on physical iOS/iPadOS 17+ devices. PKCS#12 remains deferred.
+The [security design](../security/signing-identities.md) records ownership,
+error redaction, API availability evidence, test scope, and unresolved questions.
 
 **Accepted — PKCS#12 as separate capability.** PKCS#12 import is not
 `.p12 → certificate + exportable private key` only. Feasibility research
