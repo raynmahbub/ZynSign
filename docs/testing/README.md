@@ -215,6 +215,23 @@ It also has tests for certificate inspection:
   non-minimal, oversized, and trailing input, without echoing certificate
   bytes into the error.
 
+It also has tests for secure identity storage:
+
+- stable UUIDs and metadata, missing/mismatched/unsupported keys, authorization
+  transitions, duplicate registration, malformed records, and removal;
+- explicit message/digest algorithms, exact digest length, mock signatures,
+  capability revocation, and structured failure sanitization;
+- an allowlisted record schema, redacted rendering, and absence of key handles
+  and raw buffers in metadata;
+- pure Security error mapping tests and separate **opt-in** iOS Keychain tests
+  using runtime-generated disposable keys, never stored private-key fixtures.
+
+The [identity security design](../security/signing-identities.md) describes how
+to enable the integration tests and the required physical-device experiments.
+They have not been run in the Linux implementation environment. The integration
+certificate helper replaces only public-key bytes in synthetic certificates;
+the resulting invalid issuer signature is intentional and is not trust evidence.
+
 Certificate fixtures are synthetic public certificates embedded as text. They
 contain no private keys. Other test fixtures are generated programmatically.
 No binary fixture is committed, and no real package, signing material, profile,

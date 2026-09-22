@@ -94,7 +94,7 @@ final class SecurityBoundaryTests: XCTestCase {
     func testSigningCapabilityDoesNotRequireKeyExport() {
         // The SigningCapability protocol must not have a method that returns
         // private key bytes. Verify by checking protocol requirements via
-        // documentation: it only has sign(data:) -> Data (signature, not key).
+        // documentation: it only returns signatures for explicitly selected algorithms.
         // This test documents the requirement.
 
         // Create a mock capability that does not expose key bytes.
@@ -102,7 +102,9 @@ final class SecurityBoundaryTests: XCTestCase {
             var identityID: SigningIdentityIdentifier = SigningIdentityIdentifier()
             var publicKeyAlgorithm: PublicKeyAlgorithm = .rsa
             var isAvailable: Bool = true
-            func sign(data: Data) throws -> Data {
+            var supportedAlgorithms: Set<SigningAlgorithm> = [.rsaPKCS1SHA256Message]
+            func sign(data: Data, algorithm: SigningAlgorithm) throws -> Data {
+                try algorithm.validate(data: data, keyAlgorithm: publicKeyAlgorithm)
                 // Return dummy signature, not key
                 return Data(repeating: 0, count: 256)
             }
@@ -110,7 +112,7 @@ final class SecurityBoundaryTests: XCTestCase {
 
         let capability = MockSigningCapability()
         let data = Data("test data".utf8)
-        let signature = try! capability.sign(data: data)
+        let signature = try! capability.sign(data: data, algorithm: .rsaPKCS1SHA256Message)
         // Signature is not key material; it's 256 bytes for RSA 2048
         XCTAssertEqual(signature.count, 256)
         // Capability does not have a property that returns private key

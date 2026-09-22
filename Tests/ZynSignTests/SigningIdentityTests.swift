@@ -33,7 +33,9 @@ final class SigningIdentityTests: XCTestCase {
         let identity = SigningIdentity(
             certificate: metadata,
             keyAvailability: .available,
-            isKeyNonExportable: true
+            isKeyNonExportable: true,
+            association: .matched,
+            capabilityState: .ready
         )
         XCTAssertEqual(identity.certificate, metadata)
         XCTAssertEqual(identity.keyAvailability, .available)
@@ -41,6 +43,16 @@ final class SigningIdentityTests: XCTestCase {
 
         // Certificate metadata alone does not imply signing capability.
         // This documents the required distinction: certificate != signing identity.
+    }
+
+    func testKeyAvailabilityAloneDoesNotEstablishSigningReadiness() {
+        let identity = SigningIdentity(certificate: makeMetadata(), keyAvailability: .available)
+        XCTAssertEqual(identity.association, .unknown)
+        XCTAssertEqual(identity.capabilityState, .unknown)
+        XCTAssertFalse(identity.isUsableForSigning)
+        let mismatched = SigningIdentity(certificate: makeMetadata(), keyAvailability: .available,
+            association: .mismatched, capabilityState: .unavailable)
+        XCTAssertFalse(mismatched.isUsableForSigning)
     }
 
     func testSigningIdentityWithUnavailableKey() {
