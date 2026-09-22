@@ -8,10 +8,14 @@ a security problem.
 
 ZynSign can inspect untrusted public certificate bytes and record metadata.
 That inspection does not handle private keys, does not persist certificates,
-does not evaluate trust, and is not a signing implementation. There is no
-credential storage, no provisioning-profile processing, and no device
-communication. Nothing in this document should be read as a claim that signing
-is implemented or has been reviewed.
+does not evaluate trust, and is not an application-signing implementation.
+An experimental identity registry now stores public certificate bytes and opaque
+references in Keychain and resolves a signature-only capability for existing
+protected keys. It is not composed into the app; production activation requires
+physical-device validation. There is no private-key import, provisioning-profile
+processing, or device communication. See the
+[identity security design](docs/security/signing-identities.md) for ownership,
+protection policy, and unverified platform behavior.
 
 This policy describes how such material will be treated as the project develops,
 and the rules that apply right now to the repository itself.
@@ -100,8 +104,6 @@ request.
 
 ## Scope of This Policy
 
-Because no application code exists yet, there is nothing in this repository that
-can be exploited at runtime. The rules above govern development conduct and
-repository hygiene. As functionality is added, this document will be updated to
-describe the actual security properties of the software, its threat model, and
-any supported versions.
+The rules above govern application code, development conduct, and repository
+hygiene. Experimental identity storage is not production-validated. Security
+review and the documented platform experiments remain required before activation.

@@ -44,7 +44,7 @@ struct SigningIdentityIdentifier: Equatable, Hashable, CustomStringConvertible {
 /// and signing authorization are separate operations with separate outcomes.
 enum SigningKeyAvailability: String, CaseIterable, Equatable, Hashable {
 
-    /// The private key is available and usable for signing.
+    /// A key handle was resolved. This alone does not prove association or signing success.
     case available
 
     /// The private key is not available. The certificate may still be
@@ -92,13 +92,22 @@ struct SigningIdentity: Equatable, Hashable {
     /// The availability of the private key.
     let keyAvailability: SigningKeyAvailability
 
+    /// Public-key relationship; not inferred from labels or certificate metadata.
+    let association: CertificateKeyAssociation
+
+    /// Readiness for a primitive operation, not certificate trust or validity.
+    let capabilityState: SigningCapabilityState
+
+    /// Where the capability is resolved, without exposing a storage locator.
+    let storage: SigningIdentityStorage
+
     /// Whether the underlying key is stored in a non-exportable manner,
     /// when known. `nil` when the storage characteristic is unknown.
     ///
     /// Non-exportable storage means raw key bytes cannot be read back
-    /// through platform APIs, while remaining usable for signing. This is
-    /// the expected characteristic for keys imported via `SecPKCS12Import`
-    /// on iOS.
+    /// through platform APIs, while remaining usable for signing. Report this
+    /// characteristic only when established by the storage adapter.
+    /// Import and device behavior require separate validation.
     let isKeyNonExportable: Bool?
 
     /// Creates a signing identity.
@@ -106,16 +115,25 @@ struct SigningIdentity: Equatable, Hashable {
         id: SigningIdentityIdentifier = SigningIdentityIdentifier(),
         certificate: CertificateMetadata,
         keyAvailability: SigningKeyAvailability,
-        isKeyNonExportable: Bool? = nil
+        isKeyNonExportable: Bool? = nil,
+        association: CertificateKeyAssociation = .unknown,
+        capabilityState: SigningCapabilityState = .unknown,
+        storage: SigningIdentityStorage = .unknown
     ) {
         self.id = id
         self.certificate = certificate
         self.keyAvailability = keyAvailability
         self.isKeyNonExportable = isKeyNonExportable
+        self.association = association
+        self.capabilityState = capabilityState
+        self.storage = storage
     }
 
-    /// Whether the identity is currently usable for signing.
-    var isUsableForSigning: Bool { keyAvailability.isAvailable }
+    /// Whether the last observation established a matching primitive capability.
+    /// Not proof of a successful signature, certificate validity, or trust.
+    var isUsableForSigning: Bool {
+        keyAvailability.isAvailable && association == .matched && capabilityState == .ready
+    }
 
     /// The display name for the identity: the certificate's subject common
     /// name or raw representation.
@@ -141,15 +159,22 @@ struct SigningIdentityMetadata: Equatable, Hashable {
     /// The key availability.
     let keyAvailability: SigningKeyAvailability
 
+    let association: CertificateKeyAssociation
+    let capabilityState: SigningCapabilityState
+
     /// Creates identity metadata.
     init(
         id: SigningIdentityIdentifier,
         certificate: CertificateMetadata,
-        keyAvailability: SigningKeyAvailability
+        keyAvailability: SigningKeyAvailability,
+        association: CertificateKeyAssociation = .unknown,
+        capabilityState: SigningCapabilityState = .unknown
     ) {
         self.id = id
         self.certificate = certificate
         self.keyAvailability = keyAvailability
+        self.association = association
+        self.capabilityState = capabilityState
     }
 
     /// Creates metadata from a full identity.
@@ -157,5 +182,20 @@ struct SigningIdentityMetadata: Equatable, Hashable {
         self.id = identity.id
         self.certificate = identity.certificate
         self.keyAvailability = identity.keyAvailability
+        self.association = identity.association
+        self.capabilityState = identity.capabilityState
     }
+}
+
+/// Public-key equality, separate from the existence of a key or a certificate.
+enum CertificateKeyAssociation: String, Hashable {
+    case unknown, matched, mismatched
+}
+
+enum SigningCapabilityState: String, Hashable {
+    case unknown, ready, unavailable, authorizationRequired, unsupported
+}
+
+enum SigningIdentityStorage: String, Hashable {
+    case unknown, keychain
 }

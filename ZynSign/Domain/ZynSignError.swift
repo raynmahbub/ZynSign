@@ -16,6 +16,9 @@ import Foundation
 ///   the debug rendering, never in the user-facing message.
 struct ZynSignError: Error, LocalizedError, CustomStringConvertible, CustomDebugStringConvertible {
 
+    /// A stable identity-specific reason, when this failure belongs to that boundary.
+    let identityFailure: SigningIdentityFailure?
+
     /// The stable category of the failure.
     let category: DiagnosticCategory
 
@@ -32,8 +35,10 @@ struct ZynSignError: Error, LocalizedError, CustomStringConvertible, CustomDebug
         category: DiagnosticCategory,
         userMessage: String,
         diagnosticDetail: String? = nil,
-        underlyingError: (any Error)? = nil
+        underlyingError: (any Error)? = nil,
+        identityFailure: SigningIdentityFailure? = nil
     ) {
+        self.identityFailure = identityFailure
         self.category = category
         self.userMessage = userMessage
         self.diagnosticDetail = diagnosticDetail
