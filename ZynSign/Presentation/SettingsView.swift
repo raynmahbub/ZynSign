@@ -19,7 +19,7 @@ struct SettingsView: View {
                     LabeledContent("Version", value: versionText)
                 }
                 Section("Capabilities") {
-                    Text("This build contains the application foundation only. Inspection, signing, verification, packaging, and installation are not implemented.")
+                    Text("This build can import a package you select and read its structure and the metadata its application declares. The application library, signing, verification, packaging, and installation are not implemented.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

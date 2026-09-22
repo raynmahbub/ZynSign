@@ -1,0 +1,138 @@
+import SwiftUI
+import UniformTypeIdentifiers
+
+/// The Import area of the shell: the document-import flow for `.ipa`
+/// packages.
+///
+/// The view owns only presentation: it opens the system document picker
+/// restricted to the accepted package type, forwards the outcome to the
+/// model, and renders the model's phase. Everything about how a package is
+/// reached, staged, and examined lives below the application boundary.
+///
+/// The screen states plainly what an import is and is not: ZynSign reads the
+/// package's structure and declared metadata; it does not install, sign, or
+/// keep the package beyond this session.
+struct PackageImportView: View {
+
+    @StateObject private var model: PackageImportModel
+    @State private var isShowingImporter = false
+
+    init(importing: IPAPackageImport) {
+        _model = StateObject(wrappedValue: PackageImportModel(importing: importing))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                switch model.phase {
+                case .idle:
+                    idleContent
+                case .importing:
+                    importingContent
+                case .succeeded(let summary):
+                    succeededContent(summary)
+                case .failed(let message):
+                    failedContent(message)
+                case .cancelled:
+                    cancelledContent
+                }
+            }
+            .navigationTitle(ShellSection.importPackage.title)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .fileImporter(
+                isPresented: $isShowingImporter,
+                allowedContentTypes: Self.acceptedContentTypes
+            ) { result in
+                model.handlePickerResult(result)
+            }
+        }
+    }
+
+    // MARK: - Phases
+
+    private var idleContent: some View {
+        VStack(spacing: 16) {
+            ContentUnavailableView {
+                Label("Import a Package", systemImage: ShellSection.importPackage.symbolName)
+            } description: {
+                Text("Choose an .ipa file to bring it into ZynSign. ZynSign reads the package's structure and the information its application declares. Import does not install, sign, or modify the package.")
+            } actions: {
+                Button("Choose Package…") { isShowingImporter = true }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+    }
+
+    private var importingContent: some View {
+        VStack(spacing: 16) {
+            ProgressView {
+                Text("Reading package…")
+            }
+            Button("Cancel", role: .cancel) {
+                model.cancelImport()
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+
+    private func succeededContent(_ summary: PackageImportModel.Summary) -> some View {
+        List {
+            Section("Application") {
+                LabeledContent("File", value: summary.sourceFileName ?? "—")
+                LabeledContent("Name", value: summary.displayName ?? "—")
+                LabeledContent("Identifier", value: summary.bundleIdentifier ?? "—")
+                LabeledContent("Version", value: summary.marketingVersion ?? "—")
+                LabeledContent("Build", value: summary.buildVersion ?? "—")
+            }
+            Section {
+                Text("The package was read successfully. This import is held in temporary working storage and is not kept after ZynSign exits. No library, signing, or installation is involved.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button("Import Another Package…") { isShowingImporter = true }
+            }
+        }
+    }
+
+    private func failedContent(_ message: String) -> some View {
+        VStack(spacing: 16) {
+            ContentUnavailableView {
+                Label("Import Failed", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(message)
+            } actions: {
+                Button("Choose Another Package…") { isShowingImporter = true }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+    }
+
+    private var cancelledContent: some View {
+        VStack(spacing: 16) {
+            ContentUnavailableView {
+                Label("Import Cancelled", systemImage: ShellSection.importPackage.symbolName)
+            } description: {
+                Text("The import was cancelled. Nothing was kept.")
+            } actions: {
+                Button("Choose Package…") { isShowingImporter = true }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+    }
+
+    /// The content types the document picker offers, derived from the same
+    /// file-type policy the import use case enforces. The picker restricts
+    /// the choice; it is still not trusted as evidence about content.
+    private static var acceptedContentTypes: [UTType] {
+        if let packageType = UTType(
+            filenameExtension: IPAFileFormat.pathExtension,
+            conformingTo: .data
+        ) {
+            return [packageType]
+        }
+        return [.data]
+    }
+}
+
+#Preview {
+    PackageImportView(importing: CompositionRoot.makePackageImport())
+}

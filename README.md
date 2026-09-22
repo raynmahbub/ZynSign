@@ -7,29 +7,34 @@ taken from another project.
 
 ## Current Status
 
-**Early development — application foundation and structural archive inspection.**
+**Early development — package import and archive inspection.**
 
 The repository contains an Xcode project with an iOS/iPadOS application target,
 a SwiftUI application shell, a domain layer, and a unit-test target. The
-application launches into its shell, and there is no user-facing package import
-flow.
+application launches into its shell, and the Import area can bring an `.ipa`
+package in through the system document picker: the selected document is staged
+once into application-owned temporary storage and examined.
 
-One workflow capability has a partial implementation: **structural inspection**.
-It reads a ZIP-based package's entry table, discovers the application bundle it
-contains, and classifies the package's layout against ZynSign's own structural
-and safety rules. It stops there. It does not read bundle metadata, does not
-parse plists, does not verify or produce signatures, does not extract package
-contents, and does not install anything. A structurally valid result is not a
-statement about signatures, trust, or installability, and no released build
-exists.
+One workflow capability has a partial implementation: **inspection**, reachable
+end to end through the import flow. It reads a ZIP-based package's entry table,
+discovers the application bundle it contains, classifies the package's layout
+against ZynSign's own structural and safety rules, and reads the metadata the
+bundle declares in its bundle information file. It stops there. It does not
+verify or produce signatures, does not parse provisioning profiles, does not
+inspect executables, does not extract package contents, and does not install
+anything. A valid result is not a statement about signatures, trust, or
+installability. A staged import lives in temporary working storage for the
+current session only — no application library, signing, verification,
+packaging, or installation exists, and no released build exists.
 
 | Area | State |
 | --- | --- |
-| Source code | Shell UI, composition root, domain types, archive layer, structural inspection use case |
+| Source code | Shell UI, composition root, domain types, archive layer, inspection use cases, document-import workflow |
 | Build system / project file | Xcode project (`ZynSign.xcodeproj`): application target plus unit-test target |
-| Automated tests | Unit and fixture-based tests for the domain foundation and the archive layer, written to run with Xcode's test runner |
+| Automated tests | Unit and fixture-based tests for the domain foundation, the archive layer, the import workflow, and its presentation model, written to run with Xcode's test runner |
 | Dependencies | None — Apple frameworks and the Swift standard library only |
-| Inspection | Partial: archive reading, application-bundle discovery, structural validation. No metadata or signature examination |
+| Import | Partial: document selection, security-scoped staging into temporary storage, archive validation, declared-metadata extraction. No persistence or library |
+| Inspection | Partial: archive reading, application-bundle discovery, structural validation, declared metadata. No signature examination |
 | Signing, verification, packaging, installation | Not started |
 | Releases | None |
 

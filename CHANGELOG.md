@@ -51,6 +51,35 @@ All notable changes to ZynSign will be documented here.
 - Tests covering the metadata model, the metadata reader (valid, missing,
   mistyped, malformed, hostile, and unsupported inputs), the metadata
   inspection use case, and the extended artifact lifecycle.
+- Package import workflow: user-driven selection of an `.ipa` file through
+  the system document picker, restricted to the accepted package type, with
+  typed outcomes for cancellation, unreachable or inaccessible files,
+  staging failures, and unexpected infrastructure failures. The file-type
+  policy is a cheap gate and is never trusted as evidence about content.
+- Application-owned temporary staging: each selected document is copied
+  once, in bounded chunks and never held whole in memory, into a unique
+  location named only by the artifact's identifier; security-scoped access
+  is acquired for the copy and released on every outcome. Failed, cancelled,
+  and rejected imports discard the staged copy; leftovers from a previous
+  process are cleared before the first import of a new process. Nothing is
+  persisted.
+- Import use case that composes the existing structural and metadata
+  inspection use cases over the staged archive, with an explicit staged-
+  archive lifetime: rejected imports' archives are discarded before the
+  result is returned, and an accepted import's archive is released by its
+  owner when the result is dropped or replaced.
+- SwiftUI Import area with an explicit phase machine (idle, importing,
+  succeeded, failed, cancelled), a success summary of the declared
+  application metadata, user-facing rejection explanations composed from
+  typed findings, and safe cancellation.
+- Tests for the import use case (success, rejection, unreadable containers,
+  file-type policy, staging failure, cancellation during and after staging),
+  the platform intake against temporary directories (identifier-addressed
+  staging, uniqueness and containment, readability through the established
+  archive boundary, refusal of missing files and directories, discard
+  behaviour, leftover clearing, cancellation cleanup), the import error
+  constructors, and the presentation model's phases and staged-archive
+  ownership.
 
 ### Notes
 

@@ -8,12 +8,15 @@ import Foundation
 /// the SwiftUI environment; they never construct application-layer or domain
 /// objects themselves.
 ///
-/// The foundation build coordinates no use cases yet, so the environment
-/// carries only the application's own descriptive information. Future use
-/// cases — importing an artifact, inspecting it, managing records, configuring
-/// signing — will be constructed by the composition root and surfaced here,
-/// which keeps dependency substitution and testing straightforward.
+/// The environment currently carries the application's own descriptive
+/// information and the package-import use case. Future use cases — a
+/// package library, signing — will be constructed by the composition root
+/// and surfaced here, which keeps dependency substitution and testing
+/// straightforward.
 struct ApplicationEnvironment {
     /// Facts about the running application, shown by the shell.
     let applicationInfo: ApplicationInfo
+
+    /// The package-import use case, coordinated by the Import area.
+    let packageImport: IPAPackageImport
 }

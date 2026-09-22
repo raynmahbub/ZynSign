@@ -16,7 +16,8 @@ enum CompositionRoot {
     /// Builds the application environment for a fresh launch.
     static func makeApplicationEnvironment() -> ApplicationEnvironment {
         ApplicationEnvironment(
-            applicationInfo: ApplicationInfo.current(bundle: .main)
+            applicationInfo: ApplicationInfo.current(bundle: .main),
+            packageImport: makePackageImport()
         )
     }
 
@@ -66,5 +67,37 @@ enum CompositionRoot {
             ),
             limits: limits
         )
+    }
+
+    /// Builds the package import use case, selecting the concrete intake and
+    /// archive implementations.
+    ///
+    /// The intake copies a user-selected document into the application-owned
+    /// staging directory, owning security-scoped access and cleanup; the
+    /// archive boundary reads staged archives from that same directory. Both
+    /// sides are bound to the same directory and the same file-extension
+    /// convention here, so a staged archive is discoverable through the
+    /// artifact's identifier alone and no other type knows the location.
+    /// The default resource policy applies to staged archives exactly as it
+    /// would to any other artifact.
+    static func makePackageImport(limits: ArchiveLimits = .default) -> IPAPackageImport {
+        let intake = SecurityScopedArtifactIntake(directory: importStagingDirectory)
+        let readerProvider = DirectoryArtifactArchiveReaderProvider(
+            directory: intake.directory,
+            limits: limits
+        )
+        return IPAPackageImport(
+            intake: intake,
+            readerProvider: readerProvider,
+            limits: limits
+        )
+    }
+
+    /// The application-owned temporary directory user-selected packages are
+    /// staged into. The directory is created on first use by the intake;
+    /// nothing is created at composition time.
+    private static var importStagingDirectory: URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZynSignImports", isDirectory: true)
     }
 }

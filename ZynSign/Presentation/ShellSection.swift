@@ -35,14 +35,14 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
     }
 
     /// An honest description of what the section is for and its current build
-    /// status. The text deliberately avoids implying that the capability
-    /// works.
+    /// status. The text deliberately avoids implying that a capability works
+    /// beyond what this build does.
     var statusSummary: String {
         switch self {
         case .applications:
             return "The library of packages brought into ZynSign is not part of this build yet."
         case .importPackage:
-            return "Bringing an iOS application package into ZynSign is not part of this build yet."
+            return "Import brings a selected package into ZynSign and reads its structure and declared metadata. A library of imported packages is not part of this build yet."
         case .signing:
             return "Signing a package with an identity and provisioning profile is not part of this build yet."
         case .settings:

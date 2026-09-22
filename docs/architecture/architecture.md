@@ -6,7 +6,7 @@ This document defines the architecture of ZynSign: the platform it runs on, the
 layers and boundaries the application is organised into, the decisions that are
 settled, and the capabilities that are not yet established.
 
-Three implementation increments exist. The first is an Xcode application
+Four implementation increments exist. The first is an Xcode application
 target with a SwiftUI application shell, a composition root, a minimal pure
 domain layer, and a unit-test target; it establishes the layer boundaries of
 Section 4 and no workflow capability. The second adds the archive-reading
@@ -17,10 +17,18 @@ application metadata layer: a pure domain reader that extracts and validates
 the metadata a bundle declares in its bundle information file, an
 application-layer use case that reads that one entry through the archive
 boundary for an established bundle and records the outcome on the artifact,
-and their tests. The inspection stage is therefore a partial capability: it
+and their tests. The fourth adds the document-import workflow: a
+user-driven `.ipa` selection through the system document picker, one
+security-scoped, bounded-chunk staging of the selected document into
+application-owned temporary storage addressed by the artifact identifier,
+examination of the staged archive by the existing inspection use cases, and
+an Import area that renders the outcome through an explicit phase machine.
+The inspection stage is therefore a partial capability: it
 reads containers, classifies layout, and reads one bundle's declared metadata,
 and it does not verify signatures, parse profiles, inspect executables,
-extract content, or produce a package.
+extract content, or produce a package. Staged archives are session-scoped
+and are never persisted; no package library, signing, verification,
+packaging, or installation capability exists.
 
 Nothing else in this document is a claim that any behaviour works. Every
 feasibility boundary in Section 6 remains open except where noted here, and the
@@ -331,6 +339,40 @@ neither silent nor dependent on leaving sensitive data behind. File coordination
 is not introduced speculatively; it is added only where a real input path
 requires it.
 
+### Import Staging Decision
+
+The document-import path settles two of the mechanisms above for its own
+input path, and the decision is recorded here because every later workflow
+that consumes an imported package builds on it.
+
+**Accepted:** a user-selected package is staged exactly once — copied in
+bounded chunks, never held whole in memory — into an application-owned
+temporary directory whose file names are freshly minted artifact identifiers
+alone, so no part of a selected document's name or content can influence
+where staged bytes are written. Security-scoped access to the selected
+document is acquired immediately before the copy and released when staging
+ends, on every outcome; the grant is never persisted and never leaves the
+platform layer. The system document picker restricts the choice to the
+`.ipa` type, and the application layer applies the same extension policy as
+a cheap gate; the extension is never trusted as evidence about content, and
+only the archive and metadata examinations decide whether a staged file is a
+valid package.
+
+The staged archive's lifetime is explicit. It is discarded when staging
+fails, when the import is cancelled, and when the package is rejected by
+examination. An accepted import's archive is retained deliberately for the
+life of the import result, is released by its owner when the result is
+dropped or replaced, and is cleared with the rest of the staging directory
+before the first import of a new process. Nothing staged survives
+implicitly, and nothing is persisted: when package persistence becomes a
+capability, it will adopt staged archives explicitly or replace this
+mechanism.
+
+**Still Unresolved:** file coordination for provider-backed locations,
+concurrent imports into shared staging space, storage-pressure handling, and
+crash-recovery semantics beyond the clear-at-next-launch behaviour recorded
+above.
+
 ## 9. Archive and IPA Handling
 
 Archive processing is independent of the UI and independent of the signing and
@@ -637,6 +679,7 @@ depend on iOS/iPadOS behaviour are recorded as *Provisional*, *Unresolved*, or
 | 22 | UI/application/domain separation and the UI prohibition list | **Accepted** (Section 13) |
 | 23 | Ports declared by their consuming layer | **Accepted** (Sections 4, 11) |
 | 24 | Installation in the first release | **Unresolved** |
+| 25 | Import intake and temporary staging | **Accepted** for the document-import path — one bounded-chunk staging per import, identifier-addressed application-owned temporary storage, security-scoped access held only while copying, session-scoped retention with explicit release (Section 8) |
 
 ## 19. Non-Goals of This Document
 
