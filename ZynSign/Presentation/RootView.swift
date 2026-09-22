@@ -3,10 +3,10 @@ import SwiftUI
 /// The root of the ZynSign interface: the application shell.
 ///
 /// The shell exposes the product's top-level areas as tabs and adapts to
-/// iPhone and iPad idioms. Import is a working capability in this build;
-/// Settings renders factual information about the application itself; every
-/// other area is an explicit placeholder until the corresponding workflow
-/// exists.
+/// iPhone and iPad idioms. Import and Applications are working capabilities
+/// in this build; Settings renders factual information about the
+/// application itself; every other area is an explicit placeholder until
+/// the corresponding workflow exists.
 struct RootView: View {
 
     @Environment(\.applicationEnvironment)
@@ -26,6 +26,8 @@ struct RootView: View {
     @ViewBuilder
     private func content(for section: ShellSection) -> some View {
         switch section {
+        case .applications:
+            ApplicationLibraryView(library: environment.library, importing: environment.packageImport)
         case .importPackage:
             PackageImportView(importing: environment.packageImport)
         case .settings:

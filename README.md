@@ -31,18 +31,22 @@ a reference to the copy ZynSign keeps in its own storage, a content
 fingerprint used only to recognise the same package again, and the inspection
 outcome, held in a versioned catalog inside the application container. A
 record states that a package passed inspection when it was imported and which
-bytes it refers to; it is not a trust statement. There is no screen for
-browsing or managing the library yet, and no signing, verification,
-packaging, or installation exists. No released build exists.
+bytes it refers to; it is not a trust statement. The **Applications area**
+lists the library: it shows each record's declared metadata and the current
+state of its package file, imports another package through the same
+document-import workflow, and deletes a record together with the package file
+behind it. It makes no claim that any application is signed, trusted, or
+installable: no signing, verification, packaging, or installation exists. No
+released build exists.
 
 | Area | State |
 | --- | --- |
-| Source code | Shell UI, composition root, domain types, archive layer, inspection use cases, document-import workflow, library records and persistence |
+| Source code | Shell UI, composition root, domain types, archive layer, inspection use cases, document-import workflow, library records and persistence, Applications library screen |
 | Build system / project file | Xcode project (`ZynSign.xcodeproj`): application target plus unit-test target |
-| Automated tests | Unit and fixture-based tests for the domain foundation, the archive layer, the import workflow, its presentation model, and the library's persistence, written to run with Xcode's test runner |
+| Automated tests | Unit and fixture-based tests for the domain foundation, the archive layer, the import workflow, its presentation model, the library's persistence, and the library screen's presentation model, written to run with Xcode's test runner |
 | Dependencies | None — Apple frameworks and the Swift standard library only |
 | Import | Partial: document selection, security-scoped staging into temporary storage, archive validation, declared-metadata extraction, library admission |
-| Library | Partial: durable records for accepted imports, application-owned artifact storage, content-based duplicate recognition, missing-artifact detection. No library screen |
+| Library | Partial: durable records for accepted imports, application-owned artifact storage, content-based duplicate recognition, missing-artifact detection, an Applications screen that lists, imports, and deletes records. No repair or replacement of missing artifacts |
 | Inspection | Partial: archive reading, application-bundle discovery, structural validation, declared metadata. No signature examination |
 | Signing, verification, packaging, installation | Not started |
 | Releases | None |

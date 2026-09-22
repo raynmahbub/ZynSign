@@ -14,10 +14,18 @@ import Foundation
 enum CompositionRoot {
 
     /// Builds the application environment for a fresh launch.
+    ///
+    /// One library use case is constructed per launch and shared by the
+    /// import use case and the environment, so the Import area and the
+    /// Applications area act on the same records and the same storage
+    /// wherever they admit, list, or remove entries.
     static func makeApplicationEnvironment() -> ApplicationEnvironment {
-        ApplicationEnvironment(
+        let intake = SecurityScopedArtifactIntake(directory: importStagingDirectory)
+        let library = makeApplicationLibrary(intake: intake)
+        return ApplicationEnvironment(
             applicationInfo: ApplicationInfo.current(bundle: .main),
-            packageImport: makePackageImport()
+            packageImport: makePackageImport(intake: intake, library: library),
+            library: library
         )
     }
 
@@ -66,20 +74,22 @@ enum CompositionRoot {
         )
     }
 
-    /// Builds the package import use case, selecting the concrete intake,
-    /// archive, and persistence implementations.
+    /// Builds the package import use case over the given intake and library,
+    /// selecting the concrete archive implementation.
     ///
-    /// The intake copies a user-selected document into the application-owned
-    /// staging directory, owning security-scoped access and cleanup. The
-    /// library adopts accepted packages out of that directory into durable
-    /// library storage and records them in the catalog. The archive boundary
-    /// searches library storage first and staging second, so an artifact is
-    /// readable by identifier both while it is being examined and after it
-    /// has been recorded. All four are bound to the same directories and the
-    /// same file-extension convention here, and no other type knows the
-    /// locations. The default resource policy applies to every archive.
-    static func makePackageImport(limits: ArchiveLimits = .default) -> IPAPackageImport {
-        let intake = SecurityScopedArtifactIntake(directory: importStagingDirectory)
+    /// The library is the one the environment carries, so packages an import
+    /// admits are the records the Applications area lists and removes. The
+    /// archive boundary searches library storage first and staging second,
+    /// so an artifact is readable by identifier both while it is being
+    /// examined and after it has been recorded. Everything is bound to the
+    /// same directories and the same file-extension convention here, and no
+    /// other type knows the locations. The default resource policy applies
+    /// to every archive.
+    static func makePackageImport(
+        intake: SecurityScopedArtifactIntake,
+        library: ApplicationLibrary,
+        limits: ArchiveLimits = .default
+    ) -> IPAPackageImport {
         let readerProvider = DirectoryArtifactArchiveReaderProvider(
             directories: [libraryArtifactDirectory, intake.directory],
             fileExtension: intake.fileExtension,
@@ -88,7 +98,7 @@ enum CompositionRoot {
         return IPAPackageImport(
             intake: intake,
             readerProvider: readerProvider,
-            library: makeApplicationLibrary(intake: intake),
+            library: library,
             limits: limits
         )
     }

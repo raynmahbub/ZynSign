@@ -27,13 +27,18 @@ The fifth adds application persistence: a durable, value-typed library
 record for each accepted import, a versioned catalog file that holds those
 records, application-owned artifact storage that adopts the staged archive,
 a deterministic content-based duplicate policy, and the library use case
-that sequences them behind the import flow (Section 15). The inspection
-stage is therefore a partial capability: it reads containers, classifies
-layout, and reads one bundle's declared metadata, and it does not verify
-signatures, parse profiles, inspect executables, extract content, or produce
-a package. Accepted imports are recorded and kept across launches; there is
-no screen for browsing or managing the library yet, and no signing,
-verification, packaging, or installation capability exists.
+that sequences them behind the import flow (Section 15). The sixth adds the
+Applications area: a library screen that lists the persisted records with
+each record's current artifact availability, imports another package through
+the existing document-import workflow, opens a per-record detail screen, and
+removes a record together with the package file behind it through the
+library use case's removal operation. The inspection stage is therefore a
+partial capability: it reads containers, classifies layout, and reads one
+bundle's declared metadata, and it does not verify signatures, parse
+profiles, inspect executables, extract content, or produce a package.
+Accepted imports are recorded and kept across launches and are listed,
+imported, and removed in the Applications area; no signing, verification,
+packaging, or installation capability exists.
 
 Nothing else in this document is a claim that any behaviour works. Every
 feasibility boundary in Section 6 remains open except where noted here, and the
@@ -695,8 +700,9 @@ in anticipation of a future need.
 
 **Still Unresolved:** whether library storage should be excluded from device
 backups, eviction or retention limits under storage pressure, repair or
-replacement of a missing artifact as a user-facing operation, and the
-presentation of the library (no library screen exists in this build).
+replacement of a missing artifact as a user-facing operation, and deeper
+library management (the Applications screen lists, imports, and deletes
+records; no repair or replacement operation exists in this build).
 
 ## 16. Testing Architecture
 

@@ -49,7 +49,8 @@ final class LibraryPersistenceLifecycleTests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// Mirrors `CompositionRoot.makePackageImport()` over the test's directories.
+    /// Mirrors `CompositionRoot.makePackageImport(intake:library:)` over the
+    /// test's directories.
     private func makeSession() -> Session {
         let intake = SecurityScopedArtifactIntake(directory: stagingDirectory)
         let readerProvider = DirectoryArtifactArchiveReaderProvider(

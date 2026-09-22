@@ -31,15 +31,19 @@ into application-owned artifact storage, and a content-based duplicate policy
 decides whether an import is already held. The persistence decision — record
 model, storage mechanism and why it was chosen, artifact ownership, duplicate
 policy, failure and cleanup behaviour, and the migration rule — is recorded in
-Section 15 of [architecture.md](architecture.md).
+Section 15 of [architecture.md](architecture.md). The Applications area now
+presents that library: it lists the records with each record's current
+artifact availability, imports another package through the existing
+document-import workflow, opens a detail screen per record, and removes a
+record together with the package file behind it.
 
 Everything else is intended structure only. The inspection stage is a partial
 capability: it reads containers, classifies layout, and reads one bundle's
 declared metadata; it does not verify signatures, parse profiles, inspect
 executables, extract content, or produce a package. Library records are kept
-across launches, but no screen for browsing or managing them exists. No other
-workflow behaviour is implemented, and no behaviour may be inferred from these
-documents.
+across launches and are listed, imported, and removed in the Applications
+area. No other workflow behaviour is implemented, and no behaviour may be
+inferred from these documents.
 
 ## Index
 

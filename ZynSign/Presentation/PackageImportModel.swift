@@ -68,6 +68,13 @@ final class PackageImportModel: ObservableObject {
     /// The current phase of the import.
     @Published private(set) var phase: Phase = .idle
 
+    /// An action performed on the main actor whenever the import reaches a
+    /// settled phase — `succeeded`, `failed`, or `cancelled` — so a screen
+    /// that embeds the import can react to the outcome without watching the
+    /// phase machine itself. The hook is invoked after the phase is
+    /// published. The default is no action.
+    var onSettlement: (@MainActor (Phase) -> Void)?
+
     private let importing: IPAPackageImport
     private var importTask: Task<Void, Never>?
 
@@ -95,7 +102,7 @@ final class PackageImportModel: ObservableObject {
         case .success(let source):
             beginImport(from: source)
         case .failure:
-            phase = .cancelled
+            settle(to: .cancelled)
         }
     }
 
@@ -112,19 +119,32 @@ final class PackageImportModel: ObservableObject {
         do {
             let result = try await importing.importArtifact(from: source)
             if result.isAccepted {
-                phase = .succeeded(Self.summary(for: result))
+                settle(to: .succeeded(Self.summary(for: result)))
             } else {
-                phase = .failed(Self.rejectionMessage(for: result.artifact))
+                settle(to: .failed(Self.rejectionMessage(for: result.artifact)))
             }
         } catch is CancellationError {
-            phase = .cancelled
+            settle(to: .cancelled)
         } catch let error as ZynSignError where error.category == .cancelled {
-            phase = .cancelled
+            settle(to: .cancelled)
         } catch let error as ZynSignError {
-            phase = .failed(error.userMessage)
+            settle(to: .failed(error.userMessage))
         } catch {
             // A foreign error's text is never rendered.
-            phase = .failed("The import could not be completed.")
+            settle(to: .failed("The import could not be completed."))
+        }
+    }
+
+    /// Publishes a settled phase — one of the terminal outcomes — and
+    /// reports it to the settlement hook. Transitional phases are assigned
+    /// directly and are not reported.
+    private func settle(to newPhase: Phase) {
+        phase = newPhase
+        switch newPhase {
+        case .idle, .importing:
+            break
+        case .succeeded, .failed, .cancelled:
+            onSettlement?(newPhase)
         }
     }
 

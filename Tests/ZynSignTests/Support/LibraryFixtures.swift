@@ -160,16 +160,21 @@ final class SyntheticClock: @unchecked Sendable {
 // MARK: - Record store double
 
 /// An `ApplicationRecordStore` that keeps records in memory and can be
-/// driven into deterministic failures.
+/// driven into deterministic failures and deterministic in-flight states.
 ///
-/// It exists so the library use case can be exercised without a
-/// filesystem, and so a failing insert — the case that must roll an
-/// adopted artifact back — can be produced on demand.
+/// It exists so the library use case and the library presentation model can
+/// be exercised without a filesystem: a failing insert (the case that must
+/// roll an adopted artifact back), a failing listing or deletion, and a
+/// deletion held open while a test observes other state are all produced on
+/// demand.
 actor InMemoryApplicationRecordStore: ApplicationRecordStore {
 
     private var records: [ApplicationRecordIdentifier: ApplicationRecord] = [:]
     private var insertError: (any Error)?
     private var listError: (any Error)?
+    private var deleteError: (any Error)?
+    private var deletionGateContinuation: CheckedContinuation<Void, Never>?
+    private var gatesDeletions = false
 
     /// The identifiers of every record inserted, in order.
     private(set) var insertedIDs: [ApplicationRecordIdentifier] = []
@@ -185,9 +190,29 @@ actor InMemoryApplicationRecordStore: ApplicationRecordStore {
         insertError = error
     }
 
-    /// Makes every subsequent listing throw `error`.
-    func failListing(with error: any Error) {
+    /// Makes every subsequent listing throw `error`, or stops failing
+    /// listings when `error` is `nil`.
+    func failListing(with error: (any Error)?) {
         listError = error
+    }
+
+    /// Makes every subsequent delete throw `error`, removing nothing.
+    func failDeletion(with error: any Error) {
+        deleteError = error
+    }
+
+    /// Makes the next delete suspend until `releaseDeletionGate()` is
+    /// called, so a test can observe other state while a removal is in
+    /// flight.
+    func gateDeletions() {
+        gatesDeletions = true
+    }
+
+    /// Releases a deletion suspended by `gateDeletions()` and stops gating.
+    func releaseDeletionGate() {
+        gatesDeletions = false
+        deletionGateContinuation?.resume()
+        deletionGateContinuation = nil
     }
 
     /// How many records the store holds.
@@ -223,6 +248,14 @@ actor InMemoryApplicationRecordStore: ApplicationRecordStore {
     }
 
     func delete(recordWithID id: ApplicationRecordIdentifier) async throws {
+        if gatesDeletions {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                deletionGateContinuation = continuation
+            }
+        }
+        if let deleteError {
+            throw deleteError
+        }
         records.removeValue(forKey: id)
     }
 }
