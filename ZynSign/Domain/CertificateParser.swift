@@ -14,18 +14,20 @@ import Foundation
 /// separate result types.
 protocol CertificateParser {
 
-    /// Parses `derData` as a single X.509 certificate and returns its
-    /// metadata.
+    /// Parses `input` as a single X.509 certificate and returns its metadata.
     ///
-    /// - Parameter derData: The DER-encoded certificate bytes. Treated as
-    ///   untrusted input.
+    /// - Parameter input: Untrusted certificate bytes. The parser does not
+    ///   assume authenticity, trust, code-signing suitability, or possession
+    ///   of a private key.
     /// - Returns: The extracted metadata. Existence of metadata means only
     ///   that the bytes were structurally parseable; it does not mean the
     ///   certificate is currently valid, trusted, or suitable for code
     ///   signing.
-    /// - Throws: A typed `ZynSignError` when the bytes are malformed,
-    ///   unsupported, or otherwise unparseable.
-    func parseCertificate(derData: Data) throws -> CertificateMetadata
+    /// - Throws: A typed `ZynSignError` when the bytes are empty, truncated,
+    ///   malformed, in an unsupported format, or otherwise unparseable.
+    ///   An unrecognised key or signature algorithm is recorded on the
+    ///   metadata; it does not by itself fail the parse.
+    func parseCertificate(_ input: CertificateInput) throws -> CertificateMetadata
 
     /// Parses multiple DER-encoded certificates as a chain.
     ///
@@ -42,6 +44,12 @@ protocol CertificateParser {
 }
 
 extension CertificateParser {
+
+    /// Parses DER-encoded certificate bytes. Equivalent to wrapping `derData`
+    /// in `CertificateInput`.
+    func parseCertificate(derData: Data) throws -> CertificateMetadata {
+        try parseCertificate(CertificateInput(bytes: derData))
+    }
 
     func parseChain(derDatas: [Data]) throws -> CertificateChain {
         guard !derDatas.isEmpty else {

@@ -36,7 +36,7 @@ final class CertificateMetadataTests: XCTestCase {
         let metadata = CertificateMetadata(
             subject: subject,
             issuer: issuer,
-            serialNumber: "04abcd",
+            serialNumber: CertificateSerialNumber(hexadecimal: "04abcd")!,
             notValidBefore: notBefore,
             notValidAfter: notAfter,
             publicKeyInfo: publicKeyInfo,
@@ -45,7 +45,7 @@ final class CertificateMetadataTests: XCTestCase {
         )
         XCTAssertEqual(metadata.subject, subject)
         XCTAssertEqual(metadata.issuer, issuer)
-        XCTAssertEqual(metadata.serialNumber, "04abcd")
+        XCTAssertEqual(metadata.serialNumber, CertificateSerialNumber(hexadecimal: "04abcd")!)
         XCTAssertEqual(metadata.notValidBefore, notBefore)
         XCTAssertEqual(metadata.notValidAfter, notAfter)
         XCTAssertEqual(metadata.publicKeyInfo.algorithm, .rsa)
@@ -60,7 +60,7 @@ final class CertificateMetadataTests: XCTestCase {
         let metadata = CertificateMetadata(
             subject: name,
             issuer: name,
-            serialNumber: "01",
+            serialNumber: CertificateSerialNumber(hexadecimal: "01")!,
             notValidBefore: Date(),
             notValidAfter: Date().addingTimeInterval(3600),
             publicKeyInfo: PublicKeyInfo(algorithm: .rsa, keySizeInBits: 2048),
@@ -77,7 +77,7 @@ final class CertificateMetadataTests: XCTestCase {
         let metadata = CertificateMetadata(
             subject: subject,
             issuer: issuer,
-            serialNumber: "02",
+            serialNumber: CertificateSerialNumber(hexadecimal: "02")!,
             notValidBefore: Date(),
             notValidAfter: Date().addingTimeInterval(3600),
             publicKeyInfo: PublicKeyInfo(algorithm: .rsa, keySizeInBits: 2048),
@@ -97,7 +97,7 @@ final class CertificateMetadataTests: XCTestCase {
         let first = CertificateMetadata(
             subject: subject,
             issuer: issuer,
-            serialNumber: "01",
+            serialNumber: CertificateSerialNumber(hexadecimal: "01")!,
             notValidBefore: notBefore,
             notValidAfter: notAfter,
             publicKeyInfo: info,
@@ -107,7 +107,7 @@ final class CertificateMetadataTests: XCTestCase {
         let second = CertificateMetadata(
             subject: subject,
             issuer: issuer,
-            serialNumber: "01",
+            serialNumber: CertificateSerialNumber(hexadecimal: "01")!,
             notValidBefore: notBefore,
             notValidAfter: notAfter,
             publicKeyInfo: info,
@@ -122,7 +122,7 @@ final class CertificateMetadataTests: XCTestCase {
         let metadata = CertificateMetadata(
             subject: makeSubject(),
             issuer: makeIssuer(),
-            serialNumber: "01",
+            serialNumber: CertificateSerialNumber(hexadecimal: "01")!,
             notValidBefore: Date(),
             notValidAfter: Date().addingTimeInterval(3600),
             publicKeyInfo: PublicKeyInfo(algorithm: .rsa, keySizeInBits: 2048),

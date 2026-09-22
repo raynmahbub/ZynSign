@@ -197,10 +197,29 @@ It also has tests for bundle inspection and the bundle explorer:
   entries that could not be listed; and entry-detail content including the
   statements of what the explorer does not do with each kind.
 
-Test fixtures are generated programmatically. No binary fixture is committed,
-and no real package, signing material, profile, or certificate appears anywhere
-in the suite. Filesystem-backed tests write only into a temporary directory that
-the test removes.
+It also has tests for certificate inspection:
+
+- serial numbers, including a short value, a leading zero octet that must not
+  be collapsed, and a value longer than a machine integer;
+- distinguished names with several attributes, repeated organizational units,
+  an unrecognised attribute, and a subject whose common name is one space;
+- validity-period boundaries, including the exact start and end, against an
+  injected clock rather than the system clock;
+- supported and unrecognised algorithm combinations, including an EC key
+  whose signature algorithm is RSA, an ECDSA signature with a P-256 key, an
+  Ed25519 certificate that is parsed and not rejected, and an unknown
+  signature identifier that does not hide the public-key algorithm;
+- SHA-256 of the accepted certificate bytes, including known digest vectors,
+  and equality of a repeated parse;
+- structured failures for empty, truncated, malformed, PEM, indefinite-length,
+  non-minimal, oversized, and trailing input, without echoing certificate
+  bytes into the error.
+
+Certificate fixtures are synthetic public certificates embedded as text. They
+contain no private keys. Other test fixtures are generated programmatically.
+No binary fixture is committed, and no real package, signing material, profile,
+or production certificate appears anywhere in the suite. Filesystem-backed
+tests write only into a temporary directory that the test removes.
 
 The tests are written to run inside the unit-test target with Xcode's test
 runner (Product ▸ Test, or `xcodebuild test` against the shared `ZynSign`

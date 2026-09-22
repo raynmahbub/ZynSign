@@ -91,7 +91,7 @@ be read as an estimate of difficulty, cost, or schedule.
 | RSA and ECDSA signature primitives with `SecKey` | Feasible | Security framework key APIs documented on iOS |
 | Signing with a non-extractable Keychain private key | Feasible | Keychain extractability attributes documented; signing does not require export |
 | Importing a `.p12` signing identity | Feasible with custom implementation | `SecPKCS12Import` available on iOS, but only with legacy PBE algorithms; workflow and error handling are ZynSign's responsibility |
-| Certificate metadata inspection | Feasible | `SecCertificate` APIs documented on iOS; uncommon fields need custom parsing |
+| Certificate metadata inspection | Feasible with a bounded DER reader | `SecCertificateCopyValues` is macOS-only (**Verified** — Apple documentation, macOS 10.7+). `SecCertificateCreateWithData` exists on iOS (**Verified**) but is not a field dictionary |
 | CMS (PKCS#7 SignedData) construction and verification | Feasible with custom implementation | No CMS API exists on iOS (vendor-confirmed); format is specified (RFC 5652) and buildable on available primitives |
 | Mach-O reading and modification (headers, load commands, signature region) | Feasible with custom implementation | Format fully specified; structures shipped in the iOS SDK; no platform API exists or is needed |
 | CodeDirectory / requirements / entitlements blob construction | Feasible with custom implementation | Formats specified in Apple open-source and Inside Code Signing technotes; no iOS API provides them |
@@ -129,10 +129,14 @@ Three layers are relevant and must not be conflated.
   `CC_SHA256`, and relatives). CryptoKit's public-key support covers
   P-256/P-384/P-521 and Curve25519 and **does not include RSA**; RSA work
   belongs to `SecKey`. **[Verified — Apple CryptoKit documentation]**
-- Certificate handling — `SecCertificateCreateWithData`,
-  `SecCertificateCopyValues` for standard X.509 fields, `SecIdentity` pairing,
-  and `SecTrust` for chain evaluation under a `SecPolicy`. **[Verified —
-  Apple Security framework documentation]**
+- Certificate handling — `SecCertificateCreateWithData` exists on iOS
+  (**Verified** — Apple Security documentation, iOS 2.0+).
+  `SecCertificateCopyValues` is documented for macOS 10.7+ and is not in the
+  iOS API surface (**Verified**). It is not a source of subject, issuer,
+  serial, or validity fields on the iOS 17 deployment target. `SecIdentity`
+  pairing and `SecTrust` remain separate from metadata inspection. **[Verified
+  — Apple Security framework documentation; the earlier claim that
+  `SecCertificateCopyValues` was available on iOS was wrong]**
 - Keychain storage — `SecItemAdd`/`SecItemCopyMatching` with accessibility
   classes, access-control objects (`SecAccessControlCreateWithFlags`), and the
   `kSecAttrIsExtractable` attribute, which suppresses
@@ -445,7 +449,7 @@ Section 7). Feasibility maps onto it as follows.
 
 | Concept | On-device availability | Notes |
 | --- | --- | --- |
-| Certificate | Feasible | DER bytes → `SecCertificate`; standard fields via `SecCertificateCopyValues`; uncommon extensions via custom X.509 parsing |
+| Certificate | Feasible for inspection | DER bytes are classified by a bounded reader. `SecCertificateCopyValues` is not available on iOS (**Verified**). `SecCertificateCreateWithData` can build a platform object later (**Verified**, iOS 2.0+); inspection does not retain one. Uncommon fields are preserved or skipped, not fetched from a macOS-only dictionary |
 | Private key | Feasible (as a Keychain-resident secret) | Present only as a `SecKey` reference; non-extractable after `.p12` import |
 | Signing identity | Feasible | `SecIdentity` = certificate + matching key, obtained from `.p12` import |
 | Keychain item | Feasible | Accessibility, access groups, and deletion semantics documented; app-specific design required |
@@ -729,19 +733,26 @@ material, per `SECURITY.md`.
   **Automatable:** yes.
 
 ### E2 — Certificate metadata inspection
-- **Objective:** extract subject, issuer, serial, validity, and key
-  algorithm/size from controlled certificates.
+- **Objective:** compare a bounded DER reader's subject, issuer, serial,
+  validity, and key characteristics with whatever a device build can observe
+  from Security framework objects, without treating that comparison as trust.
 - **Environment:** iOS harness; macOS to prepare certificates.
-- **Input:** Apple Development certificate, WWDR intermediate, self-signed
-  certificate.
-- **Expected observation:** `SecCertificateCopyValues` returns standard fields
-  for all inputs; uncommon extensions absent from the API are addressable via
-  custom parsing.
-- **Success criteria:** identity screen fields resolvable for all three inputs.
-- **Failure interpretation:** missing fields ⇒ custom X.509 parsing scope
-  grows (design impact on Infrastructure layer).
-- **Device:** simulator sufficient. **Credentials:** project-owned
-  certificates. **Automatable:** yes.
+- **Input:** synthetic RSA, EC, and unusual-name certificates. No private keys.
+- **Expected observation:** `SecCertificateCopyValues` is not available on
+  iOS (**Verified**). `SecCertificateCreateWithData` may accept or reject
+  each input; that result is **Requires experiment** and is not the
+  inspection classifier. `SecCertificateCopyData` byte-identity with the
+  input is **Unknown**.
+- **Success criteria:** the reader reports the fields it decoded, and a nil
+  platform object is recorded as an observation rather than as a parse
+  failure.
+- **Failure interpretation:** a platform object that disagrees with the
+  reader does not by itself make the reader wrong; the disagreement is
+  evidence for a later experiment, not a trust decision.
+- **Device:** simulator is informative; a physical device is required before
+  any claim about device Security framework behaviour. **Credentials:**
+  synthetic. **Automatable:** the reader is; the platform comparison is not
+  yet.
 
 ### E3 — Provisioning-profile parse and container verification
 - **Objective:** extract the payload from a real profile on-device and verify

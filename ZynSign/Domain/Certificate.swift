@@ -13,11 +13,12 @@ import Foundation
 ///   logged in full, must not be persisted in ordinary application storage
 ///   such as `ApplicationRecord`, and must not be exposed through the UI
 ///   beyond fingerprint and metadata.
-/// - The DER data is owned by the component that parsed it. For future
-///   signing workflows, the Platform layer owns the `SecCertificate` or raw
-///   bytes and provides them to the signing boundary only when needed. The
-///   Domain layer holds the bytes transiently inside this type but never
-///   persists them in the library catalog or other ordinary storage.
+/// - The DER data is owned by the component that parsed it. Inspection keeps
+///   the accepted bytes, not a platform certificate object. For a future
+///   signing workflow the Platform layer provides those bytes to the signing
+///   boundary only when needed. The Domain layer holds the bytes transiently
+///   inside this type but never persists them in the library catalog or other
+///   ordinary storage.
 /// - Private-key material is never carried in this type. See
 ///   `SigningIdentity` and `SigningCapability` for the private-key boundary.
 ///

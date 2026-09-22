@@ -33,11 +33,10 @@ struct CertificateMetadata: Equatable, Hashable {
     /// The issuer distinguished name: who issued the certificate.
     let issuer: CertificateDistinguishedName
 
-    /// The serial number as a hexadecimal string, lowercased, without
-    /// leading `0x`. Preserved as observed; may be empty when the
-    /// certificate does not carry a serial number or it could not be
-    /// extracted, but a valid certificate normally carries one.
-    let serialNumber: String
+    /// The serial number as INTEGER content octets. Not a machine integer.
+    /// A parsed certificate always carries one; absence is a parse failure,
+    /// not an empty value.
+    let serialNumber: CertificateSerialNumber
 
     /// The start of the validity period (notBefore).
     let notValidBefore: Date
@@ -65,7 +64,7 @@ struct CertificateMetadata: Equatable, Hashable {
     init(
         subject: CertificateDistinguishedName,
         issuer: CertificateDistinguishedName,
-        serialNumber: String,
+        serialNumber: CertificateSerialNumber,
         notValidBefore: Date,
         notValidAfter: Date,
         publicKeyInfo: PublicKeyInfo,

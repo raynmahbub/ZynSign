@@ -105,6 +105,19 @@ enum CompositionRoot {
         )
     }
 
+    /// Builds a certificate inspector.
+    ///
+    /// The parser and the clock are selected here. Inspection is not installed
+    /// in the application environment and is not reachable from the interface:
+    /// nothing in the shell imports, exports, or manages certificates, and
+    /// inspection does not persist the bytes it reads.
+    static func makeCertificateInspector(
+        parser: any CertificateParser = AppleCertificateParser(),
+        clock: any EvaluationClock = SystemEvaluationClock()
+    ) -> CertificateInspector {
+        CertificateInspector(parser: parser, clock: clock)
+    }
+
     /// Builds the bundle contents inspection use case over the given library,
     /// selecting the concrete archive implementation.
     ///

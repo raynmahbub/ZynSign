@@ -55,10 +55,32 @@ enum SignatureAlgorithm: Equatable, Hashable {
         }
     }
 
+    /// Maps a dotted signature-algorithm OID exactly. Does not consult the
+    /// certificate's public-key algorithm. Unknown OIDs are preserved.
+    static func from(objectIdentifier: String) -> SignatureAlgorithm {
+        switch objectIdentifier {
+        case "1.2.840.113549.1.1.5": return .sha1WithRSAEncryption
+        case "1.2.840.113549.1.1.11": return .sha256WithRSAEncryption
+        case "1.2.840.113549.1.1.12": return .sha384WithRSAEncryption
+        case "1.2.840.113549.1.1.13": return .sha512WithRSAEncryption
+        case "1.2.840.10045.4.1": return .ecdsaWithSHA1
+        case "1.2.840.10045.4.3.2": return .ecdsaWithSHA256
+        case "1.2.840.10045.4.3.3": return .ecdsaWithSHA384
+        case "1.2.840.10045.4.3.4": return .ecdsaWithSHA512
+        case "1.3.101.112": return .ed25519
+        default: return .unknown(objectIdentifier)
+        }
+    }
+
     /// Attempts to map a platform-provided identifier (OID name, common name,
     /// or raw OID) to a known algorithm. Returns `unknown` when the identifier
-    /// does not match a known case.
+    /// does not match a known case. Dotted OIDs are matched exactly before
+    /// any looser name comparison.
     static func from(identifier: String) -> SignatureAlgorithm {
+        let exact = from(objectIdentifier: identifier)
+        if exact.isRecognised || identifier.contains(".") {
+            return exact
+        }
         let lower = identifier.lowercased()
         // OID forms and common names vary by platform. Match loosely.
         if lower.contains("1.2.840.113549.1.1.5") || lower == "sha1withrsaencryption" || lower == "sha1withrsa" {

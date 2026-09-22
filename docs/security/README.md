@@ -12,7 +12,8 @@ that distinguishes parsing from current validity, chain representation
 without trust evaluation, a narrow signing-capability abstraction that does
 not expose private-key bytes, a distinct signing-identity model, an
 identity-store boundary, and a certificate parser behind the
-`CertificateParser` port using Apple Security framework APIs where available.
+`CertificateParser` port. Metadata is read by a bounded DER reader.
+`SecCertificateCopyValues` is not available on iOS and is not used.
 There is no signing implementation, no key handling beyond the capability
 abstraction, no credential storage, no provisioning profile processing, no
 PKCS#12 import, and no device communication. The security boundaries for

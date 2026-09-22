@@ -64,7 +64,7 @@ final class CertificateDistinguishedNameTests: XCTestCase {
     }
 
     func testUnusualStructurePreserved() {
-        // Space as CN, as in unusualDER fixture
+        // A blank common name is preserved and is not used as the display name.
         let name = CertificateDistinguishedName(
             commonName: " ",
             organization: "ZynSign Test Org",
