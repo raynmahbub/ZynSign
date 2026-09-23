@@ -168,11 +168,35 @@ documented for macOS only. Apple DTS has stated repeatedly — in 2017, again in
 that callers must write or acquire their own. **[Verified — Apple DTS
 statements in Apple Developer Forums]**
 
+This was re-checked symbol by symbol against Apple's current platform
+documentation before the provisioning-profile verification increment was
+written, and the result is the same: `CMSDecoderCreate` lists macOS 10.5 with
+no iOS entry, `CMSDecoderCopySignerStatus` lists macOS 10.5 with no iOS entry,
+and `CMSSignerStatus` lists macOS and Mac Catalyst only. No symbol in the CMS
+decoder family is available to an iOS 17 application, so none of them may
+appear in a runtime code path or be hidden behind a port that iOS could never
+satisfy. **[Verified — Apple Security documentation, per symbol]** The
+primitives a substitute needs are documented for iOS:
+`SecCertificateCreateWithData` (iOS 2.0+), `SecCertificateCopyKey` (iOS
+12.0+), `SecKeyIsAlgorithmSupported` and `SecKeyVerifySignature` (iOS 10.0+),
+including the message-based algorithms `.rsaSignatureMessagePKCS1v15SHA256`
+and `.ecdsaSignatureMessageX962SHA256`, which keep hashing inside the
+platform primitive. **[Verified — API availability. Their agreement with a
+given certificate's own key fields, and their behaviour on device, remain
+Requires experiment (E3, E4).]**
+
 This distinction is the single most important cryptographic finding: the
 *primitives* Apple code signing needs (SHA-256, RSA PKCS#1 v1.5 over a digest)
 are available on iOS, but the *format assembly* around them — CMS SignedData
 for both the Mach-O signature slot and the provisioning-profile wrapper — is
 ZynSign's to implement or source.
+
+The consequence has now been acted on for one direction of that format. Reading
+and verifying an existing SignedData message is implemented inside ZynSign: a
+bounded structure reader over RFC 5652 SignedData plus the documented key
+primitives behind a narrow port, with no CMS API and no third-party ASN.1 or
+crypto dependency. Constructing SignedData — which the Mach-O signature slot
+needs — is still unbuilt and still the higher-risk half of this finding.
 
 ### 4.2 Key import, storage, and non-exportable use
 
@@ -403,16 +427,26 @@ authorization — the CMS container signature should be verified:
    policy;
 3. only then treat payload fields as authorization input.
 
-Step 1 is custom CMS verification on available primitives; step 2 uses
-documented `SecTrust` APIs, but whether a code-signing-appropriate policy
-object behaves correctly on iOS for Apple's issuing intermediates is **not
-established** (`kSecPolicyAppleCodeSigning` appears in iOS API release notes,
-but its effective behavior on iOS is undocumented in detail).
-**Classification: Requires experiment (E3, E13).**
+Step 1 is implemented: the container is read by ZynSign's own bounded SignedData
+reader, the signer certificate is selected from the embedded bag by serial
+number, the signed attributes are re-encoded as a `SET OF` and bound to the
+encapsulated content through the message-digest attribute before any signature
+check, and the signature is checked with `SecKeyVerifySignature` behind a port.
+Its on-device behaviour is still unmeasured. **[Implemented — Observed in this
+repository; Requires experiment (E3, E4) on device.]** Step 2 uses documented
+`SecTrust` APIs, but whether a code-signing-appropriate policy object behaves
+correctly on iOS for Apple's issuing intermediates is **not established**
+(`kSecPolicyAppleCodeSigning` appears in iOS API release notes, but its
+effective behavior on iOS is undocumented in detail). Step 3 is not implemented
+at all: no entitlement, device, bundle, platform, or profile-type decision is
+made anywhere in the repository. **Classification: Requires experiment (E3,
+E13).**
 
-Until that experiment closes, ZynSign must not present profile contents as
-"verified" — only as "parsed, signature unverified," with the distinction
-visible in diagnostics.
+Until those experiments close, ZynSign must not present profile contents as
+"trusted" or "authorized." What it may present, and what the verification
+result states separately, is: parsed, structurally valid, signature verified or
+rejected or not evaluated, signer certificate related or not, trust not
+performed, authorization not evaluated.
 
 ## 8. Entitlements
 
@@ -516,7 +550,7 @@ ZynSign code path; whether per-use user presence is possible is open
 | Requirements evaluation | Interpret requirement opcodes (designated/internal) | **Yes, scoped — Feasible with custom implementation** for the subset ZynSign supports; full-language parity is an open scope question |
 | CMS signature on the CodeDirectory | Extract signer info, verify signature with the embedded certificates using `SecKeyVerifySignature` | **Yes — Feasible with custom implementation** (custom CMS parse + available primitives) |
 | Certificate-chain verification | Validate the signer chain to an Apple anchor under a suitable policy | **Partially — Requires experiment** (`SecTrust` available; code-signing policy behavior on iOS unestablished, E13) |
-| Provisioning compatibility | Profile signature + type + expiry + app ID + team + certificate + (device) | **Partially — Requires experiment** for the trust step; the rest is Feasible domain logic |
+| Provisioning compatibility | Profile signature + type + expiry + app ID + team + certificate + (device) | **Partially — Implemented** for parsing, structural validity, container signature verification, and certificate relationship; **Requires experiment** for the chain-trust step; compatibility decisions are not implemented |
 | Entitlement compatibility | Claims ⊆ profile allowlist, identifier consistency | **Yes — Feasible** |
 | iOS policy validation | Everything the platform actually enforces at install/launch (AMFI, kernel checks, trust decisions, version-specific acceptance) | **No — Restricted / platform-dependent.** ZynSign cannot execute the platform's validator, and no public iOS API exposes it |
 
@@ -538,6 +572,13 @@ ZynSign code path; whether per-use user presence is possible is open
 - Verification must be implemented independently of signing state
   (architecture Section 5): it re-derives everything from bytes and public
   material.
+- A verified provisioning-profile CMS signature is a statement about bytes and
+  one public key: the payload is the payload that key signed. It is not evidence
+  that the signer's certificate is trusted, that Apple issued it, that it is
+  unrevoked, that ZynSign holds the matching private key, or that the profile
+  authorizes an application, a device, or an entitlement. Those are separate
+  states and are reported separately; the profile verification result has no
+  single validity flag that could collapse them.
 
 ## 11. Packaging
 
@@ -718,8 +759,8 @@ is never a runtime assumption.
 | Keychain / private keys | Available; `SecPKCS12Import` with legacy PBE only; non-extractable imported keys; per-use authorization Uncertain | Keychains plus `SecItemImport`/file keychains with extractability control | Import UX must handle legacy-PBE constraint; extractability control assumption is device-only and unproven (E7); macOS import paths must not be assumed present on iOS |
 | `codesign` / static code-signature validation APIs | Not available to applications (no `SecStaticCode`, no tool execution) | `codesign`, `security`, `SecStaticCode` available | All signing and verification logic must live in-process; macOS is only an independent validator of ZynSign output |
 | Mach-O manipulation | No APIs needed or provided; SDK structure headers available | `otool`/`lipo`/`codesign` for inspection; same format | One custom parser/writer serves the runtime; macOS tooling cross-checks it |
-| CMS (PKCS#7) | **No API** (vendor-confirmed, 2017–2023) | `CMSEncoder`/`CMSDecoder` documented | CMS must be custom-built for the runtime; macOS CMS must not appear in any runtime code path |
-| Provisioning profiles | No complete parser API; CMS container must be custom-parsed; decoded payload parsing is implemented in ZS-017; trust step Uncertain (E3/E13) | `security cms -D`, developer portal, Xcode | CMS handling remains a custom component; macOS only prepares fixtures and cross-checks |
+| CMS (PKCS#7) | **No API** (vendor-confirmed, 2017–2023; re-verified per symbol: `CMSDecoderCreate`, `CMSDecoderCopySignerStatus`, `CMSSignerStatus` list macOS/Mac Catalyst only) | `CMSEncoder`/`CMSDecoder` documented | CMS must be custom-built for the runtime; macOS CMS must not appear in any runtime code path. Verification of an existing SignedData message is now custom-built (bounded reader + `SecKeyVerifySignature`); construction remains to be built |
+| Provisioning profiles | No complete parser API; CMS container is custom-parsed and its signature verified; decoded payload parsing is implemented in ZS-017; trust step Uncertain (E3/E13) | `security cms -D`, developer portal, Xcode | CMS handling remains a custom component; macOS only prepares fixtures and cross-checks |
 | ZIP/archive handling | No documented ZIP-container API; Compression framework supplies DEFLATE-class codecs; Apple Archive ≠ ZIP | `ditto`, `zip`, full POSIX filesystem | Container reader/writer is a ZynSign component (or future approved dependency); implementation choice deferred |
 | Device communication | Peer file transfer possible; **no install-targeting API** | USB/pairing, Xcode/Configurator, device consoles | Cross-device flows can only move artifacts; installation stays external/restricted |
 | Installation | System channels only (App Store, OTA `itms-services`, MDM); no in-app install API | Finder/Xcode/Configurator install to *other* devices | Installation feasibility is separate from signing and remains *Unresolved* in product scope |
@@ -774,6 +815,13 @@ material, per `SECURITY.md`.
   yet.
 
 ### E3 — Provisioning-profile parse and container verification
+- **Status:** the software under test exists. Payload extraction, SignedData
+  structure reading, signer selection, signed-attribute binding, and signature
+  verification are implemented, and the iOS-gated test suite exercises them over
+  synthetic OpenSSL-generated containers; that suite has not been executed in an
+  iOS harness, so nothing here is yet device evidence. Chain-trust evaluation is
+  still absent from the repository, so this experiment's trust objective is
+  unchanged.
 - **Objective:** extract the payload from a real profile on-device and verify
   its CMS signature and issuer chain.
 - **Environment:** iOS harness; developer-side `security cms -D` as reference.
@@ -792,6 +840,12 @@ material, per `SECURITY.md`.
   **Automatable:** yes (tamper case included).
 
 ### E4 — CMS SignedData construction round-trip
+- **Scope note:** this experiment is about *construction*, which is not
+  implemented. Verification is implemented separately, and the part of it that
+  still needs a device is narrower: that `SecCertificateCopyKey` yields a key
+  whose algorithm support matches the certificate's own key fields, and that
+  `SecKeyVerifySignature` accepts the re-encoded `SET OF` attribute bytes for
+  both RSA and ECDSA signers. That confirmation is recorded under E3.
 - **Objective:** construct a CMS SignedData object over controlled content and
   have independent tooling accept it.
 - **Environment:** iOS harness builds; macOS `security`/OpenSSL verify.

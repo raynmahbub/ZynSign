@@ -76,10 +76,59 @@ It also has tests for the provisioning-profile payload pipeline:
   sanitization, explicit `notEvaluated` authenticity/authorization state, and
   deterministic synthetic payload results.
 
-The profile suite does not decode or verify CMS, use device authorization APIs,
-inspect embedded profile archive entries, persist profile bytes, or exercise
-signing. Those tests belong to later CMS, trust, authorization, and signing
-increments.
+The profile parsing suite does not use device authorization APIs, inspect
+embedded profile archive entries, persist profile bytes, or exercise signing.
+Those tests belong to later trust, authorization, and signing increments.
+
+It also has tests for provisioning-profile CMS verification:
+
+- the bounded SignedData reader, over synthetic containers: content type,
+  version, declared digest algorithms, encapsulated content and its exact byte
+  range, certificate-bag encodings in bag order, revocation entry count, signer
+  version and identifier form, signed-attribute identifiers, the message-digest
+  value, and the re-encoded `SET OF` attribute bytes a signature covers;
+- structural refusals: empty, oversized, PEM-armored, non-CMS, unsupported
+  content type, indefinite-length, truncated, and trailing-data input, each as a
+  typed CMS failure with redacted detail — and, separately, tampered containers
+  that still read as structures, because detecting tampering is verification's
+  job and not the reader's;
+- the verification boundary with a recording signature double: signer
+  certificate selection by serial, independence from bag order, unparsable bag
+  entries counted rather than fatal, ambiguous and subject-key-identifier
+  signers reported instead of resolved, missing embedded certificates,
+  message-digest binding checked before any signature check, tampered payload
+  and tampered digest rejected without reaching the mechanism, tampered
+  signature rejected by it, algorithm mapping for RSA and ECDSA and preservation
+  of unsupported pairs, no-signer and multiple-signer outcomes, mechanism
+  unavailability reported as unavailable rather than as a mismatch, and foreign
+  failures reduced to a CMS reason;
+- the CMS vocabulary itself: digest recognition, algorithm-pair mapping, status
+  classification into verified, rejected, and unevaluated, signer-certificate
+  states, identifier redaction, signed-attribute observation defaults, every
+  failure reason's category and user message, and payload authenticity per
+  outcome;
+- certificate relationship analysis: fingerprint matching, mismatching,
+  ambiguity, incomparability when a profile carries no parseable certificate
+  references, duplicate and reordered entries, the rule that a certificate
+  sharing the signer's exact subject but holding a different key does not match,
+  and the four local-identity outcomes including key availability reported
+  separately from a match;
+- the verification use case: parsing only after a verified signature, the five
+  states kept apart in one result, an authentic but structurally invalid
+  profile, a mismatch between signer and profile certificates that does not
+  change CMS authenticity, an identity store consulted read-only so that no
+  signing capability is ever requested, an unreadable store recorded as a failed
+  lookup rather than propagated, foreign CMS failures sanitized, and diagnostics
+  that carry states and fingerprints but no payload bytes.
+
+Signature mathematics over real fixture bytes lives in a separate iOS-gated
+suite, because the primitives it uses do not exist on other platforms: accepted
+RSA and ECDSA signatures, tampered signatures and wrong certificates rejected
+as `false` rather than as errors, unsupported algorithm pairs and key/algorithm
+mismatches reported as unsupported, empty message, signature, and certificate
+encodings reported as typed failures, platform status mapping that separates a
+mismatch from an unavailable mechanism, and the composed boundary over the same
+fixtures. That suite needs no signed host, no keychain, and no private key.
 
 It also has tests for the package import workflow:
 
@@ -262,9 +311,17 @@ certificate helper replaces only public-key bytes in synthetic certificates;
 the resulting invalid issuer signature is intentional and is not trust evidence.
 
 Certificate fixtures are synthetic public certificates embedded as text. They
-contain no private keys. Other test fixtures are generated programmatically.
-No binary fixture is committed, and no real package, signing material, profile,
-or production certificate appears anywhere in the suite. Filesystem-backed
+contain no private keys. The CMS fixtures are synthetic SignedData containers,
+also embedded as base64 text: test-only RSA and EC keys and certificates
+generated for this repository with OpenSSL, property-list payloads with
+placeholder identifiers, and byte ranges recorded so tampered variants can be
+derived deterministically. Each container whose name says it is valid was
+cross-checked with `openssl cms -verify -noverify`, and the tampered variants
+were confirmed to fail it. The private keys existed only while those bytes were
+produced and are not committed. Other test fixtures are generated
+programmatically. No binary fixture file is committed, and no real package,
+signing material, provisioning profile, or production certificate appears
+anywhere in the suite. Filesystem-backed
 tests write only into a temporary directory that the test removes.
 
 The tests are written to run inside the unit-test target with Xcode's test

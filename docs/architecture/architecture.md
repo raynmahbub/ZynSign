@@ -52,15 +52,29 @@ into the app: physical-device experiment E7 still gates production use. The
 provisioning-profile parsing increment then adds a bounded raw profile input,
 a CMS/container-decoder port, a decoded-payload property-list parser, typed
 profile and entitlement values, an injected-clock period validator, and an
-application-layer inspection use case. It does not implement CMS unwrapping or
+application-layer inspection use case. It did not implement CMS unwrapping or
 verification, certificate-chain trust, entitlement/device/platform
 authorization, embedded-profile archive inspection, signing, or persistence.
+The provisioning-profile CMS verification increment then adds that container
+boundary: a bounded SignedData structure reader, a signature-verification seam
+over documented iOS key primitives, signer-certificate extraction, certificate
+relationship analysis against the profile's own certificates and the locally
+listed identities, an application-layer verification use case that parses a
+payload only after its signature verified, and their tests. It performs no
+certificate-chain trust evaluation, no signing-policy, entitlement, device, or
+platform-compatibility decision, no embedded-profile archive inspection, no
+profile persistence, and adds no profile-management interface. Apple's CMS
+decoder family is documented for macOS only, so no platform CMS service is
+called anywhere in the repository.
 The inspection stage is therefore a partial capability: it reads containers,
 classifies layout, reads one bundle's declared metadata, describes a bundle's
 structure, and can separately inspect a caller-supplied decoded profile payload.
 Accepted imports are recorded and kept across launches and are listed, imported,
 browsed, and removed in the Applications area; certificate and profile parsing
-and identity modeling exist as domain foundation; an experimental signature
+and identity modeling exist as domain foundation; provisioning-profile CMS
+verification reports signature authenticity separately from trust and
+authorization and is reachable from the application layer only, not from any
+interface; an experimental signature
 primitive exists, but no application-signing, verification, packaging, or
 installation workflow exists.
 
@@ -270,11 +284,11 @@ table below is the authoritative list of feasibility boundaries. Every row is
 | 1 | Cryptographic signing primitives | Which digest and signature algorithms are usable by an application, on which key types, with which attributes and usage restrictions. Availability documented for one Apple platform does not establish it for another. |
 | 2 | Private-key storage and access | Whether a code-signing private key can be imported, stored, protected, and used on the device at all; what protection class and per-use authorization apply; whether it can be marked non-exportable. See Section 7. |
 | 3 | Certificate handling | X.509 parsing, chain assembly, issuer and expiry interpretation, and whether trust evaluation is available to an application or must be implemented. |
-| 4 | CMS / PKCS#7 signature construction | Apple's signed-data encoding services are documented for macOS and are not documented for iOS; whether any supported equivalent exists is unverified. If none exists, the format must be built or supplied by a dependency. |
+| 4 | CMS / PKCS#7 signature construction | Apple's signed-data encoding services are documented for macOS and are not documented for iOS; whether any supported equivalent exists is unverified. If none exists, the format must be built or supplied by a dependency. **Verification** of an existing SignedData message is no longer blocked by this row: the absence of an iOS CMS decoder is established (**Verified** — Apple Security documentation), so a bounded reader and the documented key primitives perform it (Section 7, Provisioning Profile CMS Verification). **Construction** remains open, and the on-device behaviour of the verification path still needs experiment E4. |
 | 5 | CodeDirectory generation and modification | Which code-directory versions, hash types, special slots, and code-limit/page-size conventions the target platform requires and accepts. |
 | 6 | Code-signature blob embedding | Constructing and replacing the signature region of a Mach-O binary, including load-command layout, segment offset and alignment rules, and fat/universal binaries. |
 | 7 | Entitlement handling | Building entitlement blobs, the relationship between profile-derived entitlements and binary entitlements, and which entitlement data forms the platform expects. |
-| 8 | Provisioning-profile interpretation | The profile is signed structured data; parsing it is distinct from validating the container signature, and both are required before a profile can be trusted for authorization decisions. |
+| 8 | Provisioning-profile interpretation | The profile is signed structured data; parsing it is distinct from validating the container signature, and both are required before a profile can be trusted for authorization decisions. Parsing and container signature verification are implemented and kept as separate states (Sections 7 and 12); signer-certificate **trust**, revocation, Apple issuance, and every authorization decision remain open and are not claimed. |
 | 9 | Resource sealing | Reproducing the resource-seal form the platform evaluates, including how rules have changed across OS versions and which resources are sealed. |
 | 10 | Nested-code handling | Deterministic discovery and signing order for frameworks, dynamic libraries, extensions, plug-ins, nested bundles, and nested applications, including exception cases. |
 | 11 | Signature verification | The system code-signing validation services used on macOS are not assumed available to iOS applications. On-device verification may have to be implemented, with all of the format knowledge that implies. |
@@ -569,10 +583,19 @@ platform acceptance.
   physical-device experiment E7 from feasibility doc.
 - `SecTrust` with code-signing policy (`kSecPolicyAppleCodeSigning`)
   behavior on iOS for Apple-issued chains — needs experiment E13.
-- CMS SignedData construction/verification on iOS — no CMS API (**Verified**
-  absence via DTS 2017–2023), custom implementation required, highest-risk
-  component — needs experiment E4.
-- Provisioning-profile container verification — needs experiment E3.
+- CMS SignedData construction on iOS — no CMS API (**Verified** absence via DTS
+  2017–2023 and per-symbol Apple documentation), custom implementation
+  required, highest-risk component — needs experiment E4.
+- CMS SignedData *verification* on iOS — implemented without any CMS API: a
+  bounded structure reader plus `SecKeyVerifySignature` behind a port
+  (**Verified** absence of `CMSDecoderCreate`, `CMSDecoderCopySignerStatus`,
+  and `CMSSignerStatus` on iOS from Apple documentation; the on-device
+  behaviour of the substitute path is **Requires experiment** E4, and the tests
+  that would establish it are gated on iOS).
+- Provisioning-profile container verification — the container boundary is
+  implemented and its states are separate from parsing, trust, and
+  authorization; device confirmation of the platform primitives remains
+  experiment E3.
 - Whether `SecCertificateCreateWithData` accepts the certificates inspection
   parses, including unrecognised algorithms and GeneralizedTime, and whether
   `SecCertificateCopyData` preserves the input bytes — **Requires
@@ -651,6 +674,128 @@ research** as recorded in `on-device-signing-feasibility.md`; no local iOS
 build or device experiment was available in this environment. Entitlement
 authorization rules, DER-encoded profile precedence, signer-chain policy, and
 platform acceptance remain **Unknown or Requires experiment**.
+
+### Provisioning Profile CMS Verification
+
+**Accepted for ZS-018 — the container boundary is ZynSign's own reader.**
+Apple's CMS decoder family is documented for macOS only: `CMSDecoderCreate`
+and `CMSDecoderCopySignerStatus` list macOS 10.5 with no iOS availability, and
+`CMSSignerStatus` lists macOS and Mac Catalyst only (**Verified** — Apple
+Security documentation, checked per symbol). No CMS API is called anywhere in
+this repository, and none is abstracted behind a port that a later increment
+could satisfy on iOS. `CMSStructureReader` walks the RFC 5652 SignedData subset
+a provisioning profile uses, in the Platform layer, over bounded untrusted
+bytes, and returns a structural description — content type, version, declared
+digest algorithms, encapsulated content, certificate-bag encodings, revocation
+entry count, and signers — rather than a verdict. The signature itself is
+checked through the `CMSSignatureVerifier` port, whose iOS implementation uses
+documented key primitives: `SecCertificateCreateWithData` (iOS 2.0+),
+`SecCertificateCopyKey` (iOS 12.0+), and `SecKeyVerifySignature` (iOS 10.0+)
+under message-based algorithms, so hashing stays inside the platform primitive
+rather than in ZynSign code.
+
+**Observed in the implementation — verification order.** The boundary applies,
+in order: input bounds (empty and 4 MiB caps); structural reading with typed
+rejection of armored, indefinite-length, non-minimal, high-tag-number,
+truncated, trailing-data, and out-of-order encodings; encapsulated-content
+presence (detached content is refused rather than approximated); parsing of
+every certificate-bag entry through the existing `CertificateParser` port, with
+unparsable entries counted and discarded; exactly one signer, since ZynSign does
+not choose between several; signer-certificate selection by serial number;
+algorithm mapping; message-digest binding; and finally the signature check.
+Steps that establish nothing cryptographic produce returned evidence, not
+exceptions: a container that decoded and did not verify is a normal result, so a
+caller can distinguish a rejected container from one that could not be
+evaluated. Structural problems are typed `ZynSignError` values carrying a
+`CMSFailure` reason.
+
+**Observed — signed attributes change what is signed.** When a signer carries
+signed attributes, the signature covers their DER re-encoding as a `SET OF`, not
+the `[0] IMPLICIT` form in the message, and the payload is bound to that
+signature only through the message-digest attribute. The reader therefore
+reconstructs the attribute set encoding with minimal definite lengths, and the
+boundary compares the message-digest attribute with the SHA-256 digest of the
+encapsulated content *before* any signature check. A missing message-digest
+attribute is a structural refusal; a digest of the wrong length is reported as
+an unsupported algorithm; a digest that does not bind the content is reported as
+`.invalid` without asking a platform primitive to verify anything. A content-type
+attribute that disagrees with the encapsulated content type is recorded as an
+observation, not a failure, because the signature's binding to the payload is
+what authenticity rests on.
+
+**Accepted — certificate identity is compared by fingerprint.** The signer is
+related to an embedded certificate by the serial number the identifier names,
+and the signer certificate is related to the profile's own
+`DeveloperCertificates` entries and to locally listed identities by the SHA-256
+fingerprint of exact DER bytes. Subject names, labels, bag order, and profile
+order are never used for matching; a bag that lists the signer second, a bag
+holding an unparsable entry, and a profile listing the same certificate twice
+each produce an explicit outcome. Two embedded certificates matching one serial
+is reported as `.ambiguous` rather than resolved, and a subject-key-identifier
+signer is reported as `.identifierNotMatchable` rather than matched by
+approximation. A serial collision between different issuers inside one bag would
+also be reported as ambiguous, because the issuer name in the identifier is not
+re-parsed at this boundary; that conservatism is deliberate and recorded.
+
+**Accepted — five states stay separate.** Parseable, structurally valid,
+cryptographically authentic, certificate trusted, and platform authorized are
+distinct evidence, and no single validity flag summarizes them.
+`CMSVerificationResult` carries the signature status, the structured reason and
+redacted detail, the signer count, the payload, the signer certificate and its
+extraction status, the signer identifier, the embedded certificates and the
+unparsable count, the declared and mapped algorithms, the signed-attribute
+observation, and trust state. Trust is `notPerformed` — this increment evaluates
+no chain, anchor, revocation, or platform policy — and authorization stays
+`notEvaluated`. A `.verified` status means one thing: the signature over the
+authenticated content was produced by the private key matching the signer
+certificate's public key. It does not mean the certificate is trusted, that
+Apple issued it, that ZynSign holds its key, or that the profile authorizes
+anything.
+
+**Accepted — application composition.** `ProvisioningProfileVerificationUseCase`
+sequences the boundary, the existing ZS-017 parser and validator, and
+`CertificateRelationshipAnalyzer`. It parses a payload only when the signature
+verified, so unauthenticated profile metadata is never produced by this path;
+the same verifier also backs the existing `ProvisioningProfilePayloadDecoder`
+seam, which hands over `.authenticated` payloads, fails closed on rejected
+containers, and marks unevaluated ones `.notEvaluated`. An identity store may be
+supplied and is used read-only: listing identities answers a certificate
+relationship, while requesting a signing capability or producing a signature to
+prove one is prohibited, and an unreadable store is recorded as a failed lookup
+rather than propagated as a verification failure.
+
+**Accepted — hostile input and redaction.** Bounds are ZynSign policy, not
+published limits: constructed nesting depth 16, certificate-bag entries 16,
+signers 8, signed attributes 32, declared digest algorithms 8, identifier
+values 64 bytes, signature values 1024 bytes, and the existing 4 MiB input and
+payload caps. Nothing in a container is executed; no CLI or private API is
+invoked. Diagnostics carry states, counts, algorithm identifiers, fingerprints,
+and mapped platform error codes only — never container bytes, payload bytes,
+certificate bodies, or foreign error text, which is why a foreign failure is
+reduced to its CMS reason before it is stored.
+
+**Deferred, recorded.** The CMS structure reader has its own bounded DER
+scanner instead of sharing the certificate reader's private one. Their
+structures, bounds, and failure taxonomies differ, and consolidating them
+without a compiler in this environment was judged riskier than the duplication;
+the cleanup is recorded here rather than performed blind. DER-encoded
+`embedded.mobileprovision` handling is unchanged: profile bytes are read, never
+modified or stripped, and archive inspection still does not read embedded
+profiles. Trust evaluation, signing policy, compatibility decisions,
+installation, persistence, and profile-management interfaces remain out of
+scope, as does CMS *construction*.
+
+**Evidence status.** Availability of each Apple symbol cited above is
+**Verified** from Apple's platform documentation. The structure, ordering,
+bounds, state separation, and redaction rules are **Observed** from this
+repository's implementation. Whether the substitute verification path behaves
+identically on a device — `SecCertificateCopyKey` agreement with the
+certificate's own key fields, `SecKeyVerifySignature` acceptance of the
+re-encoded attribute set, and behaviour for unusual certificates — remains
+**Requires experiment** (E3, E4); the tests that would establish it are gated on
+iOS and were not executed in the environment where this increment was written.
+Signer-chain trust, revocation, Apple issuance rules, and every authorization
+question remain **Unknown**.
 
 ## 8. Filesystem, Sandbox, and Document Handling
 
@@ -901,6 +1046,14 @@ and testable without a device, a simulator, a keychain, or a network. This is
   `ProvisioningProfile`, `ProvisioningApplicationIdentifier`,
   `ProvisioningProfileEntitlements`, `ProvisioningProfileValue`,
   `ProvisioningProfileValidity`, and `ProvisioningProfileClassification`
+- the CMS verification vocabulary: `CMSVerificationResult`,
+  `CMSSignatureVerificationStatus`, `CMSSignerCertificateStatus`,
+  `CMSSignerIdentifier`, `CMSDigestAlgorithm`, `CMSVerificationAlgorithm`,
+  `CMSSignedAttributeObservation`, `CMSTrustEvaluationStatus`, the `CMSVerifier`
+  and `CMSSignatureVerifier` ports, and `CMSFailure`; plus the certificate
+  relationship vocabulary `ProvisioningProfileCertificateRelationship`,
+  `CertificateMatchOutcome`, `LocalSigningIdentityRelationship`,
+  `LocalSigningIdentityLookup`, and `CertificateRelationshipAnalyzer`
 - `SigningConfiguration`, `PackagingPolicy`
 - `ValidationResult`, `VerificationResult`, `Diagnostics`
 - domain errors and their categories
@@ -936,7 +1089,9 @@ carried forward from Section 6.
 | `PlistDecoder` | Parsing of untrusted structured data with typed diagnostics | Domain | Yes | No — not platform-specific in principle | Examined during the metadata increment: the platform property-list API is total and deterministic, so parsing lives inside the metadata reader in Domain, tested through its bytes. A separate port is introduced only if parsing becomes platform-bound or needs substitution |
 | `CertificateParser` | Parsing of untrusted X.509 certificate data, with typed diagnostics, without trust evaluation | Domain | Yes — substitutable with synthetic DER fixtures | The reader is not Security-framework-specific. `SecCertificateCopyValues` is not available on iOS (**Verified**) | **Implemented** for metadata extraction by a bounded DER reader (Section 7); trust evaluation remains Requires feasibility research |
 | `SigningCapability` | The single narrow abstraction where signing happens, returning signature bytes only, without exposing private-key material | Domain | Yes — stub capability keeps orchestration testable | Yes — key access is platform-bound, non-exportable keys expected | **Implemented** as protocol (Section 7); concrete Keychain implementation Requires feasibility research (items 2, 16) |
-| `ProvisioningProfilePayloadDecoder` | CMS/container boundary that supplies decoded profile payload bytes without making metadata trusted | Domain | Yes — synthetic payload decoder | CMS handling is platform-constrained; no complete iOS CMS API is assumed | **Integration point implemented**; CMS unwrap and verification remain Requires feasibility research (item 8) |
+| `ProvisioningProfilePayloadDecoder` | CMS/container boundary that supplies decoded profile payload bytes without making metadata trusted | Domain | Yes — synthetic payload decoder | CMS handling is platform-constrained; no complete iOS CMS API is assumed | **Implemented and backed by a real verifier**: `CMSProvisioningProfilePayloadDecoder` supplies authenticated payloads from the CMS boundary, fails closed on rejected containers, and marks unevaluated ones `.notEvaluated` (Section 7) |
+| `CMSVerifier` | Verification of one untrusted CMS container, returning staged evidence instead of a validity flag | Domain | Yes — substitutable with a stub verifier and synthetic containers | No platform object crosses it; the implementation is platform-bound | **Implemented** for SignedData by ZynSign's own bounded reader, because no CMS decoder exists on iOS (**Verified**); trust evaluation is not part of this port (Section 7) |
+| `CMSSignatureVerifier` | The single narrow seam where one signature is checked against one certificate's public key | Domain | Yes — recording double keeps orchestration testable without a device | Yes — the concrete implementation uses Security key primitives and is compiled for iOS only | **Implemented** for RSA PKCS#1 v1.5 and ECDSA X9.62 over SHA-256 messages; unsupported combinations and missing mechanisms are reported, never skipped; on-device behaviour Requires experiment E4 |
 | `ProvisioningProfileParser` | Interpretation of decoded provisioning-profile metadata as typed domain values | Domain | Yes — synthetic plist payloads | Property-list parsing is not platform-specific in principle | **Implemented** for the property-list payload; trust and authorization remain separate |
 | `IdentityStore` | Resolution and presentation of available signing identities and their status, plus access to signing capability | Application | Yes — in-memory in tests | Yes — key access is platform-bound | **Protocol implemented** for this increment (Section 7); concrete Keychain store Requires feasibility research (items 2, 16); PKCS#12 import is separate capability |
 | `SigningEngine` | The single place where code-signing blob assembly happens, and the only consumer of signing capability | Domain | Yes — a stub engine keeps orchestration testable | Yes | Requires feasibility research (items 1–7, 9, 10) |
@@ -964,8 +1119,9 @@ Rules, **Accepted**:
 place where stages are sequenced and composed.
 
 - Use cases express user-visible operations (inspect a package, parse and
-  structurally validate a decoded provisioning profile, produce a signed
-  artifact, verify an artifact, prepare a package for export) in terms of
+  structurally validate a decoded provisioning profile, verify a
+  provisioning-profile container and report its staged evidence, produce a
+  signed artifact, verify an artifact, prepare a package for export) in terms of
   domain logic and ports.
 - Workflow state — progress, cancellation, per-stage outcome, recoverable versus
   terminal failure — is an application concern, not a UI concern and not a domain
@@ -1170,7 +1326,12 @@ Rules, **Accepted**:
   assumption into apparent evidence.
 - **Fixtures are synthetic and controlled.** No real signing material,
   credentials, profiles, or personal identifiers appear in tests or fixtures, in
-  line with `SECURITY.md`.
+  line with `SECURITY.md`. The CMS fixtures are SignedData messages assembled
+  from test-only keys and certificates generated for this repository with
+  OpenSSL, cross-checked with `openssl cms -verify`, and committed as public
+  bytes only; the private keys existed solely to produce them and are not
+  committed. Signature mathematics over those bytes runs only in the iOS-gated
+  suite, because the primitives it uses do not exist elsewhere.
 - **Developer-side validation is infrastructure, not product evidence.** Using
   macOS tooling to confirm that a produced artifact matches expectations is
   legitimate and useful; using it as a runtime path, citing it as proof that an
@@ -1193,6 +1354,17 @@ Rules, **Accepted**:
 - Ambiguity is never resolved silently: where inspection cannot choose one
   interpretation, the outcome is an ambiguity report, and the affected content is
   not carried into signing.
+- A boundary's failure vocabulary stays its own. `CMSFailure` describes container
+  and signature outcomes, `ProvisioningProfileFailure` describes profile metadata
+  outcomes, and `SigningIdentityFailure` describes identity outcomes; a payload
+  that is not a property list is a profile failure even though CMS verification
+  succeeded, and a container that cannot be decoded never reaches the profile
+  vocabulary.
+- Evidence and errors are separated deliberately. Structural refusals throw;
+  a container that decoded and did not verify is returned as evidence, because
+  "this signature does not verify", "no conclusion was reached", and "this
+  input is not a CMS message" are three different facts a caller must be able to
+  tell apart.
 
 ## 18. Architecture Decisions
 
@@ -1206,7 +1378,7 @@ depend on iOS/iPadOS behaviour are recorded as *Provisional*, *Unresolved*, or
 | 2 | On-device signing feasibility | **Requires feasibility research** — items 1–7, 9, 10, 11 |
 | 3 | Private-key storage and access | **Requires feasibility research** — items 2, 16 |
 | 4 | Certificate handling | **Requires feasibility research** — item 3 |
-| 5 | Provisioning-profile parsing and CMS verification | **Accepted for decoded-payload parsing in ZS-017; Requires feasibility research for CMS unwrapping, signature verification, and trust** — item 8 |
+| 5 | Provisioning-profile parsing and CMS verification | **Accepted for decoded-payload parsing in ZS-017 and for container signature verification in ZS-018; Requires feasibility research for signer-certificate trust and for authorization** — item 8 |
 | 6 | Mach-O and code-signature handling | **Requires feasibility research** — items 5, 6 |
 | 7 | Signature verification | **Requires feasibility research** — item 11 |
 | 8 | IPA packaging | **Provisional** — ZynSign is responsible for producing its own package; format rules depend on item 12 and the deployment target |
@@ -1230,6 +1402,8 @@ depend on iOS/iPadOS behaviour are recorded as *Provisional*, *Unresolved*, or
 | 26 | Persistence is not trust | **Accepted** — a library record states that a package passed inspection when imported and which bytes it refers to; the fingerprint identifies bytes only, declared metadata stays untrusted, and no record is evidence that a package is signed, genuine, or installable (Section 15) |
 | 27 | Bundle inspection is read-only and descriptive | **Accepted** — the explorer derives a bundle's structure from the container's entry table through the existing `ArchiveReader` and library storage, with no extraction, content reading, hashing, or parsing; locations are bundle-relative `BundlePath` values that cannot name anything above the root; links and unsupported entries are listed, never followed; labels on conventional locations describe and do not establish signing, trust, or installability (Section 9) |
 | 28 | Certificate and signing identity foundation | **Accepted** for this increment — platform-independent `CertificateMetadata`, `CertificateDistinguishedName`, `PublicKeyInfo`, `SignatureAlgorithm`, `CertificateFingerprint`, `CertificateValidity` that distinguishes parsing success from currently valid, `CertificateChain` leaf-first without trust evaluation, `CodeSigningSuitability` with explicit checks and unsuitability reasons, `SigningCapability` narrow protocol that returns signatures without exposing private-key bytes, `SigningIdentity` distinct from certificate with `SigningIdentityIdentifier` and `SigningKeyAvailability`, `IdentityStore` protocol in Application, `CertificateParser` port in Domain with `AppleCertificateParser` in Platform using a bounded DER reader because `SecCertificateCopyValues` is not available on iOS (**Verified**), PKCS#12 treated as separate capability not implemented, trust validation boundary not implemented and represented as `notEvaluated`, raw certificate bytes ownership boundary owned by Platform and not persisted in ordinary storage, no certificate-management UI, no signing engine, no private keys stored in application database (Section 7) |
+
+| 29 | Provisioning-profile CMS verification | **Accepted** for this increment — SignedData is read by ZynSign's own bounded structure reader because `CMSDecoderCreate`, `CMSDecoderCopySignerStatus`, and `CMSSignerStatus` are documented for macOS/Mac Catalyst only and not for iOS (**Verified**); signatures are checked through the `CMSSignatureVerifier` port using `SecCertificateCopyKey` and `SecKeyVerifySignature` with hashing left inside the platform primitive; signed attributes are re-encoded as a `SET OF` and bound to the payload through the message-digest attribute before any signature check; the signer certificate is selected by serial and compared by SHA-256 fingerprint, never by name, label, or bag order; five states stay separate with trust `notPerformed` and authorization `notEvaluated`; payloads are parsed only after verification; identity stores are read-only and never asked for a signing capability; CMS construction, trust evaluation, signing policy, compatibility decisions, persistence, and profile interfaces remain out of scope (Section 7) |
 
 ## 19. Non-Goals of This Document
 

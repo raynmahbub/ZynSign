@@ -22,6 +22,9 @@ struct ZynSignError: Error, LocalizedError, CustomStringConvertible, CustomDebug
     /// A stable provisioning-profile reason, when this failure belongs to that boundary.
     let provisioningProfileFailure: ProvisioningProfileFailure?
 
+    /// A stable CMS-container reason, when this failure belongs to that boundary.
+    let cmsFailure: CMSFailure?
+
     /// The stable category of the failure.
     let category: DiagnosticCategory
 
@@ -40,10 +43,12 @@ struct ZynSignError: Error, LocalizedError, CustomStringConvertible, CustomDebug
         diagnosticDetail: String? = nil,
         underlyingError: (any Error)? = nil,
         identityFailure: SigningIdentityFailure? = nil,
-        provisioningProfileFailure: ProvisioningProfileFailure? = nil
+        provisioningProfileFailure: ProvisioningProfileFailure? = nil,
+        cmsFailure: CMSFailure? = nil
     ) {
         self.identityFailure = identityFailure
         self.provisioningProfileFailure = provisioningProfileFailure
+        self.cmsFailure = cmsFailure
         self.category = category
         self.userMessage = userMessage
         self.diagnosticDetail = diagnosticDetail
@@ -66,6 +71,9 @@ struct ZynSignError: Error, LocalizedError, CustomStringConvertible, CustomDebug
         var parts = ["zynsign.error(\(category))"]
         if let provisioningProfileFailure {
             parts.append("reason: \(provisioningProfileFailure.rawValue)")
+        }
+        if let cmsFailure {
+            parts.append("reason: \(cmsFailure.rawValue)")
         }
         if let diagnosticDetail {
             parts.append("detail: \(diagnosticDetail)")

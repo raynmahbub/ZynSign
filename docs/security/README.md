@@ -17,10 +17,16 @@ identity-store boundary, and a certificate parser behind the
 An experimental Keychain registry/resolver and explicit signature primitive now
 exist, without production composition or UI. They use existing protected keys;
 there is no key import, application-signing engine, provisioning-profile
-trust/authorization, or device communication. ZS-017 does add bounded parsing
-of a caller-supplied decoded profile payload; it does not verify CMS, authorize
-entitlements or devices, persist profile data, or read embedded profiles from
-an archive. Production activation remains gated by experiment E7. The security
+trust/authorization, or device communication. ZS-017 added bounded parsing of a
+caller-supplied decoded profile payload. ZS-018 adds verification of the profile
+CMS container: a bounded SignedData reader written because Apple's CMS decoder
+family is documented for macOS and Mac Catalyst only, signature checking through
+documented iOS key primitives behind a port, signer-certificate extraction, and
+certificate relationship analysis by SHA-256 fingerprint. It does not evaluate
+certificate-chain trust, authorize entitlements or devices, construct CMS,
+persist profile data, read embedded profiles from an archive, or expose any
+profile interface. Production activation of the identity path remains gated by
+experiment E7, and of the profile verification path by experiments E3 and E4. The security
 boundaries for private-key material, certificate and profile parsing as
 untrusted input, and raw certificate bytes ownership are established in
 [architecture.md](../architecture/architecture.md) Section 7. Nothing else
@@ -59,3 +65,8 @@ built, not before:
 
 - [signing-identities.md](signing-identities.md) — capability boundary, experimental
   Keychain ownership/protection, platform evidence, and validation gates.
+- [provisioning-profiles.md](provisioning-profiles.md) — profile container
+  bounds, what a verified CMS signature does and does not establish, signer
+  selection and fingerprint matching, the payload parse gate, identity
+  relationships without capability requests, redaction, platform evidence, and
+  validation gates.

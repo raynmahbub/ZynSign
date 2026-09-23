@@ -6,6 +6,39 @@ All notable changes to ZynSign will be documented here.
 
 ### Added
 
+- Provisioning-profile CMS verification: a bounded RFC 5652 SignedData reader,
+  signer-certificate extraction by serial number, signed-attribute re-encoding
+  with message-digest binding checked before any signature check, and signature
+  verification through documented iOS key primitives behind a
+  `CMSSignatureVerifier` port. Apple's CMS decoder family is documented for macOS
+  and Mac Catalyst only, so no CMS API is called and no third-party ASN.1 or
+  crypto dependency is added.
+- Structured CMS verification evidence that keeps five states apart — parseable,
+  structurally valid, cryptographically authentic, certificate trusted, platform
+  authorized — recording trust as `notPerformed` and authorization as
+  `notEvaluated`, with no single validity flag. A separate `CMSFailure`
+  vocabulary keeps container outcomes distinct from profile-metadata and
+  identity outcomes, and a container that decoded but did not verify is returned
+  as evidence rather than thrown.
+- Certificate relationship analysis by SHA-256 fingerprint of exact DER bytes:
+  the signer certificate against the profile's own certificate references and
+  against locally listed signing identities, with ambiguity, incomparability,
+  unparsable bag entries, and duplicates reported instead of resolved. Matching
+  never uses a subject name, a label, or bag order.
+- Profile verification use case that parses a payload only after its signature
+  verified, consults an identity store read-only and never requests a signing
+  capability, and records an unreadable store as a failed lookup rather than a
+  verification failure. No certificate-chain trust evaluation, signing policy,
+  compatibility decision, CMS construction, profile persistence, or
+  profile-management interface.
+- Synthetic CMS fixtures: SignedData containers over test-only OpenSSL-generated
+  keys and certificates with placeholder profile payloads, cross-checked with
+  `openssl cms -verify`, plus deterministic tampered, truncated, trailing,
+  armored, reordered, detached, unparsable-bag, unsupported-algorithm,
+  no-signer, and multi-signer variants. Platform-independent suites cover the
+  structure reader, the verification boundary, the CMS vocabulary, the
+  relationship rules, and the use case; an iOS-gated suite covers signature
+  mathematics over the same fixtures.
 - Secure identity capability foundation: explicit message/digest algorithms,
   separate key-association and readiness states, structured safe identity errors,
   stable registration records, and a signature-only resolver boundary.
@@ -243,7 +276,7 @@ All notable changes to ZynSign will be documented here.
   profile is a filesystem observation and is not evidence that the
   application is signed, that any signature is valid, or that the
   application is trusted or installable.
-- No signing, signature verification, profile parsing, Mach-O inspection,
+- No signing, signature verification, Mach-O inspection,
   packaging, extraction, or installation functionality exists. The
   Applications area lists, imports, browses, and deletes library records; it
   makes no claim about signatures, trust, or installability.

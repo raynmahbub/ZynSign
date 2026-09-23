@@ -67,20 +67,41 @@ now refine that foundation. They remain uncomposed pending physical-device E7
 validation. See the [security design](../security/signing-identities.md) for
 protection semantics, ownership, API evidence, and import limitations.
 
-The provisioning-profile parsing increment now adds a bounded raw-input and
+The provisioning-profile parsing increment added a bounded raw-input and
 CMS-decoder port, a decoded-payload property-list parser, typed entitlement and
 metadata values, injected-clock period validation, and an application-layer
-inspection use case. It intentionally does not unwrap or verify CMS, inspect an
+inspection use case. It intentionally did not unwrap or verify CMS, inspect an
 embedded profile through the archive workflow, authorize entitlements, or
 persist profile data. The decision is recorded in Section 7 of
 [architecture.md](architecture.md).
+
+The provisioning-profile CMS verification increment now supplies that container
+boundary. A bounded reader walks the RFC 5652 SignedData subset a profile uses,
+embedded certificates are parsed through the existing certificate port, the
+signer is related to one of them by serial number, the signed attributes are
+re-encoded and bound to the payload through the message-digest attribute, and
+the signature is checked with documented iOS key primitives behind a
+`CMSSignatureVerifier` port — Apple's CMS decoder family is documented for
+macOS and Mac Catalyst only, so no CMS API is called anywhere. Certificate
+correspondence is compared by SHA-256 fingerprint, never by name, label, or bag
+order. An application-layer use case sequences that boundary with the existing
+parser and validator, parses a payload only after its signature verified, and
+relates the signer certificate to the profile's own certificates and to locally
+listed identities. The decision — why the reader is ZynSign's own, what the
+verification order refuses, how signed attributes change what is signed, why
+five states stay separate, what the certificate relationship does and does not
+claim, and which platform questions remain open — is recorded in Section 7 of
+[architecture.md](architecture.md). It performs no certificate-chain trust
+evaluation, no signing-policy or compatibility decision, no CMS construction, no
+profile persistence, and adds no profile-management interface.
 
 Everything else is intended structure only. The archive inspection stage is a
 partial capability: it reads containers, classifies layout, reads one bundle's
 declared metadata, and describes a bundle's structure; it does not verify
 signatures, inspect executables, extract content, or produce a package. The
-separate profile payload pipeline can parse decoded profile metadata, but it
-does not establish authenticity or authorization. Library records are kept
+separate profile pipeline can parse decoded profile metadata and can verify a
+container's CMS signature, reporting authenticity; it establishes neither
+certificate trust nor authorization, and no interface consumes it yet. Library records are kept
 across launches and are listed, imported, browsed, and removed in the
 Applications area. Certificate parsing and identity modeling exist as domain
 foundation; no application-signing, verification, packaging, or installation is
