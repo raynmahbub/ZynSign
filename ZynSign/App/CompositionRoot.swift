@@ -138,6 +138,65 @@ enum CompositionRoot {
         )
     }
 
+    /// Builds the provisioning-profile CMS verifier, selecting the signature
+    /// mechanism for this target.
+    ///
+    /// Apple's CMS decoder family (`CMSDecoderCreate` and the rest) is
+    /// documented for macOS 10.5 and later only, and `CMSSignerStatus` for
+    /// macOS and Mac Catalyst only, so no platform CMS service is composed
+    /// here: the container is read by ZynSign's own bounded structure reader
+    /// and the signature is checked through the injected mechanism. On iOS that
+    /// mechanism uses documented key primitives; on any other target it reports
+    /// verification as unavailable rather than skipping it silently. Trust
+    /// evaluation is not composed at all, because this increment performs none.
+    static func makeProvisioningProfileCMSVerifier(
+        certificateParser: any CertificateParser = AppleCertificateParser()
+    ) -> any CMSVerifier {
+        ProvisioningProfileCMSVerifier(
+            certificateParser: certificateParser,
+            signatureVerifier: makeCMSSignatureVerifier()
+        )
+    }
+
+    /// Builds the provisioning-profile verification use case over the existing
+    /// parsing and structural-validation use case.
+    ///
+    /// The CMS verifier is composed once and used both directly, for the
+    /// verification evidence, and through the ZS-017 payload-decoder seam, so
+    /// there is one container boundary and one profile parser rather than a
+    /// parallel profile subsystem. The identity store is optional and read-only:
+    /// the use case lists identities to answer a certificate-relationship
+    /// question and never requests a signing capability. Nothing built here is
+    /// installed in the application environment, because no interface consumes
+    /// profile verification yet.
+    static func makeProvisioningProfileVerification(
+        certificateParser: any CertificateParser = AppleCertificateParser(),
+        clock: any EvaluationClock = SystemEvaluationClock(),
+        limits: ProvisioningProfileParsingLimits = .default,
+        identityStore: (any IdentityStore)? = nil
+    ) -> ProvisioningProfileVerificationUseCase {
+        let cmsVerifier = makeProvisioningProfileCMSVerifier(certificateParser: certificateParser)
+        return ProvisioningProfileVerificationUseCase(
+            cmsVerifier: cmsVerifier,
+            inspection: makeProvisioningProfileInspection(
+                payloadDecoder: CMSProvisioningProfilePayloadDecoder(verifier: cmsVerifier),
+                certificateParser: certificateParser,
+                clock: clock,
+                limits: limits
+            ),
+            identityStore: identityStore
+        )
+    }
+
+    /// The signature mechanism available on this target.
+    private static func makeCMSSignatureVerifier() -> any CMSSignatureVerifier {
+        #if os(iOS)
+        return AppleCMSSignatureVerifier()
+        #else
+        return UnavailableCMSSignatureVerifier()
+        #endif
+    }
+
     /// Builds the bundle contents inspection use case over the given library,
     /// selecting the concrete archive implementation.
     ///
