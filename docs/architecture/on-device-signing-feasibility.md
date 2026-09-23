@@ -307,8 +307,9 @@ published in Apple's open-source Security headers. **[Verified]**
 - **Architectures** — device IPAs are expected to be thin `arm64`;
   `arm64e` slices appear as a CPU subtype and present no different signing
   mathematics (bytes are hashed as-is); fat/universal binaries carry a
-  big-endian fat header and **each slice carries its own
-  `LC_CODE_SIGNATURE`**. Simulator slices are distinguishable via
+  big-endian fat header and **each signed slice references its own
+  signature region via `LC_CODE_SIGNATURE`**. An unsigned slice may have
+  no such command. Simulator slices are distinguishable via
   `LC_BUILD_VERSION` platform fields. **[Verified for fat layout and slice
   signatures; Inferred for "no special arm64e signing rule"; to be confirmed
   against fixtures in E5]**
@@ -330,6 +331,16 @@ published in Apple's open-source Security headers. **[Verified]**
 | Evaluating the full requirements language | Feasible with custom implementation (scope-limited) | A complete requirement VM is large; supporting only the constructs ZynSign actually produces/inspects is an acceptable scope decision — recorded as Open Question 6 |
 | Fat-binary resign | Feasible with custom implementation | Per-slice signature replacement; product may restrict to thin `arm64` — Open Question 4 |
 | Simulator/x86_64 slices | Not a feasibility question | Classify as unsupported input for installation purposes (product policy) |
+
+**Observed in the repository (ZS-022):** The read-only portion of the first two
+rows now has a [bounded Mach-O inspector](macho-inspection.md): thin/fat headers,
+load commands, the signature region, SuperBlob index and blob headers, and
+versioned CodeDirectory metadata. It does not decode requirements or entitlement
+payloads, verify any signature, or decide what iOS/iPadOS accepts. Signature
+alignment beyond the format-defined load-command and fat-slice rules, segment
+coverage, page hashing and all construction rows still require fixture research
+and E5/E6. This observation does not change the feasibility or experiment
+classifications for signing.
 
 ## 6. Nested-Code Requirements
 
