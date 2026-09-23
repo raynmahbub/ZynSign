@@ -26,6 +26,19 @@ enum SigningAlgorithm: String, CaseIterable, Hashable {
         }
     }
 
+    /// The digest algorithm this operation works on.
+    ///
+    /// Every operation in the current set works on SHA-256. Recording the
+    /// digest on the operation keeps the digest, the key family, and the
+    /// signature scheme distinct instead of implicit.
+    var digestAlgorithm: DigestAlgorithm {
+        switch self {
+        case .rsaPKCS1SHA256Message, .rsaPKCS1SHA256Digest,
+             .ecdsaX962SHA256Message, .ecdsaX962SHA256Digest:
+            return .sha256
+        }
+    }
+
     func validate(data: Data, keyAlgorithm: PublicKeyAlgorithm) throws {
         guard keyAlgorithm == publicKeyAlgorithm else {
             throw ZynSignError.identity(.unsupportedSigningAlgorithm)

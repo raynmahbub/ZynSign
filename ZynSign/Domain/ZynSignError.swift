@@ -25,6 +25,10 @@ struct ZynSignError: Error, LocalizedError, CustomStringConvertible, CustomDebug
     /// A stable CMS-container reason, when this failure belongs to that boundary.
     let cmsFailure: CMSFailure?
 
+    /// A stable cryptographic signing/verification reason, when this failure
+    /// belongs to that boundary.
+    let cryptoFailure: CryptoFailure?
+
     /// The stable category of the failure.
     let category: DiagnosticCategory
 
@@ -44,11 +48,13 @@ struct ZynSignError: Error, LocalizedError, CustomStringConvertible, CustomDebug
         underlyingError: (any Error)? = nil,
         identityFailure: SigningIdentityFailure? = nil,
         provisioningProfileFailure: ProvisioningProfileFailure? = nil,
-        cmsFailure: CMSFailure? = nil
+        cmsFailure: CMSFailure? = nil,
+        cryptoFailure: CryptoFailure? = nil
     ) {
         self.identityFailure = identityFailure
         self.provisioningProfileFailure = provisioningProfileFailure
         self.cmsFailure = cmsFailure
+        self.cryptoFailure = cryptoFailure
         self.category = category
         self.userMessage = userMessage
         self.diagnosticDetail = diagnosticDetail
@@ -74,6 +80,9 @@ struct ZynSignError: Error, LocalizedError, CustomStringConvertible, CustomDebug
         }
         if let cmsFailure {
             parts.append("reason: \(cmsFailure.rawValue)")
+        }
+        if let cryptoFailure {
+            parts.append("reason: \(cryptoFailure.rawValue)")
         }
         if let diagnosticDetail {
             parts.append("detail: \(diagnosticDetail)")

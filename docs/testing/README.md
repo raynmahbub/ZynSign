@@ -228,6 +228,58 @@ the signature", never "the platform accepts this profile". Like the rest of the
 target, they were written but not executed in the environment where they were
 produced.
 
+It also has tests for the generic cryptographic signing and verification
+foundation (ZS-021):
+
+- digests, against known vectors for SHA-1, SHA-256, SHA-384, and SHA-512
+  (including the empty message and the one-million-byte multi-block vector),
+  binary input, determinism across all supported algorithms, agreement with
+  the certificate fingerprint's own SHA-256 implementation, and the digest
+  value's exact-length enforcement and equality rules;
+- signing requests: coherent message and digest operations accepted, a
+  message on a digest operation and a digest on a message operation
+  rejected, a digest of a different algorithm rejected rather than
+  substituted, and the bounded operation-context rules;
+- the signing engine: message and digest signing through a recording
+  capability that proves exactly what crosses the boundary; RSA versus EC
+  and unknown key families reported incompatible; an unsupported operation
+  rejected with no substitution; an unavailable capability rejected without
+  asking for a signature; structured capability failures keeping the
+  identity boundary's own reason; foreign failures reduced without
+  retaining their text; and an empty signature reported malformed;
+- the signing use case: the store consulted for the capability and the
+  certificate reference once each on success, validation before the store
+  is touched, identity-boundary failures keeping their reasons, an
+  unreadable identity not failing an already-produced signature, and engine
+  substitution through the port;
+- verification: the four outcomes kept as four distinct facts, the
+  unavailable fallback reporting unavailable for every operation, and the
+  port's substitutability;
+- the iOS-gated platform verifier, over the committed synthetic CMS
+  fixtures with their real RSA and ECDSA signatures: the accepted
+  message- and digest-based signatures for both key families, a tampered
+  signature and changed bytes as a conclusion (`.invalid`) rather than an
+  error, a signature checked against a different same-family certificate,
+  a cross-family certificate as `.unsupported(.incompatibleKey)`, a digest
+  of the wrong algorithm as invalid input, an empty signature as
+  malformed, and certificate encodings the platform refuses as
+  unavailable. No key generation, keychain, or private key appears in any
+  of these tests; the fixtures are public test material;
+- the error domain: every reason structured with its category and a safe
+  per-reason message, categories honest, diagnostic detail accepted but
+  never reaching user-facing text, and sanitization preserving known
+  reasons while dropping foreign error text;
+- the security boundary: the request and the result carrying no key
+  material by construction (checked field-by-field), the result's
+  diagnostics carrying facts and byte counts but never the signature bytes
+  or the signed data, and the verification boundary taking public material
+  only.
+
+These suites touch no device, no keychain, and no network; the
+iOS-gated suite's signature mathematics run only where the platform
+primitives exist. Like the rest of the target, they were written but not
+executed in the environment where they were produced.
+
 It also has tests for the package import workflow:
 
 - the import use case: a successful import returns an examined artifact with

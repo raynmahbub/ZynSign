@@ -276,6 +276,49 @@ enum CompositionRoot {
         #endif
     }
 
+    /// Builds the cryptographic signing use case over the given identity
+    /// store.
+    ///
+    /// The engine is the pure capability engine, and the identity store is
+    /// the ZS-016 boundary that owns the key: the use case resolves the
+    /// capability, the engine asks it for a signature, and only signature
+    /// bytes cross. Nothing built here is installed in the application
+    /// environment — the identity store is not composed into the app until
+    /// its device validation completes, and no interface consumes a
+    /// signature result yet.
+    static func makeCryptographicSigningUseCase(
+        identityStore: any IdentityStore,
+        engine: any CryptographicSigningEngine = CapabilitySigningEngine()
+    ) -> CryptographicSigningUseCase {
+        CryptographicSigningUseCase(identityStore: identityStore, engine: engine)
+    }
+
+    /// Builds the digest mechanism for this target.
+    ///
+    /// CryptoKit's hashing primitives are documented for the deployment
+    /// target, so the platform implementation is the only candidate; the
+    /// factory keeps the choice in the composition root, where every other
+    /// mechanism selection happens.
+    static func makeMessageDigest() -> any MessageDigest {
+        CryptoKitMessageDigest()
+    }
+
+    /// Builds the signature-verification mechanism for this target.
+    ///
+    /// On iOS the mechanism uses the documented Security key primitives
+    /// under the operations `SigningAlgorithm` selects; on any other target
+    /// it reports verification as unavailable rather than skipping it
+    /// silently. Nothing built here is installed in the application
+    /// environment, because no interface consumes a verification outcome
+    /// yet.
+    static func makeCryptographicSignatureVerifier() -> any CryptographicSignatureVerifier {
+        #if os(iOS)
+        return AppleSignatureVerifier()
+        #else
+        return UnavailableCryptographicSignatureVerifier()
+        #endif
+    }
+
     /// Builds the bundle contents inspection use case over the given library,
     /// selecting the concrete archive implementation.
     ///

@@ -55,8 +55,8 @@ No released build exists.
 | Import | Partial: document selection, security-scoped staging into temporary storage, archive validation, declared-metadata extraction, library admission |
 | Library | Partial: durable records for accepted imports, application-owned artifact storage, content-based duplicate recognition, missing-artifact detection, an Applications screen that lists, imports, and deletes records and opens a read-only explorer of each available package's application bundle. No repair or replacement of missing artifacts |
 | Inspection | Partial: archive reading, application-bundle discovery, structural validation, declared metadata, read-only bundle structure listing. No signature examination, no file content access |
-| Identity security | Explicit signature capability and experimental Keychain registry/resolver; not composed into the app, pending physical-device validation. No private-key import. See [security design](docs/security/signing-identities.md) |
-| Signing, verification, packaging, installation | No application workflow implemented |
+| Identity security | Explicit signature capability and experimental Keychain registry/resolver; not composed into the app, pending physical-device validation. No private-key import. The ZS-021 generic signing use case signs only through this boundary and is likewise not composed in. See [security design](docs/security/signing-identities.md) |
+| Signing, verification, packaging, installation | Generic cryptographic foundation only (ZS-021): digest, signing request/result, a pure signing engine over the identity capability, and a signature-verification boundary — no application workflow, no code-signing construction, and success means only that a generic cryptographic operation completed. No packaging or installation |
 | Releases | None |
 
 ## Intended Scope
