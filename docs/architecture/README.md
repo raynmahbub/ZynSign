@@ -161,6 +161,9 @@ implemented, and no behaviour may be inferred from these documents.
 - [macho-signing-integration.md](macho-signing-integration.md) — experimental
   ZS-026 single-image RSA/SHA-256 signing, detached CMS, finalized pre-hash
   layout, verification boundaries, and outstanding Apple-host test gate.
+- [nested-code-signing.md](nested-code-signing.md) — ZS-028 dependency-aware
+  nested code signing, plan validation, sequential execution, signature replacement
+  policy, failure atomicity, and independent verification.
 - [macho-signing-design-review.md](macho-signing-design-review.md) — historical
   design proposal and prerequisites; the integration document records the
   implemented scope and evidence.

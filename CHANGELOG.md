@@ -6,6 +6,54 @@ All notable changes to ZynSign will be documented here.
 
 ### Added
 
+- Nested code signing layer (ZS-028): turns the cryptographic single-image signing
+  capability established by ZS-026 into a dependency-aware nested signing operation
+  driven by the signing plan from ZS-027. Nested Mach-O binaries (frameworks, dynamic
+  libraries, application extensions) are signed in deterministic dependency order
+  (deepest nested code -> its dependents -> higher-level nested code) while strictly
+  deferring the parent application executable for the later complete application pipeline.
+- Plan validation (`NestedSigningPlanValidator`): verifies that every signing item
+  has a valid bundle-relative path that does not escape the application bundle, no
+  duplicate signing target exists, no item appears twice in the signing order, all
+  required dependencies are represented and acyclic, parent/child relationships are
+  internally consistent, each target is established thin arm64 Mach-O code, unsupported
+  code kinds and universal binaries are rejected, and the main application executable
+  is not treated as a nested item.
+- An explicit domain and request model (`NestedSigningModel`): `NestedSigningRequest`,
+  `NestedSigningPlan`, `NestedSigningItem`, `NestedSigningResult`, `NestedSigningItemResult`,
+  `NestedSigningSummary`, and `NestedSigningFailure` with structured reasons and safe
+  user messages, with private keys and raw credentials strictly excluded.
+- An artifact storage boundary (`NestedSigningArtifactStore`): in-memory implementation
+  (`MemoryNestedSigningArtifactStore`) for deterministic testing, and filesystem-backed
+  implementation (`FileNestedSigningArtifactStore`) enforcing path confinement, symlink
+  escape prevention, bounds checking, and atomic replacement via temporary files.
+- Failure atomicity and mutation strategies (`NestedSigningMutationStrategy`):
+  `stagedWorkingCopy` stages all modifications in working memory and commits only
+  when all nested targets are successfully signed and verified (ensuring no targets
+  are modified on failure), and `directMutation` writes sequentially, explicitly
+  distinguishing `noTargetsModified`, `someTargetsModified`, `allTargetsModified`,
+  and `verificationFailedAfterMutation`.
+- Existing signature policy: unsigned binaries are signed via narrow append mutation;
+  binaries with existing signatures are rejected by default (`.rejectExistingSignature`);
+  explicit replacement is unsupported (`.unsupportedExistingSignature`); malformed
+  existing signatures are rejected cleanly without attempting mutation or preserving
+  stale signature data.
+- Post-sign independent verification: every successfully signed binary is reparsed
+  and independently checked structurally (Mach-O slices, `LC_CODE_SIGNATURE` bounds,
+  SuperBlob, CodeDirectory fields, recomputed page hashes) and cryptographically
+  (CodeDirectory digest, CMS signed attributes, signature verification against the
+  certificate's public key) before accepting the artifact.
+- Extension point for ZS-029 (`NestedCodeSigningConfiguration`): hooks for flags and
+  special slots without fabricating nested entitlements, requirement blobs, or
+  `CodeResources`.
+- Focused test suite (`NestedCodeSigningTests`) covering signing-plan validation,
+  ordering determinism, nested Mach-O signing, signature replacement policy,
+  cryptographic verification, failure handling and atomicity, and binary preservation;
+  plus host validation script (`Tests/Host/verify_nested_code_signing_vector.py`)
+  performing independent topological ordering, cycle detection, byte preservation,
+  and OpenSSL CMS verification.
+
+
 - Generic cryptographic signing and verification foundation (ZS-021): the
   reusable primitives the signing stage builds on — hashing, cryptographic
   signing, signature verification, signing-key capability use, certificate and

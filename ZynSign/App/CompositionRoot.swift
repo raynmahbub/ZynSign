@@ -379,6 +379,28 @@ enum CompositionRoot {
         )
     }
 
+    /// Builds the nested code signing use case over the given identity store.
+    ///
+    /// Signs nested Mach-O code in dependency-aware order, using the existing
+    /// single Mach-O signing capability and cryptographic verification abstractions.
+    /// Nothing built here is installed in the application environment, because no
+    /// interface consumes nested signing results yet.
+    static func makeNestedCodeSigningUseCase(
+        identityStore: any IdentityStore,
+        digest: any MessageDigest = makeMessageDigest(),
+        verifier: any CryptographicSignatureVerifier = makeCryptographicSignatureVerifier(),
+        parser: any MachOParsing = ReadOnlyMachOParser(),
+        writer: MachOCodeSignatureWriter = MachOCodeSignatureWriter()
+    ) -> SignNestedCodeUseCase {
+        SignNestedCodeUseCase(
+            identities: identityStore,
+            digest: digest,
+            verifier: verifier,
+            parser: parser,
+            writer: writer
+        )
+    }
+
     /// Builds the library use case over the selected persistence
     /// implementations: a versioned catalog file for records, and
     /// application-owned artifact storage fed from the intake's staging
