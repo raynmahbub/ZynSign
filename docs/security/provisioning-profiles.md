@@ -10,6 +10,15 @@ evaluation, not a signing-policy engine, not an authorization decision, and not
 an installation path. There is no profile-management interface, no profile
 persistence, and no CMS construction.
 
+ZS-019 adds a read-only policy stage above that evidence: it evaluates whether an
+authenticated profile may be used with an application, a signing identity, and a
+requested signing configuration, under the policy rules ZynSign implements. It
+reads no container bytes of its own, re-verifies nothing, signs nothing, and
+persists nothing. The container boundary above is unchanged by it, and the two
+sections below stay separate: container verification is evidence, policy
+validation is a predicate over that evidence, and neither is platform
+authorization.
+
 Production use of the verification path is gated by experiments E3 and E4 in
 [on-device-signing-feasibility.md](../architecture/on-device-signing-feasibility.md):
 the platform primitives the path uses are documented for iOS, but their
@@ -139,6 +148,34 @@ reported separately, as observed. "No store was consulted" and "the store could
 not be read" are different outcomes and are recorded differently; an unreadable
 store never fails the verification, because it says nothing about the profile.
 
+## Policy validation boundary
+
+The policy stage consumes `ProvisioningPolicyValidationContext`: a parsed profile
+with its staged authenticity, the certificate relationship, application metadata,
+the bundle identifier being signed, identity metadata if any, the requested
+signing configuration, the device and platform context, and an injected clock. It
+cannot receive interface state, key bytes, a key reference, a Keychain record, or
+a credential, and it never calls `IdentityStore` itself; the application-layer use
+case resolves metadata read-only and hands the validator a domain value. A test
+asserts that no signing capability is requested on this path.
+
+A `compatible` result means the configuration satisfies the policy rules
+implemented by ZynSign. It is not platform authorization, not installation, not a
+signature, and not Apple's approval. Trust stays `notPerformed`, authorization
+stays `notEvaluated`, and there is no `isValid`, `isInstallable`, or `isTrusted`
+flag on the result.
+
+Three states are kept apart per category — satisfied, violated, indeterminate —
+because reporting a question ZynSign could not answer as a pass, or as a conflict,
+would be a false statement about the profile. Absence is never treated as a value:
+a missing device list is not a grant, a missing `get-task-allow` claim is not
+`false`, a missing team identifier is not a mismatch, and an unreadable identity
+store is not a defective profile.
+
+Nothing on this path modifies content. No entitlement is stripped, rewritten, or
+synthesized; no profile byte, `Info.plist`, or bundle identifier is edited and no
+Keychain item is touched. The stage is a predicate over values it was given.
+
 ## Diagnostics and redaction
 
 Diagnostic renderings carry states, bounded counts, algorithm identifiers,
@@ -147,6 +184,14 @@ carry container bytes, payload bytes, certificate bodies, private-key material,
 user messages from foreign errors, or platform error text. A foreign failure
 crossing the boundary is reduced to its CMS reason before it is stored, so a
 third-party or platform description cannot reach a log or an interface.
+
+The policy stage follows the same rule with one narrowing: its diagnostic
+rendering carries only overall and per-category states plus the codes of the
+findings that were not satisfied — no identifiers, no entitlement values, no
+fingerprints, and no bytes. A presentation-safe summary may name a claim key and
+a category, because keys are not secrets and a reason the user cannot act on is
+not worth carrying; a test asserts that neither a bundle identifier, a team
+identifier, a certificate fingerprint, nor a requested value appears in it.
 
 User-facing messages come from the fixed `CMSFailure` table and are written
 without reference to any input bytes.
@@ -159,6 +204,12 @@ profile bytes, payload bytes, certificate bodies, or fingerprints are written to
 application storage, to the library catalog, or to disk. No private key,
 password, or Keychain secret is read or stored. There is no automatic profile
 storage and no profile cache.
+
+The policy stage persists nothing either, and it writes no profile, no
+entitlement, and no `Info.plist`. Its result is derived from the profile, the
+application, the identity, the configuration, and the current time, so a caller
+that keeps one must define its own invalidation rather than treating it as stored
+state.
 
 ## Platform evidence
 
@@ -186,12 +237,32 @@ not demonstrated.
 profile-type semantics, and every authorization question. Nothing in this
 increment answers them.
 
+**Unknown — platform-policy predicates.** The rules of the policy stage are
+ZynSign's rules, and their evidence is recorded where they are defined: allowlist
+inclusion is verified from Apple's documentation, the identifier wildcard scope
+and the mapping from declared device families to platform spellings are inferred,
+and the numeric, array, and dictionary comparison choices are this repository's
+own conservatism. Whether the platform's behaviour matches a predicate is not
+established, so a `compatible` result is stated as satisfying the policy rules
+implemented by ZynSign — never as "iOS will accept" the configuration, the
+entitlement, the device, or the profile.
+
 ## Testing and outstanding validation
 
 Deterministic suites cover the structure reader, the verification boundary with
 a recording signature double, the CMS vocabulary, the certificate relationship
 rules, and the verification use case. They run without a device, a simulator, a
-keychain, or a network. Signature mathematics over real fixture bytes lives in a
+keychain, or a network.
+
+The ZS-019 policy stage has its own host-side suites over synthetic profile,
+identity, application, and configuration values: the identifier rule, the typed
+entitlement comparator, the category rules with authenticity gating and
+aggregation, and the application-layer use case including the identity-resolution
+states and the summary. They assert that `trustEvaluation` stays `notPerformed`,
+that `authorization` stays `notEvaluated`, that no signing capability is
+requested, that no result carries a value, identifier, or fingerprint, and that
+an unauthenticated container yields indeterminate categories rather than
+violations. No network, device, keychain, or simulator is involved. Signature mathematics over real fixture bytes lives in a
 separate iOS-gated suite, because the primitives it uses do not exist elsewhere;
 it needs no signed host, no keychain, and no private key.
 
@@ -205,6 +276,7 @@ are not committed. No real provisioning profile, production certificate, team
 identifier, or device identifier appears anywhere in the suite.
 
 Outstanding: execution of the whole suite in Xcode, execution of the iOS-gated
-suite in a simulator and on a physical device, and experiments E3 and E4. None
-of these has been performed in the environment where this increment was written,
+suite in a simulator and on a physical device, and experiments E3 and E4. The
+policy suites (ZS-019) share that status: they were written but not run in the
+environment where this increment was written. None of these has been performed,
 so no test result is claimed here.

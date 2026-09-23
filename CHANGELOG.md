@@ -6,6 +6,50 @@ All notable changes to ZynSign will be documented here.
 
 ### Added
 
+- Provisioning-profile policy validation (ZS-019): a read-only domain stage that
+  evaluates whether an authenticated profile may be used with an application, a
+  bundle identifier, a signing identity, and a requested signing configuration.
+  It reports nine three-state categories — authenticity, validity, profile class,
+  bundle identifier, team identifier, certificate, entitlements, platform, and
+  device — aggregated into `compatible`, `incompatible`, or `indeterminate`, with
+  every meaningful finding kept and no `isValid` flag. A profile that is not
+  authenticated gates the other categories to indeterminate; a rejected container
+  is the one case that makes the result incompatible.
+- One identifier rule shared by the bundle-identifier check and the
+  `application-identifier` claim check: exact scope, trailing-wildcard scope as a
+  prefix test at a component boundary, explicit mismatch, and indeterminate when
+  no explicit application-identifier prefix makes a split safe. Nothing is
+  normalised into a match and no wildcard behaviour is invented.
+- Typed, deterministic entitlement comparison per key against the profile's
+  allowlist: property-list types preserved, no integer/real coercion, no
+  array-order or set assumption, unsupported and incomparable values reported as
+  such instead of approved, dedicated rules for `application-identifier`,
+  `com.apple.developer.team-identifier`, and `get-task-allow` — including that
+  absence is not `false` — and no stripping, rewriting, or synthesizing of a
+  claim.
+- Certificate evidence layered on ZS-018 rather than re-derived: container-signer
+  agreement, identity-certificate agreement, and key availability, association,
+  and readiness reported separately, so "identity unavailable", "certificate
+  mismatch", and "profile mismatch" stay three distinct outcomes and an
+  unavailable key never becomes a malformed profile.
+- Validity and platform rules over existing models with an injected clock, and a
+  device rule that compares only when a trustworthy identifier was supplied,
+  reports an inconsistent all-devices declaration instead of resolving it, and
+  never fabricates or assumes a device identifier.
+- `ValidateProvisioningConfigurationUseCase` and a presentation-safe summary: the
+  use case resolves identity metadata read-only, never requests a signing
+  capability, never throws for a policy outcome, persists nothing, and adds no
+  policy interface or action. Trust stays `notPerformed` and authorization stays
+  `notEvaluated`; a `compatible` result states only that the configuration
+  satisfies the policy rules implemented by ZynSign.
+- Host-side suites for the policy stage over synthetic profile, identity,
+  application, and configuration values: the identifier rule, the typed
+  entitlement comparator, the category rules with authenticity gating, validity
+  boundaries, aggregation, non-mutation, and redaction, and the use case
+  including identity-resolution states and the summary. They assert that no
+  signing capability is requested and that trust and authorization stay
+  unevaluated. Like the rest of the target, they have not been executed in the
+  environment where they were written.
 - Provisioning-profile CMS verification: a bounded RFC 5652 SignedData reader,
   signer-certificate extraction by serial number, signed-attribute re-encoding
   with message-digest binding checked before any signature check, and signature
