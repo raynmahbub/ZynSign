@@ -201,6 +201,8 @@ struct ReadOnlyMachOParser: MachOParsing {
         let commands = try reader.view(at: headerSize, length: commandsSize, boundary: .loadCommands)
         var loadCommands: [MachOLoadCommand] = []
         loadCommands.reserveCapacity(commandCount)
+        var segments: [MachOSegment] = []
+        segments.reserveCapacity(commandCount)
         var signatureCommand: MachOCodeSignatureCommand?
         var cursor = 0
         for _ in 0..<commandCount {
@@ -213,7 +215,14 @@ struct ReadOnlyMachOParser: MachOParsing {
             }
             let commandRange = try commands.checkedRange(at: cursor, length: size, boundary: .loadCommands)
             loadCommands.append(MachOLoadCommand(type: type, fileRange: commandRange))
-            if type == 0x1D {
+            if type == MachOLoadCommandType.segment || type == MachOLoadCommandType.segment64 {
+                let command = try commands.view(at: cursor, length: size, boundary: .segment)
+                segments.append(try segment(
+                    in: command, type: type, wordSize: header.wordSize,
+                    order: order, sliceLength: reader.count
+                ))
+            }
+            if type == MachOLoadCommandType.codeSignature {
                 guard signatureCommand == nil, size == 16 else {
                     throw MachOParsingError(.invalidLoadCommand, at: .codeSignatureCommand)
                 }
@@ -255,8 +264,141 @@ struct ReadOnlyMachOParser: MachOParsing {
         } else {
             signature = nil
         }
-        return MachOSlice(fileRange: reader.fileRange, header: header,
-                          loadCommands: loadCommands, embeddedSignature: signature)
+        let firstFileBackedContentOffset = segments.compactMap { segment -> Int? in
+            if let sectionOffset = segment.firstFileBackedSectionOffset {
+                return sectionOffset
+            }
+            guard segment.sectionCount == 0,
+                  segment.fileOffset > 0,
+                  segment.fileSize > 0 else {
+                return nil
+            }
+            return Int(exactly: segment.fileOffset)
+        }.min()
+        return MachOSlice(
+            fileRange: reader.fileRange, header: header, loadCommands: loadCommands,
+            segments: segments, firstFileBackedContentOffset: firstFileBackedContentOffset,
+            embeddedSignature: signature
+        )
+    }
+
+    /// Reads only the segment facts needed by the append-only mutation
+    /// boundary. This remains part of the one bounded Mach-O parser rather
+    /// than a second layout reader. Each file-backed section is proved to lie
+    /// inside both its segment's file range and the containing slice before it
+    /// can establish header-padding capacity.
+    private static func segment(
+        in command: BoundedBinaryReader,
+        type: UInt32,
+        wordSize: MachOWordSize,
+        order: MachOByteOrder,
+        sliceLength: Int
+    ) throws -> MachOSegment {
+        let is64BitCommand = type == MachOLoadCommandType.segment64
+        guard (is64BitCommand && wordSize == .bits64) ||
+              (!is64BitCommand && wordSize == .bits32) else {
+            throw MachOParsingError(.invalidLoadCommand, at: .segment)
+        }
+
+        let commandHeaderLength = is64BitCommand ? 72 : 56
+        let sectionLength = is64BitCommand ? 80 : 68
+        guard command.count >= commandHeaderLength else {
+            throw MachOParsingError(.invalidLoadCommand, at: .segment)
+        }
+        let sectionCount = try command.uint32AsInt(
+            at: is64BitCommand ? 64 : 48,
+            order: order,
+            boundary: .segment,
+            ifUnrepresentable: .invalidLength
+        )
+        let (sectionBytes, sectionBytesOverflow) = sectionCount.multipliedReportingOverflow(by: sectionLength)
+        guard !sectionBytesOverflow else {
+            throw MachOParsingError(.invalidLength, at: .segment)
+        }
+        let (expectedLength, expectedLengthOverflow) = commandHeaderLength.addingReportingOverflow(sectionBytes)
+        guard !expectedLengthOverflow, expectedLength == command.count else {
+            throw MachOParsingError(.invalidLoadCommand, at: .segment)
+        }
+
+        let name = MachOSegmentName(rawBytes: Array(try command.data(
+            at: 8, length: 16, boundary: .segment
+        )))
+        let virtualMemorySize: UInt64
+        let fileOffset: UInt64
+        let fileSize: UInt64
+        let fileSizeFieldRange: Range<Int>
+        if is64BitCommand {
+            virtualMemorySize = try command.uint64(at: 32, order: order, boundary: .segment)
+            fileOffset = try command.uint64(at: 40, order: order, boundary: .segment)
+            fileSize = try command.uint64(at: 48, order: order, boundary: .segment)
+            fileSizeFieldRange = try command.checkedRange(at: 48, length: 8, boundary: .segment)
+        } else {
+            virtualMemorySize = UInt64(try command.uint32(at: 28, order: order, boundary: .segment))
+            fileOffset = UInt64(try command.uint32(at: 32, order: order, boundary: .segment))
+            fileSize = UInt64(try command.uint32(at: 36, order: order, boundary: .segment))
+            fileSizeFieldRange = try command.checkedRange(at: 36, length: 4, boundary: .segment)
+        }
+        let (segmentEnd, segmentEndOverflow) = fileOffset.addingReportingOverflow(fileSize)
+        guard !segmentEndOverflow else {
+            throw MachOParsingError(.invalidLength, at: .segment)
+        }
+        if fileSize > 0 {
+            guard let offset = Int(exactly: fileOffset), offset <= sliceLength else {
+                throw MachOParsingError(.invalidOffset, at: .segment)
+            }
+            guard let length = Int(exactly: fileSize), length <= sliceLength - offset else {
+                throw MachOParsingError(.invalidLength, at: .segment)
+            }
+        }
+
+        var firstFileBackedSectionOffset: Int?
+        for index in 0..<sectionCount {
+            let position = commandHeaderLength + index * sectionLength
+            let sectionSize: UInt64
+            let sectionOffset: UInt64
+            let flags: UInt32
+            if is64BitCommand {
+                sectionSize = try command.uint64(at: position + 40, order: order, boundary: .segment)
+                sectionOffset = UInt64(try command.uint32(at: position + 48, order: order, boundary: .segment))
+                flags = try command.uint32(at: position + 64, order: order, boundary: .segment)
+            } else {
+                sectionSize = UInt64(try command.uint32(at: position + 36, order: order, boundary: .segment))
+                sectionOffset = UInt64(try command.uint32(at: position + 40, order: order, boundary: .segment))
+                flags = try command.uint32(at: position + 56, order: order, boundary: .segment)
+            }
+            let sectionType = flags & MachOSectionType.mask
+            guard sectionSize == 0 ||
+                  (sectionType != MachOSectionType.zeroFill &&
+                   sectionType != MachOSectionType.threadLocalZeroFill) else {
+                continue
+            }
+            guard sectionSize > 0 else { continue }
+            let (sectionEnd, sectionEndOverflow) = sectionOffset.addingReportingOverflow(sectionSize)
+            guard !sectionEndOverflow else {
+                throw MachOParsingError(.invalidLength, at: .segment)
+            }
+            guard sectionOffset >= fileOffset, sectionEnd <= segmentEnd else {
+                throw MachOParsingError(.invalidOffset, at: .segment)
+            }
+            guard let offset = Int(exactly: sectionOffset), offset <= sliceLength else {
+                throw MachOParsingError(.invalidOffset, at: .segment)
+            }
+            guard let length = Int(exactly: sectionSize), length <= sliceLength - offset else {
+                throw MachOParsingError(.invalidLength, at: .segment)
+            }
+            if let current = firstFileBackedSectionOffset {
+                firstFileBackedSectionOffset = min(current, offset)
+            } else {
+                firstFileBackedSectionOffset = offset
+            }
+        }
+
+        return MachOSegment(
+            commandRange: command.fileRange, wordSize: wordSize, name: name,
+            fileOffset: fileOffset, fileSize: fileSize, virtualMemorySize: virtualMemorySize,
+            sectionCount: sectionCount, firstFileBackedSectionOffset: firstFileBackedSectionOffset,
+            fileSizeFieldRange: fileSizeFieldRange
+        )
     }
 
     private struct IndexedBlob {

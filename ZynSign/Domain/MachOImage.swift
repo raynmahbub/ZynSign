@@ -42,6 +42,24 @@ enum MachOHeaderMagic: UInt32, Equatable {
     case mach64 = 0xFEEDFACF
 }
 
+/// Load-command constants shared by structural inspection and the narrowly
+/// scoped signature-region writer. Keeping them here prevents a second Mach-O
+/// vocabulary at the mutation boundary.
+enum MachOLoadCommandType {
+    static let segment: UInt32 = 0x1
+    static let segment64: UInt32 = 0x19
+    static let codeSignature: UInt32 = 0x1D
+}
+
+/// File-backed section detection uses the same section-type distinction as
+/// Apple's `codesign_allocate`: zero-fill sections reserve virtual memory but
+/// do not delimit bytes in the Mach-O file.
+enum MachOSectionType {
+    static let mask: UInt32 = 0x0000_00FF
+    static let zeroFill: UInt32 = 0x1
+    static let threadLocalZeroFill: UInt32 = 0x12
+}
+
 enum MachOUniversalMagic: UInt32, Equatable {
     case fat32 = 0xCAFEBABE
     case fat64 = 0xCAFEBABF
@@ -102,6 +120,44 @@ struct MachOHeader: Equatable {
     var wordSize: MachOWordSize { magic == .mach64 ? .bits64 : .bits32 }
 }
 
+/// The raw 16-byte segment name is deliberately retained as bytes. A segment
+/// name is not a user-visible string and accepting only valid text would make a
+/// structural parser less safe, not more. `isLinkEdit` compares the fixed
+/// format spelling without normalizing unknown names.
+struct MachOSegmentName: Equatable, Hashable {
+    let rawBytes: [UInt8]
+
+    init(rawBytes: [UInt8]) {
+        self.rawBytes = rawBytes
+    }
+
+    var isLinkEdit: Bool {
+        rawBytes == Array("__LINKEDIT".utf8) + Array(repeating: 0, count: 6)
+    }
+}
+
+/// The subset of a segment command needed to establish whether it is safe to
+/// add one load command and append a signature region. Offsets and the first
+/// file-backed-content position are relative to the containing slice; byte
+/// ranges are absolute positions in the supplied input, matching other
+/// inspection ranges. This describes layout only and does not assert that a
+/// segment is loader-valid or executable.
+struct MachOSegment: Equatable {
+    let commandRange: Range<Int>
+    let wordSize: MachOWordSize
+    let name: MachOSegmentName
+    let fileOffset: UInt64
+    let fileSize: UInt64
+    let virtualMemorySize: UInt64
+    let sectionCount: Int
+    /// Lowest non-zero-fill section offset, if this command has one.
+    let firstFileBackedSectionOffset: Int?
+    /// Absolute location of the segment command's `filesize` field.
+    let fileSizeFieldRange: Range<Int>
+
+    var isLinkEdit: Bool { name.isLinkEdit }
+}
+
 /// One independently inspected Mach-O image, either the entire thin input or
 /// a slice named by a fat table entry. Load-command and signature ranges
 /// cannot leave `fileRange`.
@@ -109,14 +165,22 @@ struct MachOSlice: Equatable {
     let fileRange: Range<Int>
     let header: MachOHeader
     let loadCommands: [MachOLoadCommand]
+    let segments: [MachOSegment]
+    /// The earliest byte containing file-backed section/segment content,
+    /// relative to this slice. A writer may use only zero-filled header space
+    /// before this boundary when it adds a load command.
+    let firstFileBackedContentOffset: Int?
     let embeddedSignature: MachOEmbeddedSignature?
+
+    var headerSize: Int { header.wordSize == .bits64 ? 32 : 28 }
+    var loadCommandsEndOffset: Int { headerSize + header.loadCommandsSize }
 }
 
 struct MachOLoadCommand: Equatable {
     let type: UInt32
     let fileRange: Range<Int>
 
-    var isCodeSignature: Bool { type == 0x1D }
+    var isCodeSignature: Bool { type == MachOLoadCommandType.codeSignature }
     var size: Int { fileRange.count }
 }
 

@@ -587,4 +587,37 @@ final class ReadOnlyMachOParserTests: XCTestCase {
         let subsequence = container.dropFirst(3)
         XCTAssertEqual(try parser.parse(subsequence).slice(at: 0)?.header.cpu, .arm64)
     }
+
+    func testSegmentCommandsAndFileBackedBoundaries() throws {
+        let payload = Array(repeating: UInt8(0x55), count: 16)
+        let segment = MachOFixtures.segment64(
+            name: "__TEXT",
+            fileOffset: 128,
+            fileSize: 16,
+            virtualMemorySize: 4_096
+        )
+        let bytes = MachOFixtures.thin(
+            wordSize: .bits64,
+            commands: [segment],
+            headerPadding: Array(repeating: 0, count: 24),
+            payload: payload
+        )
+        let image = try read(bytes)
+        let slice = try XCTUnwrap(image.slice(at: 0))
+        XCTAssertEqual(slice.segments.count, 1)
+        XCTAssertFalse(slice.segments[0].isLinkEdit)
+        XCTAssertEqual(slice.segments[0].fileOffset, 128)
+        XCTAssertEqual(slice.segments[0].fileSize, 16)
+        XCTAssertEqual(slice.firstFileBackedContentOffset, 128)
+
+        // Truncated segment command header
+        var shortCommand = MachOFixtures.thin(commands: [Array(segment.prefix(64))])
+        MachOFixtures.put(64, at: 36, in: &shortCommand, order: .littleEndian)
+        assertFailure(shortCommand, .invalidLoadCommand, .segment)
+
+        // Segment offset outside file
+        var outside = MachOFixtures.thin(commands: [segment])
+        MachOFixtures.put(1000, width: 8, at: 72, in: &outside, order: .littleEndian)
+        assertFailure(outside, .invalidOffset, .segment)
+    }
 }
