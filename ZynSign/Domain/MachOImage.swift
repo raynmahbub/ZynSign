@@ -145,38 +145,12 @@ struct MachOSuperBlob: Equatable {
     var count: Int { entries.count }
 }
 
-/// The *index* slot is distinct from a CodeDirectory's negative hash slots.
-/// Only slots whose structural assignment is established are named here.
-/// Slots 1 and 3, for example, normally describe CodeDirectory hashes for
-/// Info.plist and CodeResources, not embedded bytes in the SuperBlob.
-enum MachOSignatureSlot: Equatable {
-    case codeDirectory
-    case alternateCodeDirectory(Int)
-    case requirements
-    case entitlements
-    case derEntitlements
-    case cms
-    case other(UInt32)
-
-    init(rawValue: UInt32) {
-        switch rawValue {
-        case 0: self = .codeDirectory
-        case 2: self = .requirements
-        case 5: self = .entitlements
-        case 7: self = .derEntitlements
-        case 0x1000..<0x1005: self = .alternateCodeDirectory(Int(rawValue - 0x1000))
-        case 0x10000: self = .cms
-        default: self = .other(rawValue)
-        }
-    }
-}
-
 /// A delimited blob. Unknown index types and blob magics are kept as numbers,
 /// with no claims about their payloads. Known non-CodeDirectory payloads are
 /// likewise not decoded or verified.
 struct MachOSignatureEntry: Equatable {
     let slotNumber: UInt32
-    let slot: MachOSignatureSlot
+    let slot: CodeSignatureBlobType
     let relativeOffset: Int
     let magic: UInt32
     let fileRange: Range<Int>

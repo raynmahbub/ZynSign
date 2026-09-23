@@ -96,6 +96,12 @@ bounds and unsupported-version results describe format structure only; they
 are not verification, construction, policy, or an on-device acceptance claim.
 See [Mach-O code-signature inspection](macho-inspection.md) for the evidence,
 limits, and remaining questions.
+The SuperBlob construction increment adds a separate typed container for
+ZS-023 CodeDirectory bytes and validated opaque frames, with canonical ordering
+and checked packed serialization. It reuses the inspection parser through a
+standalone entry point, without inserting bytes into an executable or invoking
+cryptographic signing. See [SuperBlob construction](superblob-construction.md)
+for the ZS-024 format contract, opaque boundary, and remaining validation work.
 The inspection stage is therefore a partial capability: it reads containers,
 classifies layout, reads one bundle's declared metadata, describes a bundle's
 structure, and can separately inspect a caller-supplied decoded profile payload

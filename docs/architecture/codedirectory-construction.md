@@ -91,6 +91,11 @@ identifier/team offsets, special-hash start, and `hashOffset` before writing.
 The result includes a `CodeDirectoryLayout` for later SuperBlob work, but no
 SuperBlob is built here.
 
+[ZS-024](superblob-construction.md) now consumes this serialization through
+`CodeSignatureBlob.codeDirectory`, retains its bytes unchanged, and calculates
+container placement without repeating CodeDirectory serialization. This does
+not extend the construction versions or add alternate-hash generation.
+
 The existing read-only parser remains responsible for interpreting supplied
 bytes. It now preserves value-owned special and code hash bytes in addition to
 its prior structural ranges, which permits an independently visible

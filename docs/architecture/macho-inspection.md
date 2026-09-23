@@ -116,6 +116,18 @@ entries, not a declaration that their payloads have been decoded, validated,
 or authorized. Other slot numbers stay uninterpreted. CMS, requirements, and
 entitlements payload parsing remain separate responsibilities.
 
+## Standalone container inspection (ZS-024)
+
+`ReadOnlyMachOParser.parseSuperBlob` now exposes this same bounded reader for
+exactly one independent container. It requires declared length to equal input
+length and returns the existing inspection model with buffer-relative ranges.
+It cannot compare code limits to an executable signature offset because no
+executable is supplied; all other structural checks remain in place. The
+Mach-O parsing path retains its signature-region and code-limit checks.
+`CodeSignatureBlobType` is the shared index vocabulary for parsing and
+construction. See [SuperBlob construction](superblob-construction.md) for
+canonical ordering, packed placements, opaque handling, and validation limits.
+
 ## CodeDirectory, hashes and resources
 
 The reader handles version milestones explicitly:

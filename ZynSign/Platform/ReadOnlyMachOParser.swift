@@ -11,11 +11,30 @@ struct ReadOnlyMachOParser: MachOParsing {
     static let maximumArchitectures = 64
     static let maximumLoadCommands = 4_096
     static let maximumLoadCommandBytes = 1_024 * 1_024
-    static let maximumSignatureEntries = 128
+    static let maximumSignatureEntries = SignatureSuperBlob.maximumEntries
     static let maximumSpecialSlots = 64
     static let maximumCodeSlots = 65_536
     static let maximumScatterRecords = 4_096
     static let maximumIdentifierBytes = 4_096
+
+    /// Standalone inspection of exactly one embedded SuperBlob. Unlike a
+    /// Mach-O signature region, this input must not contain trailing reserve
+    /// bytes. Code limits are checked structurally, but cannot be compared
+    /// with a containing executable when none was supplied.
+    func parseSuperBlob(_ bytes: Data) throws -> MachOSuperBlob {
+        guard bytes.count <= SignatureSuperBlob.maximumSerializedLength else {
+            throw MachOParsingError(.resourceLimitExceeded, at: .superBlob)
+        }
+        return try bytes.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            let result = try Self.superBlob(
+                in: BoundedBinaryReader(bytes: raw), signatureOffset: nil
+            )
+            guard result.length == bytes.count else {
+                throw MachOParsingError(.invalidLength, at: .superBlob)
+            }
+            return result
+        }
+    }
 
     func parse(_ bytes: Data) throws -> MachOImage {
         guard bytes.count <= Self.maximumInputBytes else {
@@ -250,7 +269,7 @@ struct ReadOnlyMachOParser: MachOParsing {
 
     private static func superBlob(
         in signature: BoundedBinaryReader,
-        signatureOffset: Int
+        signatureOffset: Int?
     ) throws -> MachOSuperBlob {
         _ = try signature.checkedRange(at: 0, length: 12, boundary: .superBlob)
         let magic = try signature.uint32(at: 0, order: .bigEndian, boundary: .superBlob)
@@ -310,17 +329,8 @@ struct ReadOnlyMachOParser: MachOParsing {
         var entries: [MachOSignatureEntry] = []
         entries.reserveCapacity(count)
         for item in indexed {
-            let slot = MachOSignatureSlot(rawValue: item.slotNumber)
-            let expectedMagic: UInt32?
-            switch slot {
-            case .codeDirectory, .alternateCodeDirectory: expectedMagic = 0xFADE0C02
-            case .requirements: expectedMagic = 0xFADE0C01
-            case .entitlements: expectedMagic = 0xFADE7171
-            case .derEntitlements: expectedMagic = 0xFADE7172
-            case .cms: expectedMagic = 0xFADE0B01
-            case .other: expectedMagic = nil
-            }
-            if let expectedMagic = expectedMagic, item.magic != expectedMagic {
+            let slot = CodeSignatureBlobType(rawValue: item.slotNumber)
+            if let expectedMagic = slot.expectedMagic, item.magic != expectedMagic {
                 throw MachOParsingError(.malformedSignatureBlob, at: .signatureBlob)
             }
             let directory: MachOCodeDirectory?
@@ -342,7 +352,7 @@ struct ReadOnlyMachOParser: MachOParsing {
 
     private static func codeDirectory(
         in blob: BoundedBinaryReader,
-        signatureOffset: Int
+        signatureOffset: Int?
     ) throws -> MachOCodeDirectory {
         let boundary: MachOParsingError.Boundary = .codeDirectory
         _ = try blob.checkedRange(at: 0, length: 12, boundary: boundary)
@@ -426,7 +436,7 @@ struct ReadOnlyMachOParser: MachOParsing {
         let extendedLimit: UInt64? = version >= 0x20300
             ? try blob.uint64(at: 56, order: .bigEndian, boundary: boundary) : nil
         let effectiveLimit = extendedLimit.flatMap { $0 == 0 ? nil : $0 } ?? UInt64(codeLimit)
-        guard effectiveLimit <= UInt64(signatureOffset) else {
+        if let signatureOffset, effectiveLimit > UInt64(signatureOffset) {
             throw MachOParsingError(.malformedCodeDirectory, at: boundary)
         }
         let segment: MachOExecutableSegment?
