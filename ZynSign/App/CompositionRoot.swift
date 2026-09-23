@@ -208,6 +208,65 @@ enum CompositionRoot {
         )
     }
 
+    /// Builds the integrated provisioning-profile validation pipeline over the
+    /// existing verification and policy use cases.
+    ///
+    /// The two halves are the ones already wired above — ZS-018's container,
+    /// parsing, and certificate evidence, and ZS-019's policy evaluation — and
+    /// this factory only composes them, so a single run performs one CMS
+    /// verification, one payload parse, one structural validation, one
+    /// relationship analysis, and one policy evaluation. The identity store is
+    /// optional and read-only for both halves: it is asked to list identities and
+    /// to resolve metadata, never for a signing capability, and no key handle is
+    /// reached. The clock is injected so that validity is reproducible for a
+    /// fixed instant.
+    ///
+    /// Nothing built here is installed in the application environment, because no
+    /// interface consumes a pipeline result yet, and the pipeline persists nothing:
+    /// its result is derived from the profile, the application, the identity, the
+    /// configuration, the time, and the device context a caller has.
+    static func makeProvisioningProfilePipeline(
+        certificateParser: any CertificateParser = AppleCertificateParser(),
+        clock: any EvaluationClock = SystemEvaluationClock(),
+        limits: ProvisioningProfileParsingLimits = .default,
+        identityStore: (any IdentityStore)? = nil
+    ) -> ValidateProvisioningProfileUseCase {
+        ValidateProvisioningProfileUseCase(
+            profileVerification: makeProvisioningProfileVerification(
+                certificateParser: certificateParser,
+                clock: clock,
+                limits: limits,
+                identityStore: identityStore
+            ),
+            configurationValidation: makeProvisioningPolicyValidation(
+                clock: clock,
+                identityStore: identityStore
+            )
+        )
+    }
+
+    /// Builds the embedded-profile intake over the given archive boundary,
+    /// selecting the concrete archive implementation the same way the other
+    /// artifact-facing use cases do.
+    ///
+    /// The intake reads one entry of one package through the existing reader
+    /// provider and resource policy and reaches no conclusion about what those
+    /// bytes are; the pipeline it feeds is what classifies them. Nothing built
+    /// here is installed in the application environment, because no interface
+    /// consumes an embedded profile yet.
+    static func makeBundleProvisioningProfileIntake(
+        artifactDirectory: URL,
+        limits: ArchiveLimits = .default
+    ) -> BundleProvisioningProfileIntake {
+        BundleProvisioningProfileIntake(
+            readerProvider: DirectoryArtifactArchiveReaderProvider(
+                directory: artifactDirectory,
+                limits: limits
+            ),
+            limits: limits
+        )
+    }
+
     /// The signature mechanism available on this target.
     private static func makeCMSSignatureVerifier() -> any CMSSignatureVerifier {
         #if os(iOS)

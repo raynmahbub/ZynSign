@@ -25,8 +25,15 @@ documented iOS key primitives behind a port, signer-certificate extraction, and
 certificate relationship analysis by SHA-256 fingerprint. It does not evaluate
 certificate-chain trust, authorize entitlements or devices, construct CMS,
 persist profile data, read embedded profiles from an archive, or expose any
-profile interface. Production activation of the identity path remains gated by
-experiment E7, and of the profile verification path by experiments E3 and E4. The security
+profile interface. ZS-019 adds a read-only policy stage over that evidence, and
+ZS-020 integrates the three stages into one application-layer workflow whose
+`valid` result states only that every stage ZynSign implements reached its
+positive outcome. For that workflow one `embedded.mobileprovision` entry can be
+read out of a package through the existing archive boundary, behind a bounded,
+read-only intake; the bundle explorer still reads no entry content, no profile
+state is persisted, no signing capability is requested, and no profile interface
+exists. Production activation of the identity path remains gated by experiment E7,
+and of the profile verification path by experiments E3 and E4. The security
 boundaries for private-key material, certificate and profile parsing as
 untrusted input, and raw certificate bytes ownership are established in
 [architecture.md](../architecture/architecture.md) Section 7. Nothing else
@@ -68,5 +75,5 @@ built, not before:
 - [provisioning-profiles.md](provisioning-profiles.md) — profile container
   bounds, what a verified CMS signature does and does not establish, signer
   selection and fingerprint matching, the payload parse gate, identity
-  relationships without capability requests, redaction, platform evidence, and
-  validation gates.
+  relationships without capability requests, the integrated pipeline boundary and
+  its status rules, redaction, platform evidence, and validation gates.

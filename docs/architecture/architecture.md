@@ -66,6 +66,16 @@ platform-compatibility decision, no embedded-profile archive inspection, no
 profile persistence, and adds no profile-management interface. Apple's CMS
 decoder family is documented for macOS only, so no platform CMS service is
 called anywhere in the repository.
+The policy increment then adds the read-only decision over that evidence, and the
+integration increment sequences the three — container verification, parsing and
+structural validation, and policy — into one application-layer use case that takes
+a profile and an application, identity, and configuration context and returns one
+staged result. The integrated path can also receive the profile a bundle embeds:
+a read-only intake reads that one entry through the existing archive boundary and
+hands its bytes to the pipeline. The integration performs no trust evaluation, no
+authorization, no signing, no persistence, and adds no profile-management,
+entitlement, or installation interface; the bundle explorer still reads no entry
+content, and nothing here is wired into the interface.
 The inspection stage is therefore a partial capability: it reads containers,
 classifies layout, reads one bundle's declared metadata, describes a bundle's
 structure, and can separately inspect a caller-supplied decoded profile payload.
@@ -74,7 +84,9 @@ browsed, and removed in the Applications area; certificate and profile parsing
 and identity modeling exist as domain foundation; provisioning-profile CMS
 verification reports signature authenticity separately from trust and
 authorization and is reachable from the application layer only, not from any
-interface; an experimental signature
+interface, and the integrated provisioning-profile pipeline — whose `valid` status
+means only that every stage ZynSign implements reached its positive outcome — is
+likewise reachable from the application layer only; an experimental signature
 primitive exists, but no application-signing, verification, packaging, or
 installation workflow exists.
 
@@ -964,6 +976,156 @@ authorization, and Apple's own profile-class rules remain **Unknown or Requires
 experiment**; no iOS build, device, or simulator was available in the
 environment where this stage was written, and its suite was not executed there.
 
+### Provisioning Profile Pipeline Integration
+
+**Accepted for ZS-020 — integration composes, it does not re-implement.** The
+pipeline is `ValidateProvisioningProfileUseCase`, and it owns no validation rule.
+It sequences the stages that already exist — ZS-018's container verification and
+certificate relationship, ZS-017's parser and structural validator, and ZS-019's
+policy validator behind `ValidateProvisioningConfigurationUseCase` — and its own
+code consists of running them in order, reading what each reported, and
+aggregating. Nothing from ZS-017, ZS-018, or ZS-019 was copied or replaced: bundle
+identifiers, wildcards, entitlement values, certificates, expiries, and team
+identifiers are still decided only where they were decided before, so each stage
+stays independently testable and the pipeline cannot become a second, subtly
+different validator. It adds no port, because it introduces no new seam: every
+input it needs already arrives through one that Section 11 declares.
+
+**Observed — the stage order is the security order.** A run is
+
+    profile input → CMS verification → authenticated payload → profile parsing
+        → structural validation → signer certificate → certificate relationship
+        → policy validation → integrated result
+
+and the ordering is not configurable here. Parsing a payload before verifying the
+container is not a step this pipeline can request: the container boundary it calls
+parses only what its signature verified, so unauthenticated profile metadata is
+never produced, never handed to a policy rule, and never reported as a fact about
+an application. Where a stage cannot run, the run records `notAttempted` or
+`indeterminate` rather than filling the gap, and a container that decoded but did
+not verify still yields staged evidence, because "rejected", "not evaluated", and
+"not a CMS message" are three different facts.
+
+**Accepted — one result per run, with every stage kept separate.**
+`ProvisioningProfilePipelineResult` carries what was given (origin and acquisition,
+as `ProvisioningProfilePipelineInputState`), an outcome per
+`ProvisioningProfilePipelineStage` (`passed`, `failed`, `indeterminate`, or
+`notAttempted`), the untouched evidence of each stage (`ProvisioningProfileVerification`
+and `ProvisioningPolicyValidationResult`), the aggregated findings, and one
+integrated status. There is no `isValid`, `isTrusted`, `isSigned`, or
+`isInstallable` field, and no single Boolean collapses the stages: discovered,
+parsed, structurally valid, authenticated, related, and compatible remain six
+separate statements, and a `ProvisioningProfilePipelineSummary` renders them
+separately for presentation.
+
+**Accepted — the status rules, stated exactly.** `invalid` when at least one
+finding is `rejected`: a rejected or undecodable container, a payload that is not
+a parsable profile, a structurally rejected profile, or a violated policy rule.
+`unsupported` when nothing was rejected and at least one finding is `unsupported`:
+a container form or payload format ZynSign deliberately does not handle, or a
+declared digest/signature pair it does not map onto an operation. `valid` when every
+required stage passed and the policy evaluation returned `compatible` — and because
+`compatible` requires that every policy category be satisfied, a deferred device
+question, an unanswered entitlement question, or an unavailable verification
+mechanism makes `valid` impossible rather than automatic. `indeterminate` otherwise.
+`profileInput` is a required stage for `valid`; "bytes were obtained" is its
+positive outcome, so absence or unreadability never reads as validity. A `valid`
+status is the last thing this pipeline can say and says only that ZynSign's own
+implemented stages passed; it is not a claim that iOS would accept, install, or
+authorize anything.
+
+**Accepted — an absent profile is an absence, not a verdict.** `notFound` (nothing
+supplied and no `embedded.mobileprovision` entry recorded), `unusable(failure)` (an
+entry was found and could not be read, with the reason from
+`ProvisioningProfilePipelineAcquisitionFailure`), and `bytes` are three distinct
+inputs, and the first two end a run at acquisition with `indeterminate`: an App
+Store package legitimately carries no embedded profile, and a package ZynSign
+cannot open says nothing about any profile. The pipeline never converts a
+read failure into a malformed-profile finding, an unavailable mechanism into a
+defect in the user's input, or an unresolved question into either a pass or a
+failure.
+
+**Observed — failure aggregation without a new vocabulary.** Each finding names its
+stage and carries that stage's own code — `CMSFailure`,
+`ProvisioningProfileFailure`, `ProvisioningProfileValidationIssueCode`, or
+`ProvisioningPolicyFindingCode` — plus the sentence the stage wrote, so a caller can
+diagnose "CMS passed, certificate relationship passed, bundle identifier failed,
+one entitlement unapproved, validity passed" without rerunning any stage. Three
+codes are the pipeline's own: `profileNotFound`, for an input that was never there;
+`containerEvidenceUnavailable`, for a run whose boundary produced no evidence object
+to read states from; and `payloadNotParsed`, for a payload left unparsed because its
+container did not verify. Architecture Section 17 requires that a boundary's
+failure vocabulary stay its own; a fourth vocabulary here would be free to drift
+from the three it reports on.
+
+**Accepted — certificate evidence is reported, not re-decided.** The pipeline
+exposes whether a signer certificate exists, whether the profile carries certificate
+references, whether the two correspond (`certificateCorrespondence`), how the
+locally listed identities relate (`signingIdentityRelationship`, from ZS-018's
+read-only listing), and the key availability that listing reported — and it
+deliberately does not make a signer/profile mismatch fatal. ZS-019 records that
+mismatch as an open question in its certificate category, and for good reason: a
+profile whose container was signed by an issuer it does not list among its
+developer certificates is the ordinary shape of a real profile, so promoting the
+observation to `invalid` would be a false positive while promoting it to `valid`
+would be unsupported. The relationship stage therefore reports `failed` as a
+descriptive answer to its own question, and the status rules take their verdict from
+the policy stage alone.
+
+**Accepted — one unit of work per question, and nothing persisted.** A run performs
+one container verification, one payload parse, one structural validation, one
+relationship analysis, and one policy evaluation; no stage is rerun to render a
+summary, and the result exposes each stage's evidence so a caller never repeats the
+work. No cache is introduced, because there is nothing measured to justify one, and
+the result is derived from the profile, the application, the identity, the
+configuration, the clock, and the device context a caller has — so it goes stale by
+construction and is never persisted. The profile bytes, the parsed entitlements,
+the application metadata, and the identity metadata are read, never mutated; no
+Keychain record, key reference, password, or private key crosses any boundary here.
+
+**Accepted — the artifact boundary stays the archive boundary.**
+`BundleProvisioningProfileIntake` is how an embedded profile reaches the pipeline:
+it asks the library's own `ArtifactArchiveReaderProvider` for the record's
+container, reads the entry table, resolves the primary application bundle through
+`ApplicationBundleDiscovery` — reporting ambiguity rather than choosing a
+candidate — and reads at most one entry, `embedded.mobileprovision`, within the
+tighter of the archive's inspection-read bound and the profile input bound. It
+reuses the role vocabulary ZS-013 established for that location and adds no reader,
+no store, no extraction, no filesystem path in its result, and no conclusion:
+whether those bytes are a profile, whether they are authenticated, and whether
+they suit the application are the pipeline's questions. The explorer remains a
+listing of structure that opens nothing, and its label for that location still says
+so. A record whose artifact is missing or no longer matches what was recorded is
+reported as unreadable input, and no container is opened for it.
+
+**Trust boundary, Accepted.** Successful integration means: the container's
+signature verified for the payload that was parsed, that payload satisfies
+ZynSign's structural rules, and the configuration satisfies the policy rules
+ZynSign implements. It does not mean the signer's certificate is trusted or
+Apple-issued, that a chain reaches an anchor, that a private key was ever used or
+even present, that the entitlements will be enforced, that the device is
+provisioned, or that the platform will accept or install anything.
+`trustEvaluation` stays `notPerformed` and `authorization` stays `notEvaluated` on
+every path, and diagnostics inherit the redaction rules of the stages they compose:
+states, outcomes, codes, bounded counts, and fingerprints — no identifiers, values,
+bytes, keys, or credentials.
+
+**Deferred, recorded.** Whether the platform's wildcard, entitlement, device, and
+profile-class rules agree with the predicates ZS-019 implements remains Unknown, and
+whether a trustworthy device identifier can be obtained at all remains an open
+question of the feasibility record; the pipeline inherits both rather than
+answering either. Whether real Apple-signed profiles behave as the fixture containers
+behave is measured by experiments E3 and E4, not by this increment. Composing an
+interface, persisting a status, and reading a profile from an extracted bundle tree
+are deliberately not done here.
+
+**Evidence status.** The stage sequence, the result shape, the status rules, the
+aggregation, the non-mutation, and the intake's bounds are **Observed** from this
+repository's implementation. The mapping from a stage's typed failure to a finding
+severity is this repository's own conservatism. No iOS build, device, or simulator
+was available in the environment where this increment was written, and its suites
+were not executed there, so nothing here is platform evidence.
+
 ## 8. Filesystem, Sandbox, and Document Handling
 
 ZynSign runs inside the application sandbox. It has **no** unrestricted
@@ -1308,6 +1470,13 @@ place where stages are sequenced and composed.
   signing configuration against an authenticated profile, produce a signed
   artifact, verify an artifact, prepare a package for export) in terms of domain
   logic and ports.
+- The integrated provisioning-profile pipeline is orchestrated here and decided
+  nowhere else: `ValidateProvisioningProfileUseCase` runs the container boundary,
+  the parser and structural validator, and the policy evaluation in that order,
+  records an outcome per stage, aggregates each stage's own findings, and assigns
+  one `ProvisioningProfilePipelineStatus` by the rules recorded in Section 7. It
+  owns no validation rule of its own, throws for no validation outcome, mutates no
+  input, and persists no result.
 - Policy validation is orchestrated here and decided in Domain:
   `ValidateProvisioningConfigurationUseCase` assembles a
   `ProvisioningPolicyValidationContext` from a staged verification result,
@@ -1597,7 +1766,9 @@ depend on iOS/iPadOS behaviour are recorded as *Provisional*, *Unresolved*, or
 | 28 | Certificate and signing identity foundation | **Accepted** for this increment — platform-independent `CertificateMetadata`, `CertificateDistinguishedName`, `PublicKeyInfo`, `SignatureAlgorithm`, `CertificateFingerprint`, `CertificateValidity` that distinguishes parsing success from currently valid, `CertificateChain` leaf-first without trust evaluation, `CodeSigningSuitability` with explicit checks and unsuitability reasons, `SigningCapability` narrow protocol that returns signatures without exposing private-key bytes, `SigningIdentity` distinct from certificate with `SigningIdentityIdentifier` and `SigningKeyAvailability`, `IdentityStore` protocol in Application, `CertificateParser` port in Domain with `AppleCertificateParser` in Platform using a bounded DER reader because `SecCertificateCopyValues` is not available on iOS (**Verified**), PKCS#12 treated as separate capability not implemented, trust validation boundary not implemented and represented as `notEvaluated`, raw certificate bytes ownership boundary owned by Platform and not persisted in ordinary storage, no certificate-management UI, no signing engine, no private keys stored in application database (Section 7) |
 
 | 29 | Provisioning-profile CMS verification | **Accepted** for this increment — SignedData is read by ZynSign's own bounded structure reader because `CMSDecoderCreate`, `CMSDecoderCopySignerStatus`, and `CMSSignerStatus` are documented for macOS/Mac Catalyst only and not for iOS (**Verified**); signatures are checked through the `CMSSignatureVerifier` port using `SecCertificateCopyKey` and `SecKeyVerifySignature` with hashing left inside the platform primitive; signed attributes are re-encoded as a `SET OF` and bound to the payload through the message-digest attribute before any signature check; the signer certificate is selected by serial and compared by SHA-256 fingerprint, never by name, label, or bag order; five states stay separate with trust `notPerformed` and authorization `notEvaluated`; payloads are parsed only after verification; identity stores are read-only and never asked for a signing capability; CMS construction, trust evaluation, signing policy, compatibility decisions, persistence, and profile interfaces remain out of scope (Section 7) |
+
 | 30 | Provisioning-profile policy validation | **Accepted** for this increment — read-only policy evaluation over an authenticated profile, application metadata, identity metadata, a requested signing configuration, and platform/device context; nine three-state categories with `compatible`/`incompatible`/`indeterminate` overall; authenticity gates every other category; one identifier rule shared by the bundle-identifier check and the `application-identifier` claim check, with wildcard scope as a component-boundary prefix test and no split without an explicit application-identifier prefix; team identity only from structured organizational-unit evidence; certificate evidence layered on ZS-018 with container-signer, identity-certificate, and key-availability facts kept separate; validity and platform from existing models with an injected clock; device comparison only with a trustworthy identifier and no fabricated value; typed per-key entitlement comparison with allowlist inclusion (**Verified** — TN3125), no coercion, no array-order assumption, explicit `get-task-allow` semantics, and unsupported or indeterminate outcomes instead of defaults; structured aggregation of every meaningful finding; redacted diagnostics; policy logic in Domain with `ValidateProvisioningConfigurationUseCase` orchestration read-only, no persistence, no signing, and no policy interface; trust stays `notPerformed` and authorization stays `notEvaluated`; platform acceptance, entitlement enforcement, and device authorization remain separate and unclaimed (Section 7) |
+| 31 | Provisioning-profile pipeline integration | **Accepted** for this increment — one application-layer use case sequences ZS-017 parsing and structural validation, ZS-018 container verification and certificate relationship, and ZS-019 policy validation into a single staged result, with the security order fixed so that a payload is parsed only after its signature verified and no policy rule is applied to an unauthenticated payload; seven stage outcomes (`passed`/`failed`/`indeterminate`/`notAttempted`) plus aggregated findings that carry each stage's own code vocabulary rather than a fourth one; integrated status `valid`/`invalid`/`indeterminate`/`unsupported` under the stated rules, with `valid` requiring every required stage to pass and policy to be `compatible`, and a signer/profile certificate mismatch kept as ZS-018 evidence rather than promoted into a verdict; absent and unreadable profiles distinguished from malformed and incompatible ones, and never reported as an invalid application; a read-only embedded-profile intake over the existing `ArchiveReader`, `ApplicationBundleDiscovery`, and library-storage boundaries with one bounded entry read and no extraction, no second reader, and no second store; one container verification, one parse, one relationship analysis, and one policy evaluation per request with no caching; no signing engine, no Mach-O or entitlement mutation, no persistence, no trust evaluation, no authorization, and no interface; trust stays `notPerformed` and authorization stays `notEvaluated` (Section 7) |
 
 ## 19. Non-Goals of This Document
 

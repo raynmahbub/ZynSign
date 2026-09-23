@@ -174,6 +174,60 @@ network, and no real signing material, and they assert that no signing capabilit
 is requested on the policy path. Like the rest of the target, they were written
 but not executed in the environment where they were produced.
 
+It also has tests for the integrated provisioning-profile pipeline (ZS-020):
+
+- the successful run, over the committed synthetic CMS containers with the real
+  container boundary, parser, structural validator, relationship analyzer, and
+  policy validator and only the signature mechanism doubled: every stage reported
+  `passed`, no finding at all, the parsed profile's own metadata reachable through
+  the result, the signer fingerprint and correspondence, the evaluation instant
+  from the injected clock, and the presentation summary stating discovery,
+  authentication, parsing, structural validity, validity, correspondence, and
+  policy compatibility separately;
+- the security order: an authenticated but structurally invalid profile stays
+  authenticated and becomes invalid; a rejected signature leaves the payload
+  unparsed, makes the policy stage report its authenticity gate rather than any
+  authorization, and is never a `valid` result; a tampered payload is refused before
+  the signature mechanism is consulted; a missing verification mechanism stays
+  `indeterminate` and never becomes a defect in the user's profile; a container that
+  cannot be decoded at all stops at the container stage with no policy evaluation;
+  an unsupported algorithm is reported `unsupported`, and armored input is
+  unsupported rather than invalid;
+- the certificate boundary: a signer outside the profile's own certificate set
+  leaves the relationship stage reporting its answer while the integrated status
+  stays `indeterminate`, an unrelated signing identity is reported as a policy
+  violation rather than as compatible, an unreadable identity store leaves the
+  identity question open without damaging the profile, and no signing capability is
+  requested on any path;
+- policy propagation: a bundle-identifier mismatch, an unapproved entitlement, an
+  expired profile, and several simultaneous failures each arrive with the code the
+  policy stage used, and a requested value never reaches a finding, a diagnostic, or
+  a summary reason;
+- input states: an absent profile, an unreadable entry, an empty file, and an
+  oversized input are four distinct results with four distinct codes, none of them an
+  "invalid application" catch-all, and an absent or unreadable profile never
+  reaches the policy stage;
+- orchestration guarantees: one container verification and one identity lookup of
+  each kind per request, two runs with the same request and clock equal, no
+  mutation of the profile bytes, the entitlement tree, the application metadata, or
+  the identity listing, and a diagnostic rendering that carries stages, outcomes,
+  codes, and fingerprints but no identifier, value, or byte;
+- the embedded-profile intake: the profile entry read exactly once with the reader
+  closed, no content request at all when the bundle records no such entry, links
+  and directories at that location refused, an entry too large for the read bound
+  reported as unreadable rather than truncated, a missing or inconsistent artifact
+  refused before the container is opened, a container that cannot be opened or
+  enumerated reported as unusable input, a package with two application bundles not
+  resolved by choosing one, and the bytes read back from a bundle driven through the
+  whole pipeline.
+
+These suites use the repository's synthetic fixtures only; they touch no device
+authorization API, no keychain, no network, no real provisioning profile, and no
+signing material. A `.verified` status in them means "the composed double accepted
+the signature", never "the platform accepts this profile". Like the rest of the
+target, they were written but not executed in the environment where they were
+produced.
+
 It also has tests for the package import workflow:
 
 - the import use case: a successful import returns an examined artifact with
