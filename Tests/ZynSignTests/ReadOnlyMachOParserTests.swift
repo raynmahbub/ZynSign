@@ -520,7 +520,7 @@ final class ReadOnlyMachOParserTests: XCTestCase {
         assertFailure(hashOffset, .invalidOffset, .hashSlots)
         var slots = withDirectory()
         MachOFixtures.put(UInt64(UInt32.max), at: directoryStart + 28, in: &slots)
-        assertFailure(slots, .invalidLength, .hashSlots)
+        assertFailure(slots, .resourceLimitExceeded, .hashSlots)
         var special = withDirectory()
         MachOFixtures.put(UInt64(UInt32.max), at: directoryStart + 24, in: &special)
         assertFailure(special, .resourceLimitExceeded, .hashSlots)

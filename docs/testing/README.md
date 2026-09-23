@@ -492,6 +492,14 @@ These bytes contain no real executable, digest, certificate, or signature. They
 are format fixtures only. The Mach-O tests require the Xcode unit-test runner;
 syntax-only checks on another platform are not executed XCTest results.
 
+The ZS-023 construction suite independently checks SHA-256, truncated
+SHA-256, and SHA-384 page vectors; empty, complete, boundary, partial, and
+bounded code regions; unsupported configurations; explicit special-slot
+ordering; deterministic big-endian serialization; parser comparison of
+value-owned hash bytes; malformed serialized input; and checked-writer length
+handling. These tests are also XCTest cases and require the Xcode unit-test
+runner.
+
 The tests are written to run inside the unit-test target with Xcode's test
 runner (Product ▸ Test, or `xcodebuild test` against the shared `ZynSign`
 scheme). **They have not been executed yet.** The checks that have actually been

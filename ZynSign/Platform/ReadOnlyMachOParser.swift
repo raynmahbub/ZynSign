@@ -13,6 +13,7 @@ struct ReadOnlyMachOParser: MachOParsing {
     static let maximumLoadCommandBytes = 1_024 * 1_024
     static let maximumSignatureEntries = 128
     static let maximumSpecialSlots = 64
+    static let maximumCodeSlots = 65_536
     static let maximumScatterRecords = 4_096
     static let maximumIdentifierBytes = 4_096
 
@@ -385,7 +386,8 @@ struct ReadOnlyMachOParser: MachOParsing {
               pageSize <= 30 else {
             throw MachOParsingError(.malformedCodeDirectory, at: .hashSlots)
         }
-        guard specialCount <= maximumSpecialSlots else {
+        guard specialCount <= maximumSpecialSlots,
+              codeCount <= maximumCodeSlots else {
             throw MachOParsingError(.resourceLimitExceeded, at: .hashSlots)
         }
         guard hashOffset >= fixedSize, hashOffset <= blob.count else {
@@ -533,22 +535,29 @@ struct ReadOnlyMachOParser: MachOParsing {
             for number in 1...specialCount {
                 let position = hashOffset - number * hashSize
                 let slot = try blob.view(at: position, length: hashSize, boundary: .hashSlots)
+                let hash = try blob.data(at: position, length: hashSize, boundary: .hashSlots)
                 var nonzero = false
                 for byte in 0..<hashSize {
                     if try slot.uint8(at: byte, boundary: .hashSlots) != 0 { nonzero = true; break }
                 }
                 specialSlots.append(MachOSpecialHashSlot(
                     slotNumber: -number, kind: MachOSpecialHashKind(slotNumber: number),
-                    hashRange: slot.fileRange, hasNonzeroBytes: nonzero
+                    hashRange: slot.fileRange, hash: hash, hasNonzeroBytes: nonzero
                 ))
             }
+        }
+        var codeHashValues: [Data] = []
+        codeHashValues.reserveCapacity(codeCount)
+        for index in 0..<codeCount {
+            let position = hashOffset + index * hashSize
+            codeHashValues.append(try blob.data(at: position, length: hashSize, boundary: .hashSlots))
         }
         return MachOCodeDirectory(
             version: version, flags: flags, identifier: identifier, teamIdentifier: team,
             hashOffset: hashOffset, hashType: hashType, hashSize: hashSize, platform: platform,
             pageSizeExponent: pageSize, codeSlotCount: codeCount, specialSlotCount: specialCount,
             codeLimit: codeLimit, codeLimit64: extendedLimit, codeHashesRange: codeHashes,
-            specialSlots: specialSlots, scatter: scatter, executableSegment: segment,
+            codeHashes: codeHashValues, specialSlots: specialSlots, scatter: scatter, executableSegment: segment,
             runtime: runtime, preEncryptHashesRange: preEncryptHashes, linkage: linkage
         )
     }

@@ -1,3 +1,5 @@
+import Foundation
+
 /// A structural view of a Mach-O file. Offsets and ranges in this model are
 /// absolute byte positions in the supplied input unless named `relativeOffset`.
 /// No field is evidence that a signature verifies or that the code can run.
@@ -246,6 +248,7 @@ struct MachOSpecialHashSlot: Equatable {
     let slotNumber: Int
     let kind: MachOSpecialHashKind
     let hashRange: Range<Int>
+    let hash: Data
     let hasNonzeroBytes: Bool
 }
 
@@ -294,6 +297,10 @@ struct MachOCodeDirectory: Equatable {
     let codeLimit: UInt32
     let codeLimit64: UInt64?
     let codeHashesRange: Range<Int>
+    /// Value-owned code-slot bytes, in non-negative slot order. The parser
+    /// still makes no claim that these bytes are the correct hashes for an
+    /// executable; it only preserves the declared values.
+    let codeHashes: [Data]
     let specialSlots: [MachOSpecialHashSlot]
     let scatter: MachOScatterTable?
     let executableSegment: MachOExecutableSegment?

@@ -64,6 +64,23 @@ struct BoundedBinaryReader {
         return bytes[span.lowerBound]
     }
 
+    /// Copies a previously checked range into a value-owned Data buffer.
+    /// The reader never exposes its input pointer beyond the read operation.
+    func data(
+        at offset: Int,
+        length: Int,
+        boundary: MachOParsingError.Boundary,
+        ifTooLong: MachOParsingError.Reason = .truncatedInput
+    ) throws -> Data {
+        let span = try checkedRange(at: offset, length: length, boundary: boundary, ifTooLong: ifTooLong)
+        var result = Data()
+        result.reserveCapacity(length)
+        for index in span {
+            result.append(bytes[index])
+        }
+        return result
+    }
+
     func uint16(at offset: Int, order: MachOByteOrder, boundary: MachOParsingError.Boundary) throws -> UInt16 {
         UInt16(try unsigned(at: offset, width: 2, order: order, boundary: boundary))
     }
