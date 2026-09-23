@@ -198,6 +198,21 @@ primitives behind a narrow port, with no CMS API and no third-party ASN.1 or
 crypto dependency. Constructing SignedData — which the Mach-O signature slot
 needs — is still unbuilt and still the higher-risk half of this finding.
 
+**Observed — ZS-021 built the generic half of the primitive layer on these
+documented primitives.** The generic cryptographic foundation consumes no
+platform API that this section does not already record as verified: digests go
+through CryptoKit's hashing primitives, and signing and verification go
+through the `SecKey` primitives behind the `CryptographicSigningEngine` and
+`CryptographicSignatureVerifier` ports. No new API dependency was introduced
+and no CMS, codesign, or format-assembly API appears. What this does not yet
+establish: that the on-device behaviour of these primitives matches the
+documented availability — that is still experiment E1 for the signing
+direction (protected-key signature production and verification through the
+Keychain adapter) and E4 for the verification direction's platform-status
+mapping. The pure engine, request, result, digest, and failure-model tests do
+not require a device; the iOS-gated signature-mathematics tests are the device
+evidence when they run.
+
 ### 4.2 Key import, storage, and non-exportable use
 
 - `SecPKCS12Import` is available on iOS and returns `SecIdentity` items into
@@ -832,6 +847,16 @@ Development identity on a test device) — never third-party or production
 material, per `SECURITY.md`.
 
 ### E1 — Key import and signature production with a controlled key
+- **Status:** the `.p12` import half is not implemented (PKCS#12 remains a
+  separate capability, deliberately deferred), so that objective is fully
+  open. The signature-production half has a test surface on both sides of the
+  device boundary: the opt-in Keychain identity integration suite (ZS-016,
+  run only when `ZYNSIGN_RUN_KEYCHAIN_TESTS=1` in a signed iOS test host)
+  exercises key residence, capability resolution, and RSA and EC signature
+  production plus verification, and the ZS-021 pure engine tests cover the
+  engine, request, result, and failure-model behaviour without a device.
+  Neither has produced device evidence in this environment; nothing here is a
+  device result.
 - **Objective:** prove a `.p12` import, Keychain residence, and RSA PKCS#1
   v1.5 SHA-256 digest signature can complete on iOS.
 - **Environment:** iOS app test harness; deployment-target device; macOS to
@@ -903,7 +928,12 @@ material, per `SECURITY.md`.
   still needs a device is narrower: that `SecCertificateCopyKey` yields a key
   whose algorithm support matches the certificate's own key fields, and that
   `SecKeyVerifySignature` accepts the re-encoded `SET OF` attribute bytes for
-  both RSA and ECDSA signers. That confirmation is recorded under E3.
+  both RSA and ECDSA signers. That confirmation is recorded under E3. The
+  ZS-021 generic signature verifier uses the same documented primitives
+  (`SecCertificateCopyKey`, `SecKeyIsAlgorithmSupported`,
+  `SecKeyVerifySignature`) over plain messages and digests, so its on-device
+  behaviour rides the same confirmation; its iOS-gated tests check real
+  RSA and ECDSA fixture signatures once they run on a device or simulator.
 - **Objective:** construct a CMS SignedData object over controlled content and
   have independent tooling accept it.
 - **Environment:** iOS harness builds; macOS `security`/OpenSSL verify.

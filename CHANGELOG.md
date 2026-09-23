@@ -6,6 +6,71 @@ All notable changes to ZynSign will be documented here.
 
 ### Added
 
+- Generic cryptographic signing and verification foundation (ZS-021): the
+  reusable primitives the signing stage builds on — hashing, cryptographic
+  signing, signature verification, signing-key capability use, certificate and
+  identity metadata references, algorithm compatibility, signing requests,
+  signing results, and structured crypto failures. Nothing in this increment
+  is Apple code signing: no Mach-O, CodeDirectory, SuperBlob, page hashing,
+  CMS construction, nested signing, `CodeResources`, IPA repackaging,
+  installation, profile generation, `.p12` import, or signing UI, and a
+  successful operation means only that the generic cryptographic operation
+  completed — never code-signing validity, trust, or installability.
+- A digest value with its algorithm stated (`Digest`) and a digest boundary
+  (`MessageDigest`, implemented by `CryptoKitMessageDigest` over CryptoKit's
+  SHA-1/256/384/512 primitives): the bytes are the digest, hex is a rendering
+  only, wrong-length bytes are not a digest of the algorithm, and the domain
+  never performs hashing itself.
+- A focused signing request (`SigningRequest`): identity reference, operation
+  (`SigningAlgorithm` with its key family, digest algorithm, and
+  message-versus-digest semantics explicit), and data stated explicitly as a
+  message or a pre-computed digest — no key material, no password, no
+  locator, no path, and no knowledge of Mach-O, bundles, profiles, or
+  interfaces. An incoherent request (message where a digest is required, a
+  digest of an algorithm the operation does not work on) is a structured
+  failure, never a substitution.
+- A pure signing engine (`CapabilitySigningEngine` behind the
+  `CryptographicSigningEngine` port) that signs only through the ZS-016
+  `SigningCapability`: it checks the request's coherence, the key family, the
+  capability's availability, and the operation's support in that order, asks
+  for exactly one signature, and returns a structured `SigningResult` —
+  signature bytes, the algorithms used, the identity reference, the key
+  family, the certificate fingerprint when the caller supplies it, and the
+  signed digest when the request carried one. The private key never crosses
+  the boundary, and no algorithm is substituted or downgraded.
+- A verification boundary (`CryptographicSignatureVerifier`) whose outcome is
+  a value, not an exception: `valid`, `invalid`, `unsupported(reason)`, and
+  `failed(reason)` are four distinct facts, and a signature that does not
+  verify is a normal outcome. The iOS implementation checks with
+  `SecKeyVerifySignature` under the requested operation, reads the public key
+  from the presented certificate, keeps hashing inside the platform
+  primitive, and reports a cross-family certificate as
+  `.unsupported(.incompatibleKey)`; the fallback on other targets reports
+  verification as unavailable rather than skipping it.
+- A structured crypto failure vocabulary (`CryptoFailure` with its own
+  reasons and categories on `ZynSignError`, plus the use-case's sanitization):
+  fixed safe user messages, redacted diagnostics, and identity-boundary
+  reasons keeping their own vocabulary when they cross a capability.
+- A small application-layer use case (`CryptographicSigningUseCase`) that
+  validates the request, resolves the capability through the existing
+  `IdentityStore` boundary, invokes the engine, and attaches the certificate
+  reference best-effort. It is not installed in the application environment:
+  the identity store is not composed into the app until its device
+  validation completes, and no interface consumes a signature result yet.
+- Deterministic suites for the digest (known vectors, empty and binary input,
+  determinism, value semantics), the request, the engine (incompatible key
+  and algorithm combinations, unsupported operations, capability state,
+  failure sanitization, malformed output), the use case (boundary
+  interactions, best-effort reference attachment, port substitution), the
+  verification outcome model, the error domain (categories, message
+  uniqueness, redacted detail), and the security boundary (no key material by
+  construction, redacted diagnostics) — plus an iOS-gated suite that checks
+  the committed synthetic RSA and ECDSA fixture signatures, a tampered
+  signature, changed bytes, the wrong certificate, and incompatible and
+  unusable inputs through the platform key primitives. Like the rest of the
+  target, they were written but not executed in the environment where they
+  were written; no device, simulator, or Keychain result is claimed.
+
 - Provisioning-profile pipeline integration (ZS-020): one application-layer use
   case that takes a provisioning profile and an application, signing-identity, and
   configuration context and returns one staged result, sequencing the existing

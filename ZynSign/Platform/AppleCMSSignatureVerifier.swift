@@ -152,7 +152,9 @@ enum CMSSecurityErrorMapping {
         }
     }
 
-    private static func status(of error: CFError?) -> OSStatus? {
+    /// The platform status code a verification failure carries, when the
+    /// failure is a status-bearing platform error.
+    static func status(of error: CFError?) -> OSStatus? {
         guard let error else { return nil }
         guard CFErrorGetDomain(error) as String == NSOSStatusErrorDomain else { return nil }
         return OSStatus(exactly: CFErrorGetCode(error))

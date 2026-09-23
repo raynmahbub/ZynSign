@@ -76,6 +76,18 @@ hands its bytes to the pipeline. The integration performs no trust evaluation, n
 authorization, no signing, no persistence, and adds no profile-management,
 entitlement, or installation interface; the bundle explorer still reads no entry
 content, and nothing here is wired into the interface.
+The signing-cryptographic-foundation increment then adds the generic
+cryptographic primitives the signing stage will build on: a digest value and
+digest boundary over CryptoKit's hashing primitives, a focused signing request
+with explicit message-or-digest semantics, a pure signing engine that signs
+through the ZS-016 capability, a structured signing result, a verification
+boundary whose outcome distinguishes verified, does-not-verify,
+not-performable, and no-conclusion, and a structured crypto failure
+vocabulary. It is reachable from the application layer only, through a
+use case that is not installed in the application environment, and a
+successful operation means only that the generic cryptographic operation
+completed — nothing about Apple code signing, trust, or installability
+(Section 7, Cryptographic Signing and Verification Foundation).
 The inspection stage is therefore a partial capability: it reads containers,
 classifies layout, reads one bundle's declared metadata, describes a bundle's
 structure, and can separately inspect a caller-supplied decoded profile payload.
@@ -86,9 +98,9 @@ verification reports signature authenticity separately from trust and
 authorization and is reachable from the application layer only, not from any
 interface, and the integrated provisioning-profile pipeline — whose `valid` status
 means only that every stage ZynSign implements reached its positive outcome — is
-likewise reachable from the application layer only; an experimental signature
-primitive exists, but no application-signing, verification, packaging, or
-installation workflow exists.
+likewise reachable from the application layer only; generic cryptographic
+signing and verification primitives exist, but no application-signing,
+verification, packaging, or installation workflow exists.
 
 Nothing else in this document is a claim that any behaviour works. Every
 feasibility boundary in Section 6 remains open except where noted here, and the
@@ -1126,6 +1138,170 @@ severity is this repository's own conservatism. No iOS build, device, or simulat
 was available in the environment where this increment was written, and its suites
 were not executed there, so nothing here is platform evidence.
 
+### Cryptographic Signing and Verification Foundation
+
+**Accepted for ZS-021 — a generic cryptographic foundation, not a
+code-signing engine.** This increment establishes the reusable primitives the
+signing stage's construction work will consume: hashing, cryptographic
+signing, signature verification, signing-key capability use, certificate and
+identity metadata references, algorithm compatibility, signing requests,
+signing results, and structured crypto failures. It is explicitly not Apple
+code signing: nothing here reads, locates, or modifies a Mach-O binary,
+constructs a CodeDirectory or a SuperBlob, assembles a signature slot, signs a
+bundle, generates `CodeResources` or an `IPA` package, installs anything, or
+generates a provisioning profile. A success reported by any of these
+primitives means one thing only — the requested generic cryptographic
+operation completed — and the types are shaped so that no field can collapse
+that into a statement about code-signing validity, trust, or installability.
+The signing and installation stages of Section 5 remain documentation of
+intended structure.
+
+**Accepted — the algorithm model keeps its parts distinct.**
+`PublicKeyAlgorithm` (RSA, EC, unknown), `DigestAlgorithm` (SHA-1, SHA-256,
+SHA-384, SHA-512), and `SigningAlgorithm` are three different axes, and
+`SigningAlgorithm` is the single value that binds them with the operation's
+input semantics: each case states its key family, the digest it works on
+(`digestAlgorithm`, SHA-256 for every current operation), its input semantics
+(message versus pre-computed digest, through `digestLength`), and its
+signature encoding (PKCS#1 v1.5 or DER X9.62). An operation is performed
+under exactly the value that was requested: an unsupported combination, a
+digest of a different algorithm, or a message presented to a digest operation
+is a structured `CryptoFailure`, never a substitution or a downgrade, and
+SHA-1 is never selected for signing even though it is computable as a digest.
+
+**Accepted — the digest primitive is a value with a stated algorithm.**
+`Digest` carries the algorithm and the exact digest bytes; its initializer
+returns `nil` for bytes of any other length, so a value that is not a digest
+of its algorithm cannot be constructed. `hexString` is a rendering of the
+bytes for diagnostics and identifiers, never a substitute. `MessageDigest` is
+declared in Domain, and its implementation is `CryptoKitMessageDigest` in
+Platform: CryptoKit's SHA-256/SHA-384/SHA-512 are documented for iOS 13 and
+`Insecure.SHA1` for iOS 13 as well (**Verified** — Apple CryptoKit
+documentation), both under the iOS 17 deployment target, so no third-party
+hashing library is introduced. The digest operation's one-shot API hashes the
+data the caller already holds; streaming hashing is deliberately deferred to
+the stage that will need page- and resource-scale inputs, rather than added
+before it is measured. SHA-1 exists in the vocabulary because legacy
+code-signing formats use it; nothing in this increment claims it is an
+acceptable signing digest.
+
+**Accepted — the signing request is focused and carries no key material.**
+`SigningRequest` names exactly four things: the identity whose capability
+performs the operation (`SigningIdentityIdentifier`), the operation
+(`SigningAlgorithm`), the data with its semantics explicit
+(`SigningInput.message(Data)` or `SigningInput.digest(Digest)`), and optional
+diagnostic context (`SigningOperationContext`, a bounded label of at most 128
+characters without line breaks). It carries no private key, no password, no
+key reference or locator, no filesystem path, and no knowledge of Mach-O,
+bundles, profiles, or interfaces, so it stays reusable by the later
+code-signing construction. `validate()` states the rules: a message operation
+takes a message, a digest operation takes a digest, and a digest must be one
+the operation works on. The engine re-checks these before any capability is
+consulted.
+
+**Accepted — signing happens through the existing capability boundary.**
+`CapabilitySigningEngine` (behind the `CryptographicSigningEngine` port in
+Domain) is pure: it validates the request, checks that the capability's key
+family matches the operation, that the capability is available, and that the
+operation is one the capability supports — in that order, with each failure a
+distinct `CryptoFailure` — and then asks the capability for exactly one
+signature. The private key never crosses this boundary: the engine holds no
+key, no key reference, and no key bytes; only the data and the explicit
+operation go across, and only signature bytes come back. A structured
+failure the capability reports keeps the identity boundary's own
+`SigningIdentityFailure` reason, because key-state facts belong to that
+boundary; a foreign, unstructured failure is reduced to `signingFailure` and
+its text is never retained. An empty signature is `malformedSignature`. The
+engine's result deliberately carries no certificate fingerprint: the
+capability exposes no certificate, so the application layer attaches that
+reference.
+
+**Accepted — the signing result is structured and redacted by construction.**
+`SigningResult` is an all-`let` value with an explicit memberwise
+initialization: signature bytes, the operation used, its digest algorithm,
+the identity reference, the key family the capability reported, the
+certificate fingerprint when the caller can supply one, the signed digest
+when the request carried one, and the operation context. Its diagnostic
+rendering carries the operation's facts and byte counts — never the
+signature bytes, never the signed data, never any key or credential.
+
+**Accepted — verification is a separate boundary with explicit outcomes.**
+`CryptographicSignatureVerifier` is the verification counterpart of
+`SigningCapability`: it takes only public material — a signature, the bytes
+the signature claims to cover (explicitly a message or a digest), the
+selected operation, and a certificate — and returns a
+`SignatureVerificationOutcome`. The four outcomes are deliberately four
+different facts: `valid` (the signature was produced by the private key
+matching the certificate's public key), `invalid` (it does not verify),
+`unsupported(reason)` (this build cannot perform the operation), and
+`failed(reason)` (no conclusion was reached). A non-verifying signature is a
+normal outcome, not an exception, so a caller can distinguish "does not
+verify" from "could not be checked". The port never touches a private key and
+never requests a signing capability, so a signing-side bug cannot silently
+validate itself (Section 5). `AppleSignatureVerifier` in Platform checks with
+`SecKeyVerifySignature` (**Verified** — documented iOS 10.0+) under the
+operation `SigningAlgorithm` selects, reading the public key from the
+presented certificate with `SecCertificateCreateWithData` (iOS 2.0+) and
+`SecCertificateCopyKey` (iOS 12.0+), both **Verified** from Apple Security
+documentation. Hashing stays inside the platform primitive: a message is
+handed over whole under a message-based operation, and a digest as-is under a
+digest-based one. The outcome mapping reuses the CMS boundary's
+mismatch/status detection, so a plain mismatch is `.invalid`, a platform that
+cannot perform the check is `.unsupported` or `.failed(.platformLimitation)`,
+and a certificate whose own key family does not match the operation is
+`.unsupported(.incompatibleKey)` before any platform primitive is consulted.
+`UnavailableCryptographicSignatureVerifier` is the honest fallback on
+non-iOS targets: every verification is reported unavailable, never skipped.
+A `.valid` outcome establishes only the cryptographic fact named above — not
+that the certificate is trusted, Apple-issued, in a chain, or that anything
+is code signed.
+
+**Accepted — the identity boundary is unchanged and still owns the key.**
+Signing reaches the private key only through the ZS-016 `IdentityStore` →
+`SigningCapability` path: `CryptographicSigningUseCase` validates the
+request, resolves the capability through the store, invokes the engine, and
+attaches the certificate reference best-effort — an identity the store can
+no longer describe does not fail an already-produced signature, it simply
+goes without the reference. The private key remains inside the store's
+platform mechanism on every path; no operation here requests, receives, or
+records key bytes, and a removed registration still never deletes a borrowed
+key. This use case is not installed in the application environment: the
+identity store is not composed into the app until its device validation
+completes, and no interface consumes a signature result yet.
+
+**Accepted — the failure vocabulary is its own.** `CryptoFailure` describes
+what the cryptographic boundary decides: `unsupportedAlgorithm`,
+`incompatibleKey`, `invalidInput`, `malformedSignature`,
+`certificateUnavailable`, `signingFailure`, `verificationFailure`,
+`capabilityUnavailable`, `platformLimitation`, and `unexpectedFailure`,
+mapped onto the existing `DiagnosticCategory` values. `ZynSignError` carries
+the reason alongside the identity, profile, and CMS vocabularies, and a
+failure the identity boundary decided keeps its own reason when it crosses a
+capability rather than being restated in this vocabulary. User messages are
+fixed per reason and free of detail; diagnostic detail stays redacted;
+foreign error text is never retained (Section 17).
+
+**Out of scope, stated.** Mach-O parsing or mutation, CodeDirectory,
+SuperBlob, and signature-slot construction, page hashing, CMS construction,
+nested signing, `_CodeSignature` and `CodeResources`, IPA repackaging,
+installation, provisioning-profile generation, `.p12` import, Secure Enclave
+implementation, `codesign` or any shell or subprocess, private APIs, a fake
+signing UI, and third-party crypto libraries without a demonstrated need are
+all excluded from this increment, and none of them may be inferred from it.
+
+**Evidence status.** The algorithm model, the request/result/verification
+shapes, the engine's check order, the outcome model, the failure vocabulary,
+and the redaction rules are **Observed** from this repository's
+implementation. API availability for `SecKeyVerifySignature`,
+`SecCertificateCreateWithData`, `SecCertificateCopyKey`, and the CryptoKit
+hashing primitives is **Verified** from Apple documentation. On-device
+behaviour of the signing and verification primitives — protected-key
+signing through the Keychain adapter, `SecKeyVerifySignature` over the
+fixture signatures, and per-use authorization — remains **Requires
+experiment** (E1 and E4), and the test suites that would establish it were
+not executed in the environment where this increment was written; no
+device, simulator, or Keychain result is claimed here.
+
 ## 8. Filesystem, Sandbox, and Document Handling
 
 ZynSign runs inside the application sandbox. It has **no** unrestricted
@@ -1395,6 +1571,12 @@ and testable without a device, a simulator, a keychain, or a network. This is
   `ProvisioningPolicyCategory`, `ProvisioningPolicyStatus`,
   `ProvisioningPolicyOutcome`, `ProvisioningPolicyFinding`, and
   `ProvisioningPolicyFindingCode`
+- the cryptographic signing and verification vocabulary: `Digest` and the
+  `MessageDigest` port, `SigningInput`, `SigningOperationContext`,
+  `SigningRequest`, `SigningResult`, the `CryptographicSigningEngine` port
+  and `CapabilitySigningEngine`, `SignatureVerificationOutcome`, the
+  `CryptographicSignatureVerifier` port and
+  `UnavailableCryptographicSignatureVerifier`, and `CryptoFailure`
 - `PackagingPolicy`
 - `ValidationResult`, `VerificationResult`, `Diagnostics`
 - domain errors and their categories
@@ -1429,13 +1611,16 @@ carried forward from Section 6.
 | `ArchiveReader` | Untrusted container input, behind which parsing, limits, and content access live | Domain | Yes — substitutable with synthetic fixtures | Implementation is platform-dependent | **Reading implemented** for ZIP containers (Section 9) and reused, entry table only, by bundle inspection; extraction remains Unresolved |
 | `PlistDecoder` | Parsing of untrusted structured data with typed diagnostics | Domain | Yes | No — not platform-specific in principle | Examined during the metadata increment: the platform property-list API is total and deterministic, so parsing lives inside the metadata reader in Domain, tested through its bytes. A separate port is introduced only if parsing becomes platform-bound or needs substitution |
 | `CertificateParser` | Parsing of untrusted X.509 certificate data, with typed diagnostics, without trust evaluation | Domain | Yes — substitutable with synthetic DER fixtures | The reader is not Security-framework-specific. `SecCertificateCopyValues` is not available on iOS (**Verified**) | **Implemented** for metadata extraction by a bounded DER reader (Section 7); trust evaluation remains Requires feasibility research |
-| `SigningCapability` | The single narrow abstraction where signing happens, returning signature bytes only, without exposing private-key material | Domain | Yes — stub capability keeps orchestration testable | Yes — key access is platform-bound, non-exportable keys expected | **Implemented** as protocol (Section 7); concrete Keychain implementation Requires feasibility research (items 2, 16) |
+| `SigningCapability` | The single narrow abstraction where signing happens, returning signature bytes only, without exposing private-key material | Domain | Yes — stub capability keeps orchestration testable | Yes — key access is platform-bound, non-exportable keys expected | **Implemented** as protocol (Section 7); concrete Keychain implementation Requires feasibility research (items 2, 16); consumed by the ZS-021 generic signing engine as well as the future code-signing engine |
 | `ProvisioningProfilePayloadDecoder` | CMS/container boundary that supplies decoded profile payload bytes without making metadata trusted | Domain | Yes — synthetic payload decoder | CMS handling is platform-constrained; no complete iOS CMS API is assumed | **Implemented and backed by a real verifier**: `CMSProvisioningProfilePayloadDecoder` supplies authenticated payloads from the CMS boundary, fails closed on rejected containers, and marks unevaluated ones `.notEvaluated` (Section 7) |
 | `CMSVerifier` | Verification of one untrusted CMS container, returning staged evidence instead of a validity flag | Domain | Yes — substitutable with a stub verifier and synthetic containers | No platform object crosses it; the implementation is platform-bound | **Implemented** for SignedData by ZynSign's own bounded reader, because no CMS decoder exists on iOS (**Verified**); trust evaluation is not part of this port (Section 7) |
 | `CMSSignatureVerifier` | The single narrow seam where one signature is checked against one certificate's public key | Domain | Yes — recording double keeps orchestration testable without a device | Yes — the concrete implementation uses Security key primitives and is compiled for iOS only | **Implemented** for RSA PKCS#1 v1.5 and ECDSA X9.62 over SHA-256 messages; unsupported combinations and missing mechanisms are reported, never skipped; on-device behaviour Requires experiment E4 |
+| `MessageDigest` | Digest computation over arbitrary byte input, with the algorithm stated on the result | Domain | Yes — the platform mechanism is substituted in pure tests | No — CryptoKit's hashing primitives are documented for the deployment target, and the implementation is platform-bound to Apple's primitives | **Implemented** by `CryptoKitMessageDigest` (SHA-1, SHA-256, SHA-384, SHA-512); a digest is a value with its exact bytes, hex is presentation only (Section 7) |
+| `CryptographicSigningEngine` | The single place where a generic cryptographic signature is produced from a validated request through a capability | Domain | Yes — a recording capability keeps the engine testable without a key | No — the engine is pure; the key access it reaches is the ZS-016 capability's | **Implemented** as the pure `CapabilitySigningEngine`; signs only through `SigningCapability`, never holds key material, and substitutes no algorithm (Section 7) |
+| `CryptographicSignatureVerifier` | The single narrow seam where one generic signature is checked against one certificate's public key, returning an explicit outcome value | Domain | Yes — recording double keeps callers testable without a device | Yes — the concrete implementation uses Security key primitives and is compiled for iOS only; the fallback reports unavailable rather than skipping | **Implemented** for RSA PKCS#1 v1.5 and ECDSA X9.62 over SHA-256, message and digest inputs, with valid/invalid/unsupported/failed kept separate; on-device behaviour Requires experiment E4 (Section 7) |
 | `ProvisioningProfileParser` | Interpretation of decoded provisioning-profile metadata as typed domain values | Domain | Yes — synthetic plist payloads | Property-list parsing is not platform-specific in principle | **Implemented** for the property-list payload; trust and authorization remain separate |
 | `IdentityStore` | Resolution and presentation of available signing identities and their status, plus access to signing capability | Application | Yes — in-memory in tests | Yes — key access is platform-bound | **Protocol implemented** for this increment (Section 7); concrete Keychain store Requires feasibility research (items 2, 16); PKCS#12 import is separate capability |
-| `SigningEngine` | The single place where code-signing blob assembly happens, and the only consumer of signing capability | Domain | Yes — a stub engine keeps orchestration testable | Yes | Requires feasibility research (items 1–7, 9, 10) |
+| `SigningEngine` | The single place where code-signing blob assembly happens. Consumes signing capability alongside the ZS-021 generic cryptographic signing engine, which serves the signing stage's generic operations | Domain | Yes — a stub engine keeps orchestration testable | Yes | Requires feasibility research (items 1–7, 9, 10) |
 | `SignatureVerifier` | Independent evaluation of an artifact, with no access to signing state | Domain | Yes | Yes — no system verifier may be assumed | Requires feasibility research (item 11) |
 | `TemporaryStorage` | Controlled working space with lifetime, cleanup, and cancellation semantics | Application | Yes — in-memory or directory-backed | Partly — directories and lifecycle are platform-bound | Accepted as a boundary; mechanism Unresolved |
 | `ApplicationRecordStore` | Persistence of non-sensitive library records: insert, update, fetch by identifier, list, delete | Application | Yes — in-memory in tests | No | **Implemented** as a versioned catalog file (Section 15) |
@@ -1718,10 +1903,13 @@ Rules, **Accepted**:
   not carried into signing.
 - A boundary's failure vocabulary stays its own. `CMSFailure` describes container
   and signature outcomes, `ProvisioningProfileFailure` describes profile metadata
-  outcomes, and `SigningIdentityFailure` describes identity outcomes; a payload
-  that is not a property list is a profile failure even though CMS verification
-  succeeded, and a container that cannot be decoded never reaches the profile
-  vocabulary.
+  outcomes, `SigningIdentityFailure` describes identity outcomes, and
+  `CryptoFailure` describes generic cryptographic signing and verification
+  outcomes; a payload that is not a property list is a profile failure even
+  though CMS verification succeeded, a container that cannot be decoded never
+  reaches the profile vocabulary, and a protected-key failure the identity
+  boundary decided keeps its own reason when it crosses a signing capability
+  rather than being restated in the crypto vocabulary.
 - Evidence and errors are separated deliberately. Structural refusals throw;
   a container that decoded and did not verify is returned as evidence, because
   "this signature does not verify", "no conclusion was reached", and "this
@@ -1769,6 +1957,7 @@ depend on iOS/iPadOS behaviour are recorded as *Provisional*, *Unresolved*, or
 
 | 30 | Provisioning-profile policy validation | **Accepted** for this increment — read-only policy evaluation over an authenticated profile, application metadata, identity metadata, a requested signing configuration, and platform/device context; nine three-state categories with `compatible`/`incompatible`/`indeterminate` overall; authenticity gates every other category; one identifier rule shared by the bundle-identifier check and the `application-identifier` claim check, with wildcard scope as a component-boundary prefix test and no split without an explicit application-identifier prefix; team identity only from structured organizational-unit evidence; certificate evidence layered on ZS-018 with container-signer, identity-certificate, and key-availability facts kept separate; validity and platform from existing models with an injected clock; device comparison only with a trustworthy identifier and no fabricated value; typed per-key entitlement comparison with allowlist inclusion (**Verified** — TN3125), no coercion, no array-order assumption, explicit `get-task-allow` semantics, and unsupported or indeterminate outcomes instead of defaults; structured aggregation of every meaningful finding; redacted diagnostics; policy logic in Domain with `ValidateProvisioningConfigurationUseCase` orchestration read-only, no persistence, no signing, and no policy interface; trust stays `notPerformed` and authorization stays `notEvaluated`; platform acceptance, entitlement enforcement, and device authorization remain separate and unclaimed (Section 7) |
 | 31 | Provisioning-profile pipeline integration | **Accepted** for this increment — one application-layer use case sequences ZS-017 parsing and structural validation, ZS-018 container verification and certificate relationship, and ZS-019 policy validation into a single staged result, with the security order fixed so that a payload is parsed only after its signature verified and no policy rule is applied to an unauthenticated payload; seven stage outcomes (`passed`/`failed`/`indeterminate`/`notAttempted`) plus aggregated findings that carry each stage's own code vocabulary rather than a fourth one; integrated status `valid`/`invalid`/`indeterminate`/`unsupported` under the stated rules, with `valid` requiring every required stage to pass and policy to be `compatible`, and a signer/profile certificate mismatch kept as ZS-018 evidence rather than promoted into a verdict; absent and unreadable profiles distinguished from malformed and incompatible ones, and never reported as an invalid application; a read-only embedded-profile intake over the existing `ArchiveReader`, `ApplicationBundleDiscovery`, and library-storage boundaries with one bounded entry read and no extraction, no second reader, and no second store; one container verification, one parse, one relationship analysis, and one policy evaluation per request with no caching; no signing engine, no Mach-O or entitlement mutation, no persistence, no trust evaluation, no authorization, and no interface; trust stays `notPerformed` and authorization stays `notEvaluated` (Section 7) |
+| 32 | Generic cryptographic signing and verification foundation | **Accepted** for this increment — a focused signing request with explicit message-or-digest semantics and no key material, a pure signing engine that signs only through the ZS-016 capability and substitutes no algorithm, a structured all-let signing result whose diagnostics carry facts and counts but never signature bytes or signed data, a digest value with its algorithm stated and exact-length enforcement over CryptoKit's documented hashing primitives, a verification boundary whose `valid`/`invalid`/`unsupported`/`failed` outcomes are four distinct facts and whose implementation checks with documented Security key primitives under the requested operation, and a `CryptoFailure` vocabulary that stays its own while identity-boundary reasons keep their own vocabulary across a capability; key material never crosses any new boundary, and success means only that the generic operation completed — never Apple code-signing validity, trust, or installability; Mach-O, CodeDirectory, SuperBlob, page hashing, CMS construction, nested signing, `CodeResources`, IPA repackaging, installation, profile generation, `.p12` import, Secure Enclave, shell or subprocess, private APIs, a fake signing UI, and third-party crypto libraries are all out of scope; on-device behaviour remains **Requires experiment** E1/E4 (Section 7) |
 
 ## 19. Non-Goals of This Document
 

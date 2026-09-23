@@ -140,8 +140,10 @@ private final class AppleKeySigningCapability: SigningCapability, CustomStringCo
     var customMirror: Mirror { Mirror(self, children: [:]) }
 }
 
+/// The Security key operation each signing operation maps to, shared by the
+/// signing capability and the signature-verification primitive.
 extension SigningAlgorithm {
-    fileprivate var securityAlgorithm: SecKeyAlgorithm {
+    var securityAlgorithm: SecKeyAlgorithm {
         switch self {
         case .rsaPKCS1SHA256Message: return .rsaSignatureMessagePKCS1v15SHA256
         case .rsaPKCS1SHA256Digest: return .rsaSignatureDigestPKCS1v15SHA256

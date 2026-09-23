@@ -93,6 +93,23 @@ This protects ordinary rendering, not arbitrary debugger access or a compromised
 process. Swift/Foundation buffers do not offer a general secure-zeroization
 guarantee; this boundary avoids obtaining private-key bytes in the first place.
 
+## ZS-021 use of this boundary
+
+The ZS-021 generic cryptographic foundation signs only through this boundary.
+`CryptographicSigningUseCase` validates the request, asks `IdentityStore` for
+the identity's `SigningCapability`, and hands the capability to the pure
+`CapabilitySigningEngine`; only signature bytes come back, and the use case
+attaches the certificate fingerprint as a best-effort reference — an
+unreadable identity does not fail an already-produced signature. Per-operation
+re-checks stay inside the capability, the key still never leaves the store's
+platform mechanism, no new field on request, result, or diagnostic can carry
+key material, and removing a registration still never deletes a borrowed key.
+The verification boundary is separate from this one by design: it checks a
+signature with public material only, never requests a capability, and shares
+no signing state. This use case is not installed in the application
+environment: the identity store is not composed into the app until E7
+completes, and no interface consumes a signature result yet.
+
 ## Protection policy
 
 Registry items use `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and
@@ -130,6 +147,8 @@ API documentation**, not from local SDK compilation or device execution:
 | `SecKeyCreateSignature`, `SecKeyIsAlgorithmSupported` | 10.0+ | [Signature](https://developer.apple.com/documentation/security/seckeycreatesignature(_:_:_:_:)), [Support](https://developer.apple.com/documentation/security/seckeyisalgorithmsupported(_:_:_:)) |
 | `LAContext.interactionNotAllowed`, authentication context | 11.0+, 9.0+ | [Noninteractive](https://developer.apple.com/documentation/localauthentication/lacontext/interactionnotallowed), [Context](https://developer.apple.com/documentation/security/ksecuseauthenticationcontext) |
 | `SecCertificateCopyKey` | 12.0+ | [Certificate key](https://developer.apple.com/documentation/security/seccertificatecopykey(_:)) |
+| `SecKeyVerifySignature` | 10.0+ | [Verify](https://developer.apple.com/documentation/security/seckeyverifysignature(_:_:_:_:_:)) — used by the ZS-021 signature verifier |
+| `SecCertificateCreateWithData` | 2.0+ | [Create](https://developer.apple.com/documentation/security/seccertificatecreatedata(_:fordata:)) — used by the ZS-021 signature verifier |
 
 `SecCertificateCopyValues`, desktop keychains, `SecItemImport`, and desktop
 signing utilities are not used. `kSecUseAuthenticationUIFail` is deprecated on
@@ -166,6 +185,16 @@ signing/verification, and registry persistence/removal. They are not E1 or a ful
 E7 substitute. Use a signed test host with its own Keychain sandbox on iOS 17+,
 set `ZYNSIGN_RUN_KEYCHAIN_TESTS=1`, and run `ZynSignTests`. Always inspect cleanup
 results. Run normal tests without that variable first.
+
+The ZS-021 increment adds deterministic suites for the request, engine,
+result, digest, failure model, and boundary — driven by the same kind of
+recording doubles and synthetic fixtures, with no production credentials or
+private-key material — and iOS-gated suites that check real RSA and ECDSA
+fixture signatures through the platform key primitives. **Not executed
+here:** this environment has no Swift toolchain, Xcode, Apple SDK, simulator,
+or device, so none of the ZS-021 suites (nor any earlier suite) was compiled
+or run; the static checks below do not prove Swift compilation or runtime
+security.
 
 This implementation environment is Linux without Swift, Xcode, an Apple SDK,
 a simulator, or a device. XCTest, iOS builds, and Keychain integration tests were
