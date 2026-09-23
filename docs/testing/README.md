@@ -130,6 +130,50 @@ encodings reported as typed failures, platform status mapping that separates a
 mismatch from an unavailable mechanism, and the composed boundary over the same
 fixtures. That suite needs no signed host, no keychain, and no private key.
 
+It also has tests for provisioning-profile policy validation (ZS-019):
+
+- the identifier rule, in isolation: exact scope, wildcard scope at a component
+  boundary, an identifier that is outside it, a bare wildcard, the scope a
+  wildcard declares, full values without a declared prefix where only text
+  equality is decisive, claims carrying a different prefix, claims that cannot
+  widen the scope by carrying structure of their own, and the application
+  identifier a bundle identifier would take under a declared prefix;
+- the typed entitlement comparator: matching and conflicting strings, booleans,
+  integers, and reals; integers and reals not coerced into each other; identical,
+  superset, and reordered sequences; nested dictionaries compared for the keys
+  the request claims; unsupported data and date values; a bounded nesting depth;
+  missing claims and missing allowlists; the special keys refused by the generic
+  rules; and deterministic key order;
+- the validator over synthetic domain values: a fully satisfied configuration,
+  declaration order of categories, the authenticity gate for unevaluated and
+  rejected containers, validity states and inclusive boundaries against the
+  injected clock, established, unknown, and unintended profile classes, exact
+  and wildcard bundle-identifier outcomes including an unsplittable identifier,
+  team matching from structured organizational units, certificate match, identity
+  certificate mismatch, a container signer outside the profile's certificates,
+  unavailable keys and unready capabilities, entitlement matches, conflicts,
+  unsupported values, absent and contradicted `get-task-allow`, platform support
+  and non-support, device provisioning with and without a trustworthy identifier,
+  an inconsistent all-devices declaration, several failures in one result,
+  determinism, non-mutation of the inputs, redacted diagnostics, and the rule that
+  trust stays `notPerformed` and authorization stays `notEvaluated` while policy
+  compatibility is decided;
+- the application-layer use case: a compatible request reported as such, identity
+  metadata resolved without ever requesting a signing capability, an identity the
+  store does not list, an unreadable store recorded as a failed lookup rather than
+  as a profile defect, a request that names no identity, a request that names one
+  with no store available, an unauthenticated container reported as indeterminate
+  instead of throwing, a rejected container reported as incompatible, a policy
+  failure on an authenticated profile, platform and device context passed through,
+  and a presentation-safe summary that carries only non-satisfied categories and
+  no identifiers, fingerprints, or values.
+
+These suites use synthetic profiles, certificates, identity metadata, and
+configuration values; they touch no device authorization API, no keychain, no
+network, and no real signing material, and they assert that no signing capability
+is requested on the policy path. Like the rest of the target, they were written
+but not executed in the environment where they were produced.
+
 It also has tests for the package import workflow:
 
 - the import use case: a successful import returns an examined artifact with

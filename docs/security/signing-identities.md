@@ -71,6 +71,15 @@ keys reach `SecKeyCopyExternalRepresentation`. Matching is not a signing trial.
 The resolver also requires the existing
 public-key adequacy heuristic (RSA at least 2048 bits, EC at least 256 bits),
 without turning it into a trust or platform-policy claim.
+A policy evaluation uses none of the capability path. Policy validation
+(ZS-019) resolves an identity's *metadata* through `IdentityStore` read-only —
+certificate fingerprint, key availability, association, readiness — and a test
+asserts that it never requests a signing capability, so no key handle is
+resolved and no signature is produced to prove possession. Identity questions
+answered by policy are reported as indeterminate when no identity was supplied
+or the store could not be read, and an unavailable key is never reported as a
+defect in a profile.
+
 The key handle lives only inside Platform. The outward capability retains a
 resolver, not a key, and rechecks the registry, protection, association, and
 algorithm on every operation. Deletion cannot cancel an operation already in

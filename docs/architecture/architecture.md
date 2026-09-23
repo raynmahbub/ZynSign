@@ -288,7 +288,7 @@ table below is the authoritative list of feasibility boundaries. Every row is
 | 5 | CodeDirectory generation and modification | Which code-directory versions, hash types, special slots, and code-limit/page-size conventions the target platform requires and accepts. |
 | 6 | Code-signature blob embedding | Constructing and replacing the signature region of a Mach-O binary, including load-command layout, segment offset and alignment rules, and fat/universal binaries. |
 | 7 | Entitlement handling | Building entitlement blobs, the relationship between profile-derived entitlements and binary entitlements, and which entitlement data forms the platform expects. |
-| 8 | Provisioning-profile interpretation | The profile is signed structured data; parsing it is distinct from validating the container signature, and both are required before a profile can be trusted for authorization decisions. Parsing and container signature verification are implemented and kept as separate states (Sections 7 and 12); signer-certificate **trust**, revocation, Apple issuance, and every authorization decision remain open and are not claimed. |
+| 8 | Provisioning-profile interpretation | The profile is signed structured data; parsing it is distinct from validating the container signature, and both are required before a profile can be trusted for authorization decisions. Parsing and container signature verification are implemented and kept as separate states, and ZynSign's own policy rules for using an authenticated profile with an application, an identity, and a requested configuration are implemented as predicates over that evidence (Sections 7 and 12); signer-certificate **trust**, revocation, Apple issuance, and platform authorization — whether the platform will accept a configuration that satisfies those predicates — remain open and are not claimed. |
 | 9 | Resource sealing | Reproducing the resource-seal form the platform evaluates, including how rules have changed across OS versions and which resources are sealed. |
 | 10 | Nested-code handling | Deterministic discovery and signing order for frameworks, dynamic libraries, extensions, plug-ins, nested bundles, and nested applications, including exception cases. |
 | 11 | Signature verification | The system code-signing validation services used on macOS are not assumed available to iOS applications. On-device verification may have to be implemented, with all of the format knowledge that implies. |
@@ -797,6 +797,173 @@ iOS and were not executed in the environment where this increment was written.
 Signer-chain trust, revocation, Apple issuance rules, and every authorization
 question remain **Unknown**.
 
+### Provisioning Profile Policy Validation
+
+**Accepted for ZS-019 — a read-only policy stage.** The stage answers one
+question: can this authenticated provisioning profile be used with this
+application, this signing identity, and this requested signing configuration,
+under the policy rules ZynSign implements? It answers with a structured result
+and nothing else: it does not sign, modify a profile, rewrite an entitlement,
+edit an `Info.plist`, change a bundle identifier, touch a Keychain item, install
+anything, or persist its result. `ProvisioningPolicyValidationContext` is a pure
+domain value assembled from evidence that already exists — a parsed profile with
+its staged authenticity, the certificate relationship from ZS-018, application
+metadata and the bundle identifier being signed, optional identity metadata, the
+requested signing configuration, the device and platform context, and an
+injectable `EvaluationClock`. No interface state can enter it, no key material
+can be carried by it, and no identity-store call happens inside the validator.
+
+**Observed — categories and three-state findings.** `ProvisioningPolicyValidator`
+evaluates nine categories in a fixed order: authenticity, validity, profile
+class, bundle identifier, team identifier, certificate, entitlements, platform,
+and device. Each category is `satisfied`, `violated`, or `indeterminate`, and
+the result carries every meaningful finding rather than stopping at the first
+failure; a category with no finding at all is indeterminate, never satisfied.
+`indeterminate` means no rule could be applied — it is neither a pass nor a
+violation. The overall outcome is `compatible` only when every category is
+satisfied, `incompatible` when any category is violated, and `indeterminate`
+otherwise. Authenticity gates every other category: no policy rule speaks about
+a payload that is not authenticated, so those categories stay indeterminate, and
+a rejected container is the one authenticity violation that makes the result
+incompatible.
+
+**Accepted — identifier matching is modelled once.**
+`ProvisioningIdentifierCompatibility` is the single rule for the profile's
+application identifier, and both the bundle-identifier check and the
+`application-identifier` claim check ask it, so the two cannot drift apart.
+Exact scope is component equality. A trailing wildcard is a prefix test at a
+component boundary: `TEAM123456.com.example.*` covers the bundle identifier
+`com.example.app`, and `TEAM123456.*` covers every bundle identifier, while
+`com.example.*` never covers `com.exampleOther.app` (**Inferred** from the App ID
+form Apple documents; not measured against the platform). A full
+`application-identifier` claim is compared as text plus the same scope
+*including* the application-identifier prefix, and is never re-parsed, so a
+claim cannot widen the scope by carrying a wildcard of its own. When the
+profile's value has no explicit application-identifier prefix, only text
+equality is decisive and every other comparison is indeterminate: ZynSign does
+not split an identifier at a boundary the profile does not state. An
+unrecognised or disagreeing profile value is never normalised into a match.
+
+**Accepted — team identity comes from structured evidence only.** The profile
+side of the team comparison is the set of team identifiers the profile declares,
+including the `com.apple.developer.team-identifier` claim when present. The
+identity side uses only certificate subject organizational-unit values that
+carry the exact structure of a team identifier (ten upper-case ASCII
+alphanumerics); display names, common names, labels, and issuer text are never
+read as team evidence. When no structured candidate exists the comparison is
+indeterminate — "the identity's team could not be established" is a different
+fact from "the identity's team is wrong" — and a missing structured claim on the
+requested side cannot turn an unknown into a success.
+
+**Accepted — certificate evidence is layered, not re-derived.** The certificate
+category consumes the ZS-018 relationship instead of re-reading any container.
+It reports separately whether the profile names certificate references, whether
+the profile's own fingerprint set was available for comparison, whether the
+container's signer is one of the profile's certificates, whether the signing
+identity's certificate is one of them, and whether the identity's key is
+reported available, associated, and ready. A signer outside the profile's
+certificate set is recorded as indeterminate — authenticity remains the CMS
+boundary's finding — and an unavailable key is an open question about the
+identity, never a malformed profile and never a certificate mismatch. "Identity
+unavailable", "certificate mismatch", and "profile mismatch" stay three distinct
+outcomes, and the validator never requests a signing capability, so no signature
+is produced to prove key possession.
+
+**Accepted — validity and platform reuse existing models.** Validity is decided
+by the existing `ProvisioningProfileValidity` states against the injected clock,
+with inclusive boundaries; an expired or not-yet-valid profile and a malformed
+date interval are violations, while missing dates remain indeterminate because
+absence is not misordering. Platform comparison uses the existing
+`ProvisioningProfilePlatform` values and either the platforms the caller states
+explicitly or the application's declared device families mapped to platform
+spellings (**Inferred**; the family values are documented, the mapping to
+profile platform strings is ZynSign's). An unrecognised platform spelling in the
+profile makes the comparison indeterminate rather than a mismatch, and nothing
+here claims platform support on Apple's behalf.
+
+**Accepted — device constraints are never fabricated.** ZynSign does not read a
+device identifier on this path and does not assume that the running device is
+authorized because the profile lists devices. A device comparison happens only
+when a trustworthy identifier was supplied by the caller; otherwise the category
+is indeterminate and the question is deferred to installation-time evidence. A
+profile that both declares that it provisions all devices and carries a device
+list is reported as inconsistent rather than resolved in either direction, and a
+profile that provisions all devices or carries no device list is reported as
+having no device comparison to make — not as a grant.
+
+**Accepted — entitlement comparison is typed, deterministic, and not a policy
+table.** Requested claims are compared against the profile's `Entitlements`
+allowlist per key, in key order, with property-list types preserved. Every
+requested claim must appear in the allowlist (**Verified** — TN3125), while the
+allowlist may carry claims the request does not make. Values are compared under
+established rules: identical strings, booleans, integers, reals, sequences, and
+string-keyed dictionaries match; a differing value of the same form is a
+conflict; an integer and a real are not coerced into each other; a requested
+value the allowlist does not carry is a conflict; data, dates, and structures
+whose significance is not established are reported as unsupported or
+incomparable instead of being approved. Array order and multiplicity are not
+assumed to be interchangeable, so an element-wise subset is an open question
+rather than a pass, and nested dictionaries are compared for the keys the
+request actually claims. `get-task-allow` has its own rule: absence is not
+`false`, a request for `true` where the profile carries no claim is a violation,
+a request for `false` where the profile authorizes `true` is an open question
+because the record does not establish whether a disclaimed value must appear
+literally, and a contradiction between the typed preference and the claim set is
+reported rather than resolved. Three keys — `application-identifier`,
+`com.apple.developer.team-identifier`, and `get-task-allow` — are decided by
+their dedicated rules and never by the generic ones. Nothing here strips,
+rewrites, or synthesizes an entitlement, and nothing here claims that a claim
+appearing in the allowlist will be enforced or accepted by the platform.
+
+**Accepted — application composition and presentation.**
+`ValidateProvisioningConfigurationUseCase` orchestrates the stage: it takes the
+staged verification result, the application's metadata, the identifier being
+signed, an optional identity identifier, the requested configuration, and the
+device and platform context; it resolves identity metadata read-only through
+`IdentityStore`; and it returns a `ProvisioningPolicyValidationResult`. It never
+throws for a policy outcome, because a profile that is not authenticated is a
+result and not an error in the caller's request. No signing capability is
+requested, no key handle is resolved, and nothing is persisted. A `summary`
+renders the result for presentation — overall state, category states, trust and
+authorization states, and one already-redacted sentence per non-satisfied
+category — and carries no identifiers, fingerprints, values, or bytes. There is
+no policy interface in this increment and no Sign, Re-sign, Install, or Generate
+Profile control.
+
+**Trust boundary, Accepted.** A `compatible` result means one thing: the
+configuration satisfies the policy rules implemented by ZynSign. It is not
+platform authorization, not an installation result, not a signature, and not
+Apple's approval. `trustEvaluation` remains `notPerformed` and `authorization`
+remains `notEvaluated` on this path, and the result deliberately exposes no
+`isValid`, `isInstallable`, or `isTrusted` flag that would collapse the
+distinction. Diagnostics carry states and codes only — no identifiers, values,
+fingerprints, bytes, or credentials.
+
+**Deferred, recorded.** Whether the platform's wildcard, entitlement,
+device-provisioning, and profile-class rules match the predicates implemented
+here remains Unknown; the predicates are stated where they live instead of being
+presented as Apple policy. Device authorization needs installation-time
+evidence. Whether a trustworthy device identifier can be obtained at all, and
+which entitlements the platform will enforce, remain open questions in
+`on-device-signing-feasibility.md`. A policy result is derived from the profile,
+the application, the identity, the configuration, and the current time, so it is
+never persisted and any caller that retains one defines its own invalidation.
+Performance work is deferred deliberately: a context is evaluated once per
+request, the profile and the certificate relationship are read rather than
+re-parsed, and no caching is introduced before it can be measured.
+
+**Evidence status.** The category model, the three-state findings, the
+identifier rule, the team-identifier rule, the certificate separations, the
+entitlement rules, the redaction rules, and the application composition are
+**Observed** from this repository's implementation. Allowlist inclusion is
+**Verified** (TN3125). Wildcard scope and the mapping from declared device
+families to platform spellings are **Inferred**. Numeric non-coercion and the
+caution around array order are policy choices this repository makes, not
+platform statements. Platform acceptance, entitlement enforcement, device
+authorization, and Apple's own profile-class rules remain **Unknown or Requires
+experiment**; no iOS build, device, or simulator was available in the
+environment where this stage was written, and its suite was not executed there.
+
 ## 8. Filesystem, Sandbox, and Document Handling
 
 ZynSign runs inside the application sandbox. It has **no** unrestricted
@@ -1054,7 +1221,19 @@ and testable without a device, a simulator, a keychain, or a network. This is
   relationship vocabulary `ProvisioningProfileCertificateRelationship`,
   `CertificateMatchOutcome`, `LocalSigningIdentityRelationship`,
   `LocalSigningIdentityLookup`, and `CertificateRelationshipAnalyzer`
-- `SigningConfiguration`, `PackagingPolicy`
+- the policy-validation vocabulary: `ProvisioningPolicyValidationContext`,
+  `SigningConfiguration`, `SigningGetTaskAllowPreference`,
+  `RequestedGetTaskAllowClaim`, `ProvisioningPolicySigningIdentity`,
+  `ProvisioningDeviceContext`, `ProvisioningPolicyPlatformScope`,
+  `ProvisioningIdentifierCompatibility` with
+  `ProvisioningIdentifierCompatibilityOutcome`, `ProvisioningEntitlementComparator`
+  with `ProvisioningEntitlementComparisonOutcome` and
+  `ProvisioningEntitlementEvaluation`, `ProvisioningPolicyValidator`,
+  `ProvisioningPolicyValidationResult`, `ProvisioningPolicyCategoryResult`,
+  `ProvisioningPolicyCategory`, `ProvisioningPolicyStatus`,
+  `ProvisioningPolicyOutcome`, `ProvisioningPolicyFinding`, and
+  `ProvisioningPolicyFindingCode`
+- `PackagingPolicy`
 - `ValidationResult`, `VerificationResult`, `Diagnostics`
 - domain errors and their categories
 
@@ -1112,6 +1291,11 @@ Rules, **Accepted**:
   installation is an identified, separately-scoped concern; it must not be
   implemented, stubbed into a workflow, or depended upon until installation scope
   is decided.
+- The policy-validation stage of Section 7 added no port, deliberately: it is
+  pure domain logic over values that already exist, its platform-bound inputs
+  (`IdentityStore` metadata, the CMS boundary, the certificate relationship)
+  arrive through seams that are already declared, and it requests no signing
+  capability. The absence of a port there is a decision, not an omission.
 
 ## 12. Application Layer
 
@@ -1120,9 +1304,18 @@ place where stages are sequenced and composed.
 
 - Use cases express user-visible operations (inspect a package, parse and
   structurally validate a decoded provisioning profile, verify a
-  provisioning-profile container and report its staged evidence, produce a
-  signed artifact, verify an artifact, prepare a package for export) in terms of
-  domain logic and ports.
+  provisioning-profile container and report its staged evidence, evaluate a
+  signing configuration against an authenticated profile, produce a signed
+  artifact, verify an artifact, prepare a package for export) in terms of domain
+  logic and ports.
+- Policy validation is orchestrated here and decided in Domain:
+  `ValidateProvisioningConfigurationUseCase` assembles a
+  `ProvisioningPolicyValidationContext` from a staged verification result,
+  application metadata, a bundle identifier, read-only identity metadata, the
+  requested configuration, and the device and platform context, and returns the
+  domain validator's structured result. It performs no signing, requests no
+  signing capability, persists no result, and never turns a policy outcome into a
+  thrown error.
 - Workflow state — progress, cancellation, per-stage outcome, recoverable versus
   terminal failure — is an application concern, not a UI concern and not a domain
   concern.
@@ -1307,7 +1500,7 @@ proves nothing about the product.
 
 | Tier | Scope | Runs on | Covers |
 | --- | --- | --- | --- |
-| Pure unit tests | Deterministic logic with synthetic fixtures, no I/O | Host | Validation rules, metadata rules, bundle-identifier matching, entitlement compatibility logic, nested-code ordering, error construction, redaction, deterministic algorithms, diagnostics |
+| Pure unit tests | Deterministic logic with synthetic fixtures, no I/O | Host | Validation rules, metadata rules, bundle-identifier matching, entitlement compatibility logic, provisioning-policy category evaluation and aggregation, nested-code ordering, error construction, redaction, deterministic algorithms, diagnostics |
 | Simulator tests | Application-layer workflows against simulated platform services | iOS/iPadOS simulator | Workflow state, cancellation, persistence behaviour, lifecycle handling, archive handling that does not require physical-device capabilities |
 | Physical-device tests | Behaviour that depends on hardware, real key storage, or real platform policy | iPhone/iPad | Key storage and access control, hardware and security behaviour, device-specific APIs, actual signing feasibility, installation behaviour, sandbox and document-provider behaviour |
 | Developer-side validation | Independent artifact inspection and fixture production | macOS / Xcode, outside the product runtime | Generating controlled signed fixtures, inspecting produced artifacts with platform tooling, compatibility experiments during feasibility research |
@@ -1404,6 +1597,7 @@ depend on iOS/iPadOS behaviour are recorded as *Provisional*, *Unresolved*, or
 | 28 | Certificate and signing identity foundation | **Accepted** for this increment — platform-independent `CertificateMetadata`, `CertificateDistinguishedName`, `PublicKeyInfo`, `SignatureAlgorithm`, `CertificateFingerprint`, `CertificateValidity` that distinguishes parsing success from currently valid, `CertificateChain` leaf-first without trust evaluation, `CodeSigningSuitability` with explicit checks and unsuitability reasons, `SigningCapability` narrow protocol that returns signatures without exposing private-key bytes, `SigningIdentity` distinct from certificate with `SigningIdentityIdentifier` and `SigningKeyAvailability`, `IdentityStore` protocol in Application, `CertificateParser` port in Domain with `AppleCertificateParser` in Platform using a bounded DER reader because `SecCertificateCopyValues` is not available on iOS (**Verified**), PKCS#12 treated as separate capability not implemented, trust validation boundary not implemented and represented as `notEvaluated`, raw certificate bytes ownership boundary owned by Platform and not persisted in ordinary storage, no certificate-management UI, no signing engine, no private keys stored in application database (Section 7) |
 
 | 29 | Provisioning-profile CMS verification | **Accepted** for this increment — SignedData is read by ZynSign's own bounded structure reader because `CMSDecoderCreate`, `CMSDecoderCopySignerStatus`, and `CMSSignerStatus` are documented for macOS/Mac Catalyst only and not for iOS (**Verified**); signatures are checked through the `CMSSignatureVerifier` port using `SecCertificateCopyKey` and `SecKeyVerifySignature` with hashing left inside the platform primitive; signed attributes are re-encoded as a `SET OF` and bound to the payload through the message-digest attribute before any signature check; the signer certificate is selected by serial and compared by SHA-256 fingerprint, never by name, label, or bag order; five states stay separate with trust `notPerformed` and authorization `notEvaluated`; payloads are parsed only after verification; identity stores are read-only and never asked for a signing capability; CMS construction, trust evaluation, signing policy, compatibility decisions, persistence, and profile interfaces remain out of scope (Section 7) |
+| 30 | Provisioning-profile policy validation | **Accepted** for this increment — read-only policy evaluation over an authenticated profile, application metadata, identity metadata, a requested signing configuration, and platform/device context; nine three-state categories with `compatible`/`incompatible`/`indeterminate` overall; authenticity gates every other category; one identifier rule shared by the bundle-identifier check and the `application-identifier` claim check, with wildcard scope as a component-boundary prefix test and no split without an explicit application-identifier prefix; team identity only from structured organizational-unit evidence; certificate evidence layered on ZS-018 with container-signer, identity-certificate, and key-availability facts kept separate; validity and platform from existing models with an injected clock; device comparison only with a trustworthy identifier and no fabricated value; typed per-key entitlement comparison with allowlist inclusion (**Verified** — TN3125), no coercion, no array-order assumption, explicit `get-task-allow` semantics, and unsupported or indeterminate outcomes instead of defaults; structured aggregation of every meaningful finding; redacted diagnostics; policy logic in Domain with `ValidateProvisioningConfigurationUseCase` orchestration read-only, no persistence, no signing, and no policy interface; trust stays `notPerformed` and authorization stays `notEvaluated`; platform acceptance, entitlement enforcement, and device authorization remain separate and unclaimed (Section 7) |
 
 ## 19. Non-Goals of This Document
 

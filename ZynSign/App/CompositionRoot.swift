@@ -188,6 +188,26 @@ enum CompositionRoot {
         )
     }
 
+    /// Builds the provisioning-configuration validation use case over the
+    /// domain policy validator.
+    ///
+    /// The clock is injected so an evaluation is reproducible, and the identity
+    /// store is optional and read-only: the use case resolves identity metadata
+    /// to answer certificate and team questions and never requests a signing
+    /// capability. The factory builds an evaluator only — it creates no profile,
+    /// identity, signature, or package, and nothing built here is installed in
+    /// the application environment, because no interface consumes a policy
+    /// result yet.
+    static func makeProvisioningPolicyValidation(
+        clock: any EvaluationClock = SystemEvaluationClock(),
+        identityStore: (any IdentityStore)? = nil
+    ) -> ValidateProvisioningConfigurationUseCase {
+        ValidateProvisioningConfigurationUseCase(
+            policyValidator: ProvisioningPolicyValidator(clock: clock),
+            identityStore: identityStore
+        )
+    }
+
     /// The signature mechanism available on this target.
     private static func makeCMSSignatureVerifier() -> any CMSSignatureVerifier {
         #if os(iOS)
