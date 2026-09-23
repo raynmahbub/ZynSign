@@ -137,6 +137,10 @@ implemented, and no behaviour may be inferred from these documents.
   IPA structure, signing material, code signing, nested code, repackaging, and
   installation. Findings feed the feasibility boundaries in the architecture
   document, which is authoritative where the two differ.
+- [codedirectory-construction.md](codedirectory-construction.md) — the bounded
+  CodeDirectory construction, page-hash, serialization, and parser relationship
+  established by ZS-023; it records the deliberately limited supported format
+  subset and unresolved platform-acceptance questions.
 
 ## Classification
 

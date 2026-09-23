@@ -74,10 +74,11 @@ implicitly and no CPU/OS compatibility decision is made.
 
 **Parser policy, not Apple acceptance rules:** Up to 64 architectures, 4,096
 load commands, 1 MiB of load-command bytes, 128 SuperBlob indices, 64 special
-hash slots, 4,096 scatter records, and 4,096 bytes per identifier. Fat slice
-alignment exponents above 30 and page-size exponents above 30 are refused.
-These are conservative resource limits, not claims about Apple's published
-maximums. The 256 MiB input cap limits parsing work but does not make an
+hash slots, 4,096 scatter records, and 4,096 bytes per identifier. The
+parser also caps ordinary code slots at 65,536 when retaining value-owned slot
+bytes. Fat slice alignment exponents above 30 and page-size exponents above 30
+are refused. These are conservative resource limits, not claims about Apple's
+published maximums. The 256 MiB input cap limits parsing work but does not make an
 already-allocated caller input cheap to acquire. Existing `ArchiveReader`
 inspection reads have a smaller independent cap (4 MiB by default): this use
 case does **not** read archive entries, enlarge that limit, or alter the

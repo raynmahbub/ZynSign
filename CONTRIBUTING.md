@@ -137,8 +137,6 @@ Conventions:
 
 ## Developer-Controlled Git Workflow
 
-**The AI coding agent does not create commits and does not push changes.**
-
 All of the following are performed by the developer, and only by the developer:
 
 - creating commits;

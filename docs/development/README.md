@@ -32,8 +32,7 @@ Development practice is defined at the repository root, and applies today:
 - [SECURITY.md](../../SECURITY.md) — handling of signing material, credentials,
   and private keys.
 
-The AI coding agent does not create commits and does not push changes. Version
-control actions are performed by the developer. See
+Version control actions are performed by the developer. See
 [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 ## What Will Live Here

@@ -99,7 +99,11 @@ limits, and remaining questions.
 The inspection stage is therefore a partial capability: it reads containers,
 classifies layout, reads one bundle's declared metadata, describes a bundle's
 structure, and can separately inspect a caller-supplied decoded profile payload
-or caller-supplied Mach-O bytes.
+or caller-supplied Mach-O bytes. ZS-023 adds a separate, domain-level
+CodeDirectory construction boundary with independent code-page hash vectors
+and deterministic serialization coverage for a conservative version subset; it does not
+embed the result into Mach-O or claim platform acceptance. See
+[codedirectory-construction.md](codedirectory-construction.md).
 Accepted imports are recorded and kept across launches and are listed, imported,
 browsed, and removed in the Applications area; certificate and profile parsing
 and identity modeling exist as domain foundation; provisioning-profile CMS
@@ -1968,14 +1972,15 @@ depend on iOS/iPadOS behaviour are recorded as *Provisional*, *Unresolved*, or
 | 31 | Provisioning-profile pipeline integration | **Accepted** for this increment — one application-layer use case sequences ZS-017 parsing and structural validation, ZS-018 container verification and certificate relationship, and ZS-019 policy validation into a single staged result, with the security order fixed so that a payload is parsed only after its signature verified and no policy rule is applied to an unauthenticated payload; seven stage outcomes (`passed`/`failed`/`indeterminate`/`notAttempted`) plus aggregated findings that carry each stage's own code vocabulary rather than a fourth one; integrated status `valid`/`invalid`/`indeterminate`/`unsupported` under the stated rules, with `valid` requiring every required stage to pass and policy to be `compatible`, and a signer/profile certificate mismatch kept as ZS-018 evidence rather than promoted into a verdict; absent and unreadable profiles distinguished from malformed and incompatible ones, and never reported as an invalid application; a read-only embedded-profile intake over the existing `ArchiveReader`, `ApplicationBundleDiscovery`, and library-storage boundaries with one bounded entry read and no extraction, no second reader, and no second store; one container verification, one parse, one relationship analysis, and one policy evaluation per request with no caching; no signing engine, no Mach-O or entitlement mutation, no persistence, no trust evaluation, no authorization, and no interface; trust stays `notPerformed` and authorization stays `notEvaluated` (Section 7) |
 | 32 | Generic cryptographic signing and verification foundation | **Accepted** for this increment — a focused signing request with explicit message-or-digest semantics and no key material, a pure signing engine that signs only through the ZS-016 capability and substitutes no algorithm, a structured all-let signing result whose diagnostics carry facts and counts but never signature bytes or signed data, a digest value with its algorithm stated and exact-length enforcement over CryptoKit's documented hashing primitives, a verification boundary whose `valid`/`invalid`/`unsupported`/`failed` outcomes are four distinct facts and whose implementation checks with documented Security key primitives under the requested operation, and a `CryptoFailure` vocabulary that stays its own while identity-boundary reasons keep their own vocabulary across a capability; key material never crosses any new boundary, and success means only that the generic operation completed — never Apple code-signing validity, trust, or installability; Mach-O, CodeDirectory, SuperBlob, page hashing, CMS construction, nested signing, `CodeResources`, IPA repackaging, installation, profile generation, `.p12` import, Secure Enclave, shell or subprocess, private APIs, a fake signing UI, and third-party crypto libraries are all out of scope; on-device behaviour remains **Requires experiment** E1/E4 (Section 7) |
 | 33 | Read-only Mach-O code-signature foundation | **Accepted** for this increment — a bounded parser over supplied bytes models thin 32/64-bit headers in both byte orders, fat32/fat64 slice tables and explicit architecture selection, load commands including `LC_CODE_SIGNATURE`, delimited SuperBlob entries and known indexed blobs, and CodeDirectory versions `0x20001` through `0x20600` with strings, hash metadata, special-slot positions, and version-gated optional fields. Unknown load commands, CPU families, hashes, and blob slots remain descriptive; malformed/truncated/unsupported inputs have structural errors. It does not read archive entries, change the explorer, verify digests/CMS/trust/authorization, or construct or mutate executable/signature data. Read-only parsing does not close feasibility items 5 or 6; see [Mach-O inspection](macho-inspection.md). |
+| 34 | CodeDirectory construction and page hashing | **Accepted** for this increment — a value-typed constructor supports only CodeDirectory versions `0x20001` and `0x20200`, the published SHA-1/SHA-256/truncated-SHA-256/SHA-384 hash types, exponent-encoded page sizes, explicit code limits, negative special-slot representation, bounded big-endian serialization, and deterministic ordinary-page hashing through the existing digest port. It does not construct SuperBlobs, CMS, requirements, entitlements, CodeResources, or Mach-O changes, and it makes no iOS/iPadOS acceptance claim; see [codedirectory-construction.md](codedirectory-construction.md). |
 
 ## 19. Non-Goals of This Document
 
 This document deliberately does not:
 
 - contain or describe production code, project files, dependencies, or tests;
-- select concrete signing algorithms, code-directory versions, or entitlement
-  derivations before feasibility research;
+- make a platform-acceptance claim for the conservative construction subset,
+  or select entitlement derivations, before feasibility research;
 - select an archive library or a certificate-handling dependency;
 - specify UI design, navigation, or screen structure;
 - design installation, or commit to installation being in any release;
