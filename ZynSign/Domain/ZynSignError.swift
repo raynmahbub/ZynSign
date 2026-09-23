@@ -33,6 +33,10 @@ struct ZynSignError: Error, LocalizedError, CustomStringConvertible, CustomDebug
     /// that boundary.
     let nestedCodeFailure: NestedCodeFailure?
 
+    /// A stable nested code signing reason, when this failure belongs to
+    /// that boundary.
+    let nestedSigningFailure: NestedSigningFailureReason?
+
     /// The stable category of the failure.
     let category: DiagnosticCategory
 
@@ -54,13 +58,15 @@ struct ZynSignError: Error, LocalizedError, CustomStringConvertible, CustomDebug
         provisioningProfileFailure: ProvisioningProfileFailure? = nil,
         cmsFailure: CMSFailure? = nil,
         cryptoFailure: CryptoFailure? = nil,
-        nestedCodeFailure: NestedCodeFailure? = nil
+        nestedCodeFailure: NestedCodeFailure? = nil,
+        nestedSigningFailure: NestedSigningFailureReason? = nil
     ) {
         self.identityFailure = identityFailure
         self.provisioningProfileFailure = provisioningProfileFailure
         self.cmsFailure = cmsFailure
         self.cryptoFailure = cryptoFailure
         self.nestedCodeFailure = nestedCodeFailure
+        self.nestedSigningFailure = nestedSigningFailure
         self.category = category
         self.userMessage = userMessage
         self.diagnosticDetail = diagnosticDetail
@@ -92,6 +98,9 @@ struct ZynSignError: Error, LocalizedError, CustomStringConvertible, CustomDebug
         }
         if let nestedCodeFailure {
             parts.append("reason: \(nestedCodeFailure.rawValue)")
+        }
+        if let nestedSigningFailure {
+            parts.append("reason: \(nestedSigningFailure.rawValue)")
         }
         if let diagnosticDetail {
             parts.append("detail: \(diagnosticDetail)")

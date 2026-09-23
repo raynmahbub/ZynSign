@@ -553,6 +553,33 @@ scripts. These checks are structural and lexical verification, not compiled
 Swift execution or platform acceptance. Run `MachOCodeSignatureRegionTests`
 and the full suite in the Xcode unit-test target before relying on this code.
 
+## ZS-028 checks
+
+`NestedCodeSigningTests` adds XCTest cases covering:
+
+- signing-plan validation: valid plan, duplicate target, duplicate executable path,
+  missing dependency endpoint, dependency cycle, invalid ordering, path traversal,
+  unsupported code kinds, universal binaries, and root application preservation;
+- nested Mach-O signing: unsigned nested binary, existing signature rejection policy,
+  unsupported existing signature replacement, and malformed signature handling;
+- independent structural and cryptographic verification: page hashes, CodeDirectory
+  digest matching, CMS detached signature verification, tampering detection, and
+  clean failure on wrong signing key or unsupported algorithm;
+- dependency-aware execution order: deep multi-level hierarchies (nested framework inside
+  framework inside app), independent frameworks with deterministic tie-breaking,
+  and plug-in/extension targets;
+- failure handling and atomicity: artifact read failure, artifact write failure,
+  signing capability failure, post-sign verification failure, staged working copy
+  rollback (no targets modified), and direct mutation partial completion
+  (some targets modified);
+- binary preservation: unrelated Mach-O bytes, headers, and text section bytes remain
+  strictly identical before and after signing.
+
+Host verification script `Tests/Host/verify_nested_code_signing_vector.py` passed
+independent topological dependency ordering, cycle refusal, nested Mach-O byte preservation,
+and OpenSSL CMS verification. Swift balanced-delimiter and lexical checks passed for
+all new and modified files.
+
 ## Expectations Today
 
 Until a test suite exists, the expectations in
