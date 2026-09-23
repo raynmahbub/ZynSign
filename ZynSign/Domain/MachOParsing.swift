@@ -24,6 +24,7 @@ struct MachOParsingError: Error, Equatable {
         case architectureTable
         case architectureSlice
         case loadCommands
+        case segment
         case codeSignatureCommand
         case signatureRegion
         case superBlob

@@ -113,6 +113,15 @@ failures are aggregated without a new vocabulary, and how the embedded-profile
 intake stays inside the archive boundary — is recorded in Section 7 of
 [architecture.md](architecture.md).
 
+The Mach-O code-signature region construction increment adds the domain model
+and narrow append writer that integrates ZS-024 SuperBlob serialization into a
+16-byte-aligned signature region, models load-command capacity and `__LINKEDIT`
+layout without relocation, enforces explicit rejection of existing signatures,
+and handles universal binaries as explicitly unsupported for mutation. It does
+not invoke private keys, generate CMS, or claim platform acceptance. The
+decision is recorded in Section 7 of [architecture.md](architecture.md) and in
+[macho-signature-region.md](macho-signature-region.md).
+
 Everything else is intended structure only. The archive inspection stage is a
 partial capability: it reads containers, classifies layout, reads one bundle's
 declared metadata, and describes a bundle's structure; it does not verify
@@ -144,6 +153,10 @@ implemented, and no behaviour may be inferred from these documents.
 - [superblob-construction.md](superblob-construction.md) — standalone embedded
   SuperBlob values, canonical packing, opaque boundaries, ZS-023 integration,
   and ZS-024 format evidence and validation limitations.
+- [macho-signature-region.md](macho-signature-region.md) — 16-byte-aligned
+  signature region construction, layout arithmetic, load-command mutation
+  boundary, existing signature policy, and narrow append mutation established
+  by ZS-025.
 
 ## Classification
 

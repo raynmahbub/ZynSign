@@ -32,6 +32,7 @@ enum MachOFixtures {
         cpu: Int32 = arm64,
         subtype: Int32 = 0,
         commands: [[UInt8]] = [],
+        headerPadding: [UInt8] = [],
         payload: [UInt8] = []
     ) -> [UInt8] {
         let headerSize = wordSize == .bits64 ? 32 : 28
@@ -45,6 +46,7 @@ enum MachOFixtures {
         put(UInt64(commands.reduce(0) { $0 + $1.count }), at: 20, in: &bytes, order: order)
         put(0x20, at: 24, in: &bytes, order: order)
         for command in commands { bytes.append(contentsOf: command) }
+        bytes.append(contentsOf: headerPadding)
         bytes.append(contentsOf: payload)
         return bytes
     }
@@ -60,6 +62,52 @@ enum MachOFixtures {
         put(UInt64(signature.count), at: 12, in: &commandBytes, order: order)
         return thin(wordSize: wordSize, order: order, cpu: cpu, subtype: subtype,
                     commands: [commandBytes], payload: signature)
+    }
+
+    /// A minimal `LC_SEGMENT_64`, sufficient for parser and append-writer
+    /// layout tests. It intentionally contains no sections so the segment's
+    /// file range establishes the first file-backed content boundary.
+    static func segment64(
+        name: String = "__LINKEDIT",
+        fileOffset: UInt64,
+        fileSize: UInt64,
+        virtualMemorySize: UInt64,
+        order: MachOByteOrder = .littleEndian
+    ) -> [UInt8] {
+        var bytes = [UInt8](repeating: 0, count: 72)
+        put(0x19, at: 0, in: &bytes, order: order)
+        put(72, at: 4, in: &bytes, order: order)
+        let nameBytes = Array(name.utf8.prefix(16))
+        bytes.replaceSubrange(8..<(8 + nameBytes.count), with: nameBytes)
+        put(virtualMemorySize, width: 8, at: 32, in: &bytes, order: order)
+        put(fileOffset, width: 8, at: 40, in: &bytes, order: order)
+        put(fileSize, width: 8, at: 48, in: &bytes, order: order)
+        put(0, at: 64, in: &bytes, order: order)
+        return bytes
+    }
+
+    /// An unsigned thin image with enough verified zero header padding and an
+    /// existing `__LINKEDIT` virtual-memory reservation for append-only tests.
+    static func appendableThin(
+        payload: [UInt8] = Array(repeating: 0xA5, count: 32),
+        headerPaddingLength: Int = 24,
+        virtualMemorySize: UInt64 = 4_096,
+        order: MachOByteOrder = .littleEndian
+    ) -> [UInt8] {
+        let fileOffset = UInt64(32 + 72 + headerPaddingLength)
+        let segment = segment64(
+            fileOffset: fileOffset,
+            fileSize: UInt64(payload.count),
+            virtualMemorySize: virtualMemorySize,
+            order: order
+        )
+        return thin(
+            wordSize: .bits64,
+            order: order,
+            commands: [segment],
+            headerPadding: Array(repeating: 0, count: headerPaddingLength),
+            payload: payload
+        )
     }
 
     static func genericBlob(_ magic: UInt32, payload: [UInt8] = []) -> [UInt8] {

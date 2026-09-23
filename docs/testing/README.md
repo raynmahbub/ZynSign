@@ -522,6 +522,37 @@ check compiles or executes the production Swift code. No simulator, device,
 or Apple signature-acceptance validation was performed. Details and remaining
 checks are in [SuperBlob construction](../architecture/superblob-construction.md).
 
+## ZS-025 checks
+
+`MachOCodeSignatureRegionTests` adds XCTest cases covering:
+
+- 16-byte alignment, SuperBlob framing, deterministic trailing zero reserve,
+  and layout padding separation;
+- native-width arithmetic, 32-bit `linkedit_data_command` field narrowing, and
+  integer overflow protection without payload allocation;
+- `CodeDirectory.codeLimit` vs `MachOFileLength` separation and overlap
+  rejection;
+- `MachOCodeSignatureInspector` classification of absent, valid, malformed
+  command, invalid offset, invalid size, and malformed region states;
+- universal/fat binary inspection and refusal of universal binary mutation;
+- `MachOCodeSignatureWriter` append mutation, load-command header padding
+  verification, `__LINKEDIT` virtual slack gating, big-endian thin support,
+  and byte-for-byte preservation outside modified ranges;
+- default rejection of existing signatures and unsupported explicit replacement;
+- structured failure on malformed existing signatures, missing `__LINKEDIT`,
+  and insufficient load-command space.
+
+`ReadOnlyMachOParserTests` was also extended to test segment command decoding,
+zero-fill section handling, and boundary enforcement.
+
+The implementation environment has neither Swift nor Xcode. Those XCTest cases
+**have not been executed** inside Xcode. Swift lexical bracket and grammar
+checks passed for all new and modified Swift files; independent layout,
+rounding, and field calculations were verified with Python structural test
+scripts. These checks are structural and lexical verification, not compiled
+Swift execution or platform acceptance. Run `MachOCodeSignatureRegionTests`
+and the full suite in the Xcode unit-test target before relying on this code.
+
 ## Expectations Today
 
 Until a test suite exists, the expectations in
