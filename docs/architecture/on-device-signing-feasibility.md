@@ -426,6 +426,30 @@ establishes, and the profile's device list against a device identifier only when
 a caller supplies a trustworthy one. A `compatible` result says the configuration
 satisfies ZynSign's rules; it does not say the platform will accept it.
 
+**Observed — ZS-020 integrated pipeline.** The three stages are now sequenced by
+one application-layer use case: the container is verified, the payload is parsed
+only from a verified container, the parsed profile is structurally validated, the
+signer and profile certificates are related, and the ZS-019 predicates are applied
+to an authenticated payload — in that order, with no rule re-implemented in the
+integration layer. A run reports four separate states about a profile (discovered,
+parsed, authenticated, compatible with this application and signing configuration)
+plus structural validity and the certificate relationship, and its integrated status
+is `valid` only when every required stage passed and the policy evaluation was
+`compatible`; `invalid` requires a definite rejection by some stage; `unsupported` is
+reserved for coherent input outside supported capability; everything else is
+`indeterminate`, including a run with no profile to validate. The predicate list in
+§7.2 is therefore reachable from one call, and the reading it never does is
+substitute for the platform's own validator: `trustEvaluation` stays `notPerformed`,
+`authorization` stays `notEvaluated`, and a `valid` integrated result is not a claim
+that the platform would accept, install, or run the application.
+
+Since the same increment, one package path exists for the profile bytes themselves: a
+read-only intake reads the `embedded.mobileprovision` entry of a library
+application's bundle through the existing bounded archive reader and hands those
+bytes to the pipeline. That closes the input half of §7.2's "requires a custom CMS
+unwrap" chain for embedded profiles, without extraction, without any write, and
+without changing the bundle explorer, which still reads no entry content.
+
 **Open here.** Whether the platform's wildcard and profile-type rules agree with
 the predicates above is not established. A trustworthy device identifier remains
 Open Question 9, so the device rule defers instead of assuming the running device
@@ -584,7 +608,7 @@ ZynSign code path; whether per-use user presence is possible is open
 | Requirements evaluation | Interpret requirement opcodes (designated/internal) | **Yes, scoped — Feasible with custom implementation** for the subset ZynSign supports; full-language parity is an open scope question |
 | CMS signature on the CodeDirectory | Extract signer info, verify signature with the embedded certificates using `SecKeyVerifySignature` | **Yes — Feasible with custom implementation** (custom CMS parse + available primitives) |
 | Certificate-chain verification | Validate the signer chain to an Apple anchor under a suitable policy | **Partially — Requires experiment** (`SecTrust` available; code-signing policy behavior on iOS unestablished, E13) |
-| Provisioning compatibility | Profile signature + type + expiry + app ID + team + certificate + (device) | **Partially — Implemented** for parsing, structural validity, container signature verification, certificate relationship, and the policy predicates of ZS-019 (identifier scope, team, validity, certificate, entitlements, platform, and device with a supplied identifier); **Requires experiment** for the chain-trust step and for whether the platform agrees with those predicates |
+| Provisioning compatibility | Profile signature + type + expiry + app ID + team + certificate + (device) | **Partially — Implemented** for parsing, structural validity, container signature verification, certificate relationship, the policy predicates of ZS-019 (identifier scope, team, validity, certificate, entitlements, platform, and device with a supplied identifier), and their integrated one-call pipeline in ZS-020, which stages and reports each state separately; **Requires experiment** for the chain-trust step and for whether the platform agrees with those predicates |
 | Entitlement compatibility | Claims ⊆ profile allowlist, identifier consistency | **Yes — Feasible, implemented as typed per-key rules** (ZS-019); enforcement remains platform-side |
 | iOS policy validation | Everything the platform actually enforces at install/launch (AMFI, kernel checks, trust decisions, version-specific acceptance) | **No — Restricted / platform-dependent.** ZynSign cannot execute the platform's validator, and no public iOS API exposes it |
 

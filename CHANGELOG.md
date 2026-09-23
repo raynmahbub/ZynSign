@@ -6,6 +6,59 @@ All notable changes to ZynSign will be documented here.
 
 ### Added
 
+- Provisioning-profile pipeline integration (ZS-020): one application-layer use
+  case that takes a provisioning profile and an application, signing-identity, and
+  configuration context and returns one staged result, sequencing the existing
+  stages instead of re-implementing them — ZS-018 container verification, ZS-017
+  payload parsing and structural validation, ZS-018 certificate relationship, and
+  ZS-019 policy validation, in that fixed order. No validation rule, policy, or
+  failure vocabulary was copied into the integration layer, and each stage stays
+  independently testable.
+- A staged integrated result: an outcome per stage (`passed`, `failed`,
+  `indeterminate`, or `notAttempted`), each stage's own evidence kept reachable,
+  aggregated findings carrying the code the stage that produced them uses, and one
+  overall status of `valid`, `invalid`, `indeterminate`, or `unsupported` under
+  stated rules — `valid` requires every required stage to pass and the policy
+  evaluation to be `compatible`, `invalid` requires a definite rejection,
+  `unsupported` is reserved for coherent input outside supported capability, and
+  everything else stays `indeterminate`. There is no `isValid`, `isTrusted`,
+  `isSigned`, or `isInstallable` flag, and no result claims that iOS would accept or
+  install anything: trust stays `notPerformed` and authorization stays
+  `notEvaluated`.
+- Untrusted input cannot be laundered by the pipeline: the payload is parsed only
+  from a container whose signature verified, a container that decoded but did not
+  verify is reported as evidence with its parsing stage `notAttempted`, a missing
+  verification mechanism stays `indeterminate` rather than becoming a defect in the
+  user's profile, an unsupported algorithm or armored container is reported as
+  `unsupported` rather than `invalid`, and a signer/profile certificate mismatch
+  stays the open question ZS-019 records instead of being promoted into a verdict.
+- Explicit handling of profiles that are not there: a request states whether bytes
+  were supplied, whether no `embedded.mobileprovision` entry was recorded, or why an
+  entry could not be read; absent and unreadable inputs stop at acquisition with a
+  distinct code and an `indeterminate` status rather than becoming a generic
+  "invalid application" error, because a distributed application legitimately carries
+  no embedded profile.
+- A read-only embedded-profile intake over the existing artifact boundaries: it
+  asks the library's own archive-reader provider for one record's container, reads
+  the entry table, resolves the primary application bundle through
+  `ApplicationBundleDiscovery` (reporting ambiguity rather than choosing), and reads
+  at most the one profile entry within the tighter of the archive's inspection-read
+  bound and the profile input cap — no extraction, no second reader, no second
+  store, no writes, no conclusion. The bundle explorer still reads no entry content,
+  and nothing here persists a status or caches a result.
+- Host-side suites for the integrated pipeline and the intake, over the committed
+  synthetic CMS containers with the real stages and only the signature mechanism and
+  identity store doubled: a fully successful run, the security order, cryptographic
+  failure, tampering refused before any signature check, mechanism unavailability,
+  unsupported input, certificate correspondence and unrelated-identity cases,
+  identity-store failure, policy propagation for bundle identifier, entitlements,
+  expiry, and several simultaneous failures, the four input states, determinism,
+  one unit of work per question, non-mutation, redaction, and single-bounded-read and
+  refusal behaviours of the intake. They assert that no signing capability is
+  requested and that no identifier, value, or byte reaches a diagnostic. Like the
+  rest of the target, they were written but not executed in the environment where
+  they were written.
+
 - Provisioning-profile policy validation (ZS-019): a read-only domain stage that
   evaluates whether an authenticated profile may be used with an application, a
   bundle identifier, a signing identity, and a requested signing configuration.
@@ -303,6 +356,16 @@ All notable changes to ZynSign will be documented here.
 
 ### Notes
 
+- An integrated provisioning-profile result states which stage reached which
+  outcome. A `valid` status means only that every stage ZynSign implements passed
+  and that the configuration satisfies the policy rules ZynSign implements: it is
+  not certificate trust, not platform authorization, not a signature, not proof
+  that a private key was used, and not a claim that iOS would accept, install, or
+  run the application.
+- Reading an `embedded.mobileprovision` entry makes a profile discovered, nothing
+  more. Discovery, parsing, authentication, and compatibility with an application
+  and a signing configuration are four separate states, and none of them is
+  inferred from another.
 - Structural validity is not cryptographic validity. A `valid` structural outcome
   says nothing about signatures, entitlements, trust, or installability.
 - Extracted metadata is a record of what a bundle's information file declares.

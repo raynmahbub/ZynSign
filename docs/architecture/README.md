@@ -95,14 +95,34 @@ claim, and which platform questions remain open — is recorded in Section 7 of
 evaluation, no signing-policy or compatibility decision, no CMS construction, no
 profile persistence, and adds no profile-management interface.
 
+The provisioning-profile pipeline integration increment then composes those three
+stages into one application-layer workflow. `ValidateProvisioningProfileUseCase`
+runs container verification, parsing, structural validation, certificate
+relationship, and policy evaluation in that order, records an outcome per stage,
+aggregates each stage's own findings, and assigns one integrated status of
+`valid`, `invalid`, `indeterminate`, or `unsupported` under rules stated in the
+decision record. A read-only intake reaches the `embedded.mobileprovision` entry of
+a library application's bundle through the existing archive boundary and hands its
+bytes to the pipeline, so "profile discovered", "profile parsed", "profile
+authenticated", and "profile compatible with this application and signing
+configuration" stay four separate statements. It adds no validation rule, no
+policy, no signing, no persistence, no caching, and no interface. The decision —
+why integration composes rather than re-implements, how the stage order preserves
+the trust boundary, what each status means and what it may never imply, how
+failures are aggregated without a new vocabulary, and how the embedded-profile
+intake stays inside the archive boundary — is recorded in Section 7 of
+[architecture.md](architecture.md).
+
 Everything else is intended structure only. The archive inspection stage is a
 partial capability: it reads containers, classifies layout, reads one bundle's
 declared metadata, and describes a bundle's structure; it does not verify
 signatures, inspect executables, extract content, or produce a package. The
-separate profile pipeline can parse decoded profile metadata and can verify a
-container's CMS signature, reporting authenticity; it establishes neither
-certificate trust nor authorization, and no interface consumes it yet. Library records are kept
-across launches and are listed, imported, browsed, and removed in the
+separate profile pipeline can parse decoded profile metadata, can verify a
+container's CMS signature and report authenticity, can evaluate an authenticated
+profile against an application, an identity, and a requested configuration, and can
+run all three as one staged workflow that can also be fed the profile a bundle
+embeds; it establishes neither certificate trust nor authorization, and no
+interface consumes it yet. Library records are kept across launches and are listed, imported, browsed, and removed in the
 Applications area. Certificate parsing and identity modeling exist as domain
 foundation; no application-signing, verification, packaging, or installation is
 implemented. No other workflow behaviour is

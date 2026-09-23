@@ -19,6 +19,16 @@ sections below stay separate: container verification is evidence, policy
 validation is a predicate over that evidence, and neither is platform
 authorization.
 
+ZS-020 adds the integration between them, and nothing to either: one
+application-layer use case runs container verification, parsing, structural
+validation, certificate relationship, and policy evaluation in that fixed order,
+and reports one staged result. It owns no rule, no policy, and no verdict of its
+own; the security properties below are the properties it inherits. It is the first
+path on which a profile read out of an application bundle's
+`embedded.mobileprovision` entry reaches this pipeline, and that reading is a
+bounded, read-only entry read by a separate intake — the bundle explorer still
+reads no entry content of any kind. See the integrated pipeline boundary section below.
+
 Production use of the verification path is gated by experiments E3 and E4 in
 [on-device-signing-feasibility.md](../architecture/on-device-signing-feasibility.md):
 the platform primitives the path uses are documented for iOS, but their
@@ -131,9 +141,14 @@ unauthenticated bytes to a parser, and a container that could not be evaluated
 is handed over as `.notEvaluated` — the state's actual meaning.
 
 Profile bytes are never modified. Where a package contains a DER-encoded
-`embedded.mobileprovision`, its presence is a filesystem observation made by the
-bundle explorer; the bytes are not rewritten, stripped, or re-encoded, and
-archive inspection still does not read embedded profiles.
+`embedded.mobileprovision`, its presence at that location is a filesystem
+observation made by the bundle explorer, which reads no entry content. Since
+ZS-020 the bytes themselves can reach the pipeline, but only through
+`BundleProvisioningProfileIntake`: one named entry of one package, read through the
+existing `ArchiveReader` under the tighter of the archive's inspection-read bound
+and the profile input bound, refused rather than truncated when it will not fit,
+and never written, rewritten, stripped, or re-encoded. Archive inspection and the
+explorer still do not read or evaluate embedded profiles.
 
 ## Identity relationship without capability
 
@@ -176,6 +191,57 @@ Nothing on this path modifies content. No entitlement is stripped, rewritten, or
 synthesized; no profile byte, `Info.plist`, or bundle identifier is edited and no
 Keychain item is touched. The stage is a predicate over values it was given.
 
+## Integrated pipeline boundary
+
+`ValidateProvisioningProfileUseCase` composes the boundaries above and adds no new
+one. Its security property is the ordering it cannot be talked out of: the
+container is verified first, a payload is parsed only from a verified container,
+structural validation and policy are applied only to what was parsed, and no
+policy rule is ever evaluated against unauthenticated profile metadata. Because
+the container boundary returns evidence rather than a Boolean, a run reports a
+rejected container, a container it could not evaluate, and an input that is not a
+CMS message as three different outcomes, and a `notAttempted` stage is never
+rendered as a pass.
+
+The integrated status is deliberately narrow. `valid` requires every required stage
+to have passed **and** the policy evaluation to be `compatible`; because
+`compatible` in turn requires that every policy category be satisfied, a deferred
+device question, an unavailable verification mechanism, or an unanswered
+entitlement question prevents `valid` instead of quietly permitting it. `invalid`
+requires a definite rejection by some stage. `indeterminate` is the state of a run
+that established no incompatibility but could not complete a check — including a
+run with no profile at all, which is the absence of an input and not a verdict on
+an application. `unsupported` is reserved, as elsewhere in the architecture, for
+coherent input outside deliberately supported capability, and is never used for a
+capability this build or platform lacks.
+
+Failure aggregation carries each stage's own codes rather than a summary string, so
+the reasons a profile failed remain diagnosable without rerunning the stages; the
+pipeline invents three codes of its own — `profileNotFound` for an input that was
+never there, `containerEvidenceUnavailable` for a boundary that produced no evidence
+object, and `payloadNotParsed` for a payload left unparsed because its container did
+not verify. A finding never contains profile bytes, payload bytes, certificate
+bodies, entitlement values, identifiers, keys, or credentials, because each
+finding's text is either a fixed sentence or the redacted text the stage itself
+wrote.
+
+The signing identity is represented only by the safe abstraction ZS-016
+establishes: the pipeline resolves listing and metadata read-only, reports the key
+availability and capability state those reads returned, never asks for a signing
+capability, and never resolves a key handle. No private key, password, Keychain
+record, or PKCS#12 material can enter the request, and none can leave the result.
+Nothing is persisted: the result is derived from the profile, the application, the
+identity, the configuration, the injected clock, and the device context, so it goes
+stale by construction, and no cache is introduced.
+
+Successful integration is not a claim about a device or the platform. It states that
+the payload the profile was parsed from is the payload the signer's key signed, that
+the parsed metadata satisfies ZynSign's structural rules, and that the configuration
+satisfies the policy rules ZynSign implements. It does not state that the signer's
+certificate is trusted or Apple-issued, that entitlements will be enforced, that the
+device is provisioned, or that the platform would accept, install, or run anything;
+trust stays `notPerformed` and authorization stays `notEvaluated` on every path.
+
 ## Diagnostics and redaction
 
 Diagnostic renderings carry states, bounded counts, algorithm identifiers,
@@ -211,6 +277,17 @@ application, the identity, the configuration, and the current time, so a caller
 that keeps one must define its own invalidation rather than treating it as stored
 state.
 
+The integrated pipeline inherits all of the above and adds nothing to store: it
+persists no result, writes no cache, copies no profile byte into any file, and
+touches no bundle entry beyond the one read its intake performs. The intake reads
+that entry into memory under the tighter of the archive's inspection-read bound and
+the profile input cap, hands the bytes over, and closes the reader on every path,
+including the failure paths; a package whose recorded artifact is missing or no
+longer matches the library record is never opened. Because the result is derived
+from the profile, the application, the identity, the configuration, the injected
+clock, and the caller's device context, it is treated as transient everywhere it
+appears, and nothing in this increment offers a way to keep it.
+
 ## Platform evidence
 
 **Verified — Apple Security documentation, per symbol.** `CMSDecoderCreate`
@@ -233,9 +310,19 @@ primitives behave under memory pressure and for certificates the platform
 rejects. Until measured, the substitute path is implemented and reasoned about,
 not demonstrated.
 
+**Observed — ZS-020 integration.** The stage order, the four-way integrated status,
+the per-stage outcomes, the aggregated findings, the acquisition distinctions, and
+the intake's single bounded entry read are statements about this repository's code.
+They rest on the platform evidence above and inherit its gating: nothing the
+integration adds has been measured on a device, and no claim about an Apple-signed
+profile, an installable application, or platform acceptance follows from a `valid`
+integrated result.
+
 **Unknown.** Signer-chain trust, revocation checking, Apple issuance rules,
-profile-type semantics, and every authorization question. Nothing in this
-increment answers them.
+profile-type semantics, and every authorization question. Nothing in this increment
+answers them, and the integrated pipeline invents no answer: a deferred device
+check, an unattempted trust evaluation, and an unanswered entitlement question each
+keep a run from reporting `valid`.
 
 **Unknown — platform-policy predicates.** The rules of the policy stage are
 ZynSign's rules, and their evidence is recorded where they are defined: allowlist
@@ -275,8 +362,25 @@ to fail it. The private keys existed only while those bytes were produced and
 are not committed. No real provisioning profile, production certificate, team
 identifier, or device identifier appears anywhere in the suite.
 
+The ZS-020 integration suites are host-side and layered the same way: the pipeline
+tests drive the real ZS-017 parser and validator, the real ZS-018 container
+boundary and relationship analyzer, and the real ZS-019 policy validator over the
+committed synthetic containers, substituting only the signature mechanism and the
+identity store, while the intake tests drive the real bundle-discovery rules over an
+in-memory container. They assert the security order (no parsed profile for an
+unverified container), that a cryptographic rejection never becomes a policy
+authorization, that unavailability and unsupported input stay `indeterminate` and
+`unsupported` rather than `invalid`, that an absent or unreadable profile is not an
+invalid application, that policy, structural, and entitlement findings propagate with
+their own codes, that each stage runs once per request, that no signing capability is
+ever requested, that nothing in the request is mutated, and that no identifier,
+value, or byte appears in the diagnostics or the presentation summary. Determinism
+comes from a fixed clock and from the fixture profile's own validity period, not from
+the current date.
+
 Outstanding: execution of the whole suite in Xcode, execution of the iOS-gated
 suite in a simulator and on a physical device, and experiments E3 and E4. The
-policy suites (ZS-019) share that status: they were written but not run in the
-environment where this increment was written. None of these has been performed,
-so no test result is claimed here.
+policy suites (ZS-019) and the integration suites (ZS-020) share that status: they
+were written but not run in the environment where they were written, and no run was
+made against a genuine Apple-signed provisioning profile. None of these has been
+performed, so no test result is claimed here.
