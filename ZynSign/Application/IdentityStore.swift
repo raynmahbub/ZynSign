@@ -8,10 +8,11 @@ import Foundation
 /// domain types and structured failures, and never see a key reference,
 /// keychain item, or platform certificate object.
 ///
-/// The store answers three questions:
+/// The store answers four questions:
 /// - what identities are available,
 /// - what is the metadata of a given identity,
-/// - how to access the signing capability for an identity.
+/// - how to access the signing capability for an identity;
+/// - which public certificate accompanies that capability for CMS construction.
 ///
 /// Security boundary, **Accepted**:
 /// - Private key material is never exposed through this port. Callers
@@ -69,9 +70,15 @@ protocol IdentityStore {
     /// - Throws: A typed `ZynSignError` when the identity does not exist,
     ///   the key is unavailable, or the store cannot be accessed.
     func signingCapability(for id: SigningIdentityIdentifier) throws -> any SigningCapability
+
+    /// Public certificate bytes for CMS construction only; never a key locator.
+    func signingCertificate(for id: SigningIdentityIdentifier) throws -> Certificate
 }
 
 extension IdentityStore {
+    func signingCertificate(for id: SigningIdentityIdentifier) throws -> Certificate {
+        throw ZynSignError.identity(.certificateUnavailable)
+    }
 
     func metadata(for id: SigningIdentityIdentifier) throws -> SigningIdentityMetadata? {
         guard let identity = try identity(withID: id) else { return nil }

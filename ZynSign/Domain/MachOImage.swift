@@ -136,6 +136,23 @@ struct MachOSegmentName: Equatable, Hashable {
     }
 }
 
+/// Bounded section metadata retained by the existing parser for the narrow
+/// signing admission policy. Presence does not establish loader acceptance.
+struct MachOSection: Equatable {
+    let name: [UInt8]
+    let segmentName: [UInt8]
+    let virtualAddress: UInt64
+    let size: UInt64
+    let fileOffset: UInt64
+    let alignmentExponent: UInt32
+    let relocationOffset: UInt32
+    let relocationCount: UInt32
+    let flags: UInt32
+    let reserved1: UInt32
+    let reserved2: UInt32
+    let reserved3: UInt32?
+}
+
 /// The subset of a segment command needed to establish whether it is safe to
 /// add one load command and append a signature region. Offsets and the first
 /// file-backed-content position are relative to the containing slice; byte
@@ -148,7 +165,12 @@ struct MachOSegment: Equatable {
     let name: MachOSegmentName
     let fileOffset: UInt64
     let fileSize: UInt64
+    let virtualMemoryAddress: UInt64
     let virtualMemorySize: UInt64
+    let maximumProtection: UInt32
+    let initialProtection: UInt32
+    let flags: UInt32
+    let sections: [MachOSection]
     let sectionCount: Int
     /// Lowest non-zero-fill section offset, if this command has one.
     let firstFileBackedSectionOffset: Int?

@@ -168,7 +168,10 @@ struct CodeDirectorySerializer {
         return serialization
     }
 
-    private func makeLayout(for directory: CodeDirectory) throws -> CodeDirectoryLayout {
+    /// Size planning reuses the serializer's exact checked layout, without
+    /// emitting bytes or bypassing model validation.
+    func makeLayout(for directory: CodeDirectory) throws -> CodeDirectoryLayout {
+        try directory.validate()
         let headerLength = directory.version.headerLength
         guard headerLength > 0 else {
             throw CodeDirectoryError.unsupportedVersion(directory.version.rawValue)

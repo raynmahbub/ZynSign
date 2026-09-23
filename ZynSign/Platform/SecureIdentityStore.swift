@@ -36,6 +36,15 @@ final class SecureIdentityStore: IdentityStore, CustomStringConvertible, CustomD
         }
     }
 
+    func signingCertificate(for id: SigningIdentityIdentifier) throws -> Certificate {
+        try sanitized {
+            guard let record = try record(for: id) else {
+                throw ZynSignError.identity(.identityNotFound)
+            }
+            return Certificate(metadata: try metadata(record), derData: record.certificateDER)
+        }
+    }
+
     /// Registers an already-stored key. Not a key or PKCS#12 import API.
     /// This method is intentionally absent from the Application port.
     @discardableResult
