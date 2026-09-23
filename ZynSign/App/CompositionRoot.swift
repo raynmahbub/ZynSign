@@ -342,6 +342,43 @@ enum CompositionRoot {
         )
     }
 
+    /// Builds the nested-code discovery use case over the given library,
+    /// selecting the concrete archive implementation.
+    ///
+    /// The archive boundary reads library storage only — discovery describes an
+    /// application the library holds — under the same file-extension
+    /// convention and the same resource policy as the other artifact-facing use
+    /// cases, and the same read-only parser and signature inspector classify
+    /// the candidates it reads. Discovery reads and concludes nothing about
+    /// trust, and it reaches no signing capability: the plan it returns is
+    /// descriptive data, and nothing built here signs, modifies, or extracts
+    /// anything.
+    ///
+    /// The discovery policy is a separate injection point from the archive
+    /// policy, because the two bound different things: the archive limits bound
+    /// what a container may declare and expand, and the discovery limits bound
+    /// how much of a bundle ZynSign is willing to describe.
+    ///
+    /// Nothing built here is installed in the application environment, because
+    /// no interface consumes a plan yet.
+    static func makeNestedCodeDiscoveryInspection(
+        intake: SecurityScopedArtifactIntake,
+        library: ApplicationLibrary,
+        limits: ArchiveLimits = .default,
+        discoveryLimits: NestedCodeDiscoveryLimits = .default
+    ) -> NestedCodeDiscoveryInspection {
+        NestedCodeDiscoveryInspection(
+            library: library,
+            readerProvider: DirectoryArtifactArchiveReaderProvider(
+                directory: libraryArtifactDirectory,
+                fileExtension: intake.fileExtension,
+                limits: limits
+            ),
+            archiveLimits: limits,
+            limits: discoveryLimits
+        )
+    }
+
     /// Builds the library use case over the selected persistence
     /// implementations: a versioned catalog file for records, and
     /// application-owned artifact storage fed from the intake's staging
