@@ -474,6 +474,24 @@ signing material, provisioning profile, or production certificate appears
 anywhere in the suite. Filesystem-backed
 tests write only into a temporary directory that the test removes.
 
+It also has read-only Mach-O parsing tests (ZS-022):
+
+- tiny synthetic thin 32/64-bit and fat32/fat64 byte arrays, reversed-endian
+  detection, all architecture records and explicit slice selection;
+- load-command counts, sizes and alignment, unknown commands, missing/valid/
+  duplicate `LC_CODE_SIGNATURE`, and offsets relative to the selected slice;
+- SuperBlob magic, table and member bounds, empty/unknown entries, known blob
+  magics, overlap and duplicate refusal;
+- versioned CodeDirectory fields, primary and alternate directories, identifier
+  and team bounds/encoding, known and unknown hash types, special slots and zero
+  placeholders, scatter, extended limits, pre-encryption and linkage ranges;
+- hostile values, truncation at each byte of a small signed-layout fixture,
+  structured errors, Data subsequences, and opt-in use-case delegation.
+
+These bytes contain no real executable, digest, certificate, or signature. They
+are format fixtures only. The Mach-O tests require the Xcode unit-test runner;
+syntax-only checks on another platform are not executed XCTest results.
+
 The tests are written to run inside the unit-test target with Xcode's test
 runner (Product ▸ Test, or `xcodebuild test` against the shared `ZynSign`
 scheme). **They have not been executed yet.** The checks that have actually been
