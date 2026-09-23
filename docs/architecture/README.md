@@ -141,6 +141,9 @@ implemented, and no behaviour may be inferred from these documents.
   CodeDirectory construction, page-hash, serialization, and parser relationship
   established by ZS-023; it records the deliberately limited supported format
   subset and unresolved platform-acceptance questions.
+- [superblob-construction.md](superblob-construction.md) — standalone embedded
+  SuperBlob values, canonical packing, opaque boundaries, ZS-023 integration,
+  and ZS-024 format evidence and validation limitations.
 
 ## Classification
 

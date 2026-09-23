@@ -506,6 +506,22 @@ scheme). **They have not been executed yet.** The checks that have actually been
 run against this code are recorded with the work that produced it, and none of
 them constitutes an executed test run.
 
+## ZS-024 checks
+
+`SuperBlobConstructionTests` adds 24 XCTest cases for independent expected
+bytes, deterministic packed serialization, CodeDirectory integration, opaque
+frames, standalone parser round trips, malformed input, and resource/overflow
+boundaries. Run it together with `ReadOnlyMachOParserTests` and
+`CodeDirectoryConstructionTests` in the existing Xcode unit-test target.
+
+For this change, the Linux environment had no Swift compiler or Xcode, and
+toolchain downloads failed. Those XCTest cases **were not executed**. A Swift
+grammar check passed for all seven changed/new Swift files, and Python
+`struct` checks confirmed the four literal expected-byte vectors. Neither
+check compiles or executes the production Swift code. No simulator, device,
+or Apple signature-acceptance validation was performed. Details and remaining
+checks are in [SuperBlob construction](../architecture/superblob-construction.md).
+
 ## Expectations Today
 
 Until a test suite exists, the expectations in
