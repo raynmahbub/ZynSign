@@ -323,16 +323,19 @@ struct ReadOnlyMachOParser: MachOParsing {
         let name = MachOSegmentName(rawBytes: Array(try command.data(
             at: 8, length: 16, boundary: .segment
         )))
+        let virtualMemoryAddress: UInt64
         let virtualMemorySize: UInt64
         let fileOffset: UInt64
         let fileSize: UInt64
         let fileSizeFieldRange: Range<Int>
         if is64BitCommand {
+            virtualMemoryAddress = try command.uint64(at: 24, order: order, boundary: .segment)
             virtualMemorySize = try command.uint64(at: 32, order: order, boundary: .segment)
             fileOffset = try command.uint64(at: 40, order: order, boundary: .segment)
             fileSize = try command.uint64(at: 48, order: order, boundary: .segment)
             fileSizeFieldRange = try command.checkedRange(at: 48, length: 8, boundary: .segment)
         } else {
+            virtualMemoryAddress = UInt64(try command.uint32(at: 24, order: order, boundary: .segment))
             virtualMemorySize = UInt64(try command.uint32(at: 28, order: order, boundary: .segment))
             fileOffset = UInt64(try command.uint32(at: 32, order: order, boundary: .segment))
             fileSize = UInt64(try command.uint32(at: 36, order: order, boundary: .segment))
@@ -352,6 +355,9 @@ struct ReadOnlyMachOParser: MachOParsing {
         }
 
         var firstFileBackedSectionOffset: Int?
+        var sections: [MachOSection] = []
+        // The complete section table was bounded by command size above.
+        sections.reserveCapacity(sectionCount)
         for index in 0..<sectionCount {
             let position = commandHeaderLength + index * sectionLength
             let sectionSize: UInt64
@@ -366,6 +372,22 @@ struct ReadOnlyMachOParser: MachOParsing {
                 sectionOffset = UInt64(try command.uint32(at: position + 40, order: order, boundary: .segment))
                 flags = try command.uint32(at: position + 56, order: order, boundary: .segment)
             }
+            let virtualAddress = is64BitCommand
+                ? try command.uint64(at: position + 32, order: order, boundary: .segment)
+                : UInt64(try command.uint32(at: position + 32, order: order, boundary: .segment))
+            let sectionFields = position + (is64BitCommand ? 52 : 44)
+            sections.append(MachOSection(
+                name: Array(try command.data(at: position, length: 16, boundary: .segment)),
+                segmentName: Array(try command.data(at: position + 16, length: 16, boundary: .segment)),
+                virtualAddress: virtualAddress, size: sectionSize, fileOffset: sectionOffset,
+                alignmentExponent: try command.uint32(at: sectionFields, order: order, boundary: .segment),
+                relocationOffset: try command.uint32(at: sectionFields + 4, order: order, boundary: .segment),
+                relocationCount: try command.uint32(at: sectionFields + 8, order: order, boundary: .segment),
+                flags: flags,
+                reserved1: try command.uint32(at: sectionFields + 16, order: order, boundary: .segment),
+                reserved2: try command.uint32(at: sectionFields + 20, order: order, boundary: .segment),
+                reserved3: is64BitCommand
+                    ? try command.uint32(at: sectionFields + 24, order: order, boundary: .segment) : nil))
             let sectionType = flags & MachOSectionType.mask
             guard sectionSize == 0 ||
                   (sectionType != MachOSectionType.zeroFill &&
@@ -395,7 +417,12 @@ struct ReadOnlyMachOParser: MachOParsing {
 
         return MachOSegment(
             commandRange: command.fileRange, wordSize: wordSize, name: name,
-            fileOffset: fileOffset, fileSize: fileSize, virtualMemorySize: virtualMemorySize,
+            fileOffset: fileOffset, fileSize: fileSize,
+            virtualMemoryAddress: virtualMemoryAddress, virtualMemorySize: virtualMemorySize,
+            maximumProtection: try command.uint32(at: is64BitCommand ? 56 : 40, order: order, boundary: .segment),
+            initialProtection: try command.uint32(at: is64BitCommand ? 60 : 44, order: order, boundary: .segment),
+            flags: try command.uint32(at: is64BitCommand ? 68 : 52, order: order, boundary: .segment),
+            sections: sections,
             sectionCount: sectionCount, firstFileBackedSectionOffset: firstFileBackedSectionOffset,
             fileSizeFieldRange: fileSizeFieldRange
         )

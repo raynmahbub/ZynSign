@@ -95,6 +95,9 @@ struct CMSStructureSignerInfo: Equatable {
     /// How the signer names its certificate.
     let identifier: CMSStructureSignerIdentifier
 
+    /// Exact issuer Name encoding for detached code-signature verification.
+    let issuerDER: Data?
+
     /// The declared digest algorithm identifier.
     let digestAlgorithm: String
 
@@ -306,7 +309,7 @@ enum CMSStructureReader {
                     throw CMSStructureError.invalid("The message declares signer information twice.")
                 }
                 let signersTLV = try signedData.readTLV()
-                signerInfos = try signerInfos(signersTLV, enteredFrom: signedData, bytes: bytes)
+                signerInfos = try readSignerInfos(signersTLV, enteredFrom: signedData, bytes: bytes)
             default:
                 throw CMSStructureError.invalid("SignedData contains an unexpected field.")
             }
@@ -331,7 +334,7 @@ enum CMSStructureReader {
 
     // MARK: - Signers
 
-    private static func signerInfos(
+    private static func readSignerInfos(
         _ tlv: TLV,
         enteredFrom reader: Reader,
         bytes: [UInt8]
@@ -369,12 +372,14 @@ enum CMSStructureReader {
 
         let identifierTLV = try body.readTLV()
         let identifier: CMSStructureSignerIdentifier
+        let issuerDER: Data?
         switch identifierTLV.tag {
         case Tag.sequence:
             guard version == 1 else {
                 throw CMSStructureError.invalid("The signer version and identifier form disagree.")
             }
             var issuerAndSerial = try body.enter(identifierTLV)
+            let issuerStart = issuerAndSerial.index
             let issuerTLV = try issuerAndSerial.readTLV()
             guard issuerTLV.tag == Tag.sequence else {
                 throw CMSStructureError.invalid("The signer issuer name is not a sequence.")
@@ -386,6 +391,7 @@ enum CMSStructureReader {
             guard serialTLV.length > 0, serialTLV.length <= maximumIdentifierByteCount else {
                 throw CMSStructureError.invalid("The signer serial number is empty or oversized.")
             }
+            issuerDER = Data(bytes[issuerStart..<issuerTLV.content.upperBound])
             identifier = .issuerAndSerialNumber(serialContentBytes: Array(bytes[serialTLV.content]))
         case Tag.context0:
             guard version == 3 else {
@@ -399,6 +405,7 @@ enum CMSStructureReader {
             guard keyIdentifierTLV.length > 0, keyIdentifierTLV.length <= maximumIdentifierByteCount else {
                 throw CMSStructureError.invalid("The signer key identifier is empty or oversized.")
             }
+            issuerDER = nil
             identifier = .subjectKeyIdentifier(Array(bytes[keyIdentifierTLV.content]))
         default:
             throw CMSStructureError.invalid("The signer identifier has an unexpected form.")
@@ -441,6 +448,7 @@ enum CMSStructureReader {
         return CMSStructureSignerInfo(
             version: version,
             identifier: identifier,
+            issuerDER: issuerDER,
             digestAlgorithm: digestAlgorithm,
             signatureAlgorithm: signatureAlgorithm,
             signature: signature,

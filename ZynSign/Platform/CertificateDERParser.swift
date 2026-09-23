@@ -27,14 +27,23 @@ enum CertificateDERParser {
     /// certificate that was accepted: trailing data is rejected, and the
     /// digest is not taken from a platform re-encoding.
     static func parse(_ input: CertificateInput) throws -> CertificateMetadata {
-        do {
-            return try parseCertificate(input)
-        } catch let error as DERError {
-            throw error.asZynSignError
-        }
+        try signingFields(input).metadata
     }
 
-    private static func parseCertificate(_ input: CertificateInput) throws -> CertificateMetadata {
+    /// Original encodings are required for CMS issuer-and-serial identification.
+    /// This extends the existing parse, not a second certificate decoder.
+    struct SigningFields {
+        let metadata: CertificateMetadata
+        let issuerDER: Data
+        let serialDER: Data
+    }
+
+    static func signingFields(_ input: CertificateInput) throws -> SigningFields {
+        do { return try parseCertificate(input) }
+        catch let error as DERError { throw error.asZynSignError }
+    }
+
+    private static func parseCertificate(_ input: CertificateInput) throws -> SigningFields {
         if input.bytes.isEmpty {
             throw DERError.empty
         }
@@ -68,7 +77,7 @@ enum CertificateDERParser {
         try validateBitString(signature, in: bytes)
 
         var tbsReader = try body.enter(tbs)
-        if !tbsReader.isExhausted && tbsReader.peekTag() == 0xA0 {
+        if !tbsReader.isExhausted, try tbsReader.peekTag() == 0xA0 {
             let version = try tbsReader.readTLV()
             var versionReader = try tbsReader.enter(version)
             let versionInteger = try versionReader.readTLV()
@@ -80,6 +89,7 @@ enum CertificateDERParser {
             }
         }
 
+        let serialStart = tbsReader.index
         let serialTLV = try tbsReader.readTLV()
         guard serialTLV.tag == 0x02 else {
             throw DERError.invalid("Certificate structure is not valid.")
@@ -87,13 +97,15 @@ enum CertificateDERParser {
         let serial = try serialNumber(from: bytes, range: serialTLV.content)
 
         let tbsSignature = try readAlgorithmIdentifier(try tbsReader.readTLV(), in: bytes, enteredFrom: tbsReader)
-        let issuer = try readName(try tbsReader.readTLV(), enteredFrom: tbsReader)
+        let issuerStart = tbsReader.index
+        let issuerTLV = try tbsReader.readTLV()
+        let issuer = try readName(issuerTLV, enteredFrom: tbsReader)
         let validity = try readValidity(try tbsReader.readTLV(), enteredFrom: tbsReader)
         let subject = try readName(try tbsReader.readTLV(), enteredFrom: tbsReader)
         let publicKey = try readPublicKey(try tbsReader.readTLV(), in: bytes, enteredFrom: tbsReader)
 
         while !tbsReader.isExhausted {
-            let tag = tbsReader.peekTag()
+            let tag = try tbsReader.peekTag()
             guard tag == 0xA1 || tag == 0xA2 || tag == 0xA3 else {
                 throw DERError.invalid("Certificate structure is not valid.")
             }
@@ -109,7 +121,7 @@ enum CertificateDERParser {
         guard let fingerprint = CertificateFingerprint(digestBytes: digest) else {
             throw DERError.unavailable("SHA-256 fingerprint could not be recorded.")
         }
-        return CertificateMetadata(
+        let metadata = CertificateMetadata(
             subject: subject,
             issuer: issuer,
             serialNumber: serial,
@@ -119,6 +131,9 @@ enum CertificateDERParser {
             signatureAlgorithm: SignatureAlgorithm.from(objectIdentifier: outerSignature),
             sha256Fingerprint: fingerprint
         )
+        return SigningFields(metadata: metadata,
+                             issuerDER: Data(bytes[issuerStart..<issuerTLV.content.upperBound]),
+                             serialDER: Data(bytes[serialStart..<serialTLV.content.upperBound]))
     }
 
     private static let pemPrefix: [UInt8] = Array("-----BEGIN".utf8)

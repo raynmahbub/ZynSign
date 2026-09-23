@@ -11,6 +11,25 @@ struct MachOCodeSignatureMutationResult: Equatable {
     let modifiedByteRanges: [Range<Int>]
 }
 
+/// Immutable finalized hashed prefix. Only the writer can create this token.
+struct MachOCodeSignaturePreparation {
+    let prefix: Data
+    let layout: MachOCodeSignatureRegionLayout
+    let loadCommandFields: MachOCodeSignatureLoadCommandFields
+    let signedCodeLimit: UInt64
+    let modifiedByteRanges: [Range<Int>]
+
+    fileprivate init(prefix: Data, layout: MachOCodeSignatureRegionLayout,
+                     loadCommandFields: MachOCodeSignatureLoadCommandFields,
+                     signedCodeLimit: UInt64, modifiedByteRanges: [Range<Int>]) {
+        self.prefix = prefix
+        self.layout = layout
+        self.loadCommandFields = loadCommandFields
+        self.signedCodeLimit = signedCodeLimit
+        self.modifiedByteRanges = modifiedByteRanges
+    }
+}
+
 /// Appends a structurally valid SuperBlob region to one thin Mach-O image only.
 /// Construction (`SignatureSuperBlob` -> `MachOCodeSignatureRegion`) is kept
 /// separate from this mutation boundary. This type neither constructs a
@@ -38,6 +57,25 @@ struct MachOCodeSignatureWriter {
         signedCodeLimit: UInt64,
         existingSignaturePolicy: MachOExistingCodeSignaturePolicy = .rejectExistingSignature
     ) throws -> MachOCodeSignatureMutationResult {
+        let preparation = try prepare(
+            bytes, serializedSuperBlobLength: region.serializedSuperBlobLength,
+            signedCodeLimit: signedCodeLimit, existingSignaturePolicy: existingSignaturePolicy)
+        return try finalize(preparation, region: region)
+    }
+
+    /// Resolves every hashed field before a private signing operation. No
+    /// placeholder signature is emitted and no file is persisted.
+    func prepare(
+        _ bytes: Data,
+        serializedSuperBlobLength: Int,
+        signedCodeLimit: UInt64,
+        existingSignaturePolicy: MachOExistingCodeSignaturePolicy
+    ) throws -> MachOCodeSignaturePreparation {
+        guard bytes.startIndex == 0 else { throw MachOCodeSignatureRegionError.invalidFileLength }
+        guard serializedSuperBlobLength > 0 else { throw MachOCodeSignatureRegionError.invalidLength }
+        guard serializedSuperBlobLength <= SignatureSuperBlob.maximumSerializedLength else {
+            throw MachOCodeSignatureRegionError.resourceLimitExceeded
+        }
         let image = try parseForMutation(bytes)
         guard case .thin(let slice) = image.container else {
             throw MachOCodeSignatureRegionError.universalImageUnsupported
@@ -55,7 +93,9 @@ struct MachOCodeSignatureWriter {
             }
         }
 
-        let layout = try region.layout(appendingToFileLength: bytes.count)
+        let layout = try MachOCodeSignatureRegionLayout(
+            appendingSerializedSuperBlobLength: serializedSuperBlobLength,
+            toFileLength: bytes.count)
         try layout.validate(signedCodeLimit: signedCodeLimit)
         let fields = try layout.loadCommandFields()
         guard layout.resultingFileLength <= Self.maximumResultingFileBytes else {
@@ -96,13 +136,12 @@ struct MachOCodeSignatureWriter {
         )
 
         var output = Data()
-        output.reserveCapacity(layout.resultingFileLength)
+        output.reserveCapacity(layout.offset)
         output.append(bytes)
         if layout.prefixPaddingLength > 0 {
             output.append(Data(repeating: 0, count: layout.prefixPaddingLength))
         }
-        output.append(region.bytes)
-        guard output.count == layout.resultingFileLength else {
+        guard output.count == layout.offset else {
             throw MachOCodeSignatureRegionError.inconsistentMutation
         }
 
@@ -133,13 +172,6 @@ struct MachOCodeSignatureWriter {
             )
         }
 
-        try validateWrittenOutput(
-            output,
-            expectedLayout: layout,
-            expectedFields: fields,
-            expectedSerializedSuperBlob: region.serializedSuperBlob
-        )
-
         let modifiedRanges = [
             16..<20,
             20..<24,
@@ -147,13 +179,34 @@ struct MachOCodeSignatureWriter {
             linkEdit.segment.fileSizeFieldRange,
             bytes.count..<layout.resultingFileLength
         ]
-        return MachOCodeSignatureMutationResult(
-            bytes: output,
+        return MachOCodeSignaturePreparation(
+            prefix: output,
             layout: layout,
             loadCommandFields: fields,
             signedCodeLimit: signedCodeLimit,
             modifiedByteRanges: modifiedRanges
         )
+    }
+
+    /// Finishing cannot resize or rewrite the prepared prefix. A size mismatch
+    /// fails, rather than retrying the private signing operation.
+    func finalize(_ preparation: MachOCodeSignaturePreparation,
+                  region: MachOCodeSignatureRegion) throws -> MachOCodeSignatureMutationResult {
+        let layout = preparation.layout
+        guard preparation.prefix.count == layout.offset,
+              region.serializedSuperBlobLength == layout.serializedSuperBlobLength,
+              region.dataSize == layout.size else {
+            throw MachOCodeSignatureRegionError.inconsistentRegion
+        }
+        var output = preparation.prefix
+        output.append(region.bytes)
+        try validateWrittenOutput(output, expectedLayout: layout,
+                                  expectedFields: preparation.loadCommandFields,
+                                  expectedSerializedSuperBlob: region.serializedSuperBlob)
+        return MachOCodeSignatureMutationResult(
+            bytes: output, layout: layout, loadCommandFields: preparation.loadCommandFields,
+            signedCodeLimit: preparation.signedCodeLimit,
+            modifiedByteRanges: preparation.modifiedByteRanges)
     }
 
     private func parseForMutation(_ bytes: Data) throws -> MachOImage {

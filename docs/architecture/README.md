@@ -158,6 +158,13 @@ implemented, and no behaviour may be inferred from these documents.
   boundary, existing signature policy, and narrow append mutation established
   by ZS-025.
 
+- [macho-signing-integration.md](macho-signing-integration.md) — experimental
+  ZS-026 single-image RSA/SHA-256 signing, detached CMS, finalized pre-hash
+  layout, verification boundaries, and outstanding Apple-host test gate.
+- [macho-signing-design-review.md](macho-signing-design-review.md) — historical
+  design proposal and prerequisites; the integration document records the
+  implemented scope and evidence.
+
 ## Classification
 
 Architecture documents state the status of each decision and each
