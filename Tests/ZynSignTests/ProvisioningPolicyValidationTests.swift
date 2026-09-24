@@ -582,13 +582,13 @@ final class ProvisioningPolicyValidationTests: XCTestCase {
 
     func testMatchingStringClaimIsSatisfied() {
         let context = Fixtures.context(
-            signingConfiguration: Fixtures.configuration(
-                entitlements: Fixtures.entitlements(additional: ["com.example.claim": .string("value")])
-            ),
             profile: Fixtures.profile(
                 entitlements: Fixtures.entitlements(additional: ["com.example.claim": .string("value")])
             )
-        )
+        ,
+            signingConfiguration: Fixtures.configuration(
+                entitlements: Fixtures.entitlements(additional: ["com.example.claim": .string("value")])
+            ))
         let result = Fixtures.validate(context)
 
         XCTAssertEqual(result.entitlements, .satisfied)
@@ -597,13 +597,13 @@ final class ProvisioningPolicyValidationTests: XCTestCase {
 
     func testMismatchedStringClaimIsViolated() {
         let context = Fixtures.context(
-            signingConfiguration: Fixtures.configuration(
-                entitlements: Fixtures.entitlements(additional: ["com.example.claim": .string("other")])
-            ),
             profile: Fixtures.profile(
                 entitlements: Fixtures.entitlements(additional: ["com.example.claim": .string("value")])
             )
-        )
+        ,
+            signingConfiguration: Fixtures.configuration(
+                entitlements: Fixtures.entitlements(additional: ["com.example.claim": .string("other")])
+            ))
         let result = Fixtures.validate(context)
 
         XCTAssertEqual(result.entitlements, .violated)
@@ -706,13 +706,13 @@ final class ProvisioningPolicyValidationTests: XCTestCase {
 
     func testUnsupportedValueFormIsIndeterminate() {
         let context = Fixtures.context(
-            signingConfiguration: Fixtures.configuration(
-                entitlements: Fixtures.entitlements(additional: ["com.example.blob": .data(Data([0x01]))])
-            ),
             profile: Fixtures.profile(
                 entitlements: Fixtures.entitlements(additional: ["com.example.blob": .data(Data([0x01]))])
             )
-        )
+        ,
+            signingConfiguration: Fixtures.configuration(
+                entitlements: Fixtures.entitlements(additional: ["com.example.blob": .data(Data([0x01]))])
+            ))
         let result = Fixtures.validate(context)
 
         XCTAssertEqual(result.entitlements, .indeterminate)
@@ -1157,11 +1157,11 @@ final class ProvisioningPolicyValidationTests: XCTestCase {
             certificateRelationship: Fixtures.relationship(match: .mismatched),
             signingIdentity: .identity(Fixtures.identityMetadata(fingerprint: Fixtures.unrelatedFingerprint)),
             signingConfiguration: Fixtures.configuration(
-                getTaskAllow: .requested(true),
                 entitlements: Fixtures.entitlements(
                     additional: ["com.example.unapproved": .string("value")]
                 )
-            ),
+            ,
+                getTaskAllow: .requested(true)),
             deviceContext: .identified(Fixtures.deviceB)
         )
         let result = Fixtures.validate(context, at: Fixtures.afterExpirationDate)
@@ -1279,8 +1279,8 @@ final class ProvisioningPolicyValidationTests: XCTestCase {
 
     func testHostileFieldCombinationsCannotCrashTheValidator() {
         let profile = ProvisioningProfile(
-            applicationIdentifier: Fixtures.applicationIdentifier(component: "*"),
             platforms: [.unknown("")],
+            applicationIdentifier: Fixtures.applicationIdentifier(component: "*"),
             teamIdentifiers: [""],
             entitlements: ProvisioningProfileEntitlements(values: [
                 ProvisioningProfileEntitlementKeys.applicationIdentifier: .integer(-1),
@@ -1290,12 +1290,12 @@ final class ProvisioningPolicyValidationTests: XCTestCase {
         let context = Fixtures.context(
             profile: profile,
             signingConfiguration: Fixtures.configuration(
-                getTaskAllow: .requested(true),
                 entitlements: ProvisioningProfileEntitlements(values: [
                     "": .dictionary([:]),
                     ProvisioningProfileEntitlementKeys.applicationIdentifier: .array([.string("")]),
                 ])
-            )
+            ,
+                getTaskAllow: .requested(true))
         )
 
         let result = Fixtures.validate(context)

@@ -491,7 +491,7 @@ final class ProvisioningProfileParserTests: XCTestCase {
     // MARK: - Classification and redaction
 
     func testClassificationRequiresMoreThanOneIncidentalField() throws {
-        let developmentRoot = validRoot(includeOptionalFields: true, includeDevices: true, includeCertificates: true)
+        var developmentRoot = validRoot(includeOptionalFields: true, includeDevices: true, includeCertificates: true)
         let development = try parse(developmentRoot)
         XCTAssertEqual(development.classification, .development)
 
