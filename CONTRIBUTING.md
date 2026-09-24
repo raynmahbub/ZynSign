@@ -1,5 +1,7 @@
 # Contributing to ZynSign
 
+ZynSign is independently developed, written from scratch, and not a fork or derivative of any other project. All contributions must be original work; do not submit code copied from another application, binary teardown, or third-party repository. By contributing you affirm you are the author of your contribution and license it under the MIT License.
+
 ZynSign is developed as a sequence of small, well-defined tasks. This document
 describes how that work is carried out, reviewed, and recorded.
 
@@ -56,6 +58,12 @@ Follow these rules while working:
 - A failing or surprising result is the answer. Fix it and run again; do not
   report around it.
 - As the codebase grows, new functionality is expected to arrive with tests.
+
+## Originality and Licensing
+
+* Submit only original code you wrote. Do not paste code from FlareStore, Esign, Feather, or any other app — binary symbols are not a license to copy.
+* No AI-generated code should be committed as-is without human review; you are responsible for understanding and owning every line you contribute.
+* All contributions are licensed under the MIT License (`LICENSE`). Keep the current tip free of internal workflow files (e.g., `/.ai/`).
 
 ## GitHub Issues and Pull Requests
 

@@ -36,14 +36,15 @@ struct PackageImportView: View {
                     cancelledContent
                 }
             }
-            .navigationTitle(ShellSection.importPackage.title)
+            .navigationTitle(ShellSection.files.title)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .fileImporter(
-                isPresented: $isShowingImporter,
-                allowedContentTypes: ImportablePackage.contentTypes
-            ) { result in
-                model.handlePickerResult(result)
-            }
+        }
+        .fileImporter(
+            isPresented: $isShowingImporter,
+            allowedContentTypes: ImportablePackage.contentTypes,
+            allowsMultipleSelection: false
+        ) { result in
+            model.handlePickerResult(result)
         }
     }
 
@@ -52,7 +53,7 @@ struct PackageImportView: View {
     private var idleContent: some View {
         VStack(spacing: 16) {
             ContentUnavailableView {
-                Label("Import a Package", systemImage: ShellSection.importPackage.symbolName)
+                Label("Import a Package", systemImage: ShellSection.files.symbolName)
             } description: {
                 Text("Choose an .ipa file to bring it into ZynSign. ZynSign reads the package's structure and the information its application declares, then keeps accepted packages in its library. Import does not install, sign, or modify the package.")
             } actions: {
@@ -109,7 +110,7 @@ struct PackageImportView: View {
     private var cancelledContent: some View {
         VStack(spacing: 16) {
             ContentUnavailableView {
-                Label("Import Cancelled", systemImage: ShellSection.importPackage.symbolName)
+                Label("Import Cancelled", systemImage: ShellSection.files.symbolName)
             } description: {
                 Text("The import was cancelled. Nothing was kept.")
             } actions: {

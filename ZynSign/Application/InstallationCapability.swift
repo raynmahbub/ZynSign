@@ -34,7 +34,7 @@ struct InstallationEvidence: Equatable {
 ///
 /// Limitations are stable, redacted facts for presentation and diagnostics.
 /// They carry no identifiers, no profile content, and no device data.
-enum InstallationLimitation: String, Equatable, CaseIterable {
+enum InstallationLimitation: String, Hashable, CaseIterable {
 
     /// No supported mechanism can deliver the package from ZynSign to a
     /// device. This limitation is always present: no public

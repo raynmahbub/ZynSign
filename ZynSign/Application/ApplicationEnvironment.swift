@@ -28,4 +28,38 @@ struct ApplicationEnvironment {
     /// The bundle contents inspection use case: describes, read-only, the
     /// structure of a library application's bundle for the explorer.
     let bundleInspection: IPABundleContentsInspection
+
+    /// The signing-identity store. The certificate list and signing capability
+    /// are resolved through this port; private-key bytes never leave Platform.
+    let identityStore: any IdentityStore
+
+    /// Imports PKCS#12 containers into the identity store. Presented by the
+    /// Certificates settings; the store remains the owner of registrations.
+    let pkcs12Importer: any SigningIdentityImporter
+
+    /// The end-to-end signing pipeline. Composed but not invoked until the
+    /// user explicitly signs an imported package with a chosen identity and
+    /// provisioning profile.
+    let signingPipeline: SignApplicationPipeline
+
+    /// Returns the file URL of the artifact the library holds for `id`, when
+    /// the library holds one. The location is the library artifact directory
+    /// plus the identifier and the canonical `ipa` extension; no part of a
+    /// selected document's name reaches the file system.
+    func artifactFileURL(for id: ArtifactIdentifier) -> URL {
+        // The directory is the same one the composition root binds to the
+        // intake and the library. Re-deriving it here keeps the location
+        // convention in one place without exposing the store's internals to
+        // the presentation layer.
+        let applicationSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return applicationSupport
+            .appendingPathComponent("ZynSignLibrary", isDirectory: true)
+            .appendingPathComponent("Artifacts", isDirectory: true)
+            .appendingPathComponent(id.rawValue, isDirectory: false)
+            .appendingPathExtension("ipa")
+    }
 }

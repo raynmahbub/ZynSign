@@ -97,12 +97,35 @@ final class PackageImportModel: ObservableObject {
     /// without a selection is reported by the picker as a failure, but it is
     /// an ordinary user cancellation; genuine access problems surface later,
     /// during staging, as typed errors.
+    ///
+    /// Only `CocoaError.userCancelled` (code 3072) is treated as a
+    /// cancellation. Any other picker failure is surfaced as a failed phase
+    /// so an import that never reached staging can still be diagnosed.
     func handlePickerResult(_ result: Result<URL, any Error>) {
         switch result {
         case .success(let source):
             beginImport(from: source)
-        case .failure:
-            settle(to: .cancelled)
+        case .failure(let error):
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain && nsError.code == NSUserCancelledError {
+                settle(to: .cancelled)
+            } else if error is CancellationError {
+                settle(to: .cancelled)
+            } else if let zynSignError = error as? ZynSignError, zynSignError.category == .cancelled {
+                settle(to: .cancelled)
+            } else {
+                // Surface the picker's own failure rather than swallowing it
+                // as a silent cancellation — the user tapped a file and the
+                // picker could not vend it.
+                if let zynSignError = error as? ZynSignError {
+                    settle(to: .failed(zynSignError.userMessage))
+                } else {
+                    settle(to: .failed("The picker could not provide the selected file."))
+                }
+                #if DEBUG
+                print("[ZynSign] picker failure: \(error)")
+                #endif
+            }
         }
     }
 

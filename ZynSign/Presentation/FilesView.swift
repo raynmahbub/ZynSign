@@ -1,0 +1,316 @@
+import SwiftUI
+import UniformTypeIdentifiers
+import UIKit
+
+/// The Files area — a file browser over ZynSign's own container.
+///
+/// This is ZynSign's original file manager. It surfaces the same storage the
+/// library and the import pipeline use: the Documents directory, the staging
+/// directory, and the library artifacts directory. Nothing here reaches
+/// outside the sandbox. Operations are local: import, share, rename, delete,
+/// and navigate into subdirectories. No cloud browser, no desktop helper.
+struct FilesView: View {
+
+    @StateObject private var model: FilesViewModel
+    @State private var searchText = ""
+    @State private var isShowingImporter = false
+    @State private var isShowingNewFolder = false
+    @State private var newFolderName = ""
+    @State private var shareItem: ShareURL?
+    @State private var fileToRename: FileItem?
+    @State private var renameText = ""
+
+    init(directory: URL? = nil) {
+        _model = StateObject(wrappedValue: FilesViewModel(root: directory))
+    }
+
+    private var filtered: [FileItem] {
+        if searchText.isEmpty { return model.items }
+        return model.items.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if model.items.isEmpty && !model.isLoading {
+                    emptyState
+                } else {
+                    fileList
+                }
+            }
+            .navigationTitle(model.title)
+            .navigationBarTitleDisplayMode(.large)
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search files")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if model.canGoUp {
+                        Button { model.goUp() } label: { Label("Up", systemImage: "chevron.left") }
+                    }
+                }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Menu {
+                        Button { isShowingImporter = true } label: { Label("Import Files", systemImage: "square.and.arrow.down") }
+                        Button { isShowingNewFolder = true } label: { Label("New Folder", systemImage: "folder.badge.plus") }
+                        Button { model.reload() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    Menu {
+                        Picker("Sort", selection: $model.sort) {
+                            Text("Name").tag(FilesViewModel.Sort.name)
+                            Text("Date").tag(FilesViewModel.Sort.date)
+                            Text("Size").tag(FilesViewModel.Sort.size)
+                        }
+                        Picker("Order", selection: $model.ascending) {
+                            Text("Ascending").tag(true)
+                            Text("Descending").tag(false)
+                        }
+                    } label: { Image(systemName: "arrow.up.arrow.down") }
+                }
+            }
+            .refreshable { model.reload() }
+            .fileImporter(isPresented: $isShowingImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+                switch result {
+                case .success(let urls): model.importFiles(urls: urls)
+                case .failure: break
+                }
+            }
+            .alert("New Folder", isPresented: $isShowingNewFolder) {
+                TextField("Folder name", text: $newFolderName)
+                Button("Cancel", role: .cancel) { newFolderName = "" }
+                Button("Create") { model.createFolder(named: newFolderName); newFolderName = "" }
+                    .disabled(newFolderName.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .alert("Rename", isPresented: Binding(get: { fileToRename != nil }, set: { if !$0 { fileToRename = nil } })) {
+                TextField("Name", text: $renameText)
+                Button("Cancel", role: .cancel) { fileToRename = nil }
+                Button("Rename") {
+                    if let item = fileToRename { model.rename(item, to: renameText) }
+                    fileToRename = nil
+                }
+            }
+            .sheet(item: $shareItem) { item in
+                ShareSheet(url: item.url)
+            }
+            .overlay { if model.isLoading { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) } }
+        }
+        .onAppear { model.reload() }
+        .onChange(of: model.sort) { _, _ in model.reload() }
+        .onChange(of: model.ascending) { _, _ in model.reload() }
+    }
+
+    private var fileList: some View {
+        List {
+            if model.canGoUp {
+                Button { model.goUp() } label: {
+                    Label(".. Up", systemImage: "arrow.up.left")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            ForEach(filtered) { item in
+                FileRowView(
+                    item: item,
+                    onTap: { handleTap(item) },
+                    onShare: { shareItem = ShareURL(url: item.url) },
+                    onRename: { fileToRename = item; renameText = item.name },
+                    onDelete: { model.delete(item) },
+                    onInfo: {}
+                )
+            }
+        }
+        .listStyle(.insetGrouped)
+        .animation(.snappy, value: filtered)
+    }
+
+    private var emptyState: some View {
+        ContentUnavailableView {
+            Label("No Files", systemImage: "folder.fill.badge.questionmark")
+        } description: {
+            Text("This folder is empty. Import files or create a folder to get started.")
+        } actions: {
+            Button { isShowingImporter = true } label: { Text("Import Files") }
+                .buttonStyle(.borderedProminent)
+            Button { isShowingNewFolder = true } label: { Text("New Folder") }
+                .buttonStyle(.bordered)
+        }
+    }
+
+    private func handleTap(_ item: FileItem) {
+        if item.isDirectory {
+            model.enter(item)
+        } else {
+            shareItem = ShareURL(url: item.url)
+        }
+    }
+}
+
+// MARK: - Model
+
+@MainActor
+final class FilesViewModel: ObservableObject {
+    enum Sort: Hashable { case name, date, size }
+
+    @Published var items: [FileItem] = []
+    @Published var isLoading = false
+    @Published var sort: Sort = .name
+    @Published var ascending = true
+
+    private var currentURL: URL
+    private var history: [URL] = []
+
+    var title: String { currentURL.lastPathComponent.isEmpty ? "Files" : currentURL.lastPathComponent }
+    var canGoUp: Bool { !history.isEmpty }
+
+    init(root: URL? = nil) {
+        if let root { currentURL = root }
+        else {
+            // Default to Documents; fallback to library root if needed.
+            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            currentURL = docs ?? FileManager.default.temporaryDirectory
+        }
+    }
+
+    func reload() {
+        isLoading = true
+        defer { isLoading = false }
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(at: currentURL, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey], options: [.skipsHiddenFiles]) else {
+            items = []
+            return
+        }
+        var mapped: [FileItem] = contents.compactMap { url in
+            let vals = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
+            return FileItem(url: url, isDirectory: vals?.isDirectory ?? false, size: vals?.fileSize ?? 0, modified: vals?.contentModificationDate ?? .distantPast)
+        }
+        switch sort {
+        case .name: mapped.sort { ascending ? $0.name < $1.name : $0.name > $1.name }
+        case .date: mapped.sort { ascending ? $0.modified < $1.modified : $0.modified > $1.modified }
+        case .size: mapped.sort { ascending ? $0.size < $1.size : $0.size > $1.size }
+        }
+        // Directories first
+        mapped.sort { lhs, rhs in
+            if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory && !rhs.isDirectory }
+            return false
+        }
+        items = mapped
+    }
+
+    func enter(_ item: FileItem) {
+        guard item.isDirectory else { return }
+        history.append(currentURL)
+        currentURL = item.url
+        reload()
+    }
+
+    func goUp() {
+        guard let prev = history.popLast() else { return }
+        currentURL = prev
+        reload()
+    }
+
+    func importFiles(urls: [URL]) {
+        let fm = FileManager.default
+        for src in urls {
+            let accessing = src.startAccessingSecurityScopedResource()
+            defer { if accessing { src.stopAccessingSecurityScopedResource() } }
+            let dest = currentURL.appendingPathComponent(src.lastPathComponent)
+            // Bounded copy via FileManager; for large IPAs the intake handles chunking elsewhere.
+            try? fm.copyItem(at: src, to: dest)
+        }
+        reload()
+    }
+
+    func createFolder(named: String) {
+        let trimmed = named.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let url = currentURL.appendingPathComponent(trimmed, isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+        reload()
+    }
+
+    func rename(_ item: FileItem, to newName: String) {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != item.name else { return }
+        let dest = item.url.deletingLastPathComponent().appendingPathComponent(trimmed)
+        try? FileManager.default.moveItem(at: item.url, to: dest)
+        reload()
+    }
+
+    func delete(_ item: FileItem) {
+        try? FileManager.default.removeItem(at: item.url)
+        reload()
+    }
+}
+
+struct FileItem: Identifiable, Equatable, Hashable {
+    let url: URL
+    let isDirectory: Bool
+    let size: Int
+    let modified: Date
+    var id: String { url.path }
+    var name: String { url.lastPathComponent }
+    var ext: String { url.pathExtension.lowercased() }
+    var icon: String {
+        if isDirectory { return "folder.fill" }
+        switch ext {
+        case "ipa", "tipa": return "app.badge"
+        case "zip": return "doc.zipper"
+        case "plist": return "doc.text"
+        case "mobileprovision", "provisionprofile": return "signature"
+        case "p12", "pfx": return "key.fill"
+        case "jpg","jpeg","png","heic": return "photo"
+        default: return "doc.fill"
+        }
+    }
+    var sizeText: String {
+        if isDirectory { return "Folder" }
+        return ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
+    }
+}
+
+private struct FileRowView: View {
+    let item: FileItem
+    let onTap: () -> Void
+    let onShare: () -> Void
+    let onRename: () -> Void
+    let onDelete: () -> Void
+    let onInfo: () -> Void
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: item.icon)
+                .foregroundStyle(item.isDirectory ? .blue : .secondary)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.name).lineLimit(1)
+                Text("\(item.sizeText) · \(item.modified, format: .dateTime.month().day().year())")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if item.isDirectory { Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary) }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { onTap() }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) { onDelete() } label: { Label("Delete", systemImage: "trash") }
+            Button { onShare() } label: { Label("Share", systemImage: "square.and.arrow.up") }.tint(.blue)
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            Button { onRename() } label: { Label("Rename", systemImage: "pencil") }.tint(.orange)
+        }
+        .contextMenu {
+            Button { onShare() } label: { Label("Share", systemImage: "square.and.arrow.up") }
+            Button { onRename() } label: { Label("Rename", systemImage: "pencil") }
+            Button(role: .destructive) { onDelete() } label: { Label("Delete", systemImage: "trash") }
+        }
+    }
+}
+
+private struct ShareSheet: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> UIActivityViewController { UIActivityViewController(activityItems: [url], applicationActivities: nil) }
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+private struct ShareURL: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
+}

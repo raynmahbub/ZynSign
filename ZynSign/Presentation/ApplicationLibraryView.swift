@@ -41,7 +41,7 @@ struct ApplicationLibraryView: View {
     var body: some View {
         NavigationStack {
             content
-                .navigationTitle(ShellSection.applications.title)
+                .navigationTitle(ShellSection.library.title)
                 .navigationDestination(for: LibraryEntry.self) { entry in
                     ApplicationDetailView(entry: entry, bundleInspection: bundleInspection)
                 }
@@ -60,7 +60,8 @@ struct ApplicationLibraryView: View {
         .safeAreaInset(edge: .bottom) { importStatus }
         .fileImporter(
             isPresented: $isShowingImporter,
-            allowedContentTypes: ImportablePackage.contentTypes
+            allowedContentTypes: ImportablePackage.contentTypes,
+            allowsMultipleSelection: false
         ) { result in
             model.handlePickerResult(result)
         }
@@ -114,7 +115,7 @@ struct ApplicationLibraryView: View {
 
     private var emptyContent: some View {
         ContentUnavailableView {
-            Label("No Applications", systemImage: ShellSection.applications.symbolName)
+            Label("No Applications", systemImage: ShellSection.library.symbolName)
         } description: {
             Text("Applications you import appear here. Importing reads a package's structure and the information its application declares, and keeps the package in ZynSign's library. Import does not sign or install anything.")
         } actions: {

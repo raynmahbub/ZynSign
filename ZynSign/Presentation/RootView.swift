@@ -1,47 +1,46 @@
 import SwiftUI
 
-/// The root of the ZynSign interface: the application shell.
+/// The root of the ZynSign interface: the tab shell the user navigates.
 ///
-/// The shell exposes the product's top-level areas as tabs and adapts to
-/// iPhone and iPad idioms. Import and Applications are working capabilities
-/// in this build; Settings renders factual information about the
-/// application itself; every other area is an explicit placeholder until
-/// the corresponding workflow exists.
+/// Tabs are in the deliberate order ZynSign presents: Files → Library →
+/// Home → App Store → Downloads → Settings. Each case is a real area with
+/// its own NavigationStack; no placeholder is shown. Home is the default
+/// selected tab so a fresh install lands on the dashboard.
 struct RootView: View {
 
-    @Environment(\.applicationEnvironment)
-    private var environment
+    @Environment(\.applicationEnvironment) private var environment
+    @State private var selected: ShellSection = .home
 
     var body: some View {
-        TabView {
-            ForEach(ShellSection.allCases) { section in
-                content(for: section)
-                    .tabItem {
-                        Label(section.title, systemImage: section.symbolName)
-                    }
-            }
-        }
-    }
+        TabView(selection: $selected) {
+            FilesView()
+                .tabItem { Label(ShellSection.files.title, systemImage: selected == .files ? ShellSection.files.symbolName : ShellSection.files.symbolNameUnselected) }
+                .tag(ShellSection.files)
 
-    @ViewBuilder
-    private func content(for section: ShellSection) -> some View {
-        switch section {
-        case .applications:
-            ApplicationLibraryView(
-                library: environment.library,
-                importing: environment.packageImport,
-                bundleInspection: environment.bundleInspection
-            )
-        case .importPackage:
-            PackageImportView(importing: environment.packageImport)
-        case .settings:
+            LibraryTabView()
+                .tabItem { Label(ShellSection.library.title, systemImage: selected == .library ? ShellSection.library.symbolName : ShellSection.library.symbolNameUnselected) }
+                .tag(ShellSection.library)
+
+            HomeView()
+                .tabItem { Label(ShellSection.home.title, systemImage: selected == .home ? ShellSection.home.symbolName : ShellSection.home.symbolNameUnselected) }
+                .tag(ShellSection.home)
+
+            AppStoreView()
+                .tabItem { Label(ShellSection.appStore.title, systemImage: selected == .appStore ? ShellSection.appStore.symbolName : ShellSection.appStore.symbolNameUnselected) }
+                .tag(ShellSection.appStore)
+
+            DownloadsView()
+                .tabItem { Label(ShellSection.downloads.title, systemImage: selected == .downloads ? ShellSection.downloads.symbolName : ShellSection.downloads.symbolNameUnselected) }
+                .tag(ShellSection.downloads)
+
             SettingsView()
-        default:
-            PlaceholderFeatureView(section: section)
+                .tabItem { Label(ShellSection.settings.title, systemImage: selected == .settings ? ShellSection.settings.symbolName : ShellSection.settings.symbolNameUnselected) }
+                .tag(ShellSection.settings)
         }
+        .tint(.primary)
     }
 }
 
 #Preview {
-    RootView()
+    RootView().environment(\.applicationEnvironment, CompositionRoot.makeApplicationEnvironment())
 }

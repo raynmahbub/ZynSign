@@ -1,0 +1,127 @@
+# Private Test Build — ZynSign 0.1.0 Horizon
+
+> Test privately, publish publicly. No tag is pushed public until the private build is green on your devices.
+
+This document is the single checklist for the **private test** that gates the first public dev build. It is the professional way to ship: internal → external, with the same binary discipline.
+
+## Principle
+
+* **Private build = same code, same version, no public tag.** It is built from `arena/01a0d4c7-zynsign` at the commit you intend to publish (currently `afd3c83` (Horizon `58e604c` + market `0.1.0` build `3`)), with `MARKETING_VERSION 0.1.0` `CURRENT_PROJECT_VERSION 3`, but distributed only to your trusted testers.
+* **Public build = same commit, same binary, new tag.** After private green, you push `v0.1.0` and publish the GitHub release. The market version does not change between private and public — the build is not rebuilt to avoid binary drift.
+
+## When to run
+
+Before any `v0.1.0` public tag. Private testing is **required** for 0.1.0 Horizon because it touches the signing pipeline, Keychain, `BackgroundURLSession`, and `ActivityKit`.
+
+## Private build channels (pick one, or both)
+
+### A — Ad-hoc IPA (sideload, no App Store Connect)
+
+Fastest, no Apple review, stays off TestFlight.
+
+```sh
+# 1 — Clean, archive, export ad-hoc
+xcodebuild clean archive -project ZynSign.xcodeproj -scheme ZynSign -configuration Release \
+  -archivePath build/ZynSign-private.xcarchive \
+  CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM=YOUR_TEAM_ID
+
+xcodebuild -exportArchive -archivePath build/ZynSign-private.xcarchive \
+  -exportPath build/private -exportOptionsPlist docs/releases/ExportOptions-private-adhoc.plist
+
+# ExportOptions-private-adhoc.plist → method: ad-hoc, teamID, compileBitcode: false
+# Result: build/private/ZynSign.ipa  (install via AltStore / Sideloadly / Apple Configurator)
+```
+
+*Share* `build/private/ZynSign.ipa` only in your private channel (DM / private TestFlight group is fine, public release is not). The IPA is not uploaded as a public GitHub release asset.
+
+### B — TestFlight Internal (recommended for professional)
+
+Private, review-free for internal testers, same binary review as public later.
+
+1. **Apple Developer → App Store Connect → My Apps → ZynSign → TestFlight → Internal Testing** → create group `Horizon Private` → add your Apple IDs.
+2. **Archive for App Store** (same as above but `method: app-store`):
+
+```sh
+xcodebuild clean archive -project ZynSign.xcodeproj -scheme ZynSign -configuration Release \
+  -archivePath build/ZynSign-private.xcarchive
+
+xcodebuild -exportArchive -archivePath build/ZynSign-private.xcarchive \
+  -exportPath build/private-appstore -exportOptionsPlist docs/releases/ExportOptions-private-appstore.plist
+# ExportOptions-private-appstore.plist → method: app-store
+```
+
+3. **Upload with Transporter / Xcode Organizer** (or `xcrun altool` / `notarytool` is for macOS; for iOS use Organizer or `fastlane pilot`):
+
+```sh
+xcrun altool --upload-app -f build/private-appstore/ZynSign.ipa -t ios -u YOUR_APPLE_ID
+# or: fastlane pilot upload --ipa build/private-appstore/ZynSign.ipa --distribute_external false
+```
+
+4. **TestFlight → Internal Testing → Horizon Private → select build 0.1.0 (3)** → `Add Testers`.
+
+No external review, no public page, no `v0.1.0` tag yet.
+
+## Private test matrix (do not skip)
+
+Test on **two real devices**: one iOS 17 (e.g., iPhone 13) + one iOS 18 (e.g., iPhone 15 Pro), plus Simulator smoke. Each row must be green before public.
+
+| Area | Action | Pass if |
+|---|---|---|
+| **Import** | Files → pick `app.ipa` + `app.tipa` (50-200 MB), also a >500 MB | Staged, SHA-256 deduped, `Library` shows `isArtifactAvailable`, background `Downloads` handles `itms-services` |
+| **Library** | Re-launch, check `isArtifactAvailable`, `Explore Bundle`, delete | Persists across kill, read-only listing correct, orphan sweep works |
+| **Certificates** | `Settings → Certificates → Import` `.p12` 10 MiB + wrong password + duplicate | `WhenUnlockedThisDeviceOnly` + `ZStatusBadge ready/needsAttention`, `Export public JSON` shares, wrong password → `authorizationFailure`, duplicate → rejected |
+| **Smart Sign** | `Library → Sign` with real cert + `.mobileprovision` (derive `N keys` preview) + `DER 0x20400` on/off + empty profile (should refuse at `profile` stage) | 9 stages → `Documents/Signed/*_signed.ipa` `Share`, `ZProgressRing` + `ZSigningStatusMachine` + Live Activity in-app badge, refusal `Refused at profile` no container |
+| **Repository** | `App Store → Add Source` `https://qnblackcat.github.io/AltStore/apps.json` + bad URL → `Check Health` | `Fast <800ms` / `Slow` / `Offline` + `ms` + `ZStatusBadge`, bad URL → `Offline` |
+| **Downloads** | Add `https://…/app.ipa` on device (LTE), lock, `Pause` → `Resume` → `Cancel`, kill app mid-download, relaunch | Background `com.zynsign.downloads` resumes, `Retry ×3`, survives backgrounding |
+| **Mission Control** | `Home → Refresh Everything` (repeat 3×), check `tmp` + `Downloads` pruning | Report `Completed` + `N sources` + `N apps` + `N cleaned` + `ms`, no re-sign auto-triggered |
+| **Honest 8-10** | `Settings → Installation` / `Pairing` / `Analytics` | `Unavailable` `Never` `None` + typed `InstallationLimitation`/`PairingLimitation`/`Guarantee` + `ZStatusBadge` |
+| **Diagnostics** | `Settings → Diagnostics & Logs` | Redacted, no key/profile bytes, no `AnalyticsKit` traffic (Charles proxy shows none) |
+
+Log results in `docs/releases/private-testing.md` (append a dated table) — the private build is green only when the matrix is all green.
+
+## From private green to public publish
+
+1. **Do not rebuild.** The public release is the *same commit* you privately tested (`afd3c83` today — Horizon `58e604c` + `0.1.0`/`3`).
+2. **Changelog ready?** `CHANGELOG.md` `0.1.0` Highlights must match the binary you tested (already done in `58e604c` (notes at `afd3c83`)).
+3. **Tag and publish (one command after green):**
+
+```sh
+git tag -a v0.1.0 -m "ZynSign 0.1.0 Horizon — first public dev (private-tested)" HEAD
+git push origin tag v0.1.0
+gh release create v0.1.0 --target arena/01a0d4c7-zynsign \
+  --title "ZynSign 0.1.0 Horizon — first public dev" \
+  --notes-file docs/releases/notes-v0.1.0.md
+# Attach the *same* IPA you privately tested only if you want an asset — otherwise sideload/TestFlight is the distribution
+```
+
+4. **Market version is already correct:** `MARKETING_VERSION 0.1.0` `CURRENT_PROJECT_VERSION 3` (`ZynSign.xcodeproj/project.pbxproj:332` …). For the next build, bump `CURRENT_PROJECT_VERSION` +1; for next feature, bump `MARKETING_VERSION` per `version-strategy.md`.
+
+## ExportOptions templates
+
+Two plists live in `docs/releases/`:
+
+* `ExportOptions-private-adhoc.plist` — `method: ad-hoc` — for DM sideload IPA.
+* `ExportOptions-private-appstore.plist` — `method: app-store` — for TestFlight internal.
+
+Both set `teamID: YOUR_TEAM_ID` (replace), `compileBitcode: false`, `signingStyle: automatic`.
+
+## CI help
+
+`.github/workflows/private-test-build.yml` builds `Release` on `macos-15` for `iphoneos`/`iphonesimulator`, runs `ci.yml` hygiene + `external_validation.py self-test`, and uploads `ZynSign-private.ipa` as a **private** workflow artifact (`retention-days: 7`, not a release). Trigger: `workflow_dispatch` on `arena/01a0d4c7-zynsign` only — never on `main`.
+
+## Checklist before you push `v0.1.0` public
+
+- [ ] Private matrix all green on 2 real devices (log appended below)
+- [ ] `Product → Archive` succeeds (Release, `MARKETING_VERSION 0.1.0` `CURRENT_PROJECT_VERSION 3`)
+- [ ] `Diagnostics` redacted, `Settings → Analytics` `0 events` + 5 guarantees, Charles shows no telemetry
+- [ ] `CHANGELOG.md` `0.1.0-dev` matches binary, `README.md` `0.1.0` badges, `WHAT_DOES_NOT_EXIST.md` `7 wired · 3 honest`
+- [ ] No `/.ai/`, no `Generated by`, no private keys in `git diff`
+- [ ] Tag `v0.1.0` annotated, `gh release` `--target arena/01a0d4c7-zynsign`
+
+---
+
+### Private test log (append here)
+
+| Date (Asia/Dhaka) | Tester | Devices (iOS) | Build `0.1.0 (3)` | Result | Notes |
+|---|---|---|---|---|---|
+| 2026-09-25 | _you_ | iPhone — / iPhone — | `afd3c83` | ☐ green / ☐ needs fix |  |

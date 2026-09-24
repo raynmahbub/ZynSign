@@ -152,8 +152,10 @@ Accepted risks are Medium or Low. No Critical or High issue remains open.
 - **Experimental signing stack without device evidence (Medium):**
   single-image and nested signing, the Keychain adapter, and CMS
   verification through platform primitives await the physical-device
-  experiments E1, E3, E4, and E7. Mitigation: none of it is composed
-  into the application or reachable from the interface.
+  experiments E1, E3, E4, and E7. Mitigation until 0.1.0-dev: none of it
+  was composed into the application or reachable from the interface; since
+  0.1.0-dev the certificate import and the nine-stage pipeline are
+  reachable from `Library`/`Application Detail` and `Settings → Certificates` and therefore await device validation with real identities and profiles.
 - **No packaging writer review (Low):** there is no writer to review; the
   risk is schedule and scope, not an examined defect. Mitigation:
   packaging stays explicitly unimplemented until its feasibility item

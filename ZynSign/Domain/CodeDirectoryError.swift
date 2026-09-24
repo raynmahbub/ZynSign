@@ -32,6 +32,7 @@ enum CodeDirectoryError: Error, Equatable {
 
 enum CodeDirectoryFeature: Equatable {
     case teamIdentifier
+    case derEntitlements
     case scatter
     case extendedCodeLimit
     case executableSegment
