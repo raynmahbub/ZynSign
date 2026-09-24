@@ -79,6 +79,35 @@ device is the operator's responsibility through whatever channel their
 management relationship supports, and ZynSign makes no statement about the
 outcome of that step.
 
+## Delivery Hand-off (0.1.x)
+
+The workflow above ends at a file; the **delivery hand-off** makes the
+operator's next step concrete without changing any statement in this
+record. `InstallationDeliveryService` (Application layer) takes a
+pipeline-signed IPA and the operator's declared HTTPS hosting locations and
+produces:
+
+- an **`itms-services` manifest** in Apple's documented `manifest.plist`
+  shape, serialized deterministically and written to `tmp/ZynSign-Delivery/`
+  for sharing;
+- a **ready-to-paste install link** (`itms-services://?action=download-manifest&url=…`)
+  with the manifest address percent-encoded as a single query value; and
+- a **QR code** (Core Image's `CIQRCodeGenerator`, on-device) for the link.
+
+The hand-off also renders step-by-step guides for the three operator
+channels — over-the-air hosting, MDM, and host tooling (Finder / Apple
+Configurator). Its boundaries are the record's boundaries:
+
+- ZynSign validates only that the declared addresses are HTTPS. It never
+  uploads, hosts, serves, or probes a server, and it never learns whether
+  an installation happened.
+- `InstallationCapabilityAssessment.deliveryMechanismAvailable` remains
+  `false` on every path; the hand-off is operator-assisted delivery, not a
+  delivery mechanism composed into the product.
+- A local (`file://`) or plain-HTTP address is refused with a typed error:
+  an installing device could never reach it, and producing a link that
+  silently fails off-device would be a dishonest artifact.
+
 ## Compatibility Notes
 
 - Supported artifact categories are exactly those the inspection and

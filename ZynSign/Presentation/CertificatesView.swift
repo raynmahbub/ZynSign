@@ -245,11 +245,14 @@ struct CertificatesView: View {
                 importSuccess = "Certificate imported."
             }
             pendingData = nil; pendingFileName = nil; password = ""; showPasswordSheet = false
+            env.recordAnalyticsEvent(category: .certificate, name: "certificate.imported", succeeded: true)
             await reload()
         } catch let e as ZynSignError {
             importError = e.userMessage
+            env.recordAnalyticsEvent(category: .certificate, name: "certificate.importFailed", succeeded: false)
         } catch {
             importError = (error as? ZynSignError)?.userMessage ?? "The certificate could not be imported."
+            env.recordAnalyticsEvent(category: .certificate, name: "certificate.importFailed", succeeded: false)
         }
         isImporting = false
     }

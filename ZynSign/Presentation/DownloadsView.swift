@@ -7,6 +7,7 @@ import UIKit
 /// pause/resume across launches, retry with checksum, and 600s resource timeout.
 struct DownloadsView: View {
     @StateObject private var model = DownloadsViewModel()
+    @Environment(\.applicationEnvironment) private var environment
     @State private var showAdd = false
     @State private var urlText = ""
     @State private var searchText = ""
@@ -57,6 +58,11 @@ struct DownloadsView: View {
             .refreshable { model.reload() }
         }
         .task { model.reload() }
+        .onAppear {
+            model.onOutcome = { ok in
+                environment.recordAnalyticsEvent(category: .download, name: ok ? "download.completed" : "download.failed", succeeded: ok)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .zynSignRequestDownload)) { note in if let s = note.userInfo?["url"] as? String { model.startDownload(from: s) } }
     }
 }
@@ -111,6 +117,11 @@ final class DownloadsViewModel: ObservableObject {
     private lazy var session: URLSession = { let cfg = URLSessionConfiguration.default; cfg.waitsForConnectivity = true; return URLSession(configuration: cfg, delegate: nil, delegateQueue: nil) }()
     private var bgTasks: [String: String] = [:]
     private var urlTasks: [String: URLSessionDownloadTask] = [:]
+    /// An action performed on the main actor when a download reaches a
+    /// terminal outcome — completed, or permanently failed after retries.
+    /// An intermediate retry is not terminal and does not fire it. The
+    /// default is no action.
+    var onOutcome: (@MainActor (Bool) -> Void)?
     var downloadsDir: URL { let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory; let dir = docs.appendingPathComponent("Downloads", isDirectory: true); try? fm.createDirectory(at: dir, withIntermediateDirectories: true); return dir }
     func reload() {
         guard let urls = try? fm.contentsOfDirectory(at: downloadsDir, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey], options: .skipsHiddenFiles) else { finished = []; return }
@@ -147,6 +158,7 @@ final class DownloadsViewModel: ObservableObject {
                 self.active.removeAll { $0.id == item.id }
                 self.retryCounts.removeValue(forKey: item.id)
                 self.reload()
+                self.onOutcome?(true)
             }
         }
         urlTasks[item.id] = task
@@ -154,7 +166,7 @@ final class DownloadsViewModel: ObservableObject {
         Task { await pollProgress(task: task, item: item) }
     }
     private func startBackgroundDownload(item: DownloadItem, url: URL) {
-        let bgId = BackgroundDownloadService.shared.start(url: url, progress: { [weak self] prog in Task { @MainActor in if let idx = self?.active.firstIndex(where: { $0.id == item.id }) { self?.active[idx].progress = prog } } }, completion: { [weak self] result in Task { @MainActor in guard let self else { return }; self.bgTasks.removeValue(forKey: item.id); switch result { case .success(let dest): if let data = try? Data(contentsOf: dest), let text = String(data: data, encoding: .utf8), text.contains("<plist") { if let ipaURL = self.extractIPA(fromManifestData: data) ?? self.extractIPA(fromManifestText: text) { try? self.fm.removeItem(at: dest); self.active.removeAll { $0.id == item.id }; self.startDownload(from: ipaURL.absoluteString); return } }; let final = item.localURL; try? self.fm.createDirectory(at: final.deletingLastPathComponent(), withIntermediateDirectories: true); if dest != final { try? self.fm.moveItem(at: dest, to: final) }; self.active.removeAll { $0.id == item.id }; self.retryCounts.removeValue(forKey: item.id); self.reload(); case .failure(let err): await self.handleFailure(item: item, url: url, error: err) } } })
+        let bgId = BackgroundDownloadService.shared.start(url: url, progress: { [weak self] prog in Task { @MainActor in if let idx = self?.active.firstIndex(where: { $0.id == item.id }) { self?.active[idx].progress = prog } } }, completion: { [weak self] result in Task { @MainActor in guard let self else { return }; self.bgTasks.removeValue(forKey: item.id); switch result { case .success(let dest): if let data = try? Data(contentsOf: dest), let text = String(data: data, encoding: .utf8), text.contains("<plist") { if let ipaURL = self.extractIPA(fromManifestData: data) ?? self.extractIPA(fromManifestText: text) { try? self.fm.removeItem(at: dest); self.active.removeAll { $0.id == item.id }; self.startDownload(from: ipaURL.absoluteString); return } }; let final = item.localURL; try? self.fm.createDirectory(at: final.deletingLastPathComponent(), withIntermediateDirectories: true); if dest != final { try? self.fm.moveItem(at: dest, to: final) }; self.active.removeAll { $0.id == item.id }; self.retryCounts.removeValue(forKey: item.id); self.reload(); self.onOutcome?(true); case .failure(let err): await self.handleFailure(item: item, url: url, error: err) } } })
         bgTasks[item.id] = bgId
     }
     private func handleFailure(item: DownloadItem, url: URL, error: Error) async {
@@ -168,6 +180,7 @@ final class DownloadsViewModel: ObservableObject {
             active.removeAll { $0.id == item.id }
             retryCounts.removeValue(forKey: item.id)
             notice = Notice(title: "Download failed", message: error.localizedDescription)
+            onOutcome?(false)
         }
     }
     private func pollProgress(task: URLSessionDownloadTask, item: DownloadItem) async {

@@ -12,7 +12,78 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
-No unreleased changes. This section tracks changes after `0.1.0`.
+Work after `0.1.0` toward the next development build. The three honest
+rows from `0.1.0` become: Installation → operator delivery hand-off
+(in-app install stays unavailable), Analytics → local on-device journal
+(off-device measurement stays none), Pairing/JIT/Mux → never, now
+ADR-recorded.
+
+### Added
+
+- **Installation delivery hand-off** — `Sign → Deliver…` opens
+  `InstallationDeliveryView` (`Application/InstallationDelivery.swift`):
+  enter the HTTPS address where you will host the signed IPA and ZynSign
+  builds Apple's `itms-services` `manifest.plist`, a percent-encoded
+  install link, an on-device QR code (Core Image `CIQRCodeGenerator`,
+  `Platform/DeliveryQRCodeRenderer.swift`), and step guides for the three
+  operator channels — OTA hosting, MDM, and host tooling. HTTPS-only by
+  design (`file://`/`http://` refused with a typed
+  `InstallationDeliveryError`). ZynSign never uploads, hosts, probes a
+  server, or learns an installation outcome;
+  `InstallationCapabilityAssessment.deliveryMechanismAvailable` stays
+  `false` on every path. Design record:
+  `docs/architecture/installation-compatibility.md` § Delivery Hand-off.
+
+- **Local activity journal (on-device analytics)** — `Settings →
+  Analytics` gains a small journal of what ZynSign has done:
+  `LocalAnalyticsEvent` (category + fixed slug + outcome + time — no
+  bundle identifiers, paths, or device/user identifiers), recorded by
+  `FileLocalAnalyticsJournal` (JSONL in the app container, capacity 500,
+  atomic writes, damaged lines skipped) behind the
+  `LocalAnalyticsRecording` port (`Application/LocalAnalyticsJournal.swift`),
+  composed in `CompositionRoot`. The screen shows a recording toggle
+  (`AnalyticsPolicy.journalDefaultsKey`, default on), live counts, recent
+  activity, one-tap Clear, and Export. Wired call sites: import
+  (`import.accepted`/`import.rejected`), signing
+  (`sign.succeeded`/`sign.refused`/`sign.failed`/`sign.cancelled`),
+  certificate import, download outcomes, and delivery manifest
+  generation. Events never leave the device.
+
+- **Pairing/JIT/Mux feasibility record** — `docs/architecture/pairing-jit-mux-feasibility.md`:
+  for each capability the private surface it needs (MobileDevice/lockdown
+  entitlements, `get-task-allow` + paired debugserver, the `usbmuxd`
+  socket, OpenSSL linkage), why it is out of reach for a sandboxed app,
+  what ZynSign does instead, and the triggers that would reopen the
+  decision. `PairingCapability` now carries per-capability
+  `feasibilityNote` + `documentationAnchor`, rendered by Settings →
+  Pairing / JIT / Mux.
+
+- **Tests** — `PairingCapabilityTests` (every `supported == false`, exact
+  limitation sets, redacted text, anchors), `AnalyticsPolicyTests`
+  (measurement off, guarantee set, journal preference default and
+  override), `LocalAnalyticsJournalTests` (in-memory + file journals:
+  recency, counts, capacity pruning, corruption tolerance, clearing,
+  persistence, redaction contract), `InstallationDeliveryTests` (manifest
+  shape, XML round-trip, HTTPS enforcement, `itms-services` encoding,
+  written artifact, honest channel text).
+
+### Changed
+
+- **Analytics policy** — `AnalyticsPolicy` now distinguishes off-device
+  measurement (`isEnabled == false`, `eventCount == 0`, `endpoint == nil`
+  — unchanged) from the local journal: new `journalDefaultsKey`,
+  `journalCapacity`, `isJournalEnabled`, and a sixth guarantee
+  `localJournalOnly`; `noTelemetry` is now `noTelemetryTransmission`
+  ("No telemetry event ever leaves the device."). Settings → Analytics and
+  Settings → Installation copy updated to match.
+- **Docs** — README rows/badge (`9 wired · 3 never` — the three nevers are
+  narrower than `0.1.0`'s: in-app installation and off-device measurement,
+  not delivery or analytics outright),
+  `WHAT_DOES_NOT_EXIST.md` (hand-off and journal join "Now Exists",
+  in-app install and off-device measurement stay claimed-never),
+  `docs/architecture/README.md` index. Historical `docs/releases/*` and
+  `docs/audits/*` still describe the shipped `0.1.0` binary and were
+  deliberately left untouched.
 
 ## [0.1.0] - 2026-09-25
 

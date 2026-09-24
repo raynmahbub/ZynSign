@@ -14,6 +14,7 @@ struct ApplicationLibraryView: View {
 
     @StateObject private var model: ApplicationLibraryModel
     @StateObject private var importing: PackageImportModel
+    @Environment(\.applicationEnvironment) private var environment
     @State private var isShowingImporter = false
     @State private var entryPendingRemoval: LibraryEntry?
     private let bundleInspection: IPABundleContentsInspection
@@ -57,6 +58,16 @@ struct ApplicationLibraryView: View {
                 }
         }
         .task { await model.load() }
+        .onChange(of: importing.phase) { _, phase in
+            switch phase {
+            case .succeeded:
+                environment.recordAnalyticsEvent(category: .intake, name: "import.accepted", succeeded: true)
+            case .failed:
+                environment.recordAnalyticsEvent(category: .intake, name: "import.rejected", succeeded: false)
+            case .idle, .importing, .cancelled:
+                break
+            }
+        }
         .safeAreaInset(edge: .bottom) { importStatus }
         .fileImporter(
             isPresented: $isShowingImporter,

@@ -27,6 +27,32 @@ enum PairingCapability: String, CaseIterable, Hashable {
     case jit
     case mux
     case openSSLLinkage
+
+    /// The private surface the capability would need. Fixed factual text,
+    /// used by the Settings screen and the feasibility record
+    /// (`docs/architecture/pairing-jit-mux-feasibility.md`).
+    var feasibilityNote: String {
+        switch self {
+        case .pairing:
+            return "Pairing speaks to usbmuxd through Apple's private MobileDevice framework and needs com.apple.mobile.lockdown-class entitlements no App Store or sideloaded sandboxed app can hold."
+        case .jit:
+            return "JIT needs get-task-allow plus a debugger relationship (debugserver / PT_TRACE_ME) that only Developer Mode with a paired host grants."
+        case .mux:
+            return "The multiplexer is usbmuxd's UNIX-domain socket; apps are sandboxed away from it, and shim layers would require a host tool outside the product."
+        case .openSSLLinkage:
+            return "OpenSSL stays in Tests/Host external validation only. Linking it into the app would grow the audit surface for no in-sandbox capability."
+        }
+    }
+
+    /// Where the honest boundary is written down.
+    var documentationAnchor: String {
+        switch self {
+        case .pairing: return "docs/architecture/pairing-jit-mux-feasibility.md#pairing"
+        case .jit: return "docs/architecture/pairing-jit-mux-feasibility.md#jit"
+        case .mux: return "docs/architecture/pairing-jit-mux-feasibility.md#mux"
+        case .openSSLLinkage: return "docs/architecture/pairing-jit-mux-feasibility.md#openssl-linkage"
+        }
+    }
 }
 
 enum PairingLimitation: String, Hashable, CaseIterable {

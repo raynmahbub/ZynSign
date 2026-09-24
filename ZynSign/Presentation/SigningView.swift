@@ -237,6 +237,11 @@ struct SigningView: View {
                     }
                     Button { shareItem = ShareURL(url: url) } label: { Label("Share Signed IPA…", systemImage: "square.and.arrow.up") }
                     Button { shareItem = ShareURL(url: url) } label: { Label("Open in Files", systemImage: "folder") }
+                    NavigationLink {
+                        InstallationDeliveryView(package: InstallationDeliveryPackage(signedIPA: url, record: entry.record))
+                    } label: {
+                        Label("Deliver…", systemImage: "tray.and.arrow.up")
+                    }
                     Text("The signed container is in Documents/Signed. It is the exact artifact the pipeline produced and independently verified — not a trust or installability claim.").font(.caption).foregroundStyle(.secondary)
                 }
             } else if let failure = result.failure {
@@ -311,12 +316,22 @@ struct SigningView: View {
             let result = try await env.signingPipeline.sign(request)
             await liveActivity.update(progress: 0.9, detail: result.status == .signed ? "Verified" : "Refused")
             signingResult = result
-            if result.status == .signed { outputURL = result.outputURL ?? output; await liveActivity.end(success: true) }
-            else if let failure = result.failure { signingError = "\(failure.stage.rawValue): \(failure.detail)"; await liveActivity.end(success: false) }
-            else { signingError = "Signing failed without a typed refusal."; await liveActivity.end(success: false) }
-        } catch is CancellationError { signingError = "Signing was cancelled."; try? FileManager.default.removeItem(at: output); await liveActivity.end(success: false) }
-        catch let e as ZynSignError { signingError = e.userMessage; try? FileManager.default.removeItem(at: output); await liveActivity.end(success: false) }
-        catch { signingError = "Signing failed unexpectedly."; try? FileManager.default.removeItem(at: output); await liveActivity.end(success: false) }
+            if result.status == .signed {
+                outputURL = result.outputURL ?? output
+                await liveActivity.end(success: true)
+                env.recordAnalyticsEvent(category: .signing, name: "sign.succeeded", succeeded: true)
+            } else if let failure = result.failure {
+                signingError = "\(failure.stage.rawValue): \(failure.detail)"
+                await liveActivity.end(success: false)
+                env.recordAnalyticsEvent(category: .signing, name: "sign.refused", succeeded: false)
+            } else {
+                signingError = "Signing failed without a typed refusal."
+                await liveActivity.end(success: false)
+                env.recordAnalyticsEvent(category: .signing, name: "sign.refused", succeeded: false)
+            }
+        } catch is CancellationError { signingError = "Signing was cancelled."; try? FileManager.default.removeItem(at: output); await liveActivity.end(success: false); env.recordAnalyticsEvent(category: .signing, name: "sign.cancelled", succeeded: false) }
+        catch let e as ZynSignError { signingError = e.userMessage; try? FileManager.default.removeItem(at: output); await liveActivity.end(success: false); env.recordAnalyticsEvent(category: .signing, name: "sign.failed", succeeded: false) }
+        catch { signingError = "Signing failed unexpectedly."; try? FileManager.default.removeItem(at: output); await liveActivity.end(success: false); env.recordAnalyticsEvent(category: .signing, name: "sign.failed", succeeded: false) }
         isSigning = false
     }
 }

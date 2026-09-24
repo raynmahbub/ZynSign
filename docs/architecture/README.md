@@ -201,7 +201,14 @@ implemented, and no behaviour may be inferred from these documents.
   policy, failure atomicity, and independent verification.
 - [installation-compatibility.md](installation-compatibility.md) — the six
   validity and compatibility statements, what each establishes, the
-  installation boundary, and the supported workflow.
+  installation boundary, the supported workflow, and the delivery hand-off
+  (manifest, install link, QR, operator channels) that ends at the
+  operator's action.
+- [pairing-jit-mux-feasibility.md](pairing-jit-mux-feasibility.md) — the
+  rejected-never decision record for pairing, JIT brokering, the usbmuxd
+  multiplexer, and OpenSSL linkage: the private surface each needs, why it
+  is out of reach for a sandboxed app, what ZynSign does instead, and the
+  triggers that would reopen the question.
 - [application-signing-pipeline.md](application-signing-pipeline.md) — the
   end-to-end signing workflow, deterministic packaging, safe extraction,
   independent verification, and installation-capability assessment, with

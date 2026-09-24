@@ -14,6 +14,7 @@ import SwiftUI
 struct PackageImportView: View {
 
     @StateObject private var model: PackageImportModel
+    @Environment(\.applicationEnvironment) private var environment
     @State private var isShowingImporter = false
 
     init(importing: IPAPackageImport) {
@@ -38,6 +39,16 @@ struct PackageImportView: View {
             }
             .navigationTitle(ShellSection.files.title)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onChange(of: model.phase) { _, phase in
+                switch phase {
+                case .succeeded:
+                    environment.recordAnalyticsEvent(category: .intake, name: "import.accepted", succeeded: true)
+                case .failed:
+                    environment.recordAnalyticsEvent(category: .intake, name: "import.rejected", succeeded: false)
+                case .idle, .importing, .cancelled:
+                    break
+                }
+            }
         }
         .fileImporter(
             isPresented: $isShowingImporter,

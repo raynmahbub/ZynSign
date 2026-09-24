@@ -73,7 +73,7 @@ struct SettingsView: View {
                 Label("Analytics", systemImage: "chart.bar.doc.horizontal")
             }
         } header: { Text("Workflow") } footer: {
-            Text("Installation, Pairing/JIT/Mux, and Analytics are explicit honest limitations — see each screen for the typed reason and the doc link. ZynSign does not claim to install, pair, or measure.")
+            Text("Installation is a delivery hand-off — ZynSign still never installs. Pairing/JIT/Mux is a documented never. Analytics is a local, on-device journal with off-device measurement permanently off. See each screen for the typed reason and the doc link.")
         }
     }
 
@@ -216,6 +216,11 @@ private struct InstallationSettingsView: View {
                         .listRowInsets(EdgeInsets(top: 4, leading: 32, bottom: 4, trailing: 16))
                 }
             } header: { Text("Installation — Honest Unavailable") } footer: { Text("`InstallationCapabilityAssessment.deliveryMechanismAvailable == false` on every path. Extending requires a demonstrated mechanism (MDM/OTA/host) and an ADR. See docs/architecture/installation-compatibility.md.") }
+            Section("Delivery hand-off") {
+                ZStatusBadge("Hand-off wired", systemImage: "tray.and.arrow.up", kind: .info)
+                Text("After a successful sign, **Deliver…** on the signing screen builds an over-the-air manifest (itms-services), a ready-to-paste install link, and a QR code, plus step-by-step guides for the three operator channels: OTA hosting, MDM, and host tooling (Finder / Apple Configurator).").font(.footnote).foregroundStyle(.secondary)
+                Text("The hand-off produces artifacts for you — it never uploads, hosts, contacts a server, or learns whether an install happened. Installation itself remains exactly as unavailable as above.").font(.caption).foregroundStyle(.secondary)
+            }
             Section("What ZynSign does today") {
                 Text("Validates artifact, signature, and provisioning separately and reports installation as unavailable with exact limitations. Delivery of a signed IPA is the operator's responsibility (MDM, OTA with user confirmation, or host tooling). Signed output is in `Documents/Signed/*_signed.ipa`.").font(.footnote).foregroundStyle(.secondary)
                 LabeledContent("Supported", value: assessment.supported ? "Yes" : "No").foregroundStyle(assessment.supported ? .green : .orange)
@@ -234,11 +239,13 @@ private struct PairingHonestView: View {
             Section {
                 HStack(spacing: ZSpacing.xs) { ZStatusBadge("Never", systemImage: "xmark.octagon", kind: .error); ZStatusBadge("4 capabilities", systemImage: "cable.connector", kind: .neutral) }
                 Text("Pairing / JIT / Mux / OpenSSL linkage are never planned for 0.1.0-dev → 0.2.0 Horizon. No PairingKit, no JITBroker, no usbmuxd, no OpenSSL linked into the app binary. Keeps the binary reviewable and avoids private-API risk.").font(.footnote).foregroundStyle(.secondary)
-            } header: { Text("Pairing / JIT / Mux — Never") } footer: { Text("Until an ADR demonstrates feasibility, every `PairingCapabilityAssessment.assess(_:)` returns `supported == false` with typed limitations. See WHAT_DOES_NOT_EXIST.md 0.2.0.") }
+            } header: { Text("Pairing / JIT / Mux — Never") } footer: { Text("Until an ADR demonstrates feasibility, every `PairingCapabilityAssessment.assess(_:)` returns `supported == false` with typed limitations. The feasibility record — the private surface each capability needs and the triggers that would reopen the question — is docs/architecture/pairing-jit-mux-feasibility.md. See also WHAT_DOES_NOT_EXIST.md 0.2.0.") }
             ForEach(assessments, id: \.capability) { a in
                 Section(a.capability.rawValue.capitalized) {
                     HStack { ZStatusBadge("Unavailable", systemImage: "xmark.shield", kind: .error); Spacer(); Text(a.summary).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
                     ForEach(a.limitations, id: \.self) { lim in Label(lim.message, systemImage: "circle.fill").font(.caption2).foregroundStyle(.tertiary) }
+                    Text(a.capability.feasibilityNote).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(a.capability.documentationAnchor).font(.caption2.monospaced()).foregroundStyle(.tertiary)
                 }
             }
             Section("OpenSSL note") {
@@ -249,25 +256,148 @@ private struct PairingHonestView: View {
 }
 
 private struct AnalyticsHonestView: View {
+    @Environment(\.applicationEnvironment) private var environment
     private var assessment: AnalyticsPolicy.Assessment { AnalyticsPolicy.assess() }
+    @State private var recentEvents: [LocalAnalyticsEvent] = []
+    @State private var counts = LocalAnalyticsJournalCounts.empty
+    @State private var showClearConfirm = false
+    @State private var shareItem: AnalyticsShareItem?
+
     var body: some View {
         List {
-            Section {
-                HStack(spacing: ZSpacing.xs) {
-                    ZStatusBadge(assessment.isEnabled ? "Enabled" : "None", systemImage: assessment.isEnabled ? "chart.bar.fill" : "eye.slash", kind: assessment.isEnabled ? .success : .neutral)
-                    ZStatusBadge("\(assessment.eventCount) events", systemImage: "number", kind: .neutral)
-                }
-                Text(assessment.summary).font(.footnote).foregroundStyle(assessment.isEnabled ? .primary : .secondary)
-                ForEach(assessment.guarantees, id: \.self) { g in Label(g.message, systemImage: "checkmark.shield").font(.caption).foregroundStyle(.secondary) }
-            } header: { Text("Analytics — None") } footer: { Text("`AnalyticsPolicy.isEnabled == false` on every path. Any future measurement requires an ADR, an Application port, a Platform implementation, user consent storage, and an opt-in toggle in Settings.") }
-            Section("What is not collected") {
-                Label("No IDFV / IDFA / custom identifier for measurement", systemImage: "person.crop.circle.badge.xmark").font(.caption).foregroundStyle(.secondary)
-                Label("No screen, event, or error telemetry off-device", systemImage: "antenna.radiowaves.left.and.right.slash").font(.caption).foregroundStyle(.secondary)
-                Label("Diagnostics are on-device, redacted; see Diagnostics screen", systemImage: "doc.text.magnifyingglass").font(.caption).foregroundStyle(.secondary)
+            measurementSection
+            journalSection
+            if !recentEvents.isEmpty { recentSection }
+            guaranteesSection
+            notCollectedSection
+        }
+        .navigationTitle("Analytics").navigationBarTitleDisplayMode(.inline)
+        .task { reloadJournal() }
+        .sheet(item: $shareItem) { item in
+            ActivityShareSheet(url: item.url)
+        }
+        .alert("Clear Activity Journal?", isPresented: $showClearConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Clear", role: .destructive) {
+                environment.analyticsJournal.clear()
+                reloadJournal()
             }
-        }.navigationTitle("Analytics").navigationBarTitleDisplayMode(.inline)
+        } message: {
+            Text("Every locally stored event will be deleted from this device. Nothing was ever transmitted, so nothing needs recalling.")
+        }
+    }
+
+    private var measurementSection: some View {
+        Section {
+            HStack(spacing: ZSpacing.xs) {
+                ZStatusBadge(assessment.isEnabled ? "Enabled" : "None", systemImage: assessment.isEnabled ? "chart.bar.fill" : "eye.slash", kind: assessment.isEnabled ? .success : .neutral)
+                ZStatusBadge("\(assessment.eventCount) events sent", systemImage: "number", kind: .neutral)
+                ZStatusBadge("Endpoint \(AnalyticsPolicy.endpoint.map { _ in "set" } ?? "none")", systemImage: "antenna.radiowaves.left.and.right.slash", kind: .neutral)
+            }
+            Text(assessment.summary).font(.footnote).foregroundStyle(.secondary)
+        } header: { Text("Off-Device Measurement — None") } footer: { Text("`AnalyticsPolicy.isEnabled == false` on every path. Any future off-device measurement requires an ADR, an Application port, a Platform implementation, user consent storage, and an opt-in toggle in Settings.") }
+    }
+
+    private var journalSection: some View {
+        Section {
+            Toggle(isOn: Binding(
+                get: { AnalyticsPolicy.isJournalEnabled },
+                set: { enabled in
+                    UserDefaults.standard.set(enabled, forKey: AnalyticsPolicy.journalDefaultsKey)
+                    reloadJournal()
+                }
+            )) {
+                Label("Local activity journal", systemImage: "list.bullet.rectangle")
+            }
+            LabeledContent("Events on this device", value: "\(counts.total)")
+            ForEach(LocalAnalyticsEvent.Category.allCases, id: \.self) { category in
+                if let count = counts.byCategory[category], count > 0 {
+                    LabeledContent(category.displayName, value: "\(count)")
+                }
+            }
+            Button(role: .destructive) { showClearConfirm = true } label: {
+                Label("Clear Journal", systemImage: "trash")
+            }
+            .disabled(counts.total == 0)
+            Button {
+                exportJournal()
+            } label: {
+                Label("Export Journal…", systemImage: "square.and.arrow.up")
+            }
+            .disabled(counts.total == 0)
+        } header: { Text("Local Activity Journal") } footer: {
+            Text("A small, on-device journal of what ZynSign has done — imports, signings, deliveries — so you can see its activity without trusting a server. Events carry a category, a fixed slug, a time, and an outcome: no bundle identifiers, no paths, no device or user identifiers. The journal never leaves the device; export writes a copy for you to keep.")
+        }
+    }
+
+    private var recentSection: some View {
+        Section("Recent Activity") {
+            ForEach(recentEvents) { event in
+                HStack(spacing: ZSpacing.xs) {
+                    Image(systemName: event.succeeded ? "checkmark.circle" : "xmark.circle")
+                        .foregroundStyle(event.succeeded ? .green : .orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(event.name).font(.footnote.monospaced())
+                        Text(event.category.displayName).font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text(event.date, format: .dateTime.month().day().hour().minute())
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
+
+    private var guaranteesSection: some View {
+        Section {
+            ForEach(assessment.guarantees, id: \.self) { g in
+                Label(g.message, systemImage: "checkmark.shield").font(.caption).foregroundStyle(.secondary)
+            }
+        } header: { Text("Guarantees") }
+    }
+
+    private var notCollectedSection: some View {
+        Section("What is not collected") {
+            Label("No IDFV / IDFA / custom identifier for measurement", systemImage: "person.crop.circle.badge.xmark").font(.caption).foregroundStyle(.secondary)
+            Label("No screen, event, or error telemetry off-device", systemImage: "antenna.radiowaves.left.and.right.slash").font(.caption).foregroundStyle(.secondary)
+            Label("No bundle identifiers, file names, or paths in journal events", systemImage: "doc.text.magnifyingglass").font(.caption).foregroundStyle(.secondary)
+            Label("Diagnostics are on-device, redacted; see Diagnostics screen", systemImage: "doc.text.magnifyingglass").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func reloadJournal() {
+        counts = environment.analyticsJournal.counts()
+        recentEvents = environment.analyticsJournal.recentEvents(limit: 10)
+    }
+
+    private func exportJournal() {
+        let events = environment.analyticsJournal.recentEvents(limit: AnalyticsPolicy.journalCapacity)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(events) else { return }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ZynSign-Export", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("zynsign-activity-journal.json")
+        try? data.write(to: url, options: .atomic)
+        shareItem = AnalyticsShareItem(url: url)
     }
 }
+
+private struct AnalyticsShareItem: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
+}
+
+private struct ActivityShareSheet: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
 private struct AppearanceSettingsView: View {
     @AppStorage("zynsign.appearance.colorScheme") private var scheme = 0
     var body: some View {
