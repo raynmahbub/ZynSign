@@ -70,6 +70,22 @@ struct ArchiveLimits: Equatable, Hashable {
         maximumInspectionReadBytes: 4 * 1_024 * 1_024
     )
 
+    /// The policy for the extraction stage of packaging and signing, which
+    /// must read whole executables and resources rather than small metadata
+    /// entries. Every bound matches the default policy except the single-read
+    /// bound, which admits one entry up to 512 MiB. The per-entry and total
+    /// ceilings still apply, so a hostile container cannot turn a working
+    /// copy into unbounded work.
+    static let extraction = ArchiveLimits(
+        maximumEntryCount: 100_000,
+        maximumEntryNameLength: 4_096,
+        maximumPathDepth: 32,
+        maximumEntryBytes: 2 * 1_024 * 1_024 * 1_024,
+        maximumTotalUncompressedBytes: 16 * 1_024 * 1_024 * 1_024,
+        maximumCompressionRatio: 1_000,
+        maximumInspectionReadBytes: 512 * 1_024 * 1_024
+    )
+
     /// Whether the container declares more expanded content in one entry than
     /// the policy accepts.
     func exceedsEntryBytes(_ uncompressedSize: Int) -> Bool {

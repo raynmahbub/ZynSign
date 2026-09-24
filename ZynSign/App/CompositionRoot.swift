@@ -401,6 +401,66 @@ enum CompositionRoot {
         )
     }
 
+    /// Selects the concrete archive writer: the deterministic stored-only
+    /// ZIP writer. Nothing beneath the composition root names the format.
+    static func makeArchiveWriter() -> any ArchiveWriter {
+        ZipArchiveWriter()
+    }
+
+    /// Builds the signed-application packaging use case over the selected
+    /// writer and the ordinary archive reader. Nothing built here is
+    /// installed in the application environment — no interface packages a
+    /// signed bundle yet.
+    static func makePackageSignedApplication(
+        writer: any ArchiveWriter = makeArchiveWriter(),
+        limits: ArchiveLimits = .default
+    ) -> PackageSignedApplication {
+        PackageSignedApplication(writer: writer, limits: limits)
+    }
+
+    /// Builds the signed-application verifier over the ordinary archive
+    /// reader and the target digest mechanism. Nothing built here is
+    /// installed in the application environment — no interface verifies a
+    /// signed container yet.
+    static func makeVerifySignedApplication(
+        digest: any MessageDigest = makeMessageDigest(),
+        limits: ArchiveLimits = .default
+    ) -> VerifySignedApplication {
+        VerifySignedApplication(digest: digest, limits: limits)
+    }
+
+    /// Builds the end-to-end application signing pipeline over the given
+    /// identity store.
+    ///
+    /// The pipeline, the packager, and the verifier are composed over the
+    /// same writer, reader, digest, and profile machinery the rest of the
+    /// application uses. Nothing built here is installed in the application
+    /// environment: the pipeline is constructible and covered by tests, but
+    /// no signing interface is composed until device validation completes,
+    /// and no installation channel exists anywhere in the product.
+    static func makeSignApplicationPipeline(
+        identityStore: any IdentityStore,
+        digest: any MessageDigest = makeMessageDigest(),
+        signatureVerifier: any CryptographicSignatureVerifier = makeCryptographicSignatureVerifier(),
+        certificateParser: any CertificateParser = AppleCertificateParser(),
+        clock: any EvaluationClock = SystemEvaluationClock(),
+        writer: any ArchiveWriter = makeArchiveWriter(),
+        limits: ArchiveLimits = .default
+    ) -> SignApplicationPipeline {
+        SignApplicationPipeline(
+            identities: identityStore,
+            digest: digest,
+            signatureVerifier: signatureVerifier,
+            profileValidation: makeProvisioningProfilePipeline(
+                certificateParser: certificateParser,
+                clock: clock,
+                identityStore: identityStore
+            ),
+            writer: writer,
+            limits: limits
+        )
+    }
+
     /// Builds the library use case over the selected persistence
     /// implementations: a versioned catalog file for records, and
     /// application-owned artifact storage fed from the intake's staging

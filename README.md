@@ -7,24 +7,25 @@ taken from another project.
 
 ## Current Status
 
-**Early development — package import, archive inspection, and library records.**
+**Development — import, inspection, and library in the application; signing
+pipeline, packaging, and verification below the interface; no signing
+interface, no installation, no release.**
 
 The repository contains an Xcode project with an iOS/iPadOS application target,
-a SwiftUI application shell, a domain layer, and a unit-test target. The
-application launches into its shell, and the Import area can bring an `.ipa`
-package in through the system document picker: the selected document is staged
-once into application-owned temporary storage, examined, and — if it passes —
-recorded in ZynSign's library and kept across launches.
+a SwiftUI application shell, domain, application, platform, and presentation
+layers, and a unit-test target. The application launches into its shell, and
+the Import area can bring an `.ipa` package in through the system document
+picker: the selected document is staged once into application-owned temporary
+storage, examined, and — if it passes — recorded in ZynSign's library and kept
+across launches.
 
-One workflow capability has a partial implementation: **inspection**, reachable
-end to end through the import flow. It reads a ZIP-based package's entry table,
-discovers the application bundle it contains, classifies the package's layout
-against ZynSign's own structural and safety rules, and reads the metadata the
-bundle declares in its bundle information file. It stops there. It does not
-verify or produce signatures, does not parse provisioning profiles, does not
-inspect executables, does not extract package contents, and does not install
-anything. A valid result is not a statement about signatures, trust, or
-installability.
+One workflow capability is reachable end to end through the interface:
+**import, inspection, and library**. It reads a ZIP-based package's entry
+table, discovers the application bundle it contains, classifies the package's
+layout against ZynSign's own structural and safety rules, reads the metadata
+the bundle declares in its bundle information file, and records accepted
+packages as library records. A valid inspection result is not a statement
+about signatures, trust, or installability.
 
 Accepted imports become **library records**: the package's declared identity,
 a reference to the copy ZynSign keeps in its own storage, a content
@@ -42,39 +43,64 @@ package's own entry table. It is read-only: nothing is extracted, opened,
 hashed, or parsed, symbolic links are listed but never followed, and the
 labels it puts on conventional locations such as `Info.plist` or
 `_CodeSignature` describe what is usually found there and nothing more. It
-makes no claim that any application is signed, trusted, or installable: no
-application-signing, verification, packaging, or installation workflow exists.
-No released build exists.
+makes no claim that any application is signed, trusted, or installable.
+
+Below the interface, and not reachable from any screen, the repository also
+holds: certificate inspection and signing-identity models with an experimental
+Keychain registry that is not composed into the application; a
+provisioning-profile pipeline (payload parsing, CMS container verification,
+policy validation, and one staged integration over all three, including a
+read-only intake for a bundle's embedded profile); a read-only Mach-O
+code-signature inspector behind an opt-in use case; and an experimental
+signing stack (generic cryptographic foundation, CodeDirectory construction,
+SuperBlob construction, signature-region framing, single-image signing with
+independent post-sign verification, dependency-aware nested signing, and the
+entitlements/requirements/CodeResources metadata layer); a nine-stage
+application-signing pipeline that runs integrity, profile, discovery,
+extraction, nested signing, resource sealing, main-executable signing,
+packaging, and independent verification in fixed order and delivers
+nothing when any stage refuses; a deterministic packaging writer and a
+safe archive extractor behind new archive ports; and a pure
+installation-capability assessment. The pipeline, the packager, and the
+verifier are constructed at the composition root and covered by unit
+tests, but none is installed in the application environment: there is no
+signing interface, no installation mechanism, and no released build.
 
 | Area | State |
 | --- | --- |
-| Source code | Shell UI, composition root, domain types, archive layer, inspection use cases, document-import workflow, library records and persistence, Applications library screen, bundle explorer |
+| Source code | Shell UI, composition root, domain/application/platform types, archive layer, inspection use cases, document-import workflow, library records and persistence, Applications library screen, bundle explorer, certificate and identity foundation, provisioning-profile pipeline, Mach-O inspection, experimental single-image and nested signing with signing metadata |
 | Build system / project file | Xcode project (`ZynSign.xcodeproj`): application target plus unit-test target |
-| Automated tests | Unit and fixture-based tests for the domain foundation, the archive layer, the import workflow, its presentation model, the library's persistence, the library screen's presentation model, and the bundle explorer's domain, use case, and presentation model, written to run with Xcode's test runner |
+| Automated tests | Unit and fixture-based tests across the domain foundation, archive layer, import workflow and presentation models, library persistence and screens, bundle explorer, certificates and identities, provisioning profiles and policy, Mach-O parsing and signing, nested discovery and signing, and signing metadata, written to run with Xcode's test runner; plus host vector scripts under `Tests/Host` |
 | Dependencies | None — Apple frameworks and the Swift standard library only |
 | Import | Partial: document selection, security-scoped staging into temporary storage, archive validation, declared-metadata extraction, library admission |
 | Library | Partial: durable records for accepted imports, application-owned artifact storage, content-based duplicate recognition, missing-artifact detection, an Applications screen that lists, imports, and deletes records and opens a read-only explorer of each available package's application bundle. No repair or replacement of missing artifacts |
 | Inspection | Partial: archive reading, application-bundle discovery, structural validation, declared metadata, read-only bundle structure listing. No signature examination, no file content access |
-| Identity security | Explicit signature capability and experimental Keychain registry/resolver; not composed into the app, pending physical-device validation. No private-key import. The ZS-021 generic signing use case signs only through this boundary and is likewise not composed in. See [security design](docs/security/signing-identities.md) |
-| Signing, verification, packaging, installation | Generic cryptographic foundation only (ZS-021): digest, signing request/result, a pure signing engine over the identity capability, and a signature-verification boundary — no application workflow, no code-signing construction, and success means only that a generic cryptographic operation completed. No packaging or installation |
+| Provisioning profiles | Application layer only: payload parsing, CMS container verification, policy validation, and a staged integrated pipeline with a read-only embedded-profile intake. No trust evaluation, no authorization, no interface. See [security design](docs/security/provisioning-profiles.md) |
+| Identity security | Explicit signature capability and experimental Keychain registry/resolver; not composed into the app, pending physical-device validation. No private-key import. The generic signing use case signs only through this boundary and is likewise not composed in. See [security design](docs/security/signing-identities.md) |
+| Signing and verification | Below the interface: single-image and nested Mach-O signing with independent post-sign verification and per-target metadata, composed into a nine-stage application pipeline with independent container verification. Built at the composition root and covered by unit tests; no signing interface until device validation completes |
+| Packaging and extraction | Below the interface: deterministic packaging through a validated entry set and a stored-only ZIP writer, and safe extraction with confinement and an explicit link policy. Built at the composition root; no interface |
+| Installation | None. No supported arbitrary-IPA installation mechanism is available to the application on iOS/iPadOS; a pure capability assessment reports installation as unavailable with exact limitations. See [installation and compatibility](docs/architecture/installation-compatibility.md) and [application signing pipeline](docs/architecture/application-signing-pipeline.md) |
 | Releases | None |
 
 ## Intended Scope
 
-The areas below describe what ZynSign is planned to become. They are **forward
-looking only**. None of them has been implemented, and none should be assumed to
-work, to be safe to rely on, or to be present in this repository.
+The areas below describe what ZynSign is intended to become. Import,
+inspection, and the application library exist in the application; signing,
+verification, and packaging exist below the interface, and installation
+does not exist at all. Nothing below should be assumed to work end to
+end, to be safe to rely on, or to be present as a finished workflow.
 
 - Working with iOS application packages (`.ipa`)
 - Inspecting and preparing packages for re-signing
 - Signing identities, provisioning profiles, and entitlements
-- Installing prepared packages onto devices
-- Moving files to and from devices
-- Batch processing across multiple packages
+- Verifying produced signatures independently of signing
+- Rebuilding signed packages deterministically
+- Installing prepared packages onto devices, where a supported mechanism exists
 
-Details such as architecture, module boundaries, and public interfaces are
-deliberately undecided. They will be recorded under
-[`docs/architecture/`](docs/architecture/) once they are real.
+Architecture, module boundaries, and public interfaces are recorded under
+[`docs/architecture/`](docs/architecture/) as they become real. Open
+platform questions stay open there until they are demonstrated on a
+supported deployment target.
 
 ## Development Approach
 
@@ -121,15 +147,15 @@ CONTRIBUTING.md      How development work is carried out
 SECURITY.md          Handling of sensitive material and responsible disclosure
 .github/
   ISSUE_TEMPLATE/    Bug report and feature request templates
-  workflows/         GitHub Actions workflow directory (no workflows yet)
+  workflows/         GitHub Actions workflows (build, test, hygiene)
   pull_request_template.md
                      Default pull request template
 docs/
-  architecture/      Architectural records (none written yet)
-  development/       Development guides (none written yet)
-  security/          Security documentation (none written yet)
-  testing/           Testing strategy and practice (none written yet)
-  releases/          Release process and history (none written yet)
+  architecture/      Architecture records, feasibility research, and design notes
+  development/       Development guides (toolchain, continuous integration)
+  security/          Security designs and the release security review
+  testing/           Testing strategy, practice, and per-increment check records
+  releases/          Release process, version strategy, and history (no releases yet)
 ```
 
 ## Security

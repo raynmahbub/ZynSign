@@ -5,9 +5,12 @@ describes how that work is carried out, reviewed, and recorded.
 
 ## Project State
 
-The project is in a pre-development state: documentation only. There is no build
-to run and no test suite yet. The expectations below describe how work is
-handled now and how they will tighten as code is added.
+The project is in development: an Xcode project with an iOS/iPadOS
+application target and a unit-test target, a SwiftUI shell with working
+import, inspection, and library areas, signing foundations below the
+interface, and a continuous-integration workflow definition. The
+expectations below apply to all work; where the toolchain is unavailable in
+an environment, that is stated explicitly instead of implied otherwise.
 
 ## Focused Development Tasks
 

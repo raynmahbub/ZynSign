@@ -6,6 +6,112 @@ All notable changes to ZynSign will be documented here.
 
 ### Added
 
+- Complete application-signing pipeline: a nine-stage application-layer
+  workflow (integrity, profile, discovery, extraction, nested signing,
+  resource sealing, main-executable signing, packaging, independent
+  verification) that signs an unsigned container end to end, delivers
+  nothing when any stage refuses, and reports the refusing stage with a
+  typed reason. Success-path tests sign synthetic containers assembled
+  at run time; refusal tests prove each stage fails closed. The pipeline
+  is constructed at the composition root but not installed in the
+  application environment: no signing interface is composed until device
+  validation completes. Existing signatures are rejected (the machinery
+  appends and refuses replacement), nested targets sign without their
+  own resource seals, and symbolic links are recorded as seal
+  omissions; see `docs/architecture/application-signing-pipeline.md`.
+- Deterministic packaging (`ArchiveWriter` port, `ArchiveWritePlan`,
+  `ZipArchiveWriter`, `PackageSignedApplication`): a validated entry
+  set, ascending UTF-8 recorded-name order with implied parents, fixed
+  timestamps and modes, preserved executable bits and links, and a
+  stored-only ZIP32 layout held by independent golden vectors. Every
+  rebuilt container is reopened through the ordinary archive boundary
+  and must pass structural validation, bundle discovery, and an exact
+  plan comparison, or it is removed and reported.
+- Safe archive extraction (`DirectoryArchiveExtractor`): validate-all-
+  first ordering, canonical-path confinement, directories before files
+  before links, an explicit symlink policy (refused by default,
+  recreated within the destination for the signing working copy), and
+  permission bits from recorded Unix modes. `ArchiveEntry` carries the
+  recorded mode when the container records one.
+- Independent signed-application verification
+  (`VerifySignedApplication`): structure, metadata, executable
+  presence, exact profile and seal bytes, re-computed seal digests,
+  main-executable signature presence with embedded entitlements and the
+  slot-3 binding, and nested-executable signature presence, checked
+  against expectations captured from the signing run.
+- Host vector script `Tests/Host/verify_zip_writer_vectors.py`,
+  wired into the continuous-integration workflow: it reads the
+  committed golden vectors and checks structure, fixed fields, modes,
+  CRC-32, ordering, offsets, and `zipfile` acceptance with the Python
+  standard library only. It was executed in this environment and
+  passed; it checks the vectors, not the Swift implementation.
+- Installation-capability assessment (`InstallationEvidence`,
+  `InstallationLimitation`, `InstallationAssessment`): a pure function
+  reporting installation as unavailable with exact limitations,
+  including the platform fact that no supported delivery mechanism
+  exists. The model carries no installable case.
+- Composition-root factories for the archive writer, packager,
+  verifier, and signing pipeline, following the established convention
+  that unvalidated capabilities are built but not installed in any
+  interface.
+
+### Fixed
+
+- Two latent compile errors in the signing stack: the throwing
+  `CodeDirectoryHashConfiguration` initializer was called with no
+  `try` covering the expression in per-item nested signing
+  (`ZynSign/Application/SignNestedCode.swift`), and the throwing
+  `FileResourceSeal` initializer was called with no `try` covering
+  the expression in the resource-seal generator
+  (`ZynSign/Domain/ResourceSealing.swift`). The nested-signing site
+  now constructs the configuration in a `do`/`catch` and reports
+  failure in the function's own vocabulary; the generator propagates
+  the (unreachable, length pre-checked) error with `try`.
+- `ArchiveEntry` equality now includes the recorded Unix mode, so two
+  entries that differ only in recorded permissions no longer compare
+  equal.
+
+### Honesty notes
+
+- No test suite was executed in this environment, which has no Xcode
+  runner: the new suites (writer golden vectors, extractor, packager,
+  pipeline end-to-end, verification, installation capability) are
+  written to run under Xcode's test runner and the
+  continuous-integration workflow, and no passing result is claimed
+  until they do.
+- A signed container from the pipeline is exactly what the run produced
+  and internally coherent — nothing more. Cryptographic validity to any
+  trust evaluator, platform authorization, and installability remain
+  unvalidated and unclaimed throughout.
+
+- Final-integration stabilization (ZS-030): a repository-wide review pass over
+  the import, inspection, signing, and verification work, with two genuine
+  integration defects fixed, regression coverage for both, release
+  documentation, installation and compatibility documentation, a security
+  review record, and a continuous-integration workflow definition. No release
+  was produced: packaging, the complete application pipeline, and on-device
+  installation remain unimplemented, and the test suites were not executed
+  in the review environment, so no versioned release section is created here.
+- Continuous-integration workflow (`.github/workflows/ci.yml`): on hosted
+  runners with Xcode it builds the application target, runs the unit-test
+  target, and runs a repository-hygiene check (no private keys, no secrets,
+  no generated artifacts). The workflow definition is new and has not yet
+  run to green on hosted infrastructure; see
+  `docs/development/continuous-integration.md`.
+- Release documentation: `docs/releases/version-strategy.md` records the
+  development → alpha → beta → release-candidate → stable progression and
+  the exit criteria for each stage; `docs/releases/README.md` indexes it.
+- Installation and compatibility documentation:
+  `docs/architecture/installation-compatibility.md` separates artifact
+  validity, signature validity, provisioning validity, target-device
+  compatibility, installation capability, and platform acceptance, and
+  records that no supported arbitrary-IPA installation mechanism is
+  available to the application on iOS/iPadOS.
+- Security review record: `docs/security/release-review.md` records the
+  final review of the archive, property-list, provisioning, Mach-O, signing,
+  and packaging boundaries, the security regression corpus and where each
+  area is covered, the two findings fixed in this increment with their
+  severity, and the accepted Medium/Low risks.
 - Signing-metadata layer (ZS-029): entitlements, requirements, and CodeResources
   for the code-signing pipeline. Entitlements are a typed claim set over the
   existing property-list value tree — unknown keys stay representable, dates are
@@ -510,7 +616,39 @@ All notable changes to ZynSign will be documented here.
   cases. Settings and the shell's Applications description now state that
   the Applications area shows what each application bundle contains.
 
+### Fixed
+
+- Nested signing verification now honors per-target signing metadata
+  (ZS-030): the independent post-sign check in `SignNestedCodeUseCase`
+  required every signed binary to carry exactly a CodeDirectory and a CMS
+  blob, so any nested target that embedded requirements or entitlements
+  blobs failed verification even though the single-image pipeline had
+  signed and verified it correctly. The check now compares the embedded
+  slot layout against the expected per-target layout, requires the
+  embedded requirements and entitlements bytes to equal the prepared
+  metadata bytes, and binds both blobs to their CodeDirectory special-slot
+  digests. The existing `testNestedTargetsCarryTheirOwnMetadataOnly`
+  suite covers the corrected behavior.
+- Filesystem nested-signing store confinement now falls on a path
+  separator (ZS-030): `FileNestedSigningArtifactStore` accepted any
+  canonical target with the bundle path as a string prefix, so a symlink
+  resolving to a sibling such as `App.app-evil/x` passed the check for a
+  bundle rooted at `App.app`. The target must now equal the bundle root
+  or lie strictly beneath it. New `NestedSigningArtifactStoreTests`
+  cover the sibling-prefix escape for reads and writes, a plain
+  outside-the-bundle escape, and a legitimate nested read.
+
 ### Notes
+
+- The ZS-030 review environment had no Swift toolchain and no Xcode: the
+  two fixes above were checked by balanced-delimiter and type-consistency
+  review against the mirrored single-image verification code, not by an
+  executed test run. The host vector scripts
+  (`Tests/Host/verify_macho_signing_vector.py` and
+  `Tests/Host/verify_nested_code_signing_vector.py`) were executed and
+  passed. Running the full XCTest suite remains a prerequisite to any
+  release claim.
+- Embedded signing metadata states facts, not permissions. An entitlement set
 
 - Embedded signing metadata states facts, not permissions. An entitlement set
   being decoded, structurally valid, provisioning-compatible, or embedded says

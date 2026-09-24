@@ -203,8 +203,13 @@ final class FileNestedSigningArtifactStore: NestedSigningArtifactStore {
         let targetURL = bundleURL.appendingPathComponent(path.rawValue).standardizedFileURL
         let canonicalTarget = targetURL.resolvingSymlinksInPath().path
 
-        // Check symlink escape: canonical target path must start with canonical bundle path.
-        guard canonicalTarget.hasPrefix(canonicalBundlePath) else {
+        // Check symlink escape: the canonical target must be the bundle root
+        // itself or lie strictly beneath it. A bare string-prefix check is
+        // not enough — `/Work/App.app-evil/x` starts with `/Work/App.app`
+        // without being inside it — so the boundary falls on a separator.
+        let isConfined = canonicalTarget == canonicalBundlePath
+            || canonicalTarget.hasPrefix(canonicalBundlePath + "/")
+        guard isConfined else {
             throw NestedSigningFailure(
                 reason: .invalidSigningPlan,
                 path: path,

@@ -36,4 +36,6 @@ Once there is something to release:
 
 ## Index
 
-No documents yet.
+- [version-strategy.md](version-strategy.md) — the development → alpha →
+  beta → release-candidate → stable progression, exit criteria, and the
+  current position.

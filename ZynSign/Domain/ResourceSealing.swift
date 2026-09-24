@@ -435,7 +435,7 @@ struct CodeResourcesGenerator {
                 guard seenPaths.insert(path).inserted else {
                     throw ResourceSealError.duplicateResourcePath(path)
                 }
-                fileSeals.append(FileResourceSeal(path: path, hash2: digest.bytes))
+                fileSeals.append(try FileResourceSeal(path: path, hash2: digest.bytes))
             }
         }
 

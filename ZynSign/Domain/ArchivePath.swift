@@ -97,5 +97,41 @@ struct ArchivePath: Equatable, Hashable, CustomStringConvertible {
         return ArchivePath(rawValue: "\(rawValue)/\(component)")
     }
 
+    /// Whether a symbolic-link target is a relative location that resolves
+    /// inside the container when read from a link `directoryDepth`
+    /// directories deep: no leading separator, no drive prefix, no NUL bytes
+    /// or backslashes, and no climb above the container root. Unlike an
+    /// `ArchivePath`, a target may name `.` components and may climb with
+    /// `..` exactly as far as the link's own depth allows.
+    static func isContainedLinkTarget(_ target: String, directoryDepth: Int) -> Bool {
+        guard !target.isEmpty else { return false }
+        guard !target.contains("\0") else { return false }
+        guard !target.contains("\\") else { return false }
+        guard !target.hasPrefix("/") else { return false }
+        if target.count >= 2 {
+            let start = target.startIndex
+            let first = target[start]
+            let second = target[target.index(after: start)]
+            if first.isASCII && first.isLetter && second == ":" {
+                return false
+            }
+        }
+        var depth = directoryDepth
+        for component in target.split(separator: "/", omittingEmptySubsequences: false).map(String.init) {
+            if component.isEmpty || component == "." {
+                continue
+            }
+            if component == ".." {
+                depth -= 1
+                if depth < 0 {
+                    return false
+                }
+                continue
+            }
+            depth += 1
+        }
+        return true
+    }
+
     var description: String { rawValue }
 }

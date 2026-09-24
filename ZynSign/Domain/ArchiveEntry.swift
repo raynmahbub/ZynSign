@@ -83,18 +83,28 @@ struct ArchiveEntry: Equatable, Hashable {
     /// The size the entry occupies in the container, in bytes.
     let compressedSize: Int
 
+    /// The Unix file-type and permission bits the container records for the
+    /// entry, when it records any — for example `0o100644` for an ordinary
+    /// file or `0o100755` for an executable one. `nil` when the container
+    /// names no Unix host or records no mode. Declared by untrusted
+    /// metadata like every other field here: extraction derives permission
+    /// bits from it but never trusts it as evidence of anything else.
+    let unixMode: UInt16?
+
     /// Records an entry whose container name satisfied ZynSign's safety rules.
     init(
         path: ArchivePath,
         kind: ArchiveEntryKind,
         uncompressedSize: Int = 0,
-        compressedSize: Int = 0
+        compressedSize: Int = 0,
+        unixMode: UInt16? = nil
     ) {
         self.rawName = path.rawValue
         self.path = path
         self.kind = kind
         self.uncompressedSize = max(0, uncompressedSize)
         self.compressedSize = max(0, compressedSize)
+        self.unixMode = unixMode
     }
 
     /// Records an entry whose container name ZynSign refuses to accept —
@@ -105,13 +115,15 @@ struct ArchiveEntry: Equatable, Hashable {
         rejectedName: String,
         kind: ArchiveEntryKind,
         uncompressedSize: Int = 0,
-        compressedSize: Int = 0
+        compressedSize: Int = 0,
+        unixMode: UInt16? = nil
     ) {
         self.rawName = rejectedName
         self.path = nil
         self.kind = kind
         self.uncompressedSize = max(0, uncompressedSize)
         self.compressedSize = max(0, compressedSize)
+        self.unixMode = unixMode
     }
 
     /// Whether ZynSign accepted the recorded name.
