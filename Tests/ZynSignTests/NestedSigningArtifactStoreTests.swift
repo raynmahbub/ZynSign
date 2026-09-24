@@ -46,7 +46,7 @@ final class NestedSigningArtifactStoreTests: XCTestCase {
         try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
         try Data("outside".utf8).write(to: outside.appendingPathComponent("x"))
         try FileManager.default.createSymbolicLink(
-            at: bundle.appendingPathComponent("Out"), withDestinationPath: "../Outside")
+            atPath: bundle.appendingPathComponent("Out").path, withDestinationPath: "../Outside")
 
         let store = FileNestedSigningArtifactStore(bundleURL: bundle)
         let path = try XCTUnwrap(BundlePath(rawValue: "Out/x"))
@@ -64,7 +64,7 @@ final class NestedSigningArtifactStoreTests: XCTestCase {
         try FileManager.default.createDirectory(at: sibling, withIntermediateDirectories: true)
         try Data("sibling".utf8).write(to: sibling.appendingPathComponent("x"))
         try FileManager.default.createSymbolicLink(
-            at: bundle.appendingPathComponent("Link"), withDestinationPath: "../App.app-evil")
+            atPath: bundle.appendingPathComponent("Link").path, withDestinationPath: "../App.app-evil")
 
         let store = FileNestedSigningArtifactStore(bundleURL: bundle)
         let path = try XCTUnwrap(BundlePath(rawValue: "Link/x"))
@@ -80,7 +80,7 @@ final class NestedSigningArtifactStoreTests: XCTestCase {
         let sibling = workDirectory.appendingPathComponent("App.app-evil", isDirectory: true)
         try FileManager.default.createDirectory(at: sibling, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(
-            at: bundle.appendingPathComponent("Link"), withDestinationPath: "../App.app-evil")
+            atPath: bundle.appendingPathComponent("Link").path, withDestinationPath: "../App.app-evil")
 
         let store = FileNestedSigningArtifactStore(bundleURL: bundle)
         let path = try XCTUnwrap(BundlePath(rawValue: "Link/x"))

@@ -176,7 +176,7 @@ struct DirectoryArchiveExtractor {
             let url = try confinedURL(for: link.path, canonicalRoot: canonicalRoot)
             try confinedTarget(target, linkPath: link.path, canonicalRoot: canonicalRoot)
             do {
-                try fileManager.createSymbolicLink(at: url, withDestinationPath: target)
+                try fileManager.createSymbolicLink(atPath: url.path, withDestinationPath: target)
             } catch {
                 throw ZynSignError.packagingFailure(
                     diagnosticDetail: "An extracted symbolic link could not be recreated.",

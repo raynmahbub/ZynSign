@@ -129,7 +129,7 @@ final class PackageSignedApplicationTests: XCTestCase {
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
         try Data("plist".utf8).write(to: bundle.appendingPathComponent("Info.plist"))
         try FileManager.default.createSymbolicLink(
-            at: bundle.appendingPathComponent("Escape"),
+            atPath: bundle.appendingPathComponent("Escape").path,
             withDestinationPath: "/etc/hostname"
         )
         let useCase = PackageSignedApplication(writer: ZipArchiveWriter())
@@ -185,7 +185,7 @@ final class PackageSignedApplicationTests: XCTestCase {
         try FileManager.default.createDirectory(at: frameworks, withIntermediateDirectories: true)
         try Data("dylib".utf8).write(to: frameworks.appendingPathComponent("Helper.dylib"))
         try FileManager.default.createSymbolicLink(
-            at: bundle.appendingPathComponent("Link"),
+            atPath: bundle.appendingPathComponent("Link").path,
             withDestinationPath: "Info.plist"
         )
         return bundle
