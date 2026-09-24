@@ -20,5 +20,5 @@ struct PlaceholderFeatureView: View {
 }
 
 #Preview {
-    PlaceholderFeatureView(section: .signing)
+    PlaceholderFeatureView(section: .home)
 }

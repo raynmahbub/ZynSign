@@ -7,9 +7,7 @@ It adds deterministic store logic and an **experimental**, deliberately
 uncomposed Keychain adapter. It is not a code-signing engine. Production use
 remains blocked by feasibility experiment E7; see
 [on-device-signing-feasibility.md](../architecture/on-device-signing-feasibility.md),
-Sections 15–16. There is no identity UI, profile trust/authorization, or
-installation. ZS-017's separate decoded-payload parser is described in the
-architecture document; it does not change the identity or private-key boundary.
+Sections 15–16. Since 0.1.0-dev an identity UI is present (`Settings → Certificates` and `SigningView`); profile trust/authorization remain below the interface, and there is still no installation. ZS-017's separate decoded-payload parser is described in the architecture document; it does not change the identity or private-key boundary. The store and the importer are now composed in the application environment; device validation with real identities and profiles is the next step.
 
 ## Model and capability
 
@@ -106,9 +104,7 @@ platform mechanism, no new field on request, result, or diagnostic can carry
 key material, and removing a registration still never deletes a borrowed key.
 The verification boundary is separate from this one by design: it checks a
 signature with public material only, never requests a capability, and shares
-no signing state. This use case is not installed in the application
-environment: the identity store is not composed into the app until E7
-completes, and no interface consumes a signature result yet.
+no signing state. Since 0.1.0-dev the identity store (and the PKCS#12 importer) are composed in the application environment and consumed by `SigningView` through the nine-stage `SignApplicationPipeline`; the generic cryptographic use case itself remains an internal engine behind the pipeline, and no interface consumes its result directly beyond the pipeline.
 
 ## Protection policy
 
@@ -160,15 +156,11 @@ the accepted RSA/EC encodings. **Requires experiment:** agreement of Security's
 representations and metadata, persistent-reference lifecycle, attribute reporting,
 locked-device behavior, and signature verification on target devices.
 
-## Import limitation
+## Import (since 0.1.0-dev)
 
-No PKCS#12 importer is implemented or composed. The existing IdentityStore port
-already excludes import. E1/E7 have not established accepted encodings, import
-side effects, protection control, or authorization behavior on the target.
-Registration of an already-provisioned key is not evidence of `.p12` support.
-A future importer must remain a separate explicit-intent port and satisfy these
-gates before creating keys or accepting passphrases. No speculative raw-key import
-or export method is added to the Domain boundary.
+Since 0.1.0-dev a PKCS#12 importer is implemented and composed: `SigningIdentityImporter` with platform type `ApplePKCS12Importer`. It imports a `.p12`/`.pfx` container (≤10 MiB) through `SecPKCS12Import`, extracts the first identity, resolves the private-key persistent reference with a non-interactive `LAContext`, and registers the certificate DER plus key reference through `SecureIdentityStore`. Duplicate fingerprints are rejected, wrong passphrases map to `authorizationFailure`, and no key bytes are logged or retained. The importer is a separate explicit-intent port (`SigningIdentityImporter`) and is composed alongside `IdentityStore` in the application environment (`makePKCS12Importer` / `pkcs12Importer` on `ApplicationEnvironment`) and surfaced via `Settings → Certificates` and `SigningView`. Protection remains `WhenUnlockedThisDeviceOnly`, non-extractable, non-synchronizable, with per-resolution re-checks; diagnostics stay redacted. No speculative raw-key import or export method is added to the Domain boundary.
+
+The importer has not yet been demonstrated on a physical device with real developer identities and provisioning profiles beyond the synthetic fixtures and the simulator-gated suites; E1/E7-class authorization, lock/background, backup, and reinstall validation remain outstanding and are the next step after 0.1.0-dev.
 
 ## Testing and outstanding validation
 

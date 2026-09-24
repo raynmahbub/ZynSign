@@ -1,0 +1,201 @@
+# Private test build — manual only, not a public release.
+#
+# Purpose: build the same commit you intend to publish as v0.1.0
+# (market 0.1.0, build 3) and upload the IPA as a *private* workflow
+# artifact (retention 7 days) or prepare it for TestFlight internal.
+# Nothing in this workflow creates a tag or a GitHub release.
+#
+# See docs/releases/private-testing.md for the full private → public gate.
+name: Private Test Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: "Xcode configuration"
+        type: choice
+        options: [Release, Debug]
+        default: Release
+      note:
+        description: "Optional note for this private build (appears in artifact name)"
+        type: string
+        default: ""
+
+# Never publish from this workflow — permissions are read-only on purpose.
+permissions:
+  contents: read
+
+concurrency:
+  group: private-test-build
+  cancel-in-progress: false
+
+jobs:
+  # Reuse the same hygiene evidence CI does: keys banned, fixtures allowed,
+  # host vectors + external_validation self-test.
+  hygiene:
+    name: Hygiene (same as CI)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse private keys and misplaced certificates
+        run: |
+          set -eu
+          if grep -rniE "BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY" --exclude-dir=.git . ; then
+            echo "Private key material found." >&2; exit 1; fi
+          if grep -rniE "BEGIN CERT[I]FICATE" --exclude-dir=.git --exclude-dir=Tests . ; then
+            echo "Certificate material outside Tests/." >&2; exit 1; fi
+      - name: Refuse generated artifacts
+        run: |
+          set -eu
+          forbidden="DerivedData xcuserdata *.xcresult *.xcuserstate .DS_Store"
+          failed=0
+          for p in $forbidden; do
+            if find . -path ./.git -prune -o -name "$p" -print | grep -q .; then
+              echo "Forbidden: $p" >&2; failed=1; fi
+          done
+          exit $failed
+      - name: Host vectors
+        run: |
+          set -eu
+          python3 Tests/Host/verify_macho_signing_vector.py
+          python3 Tests/Host/verify_nested_code_signing_vector.py
+          python3 Tests/Host/verify_zip_writer_vectors.py
+          python3 Tests/Host/external_validation.py self-test
+
+  build:
+    name: Build (macOS) — private IPA preparation
+    runs-on: macos-15
+    needs: hygiene
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Show toolchain and version
+        run: |
+          set -eu
+          xcodebuild -version
+          /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" ZynSign/Info.plist 2>/dev/null || true
+          grep -n "MARKETING_VERSION\|CURRENT_PROJECT_VERSION" ZynSign.xcodeproj/project.pbxproj | head -n 12
+          echo "inputs.configuration=${{ inputs.configuration }}"
+
+      - name: Build for iOS Simulator (no signing — proves the target compiles)
+        run: |
+          set -eu
+          xcodebuild build \
+            -project ZynSign.xcodeproj \
+            -scheme ZynSign \
+            -configuration "${{ inputs.configuration }}" \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            -quiet
+
+      - name: Run unit tests on simulator
+        run: |
+          set -eu
+          xcodebuild test \
+            -project ZynSign.xcodeproj \
+            -scheme ZynSign \
+            -configuration "${{ inputs.configuration }}" \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -quiet
+
+      - name: Archive (Release, automatic signing if TEAM_ID is configured)
+        id: archive
+        continue-on-error: true
+        run: |
+          set -eu
+          echo "Attempting Release archive for device (archive may require signing)…"
+          set +e
+          if [ -n "${{ secrets.TEAM_ID }}" ]; then
+            xcodebuild archive \
+              -project ZynSign.xcodeproj \
+              -scheme ZynSign \
+              -configuration "${{ inputs.configuration }}" \
+              -archivePath "$RUNNER_TEMP/ZynSign-private.xcarchive" \
+              -destination 'generic/platform=iOS' \
+              DEVELOPMENT_TEAM="${{ secrets.TEAM_ID }}" \
+              CODE_SIGN_STYLE=Automatic \
+              2>&1 | tee "$RUNNER_TEMP/archive.log"
+          else
+            # No team configured — archive unsigned so CI can still verify the product builds.
+            xcodebuild archive \
+              -project ZynSign.xcodeproj \
+              -scheme ZynSign \
+              -configuration "${{ inputs.configuration }}" \
+              -archivePath "$RUNNER_TEMP/ZynSign-private.xcarchive" \
+              -destination 'generic/platform=iOS' \
+              CODE_SIGNING_ALLOWED=NO \
+              2>&1 | tee "$RUNNER_TEMP/archive.log"
+          fi
+          status=${PIPESTATUS[0]}
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "Archive exit $status"
+          ls -la "$RUNNER_TEMP/ZynSign-private.xcarchive" 2>/dev/null || true
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::Archive did not complete — see archive.log. The simulator build above is still the hygiene gate."
+            cat "$RUNNER_TEMP/archive.log" | tail -n 120 || true
+            exit 0
+          fi
+
+      - name: Export ad-hoc IPA (only when archive succeeded and TEAM_ID is set)
+        if: steps.archive.outputs.status == '0'
+        continue-on-error: true
+        run: |
+          set -eu
+          if [ -z "${{ secrets.TEAM_ID }}" ]; then
+            echo "No TEAM_ID secret — skipping signed IPA export (expected for forks)."
+            exit 0
+          fi
+          # TEAM_ID is injected into the export plist at export time so the repo plist stays YOUR_TEAM_ID.
+          /usr/libexec/PlistBuddy -c "Set :teamID ${{ secrets.TEAM_ID }}" docs/releases/ExportOptions-private-adhoc.plist
+          mkdir -p "$RUNNER_TEMP/private-export"
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/ZynSign-private.xcarchive" \
+            -exportPath "$RUNNER_TEMP/private-export" \
+            -exportOptionsPlist docs/releases/ExportOptions-private-adhoc.plist \
+            2>&1 | tee "$RUNNER_TEMP/export.log" || true
+          # Restore template
+          /usr/libexec/PlistBuddy -c "Set :teamID YOUR_TEAM_ID" docs/releases/ExportOptions-private-adhoc.plist || true
+          ls -la "$RUNNER_TEMP/private-export" 2>/dev/null || true
+          if [ -f "$RUNNER_TEMP/private-export/ZynSign.ipa" ]; then
+            # Rename with version for clarity — MARKETING_VERSION + CURRENT_PROJECT_VERSION from the project
+            mv "$RUNNER_TEMP/private-export/ZynSign.ipa" "$RUNNER_TEMP/ZynSign-0.1.0-3-private.ipa"
+            echo "IPA ready at $RUNNER_TEMP/ZynSign-0.1.0-3-private.ipa"
+          fi
+
+      - name: Upload private test artifacts (NOT a release)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZynSign-private-test-${{ inputs.configuration }}-${{ github.sha }}${{ inputs.note != '' && format('-{0}', inputs.note) || '' }}
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/ZynSign-0.1.0-3-private.ipa
+            ${{ runner.temp }}/private-export/**
+            ${{ runner.temp }}/archive.log
+            ${{ runner.temp }}/export.log
+            ${{ runner.temp }}/ZynSign-private.xcarchive/**/Logs/**
+
+      - name: Summary — what to do next
+        if: always()
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOS'
+          ### Private test build — what happened
+
+          * **Simulator build + tests:** the gate — if green, the commit is sound enough to test on devices.
+          * **Archive / IPA:** produced only when the runner can sign (requires `TEAM_ID` secret). Without that secret the simulator build is the evidence and you produce the IPA locally per `docs/releases/private-testing.md` (Option A/B).
+          * **This workflow never creates a tag or a GitHub release.** When the private matrix in `docs/releases/private-testing.md` is all green on two real devices, publish `v0.1.0` once, manually, as described there.
+
+          **Local private IPA (no secret needed, on your Mac):**
+          ```sh
+          xcodebuild clean archive -project ZynSign.xcodeproj -scheme ZynSign -configuration Release \
+            -archivePath build/ZynSign-private.xcarchive
+          xcodebuild -exportArchive -archivePath build/ZynSign-private.xcarchive \
+            -exportPath build/private -exportOptionsPlist docs/releases/ExportOptions-private-adhoc.plist
+          # → build/private/ZynSign.ipa
+          ```
+          EOS

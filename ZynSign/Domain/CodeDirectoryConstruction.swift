@@ -10,12 +10,14 @@ import Foundation
 enum CodeDirectoryVersion: Equatable, Hashable {
     case v20001
     case v20200
+    case v20400
     case unsupported(UInt32)
 
     init(rawValue: UInt32) {
         switch rawValue {
         case 0x20001: self = .v20001
         case 0x20200: self = .v20200
+        case 0x20400: self = .v20400
         default: self = .unsupported(rawValue)
         }
     }
@@ -24,6 +26,7 @@ enum CodeDirectoryVersion: Equatable, Hashable {
         switch self {
         case .v20001: return 0x20001
         case .v20200: return 0x20200
+        case .v20400: return 0x20400
         case .unsupported(let value): return value
         }
     }
@@ -32,12 +35,20 @@ enum CodeDirectoryVersion: Equatable, Hashable {
         switch self {
         case .v20001: return 44
         case .v20200: return 52
+        case .v20400: return 52
         case .unsupported: return 0
         }
     }
 
     var supportsTeamIdentifier: Bool {
-        self == .v20200
+        switch self {
+        case .v20001: return false
+        case .v20200, .v20400: return true
+        }
+    }
+
+    var supportsDEREntitlements: Bool {
+        self == .v20400
     }
 }
 
@@ -387,6 +398,9 @@ struct CodeDirectory: Equatable, Hashable {
             guard slot.index == position + 1, slot.index > 0 else {
                 throw CodeDirectoryError.invalidSlotIndex
             }
+            if slot.kind == .derEntitlements, !version.supportsDEREntitlements {
+                throw CodeDirectoryError.unsupportedFeature(.derEntitlements)
+            }
             if let hash = slot.hash, hash.count != hashConfiguration.hashSize {
                 throw CodeDirectoryError.invalidHashLength
             }
@@ -484,6 +498,9 @@ struct CodeDirectoryConstructionRequest {
             for (position, slot) in specialSlots.enumerated() {
                 guard slot.index == position + 1, slot.index > 0 else {
                     throw CodeDirectoryError.invalidSlotIndex
+                }
+                if slot.kind == .derEntitlements, !version.supportsDEREntitlements {
+                    throw CodeDirectoryError.unsupportedFeature(.derEntitlements)
                 }
                 if let hash = slot.hash, hash.count != hashConfiguration.hashSize {
                     throw CodeDirectoryError.invalidHashLength

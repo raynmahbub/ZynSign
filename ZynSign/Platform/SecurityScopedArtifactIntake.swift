@@ -108,10 +108,42 @@ final class SecurityScopedArtifactIntake: ArtifactIntake {
     // MARK: - Selection triage
 
     /// Checks what the file provider actually produced before anything is
-    /// read: the location must exist and must not be a directory. Read
-    /// failures and access refusals are mapped where they occur, during the
-    /// copy itself.
+    /// read: the location must be reachable and must not be a directory.
+    /// Uses resource-values rather than only `fileExists(atPath:)` so that
+    /// coordinated / iCloud / Files-provider URLs that are not simple
+    /// POSIX paths are still recognised, and so the check does not swallow
+    /// the provider's own error.
     private func verifySelectedDocument(_ source: URL) throws {
+        // `checkResourceIsReachable` reports the provider's truth; a plain
+        // `fileExists` can return false for a not-yet-downloaded ubiquitous
+        // item that the picker still offered.
+        if (try? source.checkResourceIsReachable()) == false {
+            // Try to trigger a download for ubiquitous items.
+            try? FileManager.default.startDownloadingUbiquitousItem(at: source)
+            // Re-check after the attempt; if still unreachable, fail with the
+            // honest unavailable error rather than falling through to open.
+            if (try? source.checkResourceIsReachable()) == false {
+                throw ZynSignError.selectedFileUnavailable(
+                    diagnosticDetail: "The selected document could not be reached at the URL the picker returned."
+                )
+            }
+        }
+        // Prefer resource-values (works with file coordinators / providers),
+        // fall back to fileExists for plain temp URLs produced by fileImporter.
+        if let values = try? source.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey]) {
+            if values.isDirectory == true {
+                throw ZynSignError.unsupportedImportFile(
+                    diagnosticDetail: "The selected document is a directory, not a regular file."
+                )
+            }
+            if values.isRegularFile == false {
+                // Not explicitly a regular file (could be symbolic link,
+                // package, or provider placeholder) — let the open attempt
+                // decide and map the error honestly.
+                return
+            }
+            return
+        }
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: source.path, isDirectory: &isDirectory) else {
             throw ZynSignError.selectedFileUnavailable(
@@ -141,6 +173,11 @@ final class SecurityScopedArtifactIntake: ArtifactIntake {
     /// early instead of finishing a copy nobody asked for. Read and write
     /// failures are mapped onto typed errors whose rendering is free of the
     /// selected document's location.
+    ///
+    /// The read is coordinated through `NSFileCoordinator` when the source
+    /// is a coordinated URL (Files providers, iCloud). For plain temp URLs
+    /// produced by `fileImporter`, coordination is a no-op and the direct
+    /// `FileHandle` path is used.
     private func streamCopy(from source: URL, to destination: URL) throws {
         guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
             throw ZynSignError.importTemporaryStorageFailure(
@@ -148,6 +185,55 @@ final class SecurityScopedArtifactIntake: ArtifactIntake {
             )
         }
 
+        // Try coordinated read first — required for some Files providers that
+        // vend security-scoped URLs outside the sandbox. If coordination
+        // reports the file not yet downloaded, trigger a download and retry
+        // once with a short wait.
+        var coordinationError: NSError?
+        var stagedError: (any Error)?
+        var didCoordinate = false
+
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        coordinator.coordinate(readingItemAt: source, options: [], error: &coordinationError) { coordinatedURL in
+            didCoordinate = true
+            do {
+                try self.chunkedCopy(from: coordinatedURL, to: destination)
+            } catch {
+                stagedError = error
+            }
+        }
+        if let error = stagedError {
+            throw error
+        }
+        if didCoordinate {
+            if let error = coordinationError {
+                throw Self.mapCoordinationFailure(error)
+            }
+            // Coordination succeeded and the copy was performed inside the
+            // accessor — verify the destination has content. An empty
+            // destination means nothing was copied and we should fall back
+            // to the direct path rather than leave an empty file behind.
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: destination.path),
+               let size = attrs[.size] as? NSNumber, size.intValue > 0 {
+                return
+            }
+            // If coordination produced an empty file, remove it and fall
+            // through to the direct FileHandle path so the honest copy
+            // logic can surface a proper error.
+            try? FileManager.default.removeItem(at: destination)
+            guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
+                throw ZynSignError.importTemporaryStorageFailure(
+                    diagnosticDetail: "The staged archive could not be recreated after coordination."
+                )
+            }
+        }
+        // Direct path — for fileImporter temp copies and any provider where
+        // coordination did not already succeed.
+        try chunkedCopy(from: source, to: destination)
+    }
+
+    /// The bounded chunked copy used both inside and outside coordination.
+    private func chunkedCopy(from source: URL, to destination: URL) throws {
         let reader: FileHandle
         do {
             reader = try FileHandle(forReadingFrom: source)
@@ -178,6 +264,31 @@ final class SecurityScopedArtifactIntake: ArtifactIntake {
         } catch {
             throw ZynSignError.importCopyFailure(underlyingError: error)
         }
+    }
+
+    /// Maps an NSFileCoordinator error onto the honest import error.
+    private static func mapCoordinationFailure(_ error: NSError) -> ZynSignError {
+        if error.domain == NSCocoaErrorDomain {
+            switch error.code {
+            case NSFileNoSuchFileError, NSFileReadNoSuchFileError:
+                return ZynSignError.selectedFileUnavailable(underlyingError: error)
+            case NSFileReadNoPermissionError:
+                return ZynSignError.selectedFileAccessDenied(underlyingError: error)
+            default:
+                break
+            }
+        }
+        if error.domain == NSPOSIXErrorDomain {
+            switch Int32(error.code) {
+            case ENOENT:
+                return ZynSignError.selectedFileUnavailable(underlyingError: error)
+            case EACCES, EPERM:
+                return ZynSignError.selectedFileAccessDenied(underlyingError: error)
+            default:
+                break
+            }
+        }
+        return ZynSignError.importCopyFailure(underlyingError: error)
     }
 
     /// Maps a failure to open the selected document onto the honest

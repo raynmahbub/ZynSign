@@ -6,9 +6,11 @@ signing, packaging, and independent verification. The pipeline composes
 the archive, provisioning, nested-signing, resource-sealing, Mach-O
 signing, packaging, and verification machinery into the single order a
 signed container requires. It is implemented at the application layer,
-constructed at the composition root, and covered by unit tests; it is
-not installed in the application environment, and no signing interface
-is composed until device validation completes.
+constructed at the composition root, and covered by unit tests; since
+0.1.0-dev it is installed in the application environment and reachable from
+`Library`/`Application Detail` (`SigningView`) and `Settings → Certificates`;
+installation remains unavailable and device validation with real identities
+and profiles is the next step.
 
 ## Order and failure semantics
 

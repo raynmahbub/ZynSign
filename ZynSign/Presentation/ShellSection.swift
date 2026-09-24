@@ -1,16 +1,17 @@
 import Foundation
 
-/// The top-level sections of the ZynSign shell.
+/// The top-level sections of the ZynSign shell — the app's primary tabs.
 ///
-/// Presentation metadata only: the shell renders these as navigation entries.
-/// A section being listed does not mean the capability exists — Import and
-/// Applications are working areas in this build, Settings reports on the
-/// application itself, and every other section renders an explicit
-/// placeholder stating that the capability is not part of the build.
+/// The order here is the tab order the user sees. Every section is a real
+/// area in this build; none is a dead placeholder. The shell is a pure
+/// presentation concern — it decides order, titles and icons, nothing about
+/// workflow logic.
 enum ShellSection: Hashable, CaseIterable, Identifiable {
-    case applications
-    case importPackage
-    case signing
+    case files
+    case library
+    case home
+    case appStore
+    case downloads
     case settings
 
     var id: Self { self }
@@ -18,36 +19,56 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
     /// The navigation title of the section.
     var title: String {
         switch self {
-        case .applications: return "Applications"
-        case .importPackage: return "Import"
-        case .signing: return "Signing"
+        case .files: return "Files"
+        case .library: return "Library"
+        case .home: return "Home"
+        case .appStore: return "App Store"
+        case .downloads: return "Downloads"
         case .settings: return "Settings"
         }
     }
 
-    /// The symbol shown for the section's navigation entry.
+    /// The SF Symbol shown for the section's tab and navigation entry.
     var symbolName: String {
         switch self {
-        case .applications: return "square.stack.3d.up"
-        case .importPackage: return "square.and.arrow.down"
-        case .signing: return "signature"
+        case .files: return "folder.fill"
+        case .library: return "square.grid.2x2.fill"
+        case .home: return "house.fill"
+        case .appStore: return "bag.fill"
+        case .downloads: return "arrow.down.circle.fill"
+        case .settings: return "gearshape.fill"
+        }
+    }
+
+    /// The symbol for the unselected state (used where a filled variant is too heavy).
+    var symbolNameUnselected: String {
+        switch self {
+        case .files: return "folder"
+        case .library: return "square.grid.2x2"
+        case .home: return "house"
+        case .appStore: return "bag"
+        case .downloads: return "arrow.down.circle"
         case .settings: return "gearshape"
         }
     }
 
-    /// An honest description of what the section is for and its current build
-    /// status. The text deliberately avoids implying that a capability works
-    /// beyond what this build does.
+    /// An honest description of what the section is for. Used by
+    /// `PlaceholderFeatureView` only if a section has no dedicated view yet —
+    /// none of the six do, so this is a fallback for previews and diagnostics.
     var statusSummary: String {
         switch self {
-        case .applications:
-            return "Imported packages are recorded in ZynSign's library and kept across launches. The library lists them, imports new ones, shows the files and folders inside each application bundle, and deletes entries together with their package files; signing and installation are not part of this build yet."
-        case .importPackage:
-            return "Import brings a selected package into ZynSign, reads its structure and declared metadata, and records accepted packages in the library."
-        case .signing:
-            return "Signing a package with an identity and provisioning profile is not part of this build yet."
+        case .files:
+            return "Browse and manage files ZynSign keeps — imported packages, working copies, and exported artifacts. Import, share, move and delete without leaving the app."
+        case .library:
+            return "Imported packages recorded in ZynSign's library —kept across launches, with the files inside each application bundle listed read-only."
+        case .home:
+            return "Overview of your library, recent activity, and quick actions."
+        case .appStore:
+            return "Discover and download applications from your configured sources."
+        case .downloads:
+            return "Download packages from URLs, track progress, and import them into the library when finished."
         case .settings:
-            return "Configuration is not part of this build yet."
+            return "Manage certificates, signing preferences, appearance and storage."
         }
     }
 }

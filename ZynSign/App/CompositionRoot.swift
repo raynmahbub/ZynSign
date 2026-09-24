@@ -19,16 +19,53 @@ enum CompositionRoot {
     /// import use case, the bundle inspection use case, and the environment,
     /// so the Import area and the Applications area act on the same records
     /// and the same storage wherever they admit, list, inspect, or remove
-    /// entries.
+    /// entries. The signing identity store, its PKCS#12 importer, and the
+    /// signing pipeline are composed here as well so the Certificates and
+    /// Library signing screens act on the same Keychain registrations and
+    /// the same cryptographic machinery that the tests cover.
     static func makeApplicationEnvironment() -> ApplicationEnvironment {
         let intake = SecurityScopedArtifactIntake(directory: importStagingDirectory)
         let library = makeApplicationLibrary(intake: intake)
+        let identityStore = makeIdentityStore()
+        let pkcs12Importer = makePKCS12Importer(identityStore: identityStore)
+        let pipeline = makeSignApplicationPipeline(identityStore: identityStore)
         return ApplicationEnvironment(
             applicationInfo: ApplicationInfo.current(bundle: .main),
             packageImport: makePackageImport(intake: intake, library: library),
             library: library,
-            bundleInspection: makeBundleContentsInspection(intake: intake, library: library)
+            bundleInspection: makeBundleContentsInspection(intake: intake, library: library),
+            identityStore: identityStore,
+            pkcs12Importer: pkcs12Importer,
+            signingPipeline: pipeline
         )
+    }
+
+    /// The signing identity store for this launch.
+    ///
+    /// On iOS the store is the experimental Keychain composition: registrations
+    /// live as generic-password items, private keys remain in the Keychain with
+    /// `WhenUnlockedThisDeviceOnly` and non-extractable protection, and
+    /// resolution re-checks public-key association and algorithm support on
+    /// every operation. On other platforms the store reports no identities
+    /// rather than fabricating one.
+    static func makeIdentityStore() -> any IdentityStore {
+        #if os(iOS)
+        return SecureIdentityStore.experimentalKeychainStore()
+        #else
+        return UnavailableIdentityStore()
+        #endif
+    }
+
+    /// The PKCS#12 importer for this launch. It bridges Security's import to
+    /// the store's registration. On non-iOS targets it reports a platform
+    /// restriction.
+    static func makePKCS12Importer(identityStore: any IdentityStore) -> any SigningIdentityImporter {
+        #if os(iOS)
+        if let secure = identityStore as? SecureIdentityStore {
+            return ApplePKCS12Importer(store: secure)
+        }
+        #endif
+        return UnavailablePKCS12Importer()
     }
 
     /// Builds the package inspection use case, selecting the concrete archive

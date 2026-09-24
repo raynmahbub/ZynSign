@@ -6,8 +6,8 @@ time. No stage is entered because the previous one "looks complete", and no
 versioned release section is written in `CHANGELOG.md` for a version that
 was not actually produced.
 
-The Xcode project currently declares marketing version `0.1.0`, build `1`:
-a development state. That is the only version that exists.
+The Xcode project currently declares marketing version `0.1.0`, build `3`:
+the first public development build — Horizon (`v0.1.0`, 2026-09-25). The market version is `0.1.0` (no `-dev` suffix in `CFBundleShortVersionString`; the `-dev` lives only in the tag/release name); `CFBundleVersion` is `3`. The build is not an App Store submission. It is first distributed **privately** (TestFlight internal + sideload IPA) and only after the private gate is green is `v0.1.0` published publicly — see [private-testing.md](private-testing.md).
 
 ## Release sequence
 
@@ -39,11 +39,10 @@ four Betas, three Release Candidates, then Stable.
 
 ## Stages
 
-### Development — `0.1.0-dev`
+### Development — `0.1.0` Horizon
 
 Internal development and testing builds. The working tree, the test suites,
-and the host vector scripts are the product. Nothing is tagged and nothing
-is distributed.
+and the host vector scripts are the product. The first public dev build is Horizon (`0.1.0`, 2026-09-25): market `0.1.0` build `3`, commit `HEAD` (Horizon `58e604c`), `7 wired · 3 honest`. It is built once and distributed **privately** first (TestFlight internal / ad-hoc IPA, see [private-testing.md](private-testing.md)); after the private matrix is all green the same commit is tagged `v0.1.0` and published to GitHub releases for sideloading/TestFlight. It is not App Store signed.
 
 ### Alpha — `0.1.0-alpha.N`
 
@@ -123,23 +122,18 @@ Semantic Versioning applies:
 
 ## Current Position
 
-No Alpha, Beta, RC, or stable version has been produced.
+First public dev build is Horizon `0.1.0` (market `0.1.0`, build `3`, 2026-09-25). Previous Horizon tags `v0.2.0-dev`/`v0.1.1-dev`/`v0.1.0-dev` point at `58e604c`; the first public tag `v0.1.0` will be the private-tested commit on `arena/01a0d4c7-zynsign` (HEAD). The Xcode project already carries `MARKETING_VERSION 0.1.0` / `CURRENT_PROJECT_VERSION 3` so the private binary and the public release are the same binary — see [private-testing.md](private-testing.md) for the private distribution (TestFlight internal or ad-hoc IPA, not a public release) and the device matrix that gates `v0.1.0`.
 
-Of the blockers recorded with the final-integration review, two have
-changed. IPA packaging and the complete application pipeline now exist
-below the interface, with no signing interface composed. The test suites
-pass on hosted CI (run 35992989870), on a simulator, which is not device
-evidence.
+Of the blockers recorded with the final-integration review, three have
+changed since the history now included in 0.1.0 Horizon (58e604c):
 
-The external validation of ZS-031 then measured the signing output with
-Apple's tooling. Apple's desktop verifier accepts ZynSign's single-image
-signatures but rejects the application pipeline's bundles, and the
-signature format fails the requirements Apple documents for iOS 15 and
-later ([external-validation.md](../architecture/external-validation.md)).
-"Signing for supported artifacts" and "verification" in the Alpha criteria
-are therefore not established.
+- IPA packaging and the complete application pipeline exist and, since
+  0.1.0-dev and carried into 0.1.0 Horizon, the pipeline is composed in the application environment and
+  reachable from `Library`/`Application Detail` and `Settings → Certificates`.
+- Certificate import via `SecPKCS12Import` (`.p12`/`.pfx`) and the `tipa` alias
+  are now composed and covered by the interface.
+- The test suites pass on hosted CI, on a simulator, which is not device evidence; external validation (ZS-031) still shows Apple's desktop verifier accepts ZynSign's single-image signatures but rejects the pipeline's bundles, and the signature format fails the requirements Apple documents for iOS 15 and later ([external-validation.md](../architecture/external-validation.md)). "Signing for supported artifacts" and "verification" in the Alpha criteria are therefore not established.
 
-No supported on-device installation mechanism exists, and whether
-installation belongs in a release is unresolved (architecture decision 24).
-The intended progression ends at ZynSign 1.0.0 Stable. Until the exit
-criteria above are met, the project stays in development and says so.
+Installation remains unavailable: no supported arbitrary-IPA installation mechanism is available to an iOS/iPadOS application, and the pure installation assessment reports installation as unavailable with exact limitations (see [installation-compatibility.md](../architecture/installation-compatibility.md)). Whether installation belongs in a release is unresolved (architecture decision 24). `0.1.0` Horizon is honest about that limitation and about the facts that its synthetic `empty` entitlements are only compatible with the test fixture profile, that no App Store submission is attempted, and that on-device signing of real developer identities and profiles has not yet been demonstrated until the private device matrix passes (see private-testing.md).
+
+Alpha exits when the criteria above hold; until they do, the project stays in development and says so. The first step after Horizon publishes is device validation of certificate import, `tipa` handling, and single-target signing with real provisioning profiles — exactly the private matrix in [private-testing.md](private-testing.md).
