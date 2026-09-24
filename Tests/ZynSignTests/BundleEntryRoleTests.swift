@@ -88,13 +88,18 @@ final class BundleEntryRoleTests: XCTestCase {
     }
 
     func testRoleTextMakesNoAffirmativeTrustClaims() {
+        // Word-boundary matching: negations such as "untrusted" are honest
+        // cautions, not affirmative claims.
+        func claims(_ text: String, _ phrase: String) -> Bool {
+            text.range(of: "\\b" + phrase + "\\b", options: .regularExpression) != nil
+        }
         for role in BundleEntryRole.allCases {
             let text = (role.displayName + " " + role.explanation).lowercased()
-            XCTAssertFalse(text.contains("trusted"), role.rawValue)
-            XCTAssertFalse(text.contains("verified"), role.rawValue)
-            XCTAssertFalse(text.contains("genuine"), role.rawValue)
-            XCTAssertFalse(text.contains("safe to"), role.rawValue)
-            XCTAssertFalse(text.contains("valid signature"), role.rawValue)
+            XCTAssertFalse(claims(text, "trusted"), role.rawValue)
+            XCTAssertFalse(claims(text, "verified"), role.rawValue)
+            XCTAssertFalse(claims(text, "genuine"), role.rawValue)
+            XCTAssertFalse(claims(text, "safe to"), role.rawValue)
+            XCTAssertFalse(claims(text, "valid signature"), role.rawValue)
         }
     }
 

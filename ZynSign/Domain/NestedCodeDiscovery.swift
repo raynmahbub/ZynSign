@@ -643,8 +643,8 @@ private struct NestedCodeTraversal {
             information = .read(container.declaredIdentity ?? NestedCodeBundleIdentity())
         } else if index.isRegularFile(bundleInformationPath(of: container.bundlePath)) {
             let relative = bundleInformationPath(of: container.bundlePath)
-            guard let informationPath = archivePath(for: relative) else {
-                return invalidPathError(at: relative)
+            guard let containerPath = archivePath(for: container.bundlePath) else {
+                return invalidPathError(at: container.bundlePath)
             }
             guard informationReads < limits.maximumBundleInformationReads else {
                 return resourceLimitError(
@@ -654,7 +654,7 @@ private struct NestedCodeTraversal {
             }
             informationReads += 1
             information = source.bundleInformation(
-                ofContainerAt: informationPath,
+                ofContainerAt: containerPath,
                 maximumBytes: limits.maximumBundleInformationBytes
             )
             switch information {

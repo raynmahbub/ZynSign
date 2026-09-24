@@ -47,9 +47,12 @@ struct ArchiveNestedCodeInspectionSource: NestedCodeInspectionSource {
         ofContainerAt path: ArchivePath,
         maximumBytes: Int
     ) -> NestedCodeBundleInformation {
+        guard let informationPath = IPALayout.bundleInformationPath(within: path) else {
+            return .unreadable
+        }
         let bytes: Data
         do {
-            bytes = try reader.readEntryData(at: path, maximumBytes: boundedReadSize(maximumBytes))
+            bytes = try reader.readEntryData(at: informationPath, maximumBytes: boundedReadSize(maximumBytes))
         } catch {
             return .unreadable
         }

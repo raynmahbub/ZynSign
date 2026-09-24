@@ -296,6 +296,11 @@ final class ProvisioningPolicyValidationTests: XCTestCase {
                 getTaskAllow: false
             )
         )
+        // The full value differs from the compared bundle identifier: without a
+        // declared prefix the rule cannot split the value, so the outcome is
+        // indeterminate rather than a mismatch. (Exact text equality without
+        // a prefix is an exact match by the documented rule, so an equal
+        // value could never exercise this path.)
         let unsplittable = ProvisioningProfile(
             uuid: profile.uuid,
             profileName: profile.profileName,
@@ -303,7 +308,7 @@ final class ProvisioningPolicyValidationTests: XCTestCase {
             expirationDate: profile.expirationDate,
             platforms: profile.platforms,
             applicationIdentifier: try ProvisioningApplicationIdentifier(
-                fullValue: Fixtures.bundleIdentifier,
+                fullValue: Fixtures.otherBundleIdentifier,
                 applicationIdentifierPrefix: nil
             ),
             applicationIdentifierPrefixes: nil,
@@ -1158,6 +1163,11 @@ final class ProvisioningPolicyValidationTests: XCTestCase {
             signingIdentity: .identity(Fixtures.identityMetadata(fingerprint: Fixtures.unrelatedFingerprint)),
             signingConfiguration: Fixtures.configuration(
                 entitlements: Fixtures.entitlements(
+                    // No debugging claim: the default `false` would contradict
+                    // the requested `true` below, which is ambiguous rather
+                    // than unauthorized (see
+                    // testContradictoryDebuggingRequestsAreNotResolved).
+                    getTaskAllow: nil,
                     additional: ["com.example.unapproved": .string("value")]
                 )
             ,

@@ -77,14 +77,19 @@ struct PropertyListProvisioningProfileParser: ProvisioningProfileParser {
             )
         }
 
-        guard format != .openStep else {
-            throw ZynSignError.unsupportedProvisioningProfilePayloadFormat(
-                diagnosticDetail: "OpenStep property lists are outside the profile payload formats supported by this parser."
-            )
-        }
+        // The dictionary check comes first: truncated input such as a bare
+        // `bplist00` magic parses as an OpenStep string, which is damaged
+        // input (malformed), not a well-formed payload in an unsupported
+        // format. Only a well-formed OpenStep dictionary reaches the format
+        // check below.
         guard let rootDictionary = root as? [String: Any] else {
             throw ZynSignError.malformedProvisioningProfilePayload(
                 diagnosticDetail: "The decoded profile payload root was not a dictionary."
+            )
+        }
+        guard format != .openStep else {
+            throw ZynSignError.unsupportedProvisioningProfilePayloadFormat(
+                diagnosticDetail: "OpenStep property lists are outside the profile payload formats supported by this parser."
             )
         }
         guard rootDictionary.count <= limits.maximumCollectionCount else {

@@ -201,7 +201,22 @@ final class FileNestedSigningArtifactStore: NestedSigningArtifactStore {
         }
 
         let targetURL = bundleURL.appendingPathComponent(path.rawValue).standardizedFileURL
-        let canonicalTarget = targetURL.resolvingSymlinksInPath().path
+        // Resolving symlinks fails open on paths that do not exist yet: the
+        // input is returned unchanged, so a write target reached through a
+        // link would look confined when it is not. Resolve the nearest
+        // existing ancestor instead. Anything beneath it cannot be a link,
+        // so confinement of the ancestor confines the target.
+        var ancestor = targetURL
+        var remainder: [String] = []
+        while !FileManager.default.fileExists(atPath: ancestor.path) {
+            remainder.insert(ancestor.lastPathComponent, at: 0)
+            ancestor = ancestor.deletingLastPathComponent()
+        }
+        var canonicalAncestor = ancestor.resolvingSymlinksInPath()
+        for component in remainder {
+            canonicalAncestor.appendPathComponent(component)
+        }
+        let canonicalTarget = canonicalAncestor.standardizedFileURL.path
 
         // Check symlink escape: the canonical target must be the bundle root
         // itself or lie strictly beneath it. A bare string-prefix check is

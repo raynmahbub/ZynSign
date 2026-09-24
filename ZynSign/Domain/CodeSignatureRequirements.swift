@@ -237,10 +237,8 @@ struct RequirementsSet: Equatable, Hashable {
         try writer.appendUInt32BigEndian(Self.magic)
         try writer.appendUInt32BigEndian(encodedLength)
         try writer.appendUInt32BigEndian(UInt32(entries.count))
-        for entry in entries {
+        for (entry, offset) in zip(entries, layout.entryOffsets) {
             try writer.appendUInt32BigEndian(entry.kind.rawValue)
-        }
-        for offset in layout.entryOffsets {
             try writer.appendUInt32BigEndian(UInt32(offset))
         }
         for entry in entries {

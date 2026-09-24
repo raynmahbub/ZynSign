@@ -177,6 +177,10 @@ final class SecurityScopedArtifactIntakeTests: XCTestCase {
     // MARK: - Leftover lifecycle
 
     func testLeftoversFromAPreviousProcessAreClearedBeforeTheFirstStaging() throws {
+        // The stale file is planted directly, before any intake use, so the
+        // staging directory — otherwise created lazily by the intake — must
+        // exist first.
+        try FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
         let staleName = "\(UUID().uuidString).ipa"
         ImportFixtures.writeFile(named: staleName, content: Data([0x50]), in: stagingDirectory)
 

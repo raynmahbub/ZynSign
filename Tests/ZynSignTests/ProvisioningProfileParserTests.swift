@@ -542,7 +542,10 @@ private struct SyntheticCertificateParser: CertificateParser {
         guard !input.bytes.isEmpty else {
             throw ZynSignError.invalidCertificateData()
         }
-        let distinguishedName = CertificateDistinguishedName(rawRepresentation: "CN=Synthetic Certificate")
+        let distinguishedName = CertificateDistinguishedName(
+            commonName: "Synthetic Certificate",
+            rawRepresentation: "CN=Synthetic Certificate"
+        )
         let serialNumber = try XCTUnwrap(CertificateSerialNumber(hexadecimal: "01"))
         let fingerprint = try XCTUnwrap(
             CertificateFingerprint(

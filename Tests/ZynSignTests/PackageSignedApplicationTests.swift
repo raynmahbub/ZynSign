@@ -33,11 +33,19 @@ final class PackageSignedApplicationTests: XCTestCase {
         let output = temporaryDirectory.appendingPathComponent("MyApp.ipa")
         let useCase = PackageSignedApplication(writer: ZipArchiveWriter())
 
-        let report = try await useCase.package(PackageSignedApplicationRequest(
-            bundleDirectory: bundle,
-            bundleName: "MyApp.app",
-            outputURL: output
-        ))
+        // TEMPORARY-DIAGNOSTIC (revert after diagnosis): dump the full typed
+        // error so CI reveals which packaging check refuses the fixture.
+        let report: PackageSignedApplicationReport
+        do {
+            report = try await useCase.package(PackageSignedApplicationRequest(
+                bundleDirectory: bundle,
+                bundleName: "MyApp.app",
+                outputURL: output
+            ))
+        } catch {
+            XCTFail("TEMP-DIAG-PACKAGE: \(String(reflecting: error))")
+            throw error
+        }
 
         XCTAssertEqual(report.bundlePath, ArchivePath(rawValue: "Payload/MyApp.app"))
         XCTAssertEqual(report.entryCount, 7)

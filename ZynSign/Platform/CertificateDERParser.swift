@@ -54,6 +54,9 @@ enum CertificateDERParser {
         if bytes.starts(with: pemPrefix) {
             throw DERError.unsupported("PEM encoding is not a supported certificate format.")
         }
+        guard bytes.first == 0x30 else {
+            throw DERError.invalid("Certificate input is not a DER certificate.")
+        }
 
         var reader = Reader(bytes: bytes, index: 0, end: bytes.count, depth: 0)
         let certificate = try reader.readTLV()

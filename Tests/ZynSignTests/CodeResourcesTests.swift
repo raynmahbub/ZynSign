@@ -277,7 +277,7 @@ final class CodeResourcesTests: XCTestCase {
             .generate(from: store, nestedCode: [seal])
 
         XCTAssertEqual(document.files2.count, 2)
-        guard case .nestedCode(let nestedSeal)? = document.files2.last else {
+        guard case .nestedCode(let nestedSeal)? = document.files2.first(where: { $0.path == nested }) else {
             return XCTFail("Expected the nested-code entry to be present")
         }
         XCTAssertEqual(nestedSeal.path, nested)
