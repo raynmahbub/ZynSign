@@ -92,14 +92,20 @@ struct ArchiveEntry: Equatable, Hashable {
     let unixMode: UInt16?
 
     /// Records an entry whose container name satisfied ZynSign's safety rules.
+    ///
+    /// - Parameter rawName: The name exactly as the container recorded it.
+    ///   Defaults to the validated path, which drops the directory
+    ///   separator the container records; readers pass the recorded name so
+    ///   diagnostics reproduce the container faithfully.
     init(
         path: ArchivePath,
         kind: ArchiveEntryKind,
         uncompressedSize: Int = 0,
         compressedSize: Int = 0,
-        unixMode: UInt16? = nil
+        unixMode: UInt16? = nil,
+        rawName: String? = nil
     ) {
-        self.rawName = path.rawValue
+        self.rawName = rawName ?? path.rawValue
         self.path = path
         self.kind = kind
         self.uncompressedSize = max(0, uncompressedSize)

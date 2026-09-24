@@ -399,7 +399,8 @@ enum ZipCentralDirectoryScanner {
             kind: kind,
             uncompressedSize: uncompressedSize,
             compressedSize: compressedSize,
-            unixMode: unixMode
+            unixMode: unixMode,
+            rawName: decodedName
         )
     }
 
