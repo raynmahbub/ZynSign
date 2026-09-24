@@ -207,10 +207,12 @@ struct SigningView: View {
     private func cmsDescription(
         for result: ProvisioningProfilePipelineResult
     ) -> String {
-        guard let authenticated = result.isProfileAuthenticated else {
+        // No evidence object means the question was never evaluated; a
+        // present one carries a definite verified/unverified answer.
+        guard result.verification != nil else {
             return "Not evaluated"
         }
-        return authenticated ? "Verified" : "Not verified"
+        return result.isProfileAuthenticated ? "Verified" : "Not verified"
     }
 
     // MARK: Display helpers

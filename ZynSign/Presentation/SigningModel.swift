@@ -104,7 +104,7 @@ final class SigningModel: ObservableObject {
         let loaded = (try? await library.entries()) ?? []
         entries = loaded.filter(\.isArtifactAvailable)
         if let selected = selectedEntry,
-           !entries.contains(where: { $0.id == selected.id }) {
+           !entries.contains(where: { $0.record.id == selected.record.id }) {
             selectedEntry = nil
         }
         identities = (try? signing.identities()) ?? []
