@@ -175,7 +175,7 @@ final class FileNestedSigningArtifactStore: NestedSigningArtifactStore {
                 fileURL,
                 withItemAt: temporaryURL,
                 backupItemName: nil,
-                options: .usingNewmetadataOnly
+                options: .usingNewMetadataOnly
             )
         } catch {
             throw NestedSigningFailure(

@@ -442,7 +442,7 @@ struct PropertyListProvisioningProfileParser: ProvisioningProfileParser {
             )
         }
         switch CFNumberGetType(number as CFNumber) {
-        case .char, .sInt8, .sInt16, .sInt32, .sInt64, .cInt, .cLong, .cLongLong, .cfIndex:
+        case .charType, .sInt8Type, .sInt16Type, .sInt32Type, .sInt64Type, .intType, .longType, .longLongType, .cfIndexType:
             return number.int64Value
         default:
             throw ZynSignError.invalidProvisioningProfileFieldType(

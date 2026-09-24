@@ -133,9 +133,9 @@ indirect enum ProvisioningProfileValue: Equatable, Hashable {
                 return .boolean(number.boolValue)
             }
             switch CFNumberGetType(number as CFNumber) {
-            case .char, .sInt8, .sInt16, .sInt32, .sInt64, .cInt, .cLong, .cLongLong, .cfIndex:
+            case .charType, .sInt8Type, .sInt16Type, .sInt32Type, .sInt64Type, .intType, .longType, .longLongType, .cfIndexType:
                 return .integer(number.int64Value)
-            case .float32, .float64:
+            case .float32Type, .float64Type:
                 let real = number.doubleValue
                 guard real.isFinite else {
                     throw ZynSignError.provisioningProfile(

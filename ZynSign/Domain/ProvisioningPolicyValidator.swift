@@ -43,7 +43,7 @@ struct ProvisioningPolicyValidator {
             categories.append(profileTypeCategory(context: context, profile: profile))
             categories.append(bundleIdentifierCategory(context: context, profile: profile))
             categories.append(teamIdentifierCategory(context: context, profile: profile))
-            categories.append(certificateCategory(context: context))
+            categories.append(certificateCategory(context))
             categories.append(entitlementsCategory(context: context, profile: profile))
             categories.append(platformCategory(context: context, profile: profile))
             categories.append(deviceCategory(context: context, profile: profile))

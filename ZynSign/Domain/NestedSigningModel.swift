@@ -292,7 +292,7 @@ enum NestedSigningFailureReason: String, CaseIterable, Hashable {
         case .artifactReadFailure, .artifactWriteFailure:
             return .storageFailure
         case .structuralFailure, .cryptographicFailure, .postSignVerificationFailure,
-             .partialCompletion, .resourceLimitExceeded:
+             .partialCompletion, .resourceLimitExceeded, .signingMetadataFailure:
             return .internalFailure
         }
     }
