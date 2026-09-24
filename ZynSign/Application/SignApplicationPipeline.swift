@@ -615,7 +615,7 @@ struct SignApplicationPipeline {
         )
         guard result.isSuccess else {
             let detail = result.itemResults.first {
-                if case .failed = $0.status {
+                if case .failed(_) = $0.status {
                     return true
                 }
                 return false
@@ -626,7 +626,7 @@ struct SignApplicationPipeline {
                 return nil
             } ?? "Nested signing failed."
             let category = result.itemResults.first {
-                if case .failed = $0.status {
+                if case .failed(_) = $0.status {
                     return true
                 }
                 return false
@@ -690,7 +690,7 @@ struct SignApplicationPipeline {
                 )
             }
         }
-        let store = DirectoryResourceContentStore(
+        let store = WorkingCopyResourceContentStore(
             bundleDirectory: bundleDirectory,
             nestedContainers: nestedContainers
         )

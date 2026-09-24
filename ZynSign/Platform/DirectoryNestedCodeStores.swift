@@ -150,7 +150,7 @@ final class DirectoryBundleBinaryStore: NestedSigningArtifactStore {
 /// never reports — a nested path that also appears in the listing is
 /// refused as a collision — so the contents of every nested container
 /// stay out of the file walk by construction.
-final class DirectoryResourceContentStore: ResourceContentStore {
+final class WorkingCopyResourceContentStore: ResourceContentStore {
 
     /// The working-copy `<Name>.app` directory the store is bounded to.
     let bundleDirectory: URL

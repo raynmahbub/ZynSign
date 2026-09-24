@@ -66,7 +66,7 @@ final class ZipArchiveWriterTests: XCTestCase {
     func testWritingIsDeterministic() throws {
         let entries = try mixedEntries()
         let first = try ZipArchiveWriter().serializedArchive(entries: entries)
-        let second = try ZipArchiveWriter().serializedArchive(entries: entries.reversed())
+        let second = try ZipArchiveWriter().serializedArchive(entries: Array(entries.reversed()))
         XCTAssertEqual(first, second)
         XCTAssertEqual(first, try golden(mixedGoldenBase64))
     }

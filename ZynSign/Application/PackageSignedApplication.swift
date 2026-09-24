@@ -103,13 +103,13 @@ struct PackageSignedApplication {
             )
         }
 
-        let entries = try collectEntries(bundleDirectory: request.bundleDirectory, bundlePath: bundlePath)
+        let entries = try await collectEntries(bundleDirectory: request.bundleDirectory, bundlePath: bundlePath)
         guard let information = entries.first(where: { $0.path.rawValue == bundlePath.rawValue + "/Info.plist" }) else {
             throw ZynSignError.packagingFailure(
                 diagnosticDetail: "The bundle carries no information file to package."
             )
         }
-        guard case .regularFile = information.kind else {
+        guard case .regularFile(_) = information.kind else {
             throw ZynSignError.packagingFailure(
                 diagnosticDetail: "The bundle information location is not a regular file."
             )

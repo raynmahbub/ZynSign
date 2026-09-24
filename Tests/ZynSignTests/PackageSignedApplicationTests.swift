@@ -58,7 +58,7 @@ final class PackageSignedApplicationTests: XCTestCase {
             "Payload/MyApp.app/Link",
         ].sorted())
         XCTAssertEqual(
-            try reader.readEntryData(at: XCTUnwrap(ArchivePath(rawValue: "Payload/MyApp.app/MyApp"))),
+            try reader.readEntryData(at: XCTUnwrap(ArchivePath(rawValue: "Payload/MyApp.app/MyApp")), maximumBytes: 1_000_000),
             Data("executable".utf8)
         )
         let executable = try XCTUnwrap(table.first { $0.rawName == "Payload/MyApp.app/MyApp" })
@@ -66,7 +66,7 @@ final class PackageSignedApplicationTests: XCTestCase {
         let link = try XCTUnwrap(table.first { $0.rawName == "Payload/MyApp.app/Link" })
         XCTAssertEqual(link.kind, .symbolicLink)
         XCTAssertEqual(
-            try reader.readEntryData(at: XCTUnwrap(ArchivePath(rawValue: "Payload/MyApp.app/Link"))),
+            try reader.readEntryData(at: XCTUnwrap(ArchivePath(rawValue: "Payload/MyApp.app/Link")), maximumBytes: 1_000_000),
             Data("Info.plist".utf8)
         )
     }

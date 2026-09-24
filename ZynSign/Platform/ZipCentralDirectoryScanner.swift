@@ -414,7 +414,7 @@ enum ZipCentralDirectoryScanner {
         guard versionMadeBy >> 8 == 3 else {
             return nil
         }
-        let mode = UInt16(truncating: externalAttributes >> 16)
+        let mode = UInt16(truncatingIfNeeded: externalAttributes >> 16)
         if mode == 0 {
             return nil
         }
@@ -430,7 +430,7 @@ enum ZipCentralDirectoryScanner {
     ) -> ArchiveEntryKind {
         let hostSystem = versionMadeBy >> 8
         if hostSystem == 3 {
-            let mode = UInt16(truncating: externalAttributes >> 16)
+            let mode = UInt16(truncatingIfNeeded: externalAttributes >> 16)
             let typeBits = mode & 0o170000
             if typeBits != 0 {
                 switch typeBits {
