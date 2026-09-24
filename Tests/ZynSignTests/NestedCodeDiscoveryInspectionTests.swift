@@ -166,12 +166,14 @@ final class NestedCodeDiscoveryInspectionTests: XCTestCase {
 
         _ = try await inspection(reading: reader).discoverNestedCode(recordWithID: record.id)
 
+        // Nested structure is examined before the application's own binary,
+        // so the nested reads precede the root read.
         XCTAssertEqual(
             reader.requestedPaths,
             [
-                makePath("\(bundleRoot)/Example"),
                 makePath("\(bundleRoot)/Frameworks/Frame.framework/Info.plist"),
                 makePath("\(bundleRoot)/Frameworks/Frame.framework/Frame"),
+                makePath("\(bundleRoot)/Example"),
             ]
         )
         XCTAssertFalse(
