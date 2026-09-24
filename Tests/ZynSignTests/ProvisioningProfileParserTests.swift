@@ -34,7 +34,7 @@ final class ProvisioningProfileParserTests: XCTestCase {
         guard let data = try? PropertyListSerialization.data(
             fromPropertyList: root,
             format: format,
-            options: []
+            options: 0
         ) else {
             XCTFail("Could not create synthetic property-list payload")
             return Data()
@@ -224,7 +224,7 @@ final class ProvisioningProfileParserTests: XCTestCase {
         guard let data = try? PropertyListSerialization.data(
             fromPropertyList: ["not", "a", "profile"],
             format: .binary,
-            options: []
+            options: 0
         ) else {
             XCTFail("Could not create the synthetic non-dictionary payload")
             return

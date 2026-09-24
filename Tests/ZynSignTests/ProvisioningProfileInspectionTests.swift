@@ -27,7 +27,7 @@ final class ProvisioningProfileInspectionTests: XCTestCase {
         guard let data = try? PropertyListSerialization.data(
             fromPropertyList: root,
             format: .binary,
-            options: []
+            options: 0
         ) else {
             XCTFail("Could not create the synthetic inspection payload")
             return ProvisioningProfilePayload(plistData: Data())

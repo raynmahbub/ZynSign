@@ -26,7 +26,7 @@ final class ApplicationMetadataReaderTests: XCTestCase {
         guard let data = try? PropertyListSerialization.data(
             fromPropertyList: root,
             format: format,
-            options: []
+            options: 0
         ) else {
             XCTFail("Could not build a \(format) property list fixture")
             return Data()

@@ -28,7 +28,7 @@ final class IPABundleMetadataInspectionTests: XCTestCase {
     // MARK: - Fixture construction
 
     private func makePlist(_ root: [String: Any]) -> Data {
-        guard let data = try? PropertyListSerialization.data(fromPropertyList: root, format: .xml, options: []) else {
+        guard let data = try? PropertyListSerialization.data(fromPropertyList: root, format: .xml, options: 0) else {
             XCTFail("Could not build a property list fixture")
             return Data()
         }
