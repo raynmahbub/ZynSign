@@ -993,12 +993,22 @@ final class NestedCodeDiscoveryTests: XCTestCase {
             archivePath("Example").rawValue: NestedCodeFixtures.unsignedMachO(),
             archivePath("Frame", in: "Frameworks/Frame.framework").rawValue: NestedCodeFixtures.unsignedMachO(),
         ])
-        let table = basicTable([
-            entry("Frameworks", kind: .directory),
-            entry("Frameworks/Frame.framework", kind: .directory),
-            entry("Frameworks/Frame.framework/Info.plist"),
-            entry("Frameworks/Frame.framework/Frame", size: 64 * 1_024 * 1_024),
-        ])
+        // The main executable is deliberately small: only the framework
+        // candidate exceeds the inspection bound under test. (basicTable's
+        // 8 KiB executable would exceed the 1 KiB bound too, and a main
+        // executable beyond the bound refuses the bundle — see
+        // testAMainExecutableBeyondTheInspectionBoundRejectsTheBundleAsOverItsPolicy.)
+        let table = NestedCodeFixtures.packageTable(
+            bundleName: bundleName,
+            entries: [
+                entry("Info.plist"),
+                entry("Example", size: 512),
+                entry("Frameworks", kind: .directory),
+                entry("Frameworks/Frame.framework", kind: .directory),
+                entry("Frameworks/Frame.framework/Info.plist"),
+                entry("Frameworks/Frame.framework/Frame", size: 64 * 1_024 * 1_024),
+            ]
+        )
 
         let plan = try plan(table, limits: limits(binaryBytes: 1_024), source: source)
 

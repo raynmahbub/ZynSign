@@ -223,7 +223,24 @@ final class SignApplicationPipelineTests: XCTestCase {
     // MARK: - Helpers
 
     private func makePipeline(identities: NestedSigningTestIdentityStore) -> SignApplicationPipeline {
-        SignApplicationPipeline(
+        // The validation stages resolve the request's signing identity by ID.
+        // The signing store cannot answer that question, so validation gets
+        // its own store carrying the request identity's ID with the fixture
+        // profile's certificate fingerprint.
+        let validationIdentities = TestIdentityStore()
+        let metadata = PolicyFixtures.identityMetadata(
+            fingerprint: PolicyFixtures.fingerprint(CMSFixtures.signerCertificateFingerprint)
+        )
+        validationIdentities.identities = [
+            SigningIdentity(
+                id: identities.id,
+                certificate: metadata.certificate,
+                keyAvailability: metadata.keyAvailability,
+                association: metadata.association,
+                capabilityState: metadata.capabilityState
+            ),
+        ]
+        return SignApplicationPipeline(
             identities: identities,
             digest: CryptoKitMessageDigest(),
             signatureVerifier: NestedSigningTestVerifier(),
@@ -238,11 +255,11 @@ final class SignApplicationPipelineTests: XCTestCase {
                         parser: PropertyListProvisioningProfileParser(certificateParser: AppleCertificateParser()),
                         clock: FixedEvaluationClock(instant: Self.insideValidity)
                     ),
-                    identityStore: nil
+                    identityStore: validationIdentities
                 ),
                 configurationValidation: ValidateProvisioningConfigurationUseCase(
                     policyValidator: ProvisioningPolicyValidator(clock: FixedEvaluationClock(instant: Self.insideValidity)),
-                    identityStore: nil
+                    identityStore: validationIdentities
                 )
             ),
             writer: ZipArchiveWriter()

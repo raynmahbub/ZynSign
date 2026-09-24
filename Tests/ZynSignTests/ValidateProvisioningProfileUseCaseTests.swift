@@ -31,7 +31,7 @@ final class ValidateProvisioningProfileUseCaseTests: XCTestCase {
     // MARK: - A complete successful run
 
     func testCompleteValidProfileRunsEveryStageAndIsReportedValid() throws {
-        let result = try validate(successRequest())
+        let result = try validate(successRequest(), identityStore: identityStoreForRequest())
 
         XCTAssertEqual(result.overallStatus, .valid)
         XCTAssertTrue(result.overallStatus.isFullyEstablished)
@@ -59,7 +59,7 @@ final class ValidateProvisioningProfileUseCaseTests: XCTestCase {
     }
 
     func testValidRunStillReportsNoTrustAndNoAuthorization() throws {
-        let result = try validate(successRequest())
+        let result = try validate(successRequest(), identityStore: identityStoreForRequest())
 
         XCTAssertEqual(result.trustEvaluation, .notPerformed)
         XCTAssertEqual(result.authorization, .notEvaluated)
@@ -72,7 +72,7 @@ final class ValidateProvisioningProfileUseCaseTests: XCTestCase {
     }
 
     func testSummaryStatesDiscoveryAuthenticationAndCompatibilitySeparately() throws {
-        let result = try validate(successRequest())
+        let result = try validate(successRequest(), identityStore: identityStoreForRequest())
         let summary = result.summary
 
         XCTAssertEqual(summary.overallStatus, .valid)
@@ -466,7 +466,7 @@ final class ValidateProvisioningProfileUseCaseTests: XCTestCase {
         let absent = try validate(request(profile: .notFound))
         let unreadable = try validate(request(profile: .unusable(.containerUnreadable)))
         let parsedOnly = try validate(request(profile: .bytes(CMSFixtures.structurallyInvalidProfile)))
-        let complete = try validate(successRequest())
+        let complete = try validate(successRequest(), identityStore: identityStoreForRequest())
 
         XCTAssertFalse(absent.isProfileDiscovered)
         XCTAssertFalse(unreadable.isProfileDiscovered)

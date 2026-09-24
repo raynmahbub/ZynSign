@@ -295,13 +295,13 @@ struct PackageSignedApplication {
         defer { reader.close() }
         do {
             let table = try reader.readEntryTable()
-            let inspection = IPAStructureValidator(limits: limits).validate(entryTable: table)
-            guard inspection.isValid else {
-                throw ZynSignError.packagingFailure(
-                    diagnosticDetail: "The rebuilt container failed structural validation on reopen."
-                )
-            }
-            guard inspection.bundle?.bundlePath == bundlePath else {
+            // The reopen check confirms ZynSign's own output, not untrusted
+            // input: the bundle sits at its planned location and every
+            // recorded name matches the plan. The import validator's
+            // usability gate, which refuses symbolic links, does not apply
+            // to entries the packager deliberately produced.
+            let discovery = ApplicationBundleDiscovery.discover(in: table)
+            guard case .exactlyOne(let found) = discovery.outcome, found == bundlePath else {
                 throw ZynSignError.packagingFailure(
                     diagnosticDetail: "The rebuilt container does not carry the bundle at its expected location."
                 )
