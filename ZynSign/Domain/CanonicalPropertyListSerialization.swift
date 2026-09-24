@@ -116,11 +116,11 @@ struct CanonicalPropertyListXMLSerializer {
             throw CanonicalPropertyListError.rootMustBeDictionary
         }
         var context = SerializationContext(limits: limits)
-        context.appendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
-        context.appendLine("<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">")
-        context.appendLine("<plist version=\"1.0\">")
+        context.appendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>", depth: 0)
+        context.appendLine("<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">", depth: 0)
+        context.appendLine("<plist version=\"1.0\">", depth: 0)
         try serializeValue(root, depth: 0, context: &context)
-        context.appendLine("</plist>")
+        context.appendLine("</plist>", depth: 0)
         guard context.byteCount <= limits.maximumDocumentByteCount else {
             throw CanonicalPropertyListError.outputTooLarge
         }
@@ -165,7 +165,7 @@ struct CanonicalPropertyListXMLSerializer {
             context.appendLine("<dict>", depth: depth)
             for key in entries.keys.sorted(by: Self.utf8Ascending) {
                 try validateKey(key)
-                context.countNode()
+                try context.countNode()
                 context.appendLine("<key>\(Self.escaped(key))</key>", depth: depth + 1)
                 guard let entry = entries[key] else {
                     throw CanonicalPropertyListError.invalidKey
