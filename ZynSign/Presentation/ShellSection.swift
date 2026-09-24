@@ -3,10 +3,9 @@ import Foundation
 /// The top-level sections of the ZynSign shell.
 ///
 /// Presentation metadata only: the shell renders these as navigation entries.
-/// A section being listed does not mean the capability exists — Import and
-/// Applications are working areas in this build, Settings reports on the
-/// application itself, and every other section renders an explicit
-/// placeholder stating that the capability is not part of the build.
+/// A section being listed does not mean the capability exists — Import,
+/// Applications, and Signing are working areas in this build, and Settings
+/// reports on the application itself.
 enum ShellSection: Hashable, CaseIterable, Identifiable {
     case applications
     case importPackage
@@ -41,11 +40,11 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
     var statusSummary: String {
         switch self {
         case .applications:
-            return "Imported packages are recorded in ZynSign's library and kept across launches. The library lists them, imports new ones, shows the files and folders inside each application bundle, and deletes entries together with their package files; signing and installation are not part of this build yet."
+            return "Imported packages are recorded in ZynSign's library and kept across launches. The library lists them, imports new ones, shows the files and folders inside each application bundle, and deletes entries together with their package files. The Signing area runs over what the library holds."
         case .importPackage:
             return "Import brings a selected package into ZynSign, reads its structure and declared metadata, and records accepted packages in the library."
         case .signing:
-            return "Signing a package with an identity and provisioning profile is not part of this build yet."
+            return "Signing runs over a library package, a provisioning profile, and a signing identity. Profiles are validated before anything is signed, a development identity can be created in this device's Keychain, and a refused run delivers nothing. Output is verified by ZynSign's own verifier only — not by Apple — and no installation is offered."
         case .settings:
             return "Configuration is not part of this build yet."
         }

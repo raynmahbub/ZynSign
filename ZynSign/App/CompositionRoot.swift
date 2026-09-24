@@ -23,13 +23,59 @@ enum CompositionRoot {
     static func makeApplicationEnvironment() -> ApplicationEnvironment {
         let intake = SecurityScopedArtifactIntake(directory: importStagingDirectory)
         let library = makeApplicationLibrary(intake: intake)
+#if os(iOS)
+        let signing = makeApplicationSigning(library: library, intake: intake)
+#else
+        let signing = makeUnavailableSigning()
+#endif
         return ApplicationEnvironment(
             applicationInfo: ApplicationInfo.current(bundle: .main),
             packageImport: makePackageImport(intake: intake, library: library),
             library: library,
-            bundleInspection: makeBundleContentsInspection(intake: intake, library: library)
+            bundleInspection: makeBundleContentsInspection(intake: intake, library: library),
+            signing: signing
         )
     }
+
+#if os(iOS)
+    /// Builds the signing facade over the Keychain identity store, the
+    /// profile-validation pipeline, and the nine-stage application
+    /// pipeline.
+    ///
+    /// This is the first composition of the experimental identity store:
+    /// the Signing tab lists identities, can create a development identity
+    /// on this device, and runs the pipeline against a chosen package and
+    /// profile. The pipeline, the packager, and the verifier are the same
+    /// factories that have always been built here; they are now reachable
+    /// from an interface. Output is verified by ZynSign's verifier alone —
+    /// no trust, no Apple acceptance, and no installation channel exists.
+    private static func makeApplicationSigning(
+        library: ApplicationLibrary,
+        intake: SecurityScopedArtifactIntake
+    ) -> ApplicationSigning {
+        let identityStore = SecureIdentityStore.experimentalKeychainStore()
+        let factory = DevelopmentSigningIdentityFactory(store: identityStore)
+        let artifactDirectory = libraryArtifactDirectory
+        let outputDirectory = signedOutputDirectory
+        return ApplicationSigning(
+            identityStore: identityStore,
+            createIdentity: {
+                try await Task.detached(priority: .userInitiated) {
+                    try factory.create()
+                }.value
+            },
+            sourceURL: { entry in
+                artifactDirectory
+                    .appendingPathComponent(
+                        entry.record.artifact.artifactID.rawValue, isDirectory: false)
+                    .appendingPathExtension(intake.fileExtension)
+            },
+            outputDirectory: outputDirectory,
+            pipeline: makeSignApplicationPipeline(identityStore: identityStore),
+            profileValidation: makeProvisioningProfilePipeline(identityStore: identityStore)
+        )
+    }
+#endif
 
     /// Builds the package inspection use case, selecting the concrete archive
     /// implementation.
@@ -507,4 +553,57 @@ enum CompositionRoot {
     private static var libraryArtifactDirectory: URL {
         libraryRootDirectory.appendingPathComponent("Artifacts", isDirectory: true)
     }
+
+    /// Where delivered, verified signing output is written. Inside the
+    /// application container so it is private to the app and shareable
+    /// from the interface; nothing is created at composition time.
+    private static var signedOutputDirectory: URL {
+        let documents = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Documents", isDirectory: true)
+        return documents.appendingPathComponent("ZynSignSigned", isDirectory: true)
+    }
+
+#if !os(iOS)
+    /// The signing facade for targets without the Keychain composition.
+    ///
+    /// The application target builds for iOS only, so this branch is never
+    /// the shipping path; it keeps the tree honest on any other target by
+    /// reporting no identities and refusing creation rather than pretending
+    /// a store exists.
+    private static func makeUnavailableSigning() -> ApplicationSigning {
+        ApplicationSigning(
+            identityStore: nil,
+            createIdentity: { throw ZynSignError.identity(.capabilityUnavailable) },
+            sourceURL: { entry in
+                libraryArtifactDirectory
+                    .appendingPathComponent(
+                        entry.record.artifact.artifactID.rawValue, isDirectory: false)
+                    .appendingPathExtension("ipa")
+            },
+            outputDirectory: signedOutputDirectory,
+            pipeline: makeSignApplicationPipeline(identityStore: UnsupportedIdentityStore()),
+            profileValidation: makeProvisioningProfilePipeline(identityStore: UnsupportedIdentityStore())
+        )
+    }
+#endif
 }
+
+#if !os(iOS)
+/// An identity store that answers every query with absence or a typed
+/// refusal. Used only on targets where the Keychain composition does not
+/// exist; never constructed by the shipping composition path.
+private final class UnsupportedIdentityStore: IdentityStore {
+    func listIdentities() throws -> [SigningIdentity] { [] }
+    func identity(withID id: SigningIdentityIdentifier) throws -> SigningIdentity? { nil }
+    func metadata(for id: SigningIdentityIdentifier) throws -> SigningIdentityMetadata? { nil }
+    func signingCapability(for id: SigningIdentityIdentifier) throws -> any SigningCapability {
+        throw ZynSignError.identity(.capabilityUnavailable)
+    }
+    func signingCertificate(for id: SigningIdentityIdentifier) throws -> Certificate {
+        throw ZynSignError.identity(.certificateUnavailable)
+    }
+}
+#endif

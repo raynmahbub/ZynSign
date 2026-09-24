@@ -6,6 +6,22 @@ All notable changes to ZynSign will be documented here.
 
 ### Added
 
+- Signing area (experimental): a fourth shell tab that runs the
+  profile-validation pipeline standalone over a chosen `.mobileprovision`
+  and the nine-stage application-signing pipeline over a library package,
+  a provisioning profile, and a signing identity. The Signing tab lists
+  registered identities, can create a **development identity** on the
+  device (permanent non-extractable Keychain key plus a self-signed
+  code-signing certificate, issued in the platform layer and registered
+  through the existing identity store), derives claimed entitlements from
+  the profile's own parsed entitlements, and shows the pipeline's typed
+  refusal or the delivered container with a share action. The
+  experimental Keychain identity store is composed for the first time,
+  pending physical-device validation; `ApplicationEnvironment` carries the
+  new `ApplicationSigning` facade. A delivered container is verified by
+  ZynSign's verifier alone — not Apple — and no installation exists.
+  The placeholder-only shell no longer renders `PlaceholderFeatureView`,
+  which is removed as unused; README status text updated to match.
 - App icon: an asset catalog with a 1024×1024 iOS app icon
   (`ZynSign/Assets.xcassets/AppIcon.appiconset`), a violet-gradient
   squircle carrying a white pen-nib Z emblem with a signature stroke.

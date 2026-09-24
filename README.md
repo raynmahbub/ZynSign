@@ -7,9 +7,9 @@ taken from another project.
 
 ## Current Status
 
-**Development — import, inspection, and library in the application; signing
-pipeline, packaging, and verification below the interface; no signing
-interface, no installation, no release.**
+**Development — import, inspection, library, and an experimental signing
+interface in the application; the signing pipeline, packaging, and
+verification reachable through it; no installation, no release.**
 
 The repository contains an Xcode project with an iOS/iPadOS application target,
 a SwiftUI application shell, domain, application, platform, and presentation
@@ -45,12 +45,15 @@ labels it puts on conventional locations such as `Info.plist` or
 `_CodeSignature` describe what is usually found there and nothing more. It
 makes no claim that any application is signed, trusted, or installable.
 
-Below the interface, and not reachable from any screen, the repository also
-holds: certificate inspection and signing-identity models with an experimental
-Keychain registry that is not composed into the application; a
+Besides those areas, the repository also
+holds: certificate inspection and signing-identity models with an
+experimental Keychain registry that the **Signing area** composes — the
+area can create a development identity on the device and list registered
+identities; a
 provisioning-profile pipeline (payload parsing, CMS container verification,
 policy validation, and one staged integration over all three, including a
-read-only intake for a bundle's embedded profile); a read-only Mach-O
+read-only intake for a bundle's embedded profile) that the Signing area
+runs standalone over a chosen profile before anything is signed; a read-only Mach-O
 code-signature inspector behind an opt-in use case; and an experimental
 signing stack (generic cryptographic foundation, CodeDirectory construction,
 SuperBlob construction, signature-region framing, single-image signing with
@@ -59,12 +62,14 @@ entitlements/requirements/CodeResources metadata layer); a nine-stage
 application-signing pipeline that runs integrity, profile, discovery,
 extraction, nested signing, resource sealing, main-executable signing,
 packaging, and independent verification in fixed order and delivers
-nothing when any stage refuses; a deterministic packaging writer and a
+nothing when any stage refuses — reachable from the Signing tab over a
+library package, a provisioning profile, and a signing identity; a deterministic packaging writer and a
 safe archive extractor behind new archive ports; and a pure
 installation-capability assessment. The pipeline, the packager, and the
 verifier are constructed at the composition root and covered by unit
-tests, but none is installed in the application environment: there is no
-signing interface, no installation mechanism, and no released build.
+tests; the Signing area surfaces them with the experimental identity
+store. A delivered container is checked by ZynSign's own verifier alone —
+not by Apple — there is no installation mechanism, and no released build.
 
 | Area | State |
 | --- | --- |
@@ -76,8 +81,8 @@ signing interface, no installation mechanism, and no released build.
 | Library | Partial: durable records for accepted imports, application-owned artifact storage, content-based duplicate recognition, missing-artifact detection, an Applications screen that lists, imports, and deletes records and opens a read-only explorer of each available package's application bundle. No repair or replacement of missing artifacts |
 | Inspection | Partial: archive reading, application-bundle discovery, structural validation, declared metadata, read-only bundle structure listing. No signature examination, no file content access |
 | Provisioning profiles | Application layer only: payload parsing, CMS container verification, policy validation, and a staged integrated pipeline with a read-only embedded-profile intake. No trust evaluation, no authorization, no interface. See [security design](docs/security/provisioning-profiles.md) |
-| Identity security | Explicit signature capability and experimental Keychain registry/resolver; not composed into the app, pending physical-device validation. No private-key import. The generic signing use case signs only through this boundary and is likewise not composed in. See [security design](docs/security/signing-identities.md) |
-| Signing and verification | Below the interface: single-image and nested Mach-O signing with independent post-sign verification and per-target metadata, composed into a nine-stage application pipeline with independent container verification. Built at the composition root and covered by unit tests; no signing interface until device validation completes. Externally measured: Apple's desktop `codesign` accepts ZynSign's single-image signatures and rejects the pipeline's bundles, and the signature format fails Apple's documented iOS 15+ requirements — see [external validation](docs/architecture/external-validation.md) |
+| Identity security | Explicit signature capability and experimental Keychain registry/resolver, composed into the Signing area: a development identity can be created on the device (Keychain key, self-signed certificate) and listed. Pending physical-device validation. No private-key or PKCS#12 import. See [security design](docs/security/signing-identities.md) |
+| Signing and verification | Reachable through the experimental Signing tab: single-image and nested Mach-O signing with independent post-sign verification, composed into a nine-stage application pipeline with independent container verification, run over a library package, a provisioning profile, and a signing identity; refused runs deliver nothing. Output is verified by ZynSign's verifier alone. Externally measured: Apple's desktop `codesign` accepts ZynSign's single-image signatures and rejects the pipeline's bundles, and the signature format fails Apple's documented iOS 15+ requirements — see [external validation](docs/architecture/external-validation.md) |
 | Packaging and extraction | Below the interface: deterministic packaging through a validated entry set and a stored-only ZIP writer, and safe extraction with confinement and an explicit link policy. Built at the composition root; no interface |
 | Installation | None. No supported arbitrary-IPA installation mechanism is available to the application on iOS/iPadOS; a pure capability assessment reports installation as unavailable with exact limitations. See [installation and compatibility](docs/architecture/installation-compatibility.md) and [application signing pipeline](docs/architecture/application-signing-pipeline.md) |
 | Releases | None |
