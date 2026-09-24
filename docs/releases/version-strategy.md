@@ -9,6 +9,34 @@ was not actually produced.
 The Xcode project currently declares marketing version `0.1.0`, build `1`:
 a development state. That is the only version that exists.
 
+## Release sequence
+
+The fixed progression from development to stable:
+
+```
+Development
+└── 0.1.0-dev
+Alpha
+├── 0.1.0-alpha.1
+├── 0.1.0-alpha.2
+└── 0.1.0-alpha.3
+Beta
+├── 0.9.0-beta.1
+├── 0.9.0-beta.2
+├── 0.9.0-beta.3
+└── 0.9.0-beta.4
+Release Candidate
+├── 1.0.0-rc.1
+├── 1.0.0-rc.2
+└── 1.0.0-rc.3
+Stable
+└── 1.0.0
+```
+
+Each stage below defines what its builds establish and what must hold
+before the progression advances. The counts are fixed: three Alphas,
+four Betas, three Release Candidates, then Stable.
+
 ## Stages
 
 ### Development — `0.1.0-dev`
@@ -19,9 +47,8 @@ is distributed.
 
 ### Alpha — `0.1.0-alpha.N`
 
-Core functionality and major real-world compatibility discovery. The first
-Alpha is `0.1.0-alpha.1`; further Alphas (`alpha.2`, `alpha.3`, …) are cut
-only when a meaningful Alpha change requires another build.
+Core functionality and major real-world compatibility discovery. Three
+Alphas are planned: `0.1.0-alpha.1`, `0.1.0-alpha.2`, and `0.1.0-alpha.3`.
 
 Alpha exits to Beta when all of the following hold:
 
