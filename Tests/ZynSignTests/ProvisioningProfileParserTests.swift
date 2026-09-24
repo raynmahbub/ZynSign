@@ -192,14 +192,14 @@ final class ProvisioningProfileParserTests: XCTestCase {
 
     func testEmptyPayloadIsControlled() {
         assertProfileFailure(
-            parser().parse(ProvisioningProfilePayload(plistData: Data())),
+            try parser().parse(ProvisioningProfilePayload(plistData: Data())),
             reason: .emptyPayload
         )
     }
 
     func testMalformedPayloadIsControlled() {
         assertProfileFailure(
-            parser().parse(ProvisioningProfilePayload(plistData: Data("not a plist".utf8))),
+            try parser().parse(ProvisioningProfilePayload(plistData: Data("not a plist".utf8))),
             reason: .malformedPayload
         )
     }
@@ -207,7 +207,7 @@ final class ProvisioningProfileParserTests: XCTestCase {
     func testTruncatedPayloadIsControlled() {
         let data = makePayload(validRoot()).plistData
         assertProfileFailure(
-            parser().parse(ProvisioningProfilePayload(plistData: Data(data.prefix(8)))),
+            try parser().parse(ProvisioningProfilePayload(plistData: Data(data.prefix(8)))),
             reason: .malformedPayload
         )
     }
@@ -215,7 +215,7 @@ final class ProvisioningProfileParserTests: XCTestCase {
     func testOpenStepPayloadIsRejectedAsUnsupported() {
         let openStep = Data("{ UUID = \"12345678-1234-4ABC-8DEF-1234567890AB\"; }".utf8)
         assertProfileFailure(
-            parser().parse(ProvisioningProfilePayload(plistData: openStep)),
+            try parser().parse(ProvisioningProfilePayload(plistData: openStep)),
             reason: .unsupportedPayloadFormat
         )
     }
@@ -230,7 +230,7 @@ final class ProvisioningProfileParserTests: XCTestCase {
             return
         }
         assertProfileFailure(
-            parser().parse(ProvisioningProfilePayload(plistData: data)),
+            try parser().parse(ProvisioningProfilePayload(plistData: data)),
             reason: .malformedPayload
         )
     }
@@ -239,7 +239,7 @@ final class ProvisioningProfileParserTests: XCTestCase {
         let limits = ProvisioningProfilePayload.maximumByteCount
         let data = Data(repeating: 0x41, count: limits + 1)
         assertProfileFailure(
-            parser().parse(ProvisioningProfilePayload(plistData: data)),
+            try parser().parse(ProvisioningProfilePayload(plistData: data)),
             reason: .payloadTooLarge
         )
     }
@@ -262,7 +262,7 @@ final class ProvisioningProfileParserTests: XCTestCase {
             maximumCollectionCount: 100
         )
         assertProfileFailure(
-            parser(limits: limits).parse(makePayload(root)),
+            try parser(limits: limits).parse(makePayload(root)),
             reason: .resourceLimitExceeded
         )
     }
@@ -280,7 +280,7 @@ final class ProvisioningProfileParserTests: XCTestCase {
             maximumCollectionCount: 100
         )
         assertProfileFailure(
-            parser(limits: limits).parse(makePayload(root)),
+            try parser(limits: limits).parse(makePayload(root)),
             reason: .resourceLimitExceeded
         )
     }
@@ -340,7 +340,7 @@ final class ProvisioningProfileParserTests: XCTestCase {
         entitlements[ProvisioningProfileEntitlementKeys.getTaskAllow] = "true"
         root[ProvisioningProfileKeys.entitlements] = entitlements
         assertProfileFailure(
-            parser().parse(makePayload(root)),
+            try parser().parse(makePayload(root)),
             reason: .invalidFieldType
         )
     }
@@ -349,14 +349,14 @@ final class ProvisioningProfileParserTests: XCTestCase {
         var root = validRoot()
         root[ProvisioningProfileKeys.platform] = "iPhoneOS"
         assertProfileFailure(
-            parser().parse(makePayload(root)),
+            try parser().parse(makePayload(root)),
             reason: .invalidFieldType
         )
 
         root = validRoot()
         root[ProvisioningProfileKeys.version] = true
         assertProfileFailure(
-            parser().parse(makePayload(root)),
+            try parser().parse(makePayload(root)),
             reason: .invalidFieldType
         )
     }
@@ -377,7 +377,7 @@ final class ProvisioningProfileParserTests: XCTestCase {
         var root = validRoot()
         root[ProvisioningProfileKeys.applicationIdentifierPrefix] = ["OTHERTEAM"]
         assertProfileFailure(
-            parser().parse(makePayload(root)),
+            try parser().parse(makePayload(root)),
             reason: .invalidIdentifier
         )
     }
@@ -432,7 +432,7 @@ final class ProvisioningProfileParserTests: XCTestCase {
         var root = validRoot()
         root[ProvisioningProfileKeys.creationDate] = "not-a-date"
         assertProfileFailure(
-            parser().parse(makePayload(root)),
+            try parser().parse(makePayload(root)),
             reason: .invalidDate
         )
     }
@@ -457,7 +457,7 @@ final class ProvisioningProfileParserTests: XCTestCase {
         var root = validRoot()
         root[ProvisioningProfileKeys.provisionedDevices] = ["not-a-device"]
         assertProfileFailure(
-            parser().parse(makePayload(root)),
+            try parser().parse(makePayload(root)),
             reason: .invalidIdentifier
         )
     }
@@ -466,13 +466,13 @@ final class ProvisioningProfileParserTests: XCTestCase {
         var root = validRoot()
         root[ProvisioningProfileKeys.developerCertificates] = ["not-data"]
         assertProfileFailure(
-            parser().parse(makePayload(root)),
+            try parser().parse(makePayload(root)),
             reason: .invalidFieldType
         )
 
         root[ProvisioningProfileKeys.developerCertificates] = [Data()]
         assertProfileFailure(
-            parser().parse(makePayload(root)),
+            try parser().parse(makePayload(root)),
             reason: .malformedCertificate
         )
     }
