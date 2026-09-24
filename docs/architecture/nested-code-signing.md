@@ -94,8 +94,19 @@ Existing signature handling:
 
 ## Extension points for future stages
 
-- **ZS-029 (Entitlements & Requirements):** `NestedCodeSigningConfiguration` exposes
-  `flags` and `specialSlots` hooks. No entitlements, requirement blobs, or
-  `CodeResources` are fabricated in ZS-028.
+- **ZS-029 (signing metadata):** now implemented. `NestedCodeSigningConfiguration`
+  carries `targetMetadata`, keyed by item identity, holding the entitlements,
+  requirements, and resource seal a target states for itself. Metadata is per
+  target and never inherited: a target with no entry signs with no metadata,
+  exactly as ZS-028 did, and nothing copies a parent's metadata into a child or
+  the reverse. Each nested binary's CodeDirectory gains the derived special
+  slots (2, 3, 5) and its SuperBlob gains the requirements and entitlements
+  blobs; the independent post-sign verification holds each signed binary to its
+  own prepared metadata bytes. A metadata component that fails its own boundary
+  is reported as `.signingMetadataFailure` at the metadata stage — not as a
+  structural or cryptographic failure — and under the staged strategy leaves
+  the artifact untouched. The parent's resource seal consumes the nested code's
+  *final* signed state (see [signing-metadata.md](signing-metadata.md));
+  parent signing itself remains deferred.
 - **Application signing:** Parent application executable signing is strictly deferred.
 - **IPA packaging:** Creation of ZIP packages or distribution archives is out of scope.

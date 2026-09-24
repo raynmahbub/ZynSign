@@ -210,8 +210,47 @@ struct SignNestedCodeUseCase {
                 codeDirectory: cdRequest,
                 algorithm: request.signingAlgorithm,
                 existingSignaturePolicy: request.existingSignaturePolicy,
-                policy: .singleImageCryptographicExperiment
+                policy: .singleImageCryptographicExperiment,
+                metadata: request.configuration.targetMetadata[item.id]
             )
+
+            // The metadata this target asked to embed, re-derived here so the
+            // independent verification below can hold the pipeline to exactly
+            // those bytes. Metadata is per target: only this item's entry is
+            // consulted, never another target's and never the root's.
+            let targetMetadata = request.configuration.targetMetadata[item.id]
+            var expectedSlots: [CodeSignatureBlobType] = [.codeDirectory, .cms]
+            var expectedRequirementsBytes: Data?
+            var expectedEntitlementsBytes: Data?
+            if let targetMetadata, !targetMetadata.isEmpty {
+                do {
+                    let preparation = try SigningMetadataPreparation.prepare(
+                        targetMetadata,
+                        hashConfiguration: try CodeDirectoryHashConfiguration(hashType: .sha256),
+                        messageDigest: digest
+                    )
+                    if preparation.requirementsSet != nil {
+                        expectedSlots.insert(.requirements, at: 1)
+                        expectedRequirementsBytes = preparation.requirementsSetBytes
+                    }
+                    if preparation.entitlementsBlob != nil {
+                        expectedSlots.insert(.entitlements, at: expectedSlots.count - 1)
+                        expectedEntitlementsBytes = preparation.entitlementsBlob?.bytes
+                    }
+                } catch {
+                    let failure = NestedSigningFailure(
+                        reason: .signingMetadataFailure,
+                        itemID: item.id,
+                        path: item.executablePath,
+                        detail: "Signing metadata for '\(item.executablePath.rawValue)' could not be prepared.",
+                        category: .invalidInput,
+                        mutationOccurred: false
+                    )
+                    activeFailure = failure
+                    itemResults.append(makeItemFailureResult(item: item, failure: failure, mutationOccurred: false))
+                    continue
+                }
+            }
 
             // Step D: Sign the single Mach-O image using existing capability engine.
             let signingResult: MachOSigningResult
@@ -244,7 +283,10 @@ struct SignNestedCodeUseCase {
                 expectedTeam: request.teamIdentifier?.rawValue,
                 expectedDigest: signingResult.codeDirectoryDigest,
                 certificate: certificate,
-                algorithm: request.signingAlgorithm
+                algorithm: request.signingAlgorithm,
+                expectedSlots: expectedSlots,
+                expectedRequirementsBytes: expectedRequirementsBytes,
+                expectedEntitlementsBytes: expectedEntitlementsBytes
             )
 
             guard verificationOutcome.isVerified else {
@@ -428,7 +470,10 @@ struct SignNestedCodeUseCase {
         expectedTeam: String?,
         expectedDigest: Digest,
         certificate: Certificate,
-        algorithm: SigningAlgorithm
+        algorithm: SigningAlgorithm,
+        expectedSlots: [CodeSignatureBlobType],
+        expectedRequirementsBytes: Data?,
+        expectedEntitlementsBytes: Data?
     ) -> NestedSigningItemVerification {
         // 1. Structural Verification.
         var structuralValidity: NestedStructuralValidity = .valid
@@ -673,6 +718,9 @@ struct SignNestedCodeUseCase {
         case .codeDirectoryConstruction, .codeDirectorySerialization:
             reason = .structuralFailure
             detail = "CodeDirectory construction or serialization failed."
+        case .entitlements, .requirements, .resourceSeal:
+            reason = .signingMetadataFailure
+            detail = "Signing metadata (entitlements, requirements, or resource seal) failed its boundary."
         case .digestFailure:
             reason = .cryptographicFailure
             detail = "Cryptographic digest computation failed."
