@@ -8,3 +8,10 @@ xcuserdata/
 # Xcode build products and test results
 DerivedData/
 *.xcresult
+
+# Python bytecode from host scripts
+__pycache__/
+*.pyc
+
+# External validation output from local runs (regenerated on every run)
+.external-validation/

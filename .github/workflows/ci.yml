@@ -55,6 +55,7 @@ jobs:
           python3 Tests/Host/verify_macho_signing_vector.py
           python3 Tests/Host/verify_nested_code_signing_vector.py
           python3 Tests/Host/verify_zip_writer_vectors.py
+          python3 Tests/Host/external_validation.py self-test
 
   build-and-test:
     name: Build and test (Xcode)
@@ -91,3 +92,67 @@ jobs:
             -scheme ZynSign \
             -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
             -quiet
+
+  # Measurement, not a gate: ZynSign-signed artifacts judged by Apple's
+  # developer tooling. The job fails only when the harness cannot do its job
+  # (the export or a tool is missing); codesign rejections are findings,
+  # recorded in the report. See docs/architecture/external-validation.md.
+  external-validation:
+    name: External validation (Apple tooling)
+    runs-on: macos-15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Select the newest available Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Show the toolchain versions
+        run: |
+          set -eu
+          echo "EXPORT_ROOT=$RUNNER_TEMP/zynsign-external-validation" >> "$GITHUB_ENV"
+          sw_vers
+          xcodebuild -version
+          command -v codesign otool ditto unzip
+          openssl version || true
+
+      - name: Export ZynSign-signed artifacts
+        id: export
+        run: |
+          set -u
+          mkdir -p "$EXPORT_ROOT/export"
+          set +e
+          TEST_RUNNER_ZYNSIGN_EXPORT_DIR="$EXPORT_ROOT/export" xcodebuild test \
+            -project ZynSign.xcodeproj \
+            -scheme ZynSign \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -only-testing:ZynSignTests/ExternalValidationExportTests \
+            -quiet 2>&1 | tee "$EXPORT_ROOT/export-xcodebuild.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          if [ "$status" -ne 0 ]; then
+            python3 Tests/Host/external_validation.py annotate-xcodebuild \
+              "$EXPORT_ROOT/export-xcodebuild.log"
+          fi
+
+      - name: Judge the artifacts with Apple tooling
+        run: |
+          python3 Tests/Host/external_validation.py run \
+            --export-dir "$EXPORT_ROOT/export" \
+            --report-dir "$EXPORT_ROOT/report" \
+            --export-status "${{ steps.export.outputs.status || 99 }}"
+
+      - name: Upload the report and the exported artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-validation
+          path: |
+            ${{ env.EXPORT_ROOT }}/report
+            ${{ env.EXPORT_ROOT }}/export
+            ${{ env.EXPORT_ROOT }}/export-xcodebuild.log
+          if-no-files-found: warn
+          retention-days: 30

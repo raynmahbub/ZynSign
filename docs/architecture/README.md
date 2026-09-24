@@ -139,6 +139,19 @@ is never inherited. The decision is recorded in Section 7 of
 [signing-metadata.md](signing-metadata.md), which also records the evidence
 levels and the byte-exactness questions that remain experiments.
 
+The external validation increment hands ZynSign's output to Apple's developer
+tooling for the first time. An opt-in export test signs synthetic inputs
+through the production use cases with a throwaway in-process key, a host
+harness judges the exports with `codesign`, `otool`, `ditto`, `unzip`, and
+OpenSSL on a macOS runner, compares them with `codesign`'s own ad hoc signing
+of the same inputs, and records every verdict; a non-gating CI job runs it on
+every push. The first hosted runs found Apple's desktop verifier accepting
+ZynSign's single-image signatures and rejecting the application pipeline's
+bundles, and the signature format failing Apple's documented iOS 15+
+requirements. The method and the known-divergence register are recorded in
+[external-validation.md](external-validation.md); none of it is platform
+acceptance.
+
 Everything else is intended structure only. The archive inspection stage is a
 partial capability: it reads containers, classifies layout, reads one bundle's
 declared metadata, and describes a bundle's structure; it does not verify
@@ -150,8 +163,9 @@ run all three as one staged workflow that can also be fed the profile a bundle
 embeds; it establishes neither certificate trust nor authorization, and no
 interface consumes it yet. Library records are kept across launches and are listed, imported, browsed, and removed in the
 Applications area. Certificate parsing and identity modeling exist as domain
-foundation; no application-signing, verification, packaging, or installation is
-implemented. No other workflow behaviour is
+foundation; application signing, verification, and packaging exist below the
+interface (see [application-signing-pipeline.md](application-signing-pipeline.md)),
+and installation is not implemented. No other workflow behaviour is
 implemented, and no behaviour may be inferred from these documents.
 
 ## Index
@@ -192,6 +206,10 @@ implemented, and no behaviour may be inferred from these documents.
   end-to-end signing workflow, deterministic packaging, safe extraction,
   independent verification, and installation-capability assessment, with
   the composition facts that bound what the pipeline can sign.
+- [external-validation.md](external-validation.md) — ZS-031 external
+  validation: the export test, the Apple-tooling harness and its CI job, what
+  each check establishes and does not, the evidence discipline, and the
+  known-divergence register from the first hosted runs.
 - [macho-signing-design-review.md](macho-signing-design-review.md) — historical
   design proposal and prerequisites; the integration document records the
   implemented scope and evidence.

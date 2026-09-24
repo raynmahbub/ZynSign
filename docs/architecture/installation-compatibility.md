@@ -29,8 +29,13 @@ collapses them into "installable" on its own authority.
   flow — archive validation, bundle discovery, structural classification,
   and declared-metadata extraction.
 - **Signature validity (2):** implemented below the interface for single
-  Mach-O images and nested code, with independent post-sign verification.
-  No interface consumes it, and no complete application bundle is verified.
+  Mach-O images and nested code, with independent post-sign verification,
+  and composed into the application pipeline, which verifies the bundles
+  it produces against its own expectations. No interface consumes it.
+  Measured externally (ZS-031): Apple's desktop `codesign` accepts
+  ZynSign's single-image signatures and rejects the pipeline's bundles, and
+  the signature format fails Apple's documented iOS 15+ requirements. See
+  [external-validation.md](external-validation.md).
 - **Provisioning validity (3):** implemented below the interface as a
   staged pipeline (container verification, parsing and structural
   validation, policy evaluation). Trust evaluation and authorization stay

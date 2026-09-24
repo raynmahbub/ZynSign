@@ -960,6 +960,14 @@ material, per `SECURITY.md`.
   **Credentials:** synthetic. **Automatable:** yes.
 
 ### E5 — Mach-O signature-region read and controlled modification
+- **Status (ZS-031):** partly exercised on hosted macOS for ZynSign's own
+  output. On the synthetic executable model, `otool -l` agrees with ZynSign
+  on `LC_CODE_SIGNATURE` and `__LINKEDIT`, the signature offset is 16-byte
+  aligned, and the region ends at the end of the file, for single images
+  and for the pipeline's main and nested executables. Rewriting an existing
+  signature, the fat fixture, and real linker layouts are not exercised:
+  the signer refuses all three. See
+  [external-validation.md](external-validation.md).
 - **Objective:** locate, bound, and rewrite the `LC_CODE_SIGNATURE` region of a
   disposable fixture without corrupting the file.
 - **Environment:** iOS harness; macOS `otool`/`codesign -dvvv` reference.
@@ -975,6 +983,15 @@ material, per `SECURITY.md`.
 - **Device:** not required. **Credentials:** none. **Automatable:** yes.
 
 ### E6 — Minimal end-to-end resign of a controlled fixture
+- **Status (ZS-031):** the developer-side validator half runs on every
+  push, not yet with the result E6 asks for. `codesign --verify` accepts
+  ZynSign's single-image signatures and rejects the pipeline's bundle and
+  its nested framework ("code has no resources but signature indicates they
+  must be present"); the signature format also fails Apple's documented
+  iOS 15+ requirements. The input is a synthetic executable signed with a
+  throwaway self-signed identity, not a minimal real application, and the
+  install probe has not run. See
+  [external-validation.md](external-validation.md).
 - **Objective:** produce, from scratch on-device, a CodeDirectory + entitlement
   blobs + CMS slot + `CodeResources` for a trivial app fixture, in correct
   nested order, and pass independent validation.
@@ -1121,6 +1138,13 @@ material, per `SECURITY.md`.
   project certificates. **Automatable:** yes.
 
 ### E14 — Discrepancy harness: ZynSign vs developer tooling vs device
+- **Status (ZS-031):** the developer-tooling column exists. Damaged copies
+  of the single images (code byte, CodeDirectory byte, entitlements byte,
+  CMS signature byte, truncation) are rejected by both ZynSign and
+  `codesign`, nine of nine. The stale-`CodeResources` mutation (bundle
+  mutations mean nothing until an unmodified bundle is accepted), the
+  expired-profile and wrong-team mutations, and the device column are not
+  yet measured. See [external-validation.md](external-validation.md).
 - **Objective:** make verification divergence observable instead of assumed.
 - **Environment:** all of the above, wired as one pipeline: ZynSign verifier →
   macOS `codesign --verify --strict --deep` → physical install attempt.

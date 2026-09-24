@@ -4,9 +4,11 @@ The release process for ZynSign will be documented here.
 
 ## Current State
 
-**There have been no releases.** ZynSign is in a pre-development state: the
-repository contains documentation only, with no source code, no build system, and
-no shippable artifact. There is nothing to version, build, or distribute.
+**There have been no releases.** ZynSign is in development: the repository
+contains source code, an Xcode project, tests, and a continuous-integration
+workflow, but no shippable artifact. Nothing has been versioned for release,
+built for distribution, or distributed; the current position against the
+release stages is recorded in [version-strategy.md](version-strategy.md).
 
 No tags and no releases exist.
 

@@ -648,6 +648,53 @@ vector script was executed and passed:
   fixed fields, modes, CRC-32, ordering, offsets, and `zipfile`
   acceptance of every committed vector.
 
+## First hosted run
+
+The workflow first passed on hosted infrastructure on 2026-09-24: run
+35992989870 on `main` built the application and passed the full unit-test
+target on an iPhone simulator, including every suite listed above as
+written but not executed. The records above describe the environments the
+suites were written in and are left as written. A simulator pass is not a
+device result, and the opt-in Keychain integration suite skipped there by
+design.
+
+## ZS-031 checks
+
+The external validation increment adds one opt-in XCTest suite, one host
+harness, and one CI job
+([external-validation.md](../architecture/external-validation.md)):
+
+- `ExternalValidationExportTests` — skipped unless `ZYNSIGN_EXPORT_DIR` is
+  set, so the ordinary test run is unchanged. With it set, it signs the
+  synthetic executable twice (no metadata; XML entitlements) and the
+  nested-framework container through `SignApplicationPipeline`, with a
+  throwaway in-process RSA key and the production `AppleSignatureVerifier`,
+  writes damaged copies of each single image with ZynSign's own verdict,
+  and records everything in manifests;
+- `Tests/Host/external_validation.py` — `self-test` checks the signature
+  parser against the committed ZS-026 vector, the Apple-documented iOS
+  format rules, the `otool`, `codesign`, and `xcodebuild` output parsers,
+  the reference comparison, and the whole analysis and rendering path over
+  synthetic exports with every tool unavailable; `run` is the macOS
+  harness.
+
+Executed:
+
+- `python3 Tests/Host/external_validation.py self-test` in the Linux
+  development environment — passes. The other host vector scripts still
+  pass.
+- Hosted runs 36010725148 and 36011553668 of the `external-validation` job
+  on the ZS-031 branch — the export test ran and the harness completed on
+  macOS 15.7.9 with Xcode 26.3 and OpenSSL 3.6.4. `codesign` accepted both
+  single-image signatures and rejected the pipeline's bundle and its nested
+  framework; the signature format failed Apple's documented iOS 15+ rules;
+  OpenSSL verified every CMS; the layout checks passed; ZynSign and
+  `codesign` agreed on all nine damaged images. The build-and-test and
+  hygiene jobs stayed green on the same runs.
+
+Not executed: anything on a device. No verdict here is iOS acceptance,
+trust, or installability.
+
 ## Expectations Today
 
 Until a test suite exists, the expectations in

@@ -123,9 +123,23 @@ Semantic Versioning applies:
 
 ## Current Position
 
-No Alpha, Beta, RC, or stable version has been produced. The blockers are
-recorded with the final-integration review: IPA packaging and the complete
-application pipeline are unimplemented, no supported on-device installation
-mechanism exists, and the test suites have not been executed in an
-environment with the Swift toolchain. The intended progression ends at ZynSign 1.0.0 Stable. Until the exit
+No Alpha, Beta, RC, or stable version has been produced.
+
+Of the blockers recorded with the final-integration review, two have
+changed. IPA packaging and the complete application pipeline now exist
+below the interface, with no signing interface composed. The test suites
+pass on hosted CI (run 35992989870), on a simulator, which is not device
+evidence.
+
+The external validation of ZS-031 then measured the signing output with
+Apple's tooling. Apple's desktop verifier accepts ZynSign's single-image
+signatures but rejects the application pipeline's bundles, and the
+signature format fails the requirements Apple documents for iOS 15 and
+later ([external-validation.md](../architecture/external-validation.md)).
+"Signing for supported artifacts" and "verification" in the Alpha criteria
+are therefore not established.
+
+No supported on-device installation mechanism exists, and whether
+installation belongs in a release is unresolved (architecture decision 24).
+The intended progression ends at ZynSign 1.0.0 Stable. Until the exit
 criteria above are met, the project stays in development and says so.

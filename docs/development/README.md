@@ -19,8 +19,13 @@ iOS/iPadOS application target (`ZynSign`) and a unit-test target
   change when that decision is made.
 - **Build and test:** open the project in Xcode and use Product ▸ Run /
   Product ▸ Test, or the equivalent `xcodebuild` invocation against the
-  shared `ZynSign` scheme. These steps have not been executed and recorded
-  yet; the first run is part of reviewing the foundation work.
+  shared `ZynSign` scheme. Hosted CI runs the same build and unit-test
+  target on every push; it first passed on 2026-09-24 (see
+  [continuous-integration.md](continuous-integration.md)).
+- **External validation:** the opt-in export test and the Apple-tooling
+  harness, run locally or by the `external-validation` CI job, are
+  described in
+  [external-validation.md](../architecture/external-validation.md).
 
 ## Read First
 
