@@ -18,7 +18,7 @@ final class ProvisioningProfileCertificateRelationshipTests: XCTestCase {
         let relationship = analyzer.analyze(
             signerCertificateStatus: .extracted,
             signerCertificate: signer,
-            profileCertificates: [reference(CMSFixtures.signerCertificateDER)],
+            profileCertificates: [try reference(CMSFixtures.signerCertificateDER)],
             localIdentities: .notRequested
         )
 
@@ -38,7 +38,7 @@ final class ProvisioningProfileCertificateRelationshipTests: XCTestCase {
         let relationship = analyzer.analyze(
             signerCertificateStatus: .extracted,
             signerCertificate: signer,
-            profileCertificates: [reference(CMSFixtures.otherCertificateDER)],
+            profileCertificates: [try reference(CMSFixtures.otherCertificateDER)],
             localIdentities: .notRequested
         )
 
@@ -65,7 +65,7 @@ final class ProvisioningProfileCertificateRelationshipTests: XCTestCase {
         let namedTwin = analyzer.analyze(
             signerCertificateStatus: .extracted,
             signerCertificate: signer,
-            profileCertificates: [reference(CMSFixtures.sameSubjectSignerCertificateDER)],
+            profileCertificates: [try reference(CMSFixtures.sameSubjectSignerCertificateDER)],
             localIdentities: .notRequested
         )
         XCTAssertEqual(namedTwin.match, .mismatched)
@@ -73,7 +73,7 @@ final class ProvisioningProfileCertificateRelationshipTests: XCTestCase {
         let namedSigner = analyzer.analyze(
             signerCertificateStatus: .extracted,
             signerCertificate: signer,
-            profileCertificates: [reference(CMSFixtures.signerCertificateDER)],
+            profileCertificates: [try reference(CMSFixtures.signerCertificateDER)],
             localIdentities: .notRequested
         )
         XCTAssertEqual(namedSigner.match, .matched)
@@ -83,7 +83,7 @@ final class ProvisioningProfileCertificateRelationshipTests: XCTestCase {
         let relationship = analyzer.analyze(
             signerCertificateStatus: .ambiguous,
             signerCertificate: nil,
-            profileCertificates: [reference(CMSFixtures.signerCertificateDER)],
+            profileCertificates: [try reference(CMSFixtures.signerCertificateDER)],
             localIdentities: .notRequested
         )
 
@@ -96,7 +96,7 @@ final class ProvisioningProfileCertificateRelationshipTests: XCTestCase {
         let relationship = analyzer.analyze(
             signerCertificateStatus: .absentFromMessage,
             signerCertificate: nil,
-            profileCertificates: [reference(CMSFixtures.signerCertificateDER)],
+            profileCertificates: [try reference(CMSFixtures.signerCertificateDER)],
             localIdentities: .notRequested
         )
 
@@ -135,9 +135,9 @@ final class ProvisioningProfileCertificateRelationshipTests: XCTestCase {
             signerCertificateStatus: .extracted,
             signerCertificate: signer,
             profileCertificates: [
-                reference(CMSFixtures.signerCertificateDER),
-                reference(CMSFixtures.otherCertificateDER),
-                reference(CMSFixtures.signerCertificateDER),
+                try reference(CMSFixtures.signerCertificateDER),
+                try reference(CMSFixtures.otherCertificateDER),
+                try reference(CMSFixtures.signerCertificateDER),
             ],
             localIdentities: .notRequested
         )
@@ -152,7 +152,7 @@ final class ProvisioningProfileCertificateRelationshipTests: XCTestCase {
 
     func testLocalIdentityLookupStatesAreKeptApart() throws {
         let signer = try certificate(CMSFixtures.signerCertificateDER)
-        let references = [reference(CMSFixtures.signerCertificateDER)]
+        let references = [try reference(CMSFixtures.signerCertificateDER)]
 
         let notRequested = analyzer.analyze(
             signerCertificateStatus: .extracted,
@@ -182,7 +182,7 @@ final class ProvisioningProfileCertificateRelationshipTests: XCTestCase {
         let relationship = analyzer.analyze(
             signerCertificateStatus: .extracted,
             signerCertificate: signer,
-            profileCertificates: [reference(CMSFixtures.signerCertificateDER)],
+            profileCertificates: [try reference(CMSFixtures.signerCertificateDER)],
             localIdentities: .identities([identity])
         )
 
@@ -199,7 +199,7 @@ final class ProvisioningProfileCertificateRelationshipTests: XCTestCase {
         let relationship = analyzer.analyze(
             signerCertificateStatus: .extracted,
             signerCertificate: signer,
-            profileCertificates: [reference(CMSFixtures.signerCertificateDER)],
+            profileCertificates: [try reference(CMSFixtures.signerCertificateDER)],
             localIdentities: .identities([identity])
         )
 
@@ -215,7 +215,7 @@ final class ProvisioningProfileCertificateRelationshipTests: XCTestCase {
         let relationship = analyzer.analyze(
             signerCertificateStatus: .extracted,
             signerCertificate: signer,
-            profileCertificates: [reference(CMSFixtures.signerCertificateDER)],
+            profileCertificates: [try reference(CMSFixtures.signerCertificateDER)],
             localIdentities: .identities([SigningIdentity(certificate: other.metadata, keyAvailability: .available)])
         )
 
@@ -229,7 +229,7 @@ final class ProvisioningProfileCertificateRelationshipTests: XCTestCase {
         let relationship = analyzer.analyze(
             signerCertificateStatus: .extracted,
             signerCertificate: signer,
-            profileCertificates: [reference(CMSFixtures.signerCertificateDER)],
+            profileCertificates: [try reference(CMSFixtures.signerCertificateDER)],
             localIdentities: .identities([])
         )
 
@@ -244,7 +244,7 @@ final class ProvisioningProfileCertificateRelationshipTests: XCTestCase {
         let relationship = analyzer.analyze(
             signerCertificateStatus: .extracted,
             signerCertificate: signer,
-            profileCertificates: [reference(CMSFixtures.signerCertificateDER)],
+            profileCertificates: [try reference(CMSFixtures.signerCertificateDER)],
             localIdentities: .identities([first, second])
         )
 
@@ -261,7 +261,7 @@ final class ProvisioningProfileCertificateRelationshipTests: XCTestCase {
         let relationship = analyzer.analyze(
             signerCertificateStatus: .extracted,
             signerCertificate: signer,
-            profileCertificates: [reference(CMSFixtures.signerCertificateDER)],
+            profileCertificates: [try reference(CMSFixtures.signerCertificateDER)],
             localIdentities: .identities([identity])
         )
         let diagnostic = relationship.diagnosticDescription

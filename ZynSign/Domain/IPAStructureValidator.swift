@@ -327,12 +327,12 @@ struct IPAStructureValidator {
 
 /// An accumulator that records findings while bounding how many are kept for
 /// any one issue code.
-private struct FindingCollector {
+fileprivate struct FindingCollector {
 
     let limit: Int
 
-    private(set) var findings: [ValidationFinding] = []
-    private var countsByCode: [ValidationIssueCode: Int] = [:]
+    fileprivate(set) var findings: [ValidationFinding] = []
+    fileprivate var countsByCode: [ValidationIssueCode: Int] = [:]
 
     mutating func add(
         severity: ValidationSeverity,

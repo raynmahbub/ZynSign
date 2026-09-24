@@ -6,23 +6,33 @@ a security problem.
 
 ## Project State
 
-ZynSign can inspect untrusted public certificate bytes and record metadata.
-That inspection does not handle private keys, does not persist certificates,
-does not evaluate trust, and is not an application-signing implementation.
-Untrusted profile containers are read under explicit bounds and never executed.
-An experimental identity registry now stores public certificate bytes and opaque
-references in Keychain and resolves a signature-only capability for existing
-protected keys. It is not composed into the app; production activation requires
-physical-device validation. ZynSign can also read a provisioning-profile CMS
-container, verify its signature with documented iOS key primitives, and relate
-the signer certificate to the profile's own certificates by SHA-256 fingerprint;
-that path evaluates no certificate chain, makes no authorization decision,
-persists nothing, and has no interface. There is no private-key import, CMS
-construction, or device communication. See the
-[identity security design](docs/security/signing-identities.md) for ownership,
-protection policy, and unverified platform behavior, and the
-[profile container security design](docs/security/provisioning-profiles.md) for
-the CMS boundary.
+ZynSign imports user-selected packages through bounded, security-scoped
+staging, inspects them as untrusted input (archive structure, declared
+metadata, read-only bundle listing), and keeps accepted packages as library
+records. It can inspect untrusted public certificate bytes and record
+metadata; that inspection does not handle private keys, does not persist
+certificates, does not evaluate trust, and is not an application-signing
+implementation. Untrusted profile containers are read under explicit bounds
+and never executed. An experimental identity registry stores public
+certificate bytes and opaque references in Keychain and resolves a
+signature-only capability for existing protected keys. It is not composed
+into the app; production activation requires physical-device validation.
+ZynSign can read a provisioning-profile CMS container, verify its signature
+with documented iOS key primitives, and relate the signer certificate to the
+profile's own certificates by SHA-256 fingerprint; that path evaluates no
+certificate chain, makes no authorization decision, persists nothing, and
+has no interface. Below the interface, an experimental signing stack can
+sign single Mach-O images and nested code through the same signature-only
+capability boundary, with independent post-sign verification; it has no
+interface, is not composed into the application, and is not a complete
+application-signing workflow. There is no private-key import, no packaging
+writer, no archive extraction, no installation mechanism, and no device
+communication. See the [identity security design](docs/security/signing-identities.md)
+for ownership, protection policy, and unverified platform behavior, the
+[profile container security design](docs/security/provisioning-profiles.md)
+for the CMS and pipeline boundaries, and the
+[release security review](docs/security/release-review.md) for the final
+review, the regression corpus, and accepted risks.
 
 This policy describes how such material will be treated as the project develops,
 and the rules that apply right now to the repository itself.

@@ -643,8 +643,8 @@ private struct NestedCodeTraversal {
             information = .read(container.declaredIdentity ?? NestedCodeBundleIdentity())
         } else if index.isRegularFile(bundleInformationPath(of: container.bundlePath)) {
             let relative = bundleInformationPath(of: container.bundlePath)
-            guard let informationPath = archivePath(for: relative) else {
-                return invalidPathError(at: relative)
+            guard let containerPath = archivePath(for: container.bundlePath) else {
+                return invalidPathError(at: container.bundlePath)
             }
             guard informationReads < limits.maximumBundleInformationReads else {
                 return resourceLimitError(
@@ -654,7 +654,7 @@ private struct NestedCodeTraversal {
             }
             informationReads += 1
             information = source.bundleInformation(
-                ofContainerAt: informationPath,
+                ofContainerAt: containerPath,
                 maximumBytes: limits.maximumBundleInformationBytes
             )
             switch information {
@@ -718,6 +718,16 @@ private struct NestedCodeTraversal {
                 ) {
                     return failure
                 }
+            }
+        }
+
+        // For the application, nested code is examined before the
+        // application's own binary is inspected: a structural refusal (an
+        // unsupported location, a link at a code location, runaway nesting)
+        // is reported without reading any binary at all.
+        if container.kind == .application {
+            if let failure = examineNestedCode(of: container) {
+                return failure
             }
         }
 
@@ -791,6 +801,13 @@ private struct NestedCodeTraversal {
 
         if case .notEstablished(let reason) = status {
             if container.kind == .application {
+                // An uninspected main executable leaves the plan incomplete
+                // rather than refusing the bundle: no observation means no
+                // verdict. (The application's nested code was already
+                // examined above.) Every other reason refuses.
+                if case .binaryNotInspected = reason {
+                    return nil
+                }
                 return applicationFailure(reason, at: executablePath)
             }
             if let failure = describeNotEstablished(reason, of: item) {
@@ -798,8 +815,20 @@ private struct NestedCodeTraversal {
             }
         }
 
-        // 5. The container's own nested code, in the code directories the
-        // bundle-entry role vocabulary already recognizes.
+        // 5+6. Every other container's nested code is examined after its own
+        // binary; the application's was examined before (see above).
+        if container.kind != .application {
+            if let failure = examineNestedCode(of: container) {
+                return failure
+            }
+        }
+        return nil
+    }
+
+    /// The container's own nested code: the code directories the bundle-entry
+    /// role vocabulary recognizes, then code-shaped objects outside the
+    /// traversed locations, by name.
+    private mutating func examineNestedCode(of container: NestedCodeContainer) -> NestedCodeDiscoveryError? {
         for directoryName in [
             IPALayout.frameworksDirectoryName,
             IPALayout.plugInsDirectoryName,
@@ -809,8 +838,6 @@ private struct NestedCodeTraversal {
                 return failure
             }
         }
-
-        // 6. Code-shaped objects outside the traversed locations, by name.
         return examineUnsupportedLocations(of: container)
     }
 

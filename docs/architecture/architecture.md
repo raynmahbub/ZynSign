@@ -141,14 +141,27 @@ verification reports signature authenticity separately from trust and
 authorization and is reachable from the application layer only, not from any
 interface, and the integrated provisioning-profile pipeline — whose `valid` status
 means only that every stage ZynSign implements reached its positive outcome — is
-likewise reachable from the application layer only; generic cryptographic
-signing and verification primitives exist, but no application-signing,
-verification, packaging, or installation workflow exists.
+likewise reachable from the application layer only. The application-signing
+workflow now exists at the same level: a nine-stage pipeline — integrity,
+profile, discovery, extraction, nested signing, resource sealing,
+main-executable signing, packaging, and independent verification — composes
+the archive, provisioning, signing, packaging, and verification machinery
+into the single order a signed container requires, with deterministic
+packaging through a validated entry set and a stored-only ZIP writer, safe
+extraction with confinement and an explicit link policy, and a pure
+installation-capability assessment that reports installation as unavailable
+with exact limitations. The pipeline is constructed at the composition root
+and covered by unit tests, but it is not installed in the application
+environment: no signing interface is composed until device validation
+completes, no installation mechanism exists anywhere in the product, and no
+suite in the increment was executed in the review environment. See
+[application-signing-pipeline.md](application-signing-pipeline.md).
 
 Nothing else in this document is a claim that any behaviour works. Every
-feasibility boundary in Section 6 remains open except where noted here, and the
-signing, verification, packaging, and installation stages are documentation of
-intended structure only.
+feasibility boundary in Section 6 remains open except where noted here, and
+the installation stage is documentation of intended structure only: signing,
+verification, and packaging are implemented below the interface, and
+installation does not exist at all.
 
 Earlier project documentation assumed a desktop runtime and desktop platform
 services. That assumption no longer holds. ZynSign is defined here as an

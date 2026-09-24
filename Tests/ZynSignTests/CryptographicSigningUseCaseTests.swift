@@ -157,7 +157,8 @@ final class CryptographicSigningUseCaseTests: XCTestCase {
             var requests: [SigningRequest] = []
             func sign(_ request: SigningRequest, capability: any SigningCapability) throws -> SigningResult {
                 requests.append(request)
-                let signature = try capability.sign(data: Data("stub".utf8), algorithm: request.algorithm)
+                _ = capability
+                let signature = Data("stub".utf8)
                 return SigningResult(
                     signature: signature,
                     algorithm: request.algorithm,

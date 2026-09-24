@@ -77,3 +77,6 @@ built, not before:
   selection and fingerprint matching, the payload parse gate, identity
   relationships without capability requests, the integrated pipeline boundary and
   its status rules, redaction, platform evidence, and validation gates.
+- [release-review.md](release-review.md) — the final review: scope,
+  findings fixed with severity, areas reviewed without finding, the
+  security regression corpus, and accepted risks.

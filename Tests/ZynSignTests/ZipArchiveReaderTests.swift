@@ -41,8 +41,8 @@ final class ZipArchiveReaderTests: XCTestCase {
         return reader
     }
 
-    private func reader(for entries: [ZipFixtureBuilder.Entry]) throws -> ZipArchiveReader {
-        try reader(for: ZipFixtureBuilder.archive(entries))
+    private func reader(for entries: [ZipFixtureBuilder.Entry], limits: ArchiveLimits = .default) throws -> ZipArchiveReader {
+        try reader(for: ZipFixtureBuilder.archive(entries), limits: limits)
     }
 
     private func thrownError(

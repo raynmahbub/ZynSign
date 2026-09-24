@@ -185,6 +185,13 @@ implemented, and no behaviour may be inferred from these documents.
 - [nested-code-signing.md](nested-code-signing.md) — ZS-028 dependency-aware
   nested code signing, plan validation, sequential execution, signature replacement
   policy, failure atomicity, and independent verification.
+- [installation-compatibility.md](installation-compatibility.md) — the six
+  validity and compatibility statements, what each establishes, the
+  installation boundary, and the supported workflow.
+- [application-signing-pipeline.md](application-signing-pipeline.md) — the
+  end-to-end signing workflow, deterministic packaging, safe extraction,
+  independent verification, and installation-capability assessment, with
+  the composition facts that bound what the pipeline can sign.
 - [macho-signing-design-review.md](macho-signing-design-review.md) — historical
   design proposal and prerequisites; the integration document records the
   implemented scope and evidence.

@@ -287,6 +287,10 @@ enum ZipCentralDirectoryScanner {
                 kind: kind,
                 uncompressedSize: uncompressedSize,
                 compressedSize: compressedSize,
+                unixMode: recordedUnixMode(
+                    versionMadeBy: versionMadeBy,
+                    externalAttributes: externalAttributes
+                ),
                 limits: limits
             )
 
@@ -360,6 +364,7 @@ enum ZipCentralDirectoryScanner {
         kind: ArchiveEntryKind,
         uncompressedSize: Int,
         compressedSize: Int,
+        unixMode: UInt16?,
         limits: ArchiveLimits
     ) -> ArchiveEntry {
         guard nameBytes.count <= limits.maximumEntryNameLength else {
@@ -367,7 +372,8 @@ enum ZipCentralDirectoryScanner {
                 rejectedName: "<entry name of \(nameBytes.count) bytes exceeds the accepted limit of \(limits.maximumEntryNameLength)>",
                 kind: kind,
                 uncompressedSize: uncompressedSize,
-                compressedSize: compressedSize
+                compressedSize: compressedSize,
+                unixMode: unixMode
             )
         }
         guard let decodedName = decodedName else {
@@ -375,7 +381,8 @@ enum ZipCentralDirectoryScanner {
                 rejectedName: "<entry name is not valid text>",
                 kind: kind,
                 uncompressedSize: uncompressedSize,
-                compressedSize: compressedSize
+                compressedSize: compressedSize,
+                unixMode: unixMode
             )
         }
         guard let path = ArchivePath(rawValue: decodedName) else {
@@ -383,15 +390,36 @@ enum ZipCentralDirectoryScanner {
                 rejectedName: decodedName,
                 kind: kind,
                 uncompressedSize: uncompressedSize,
-                compressedSize: compressedSize
+                compressedSize: compressedSize,
+                unixMode: unixMode
             )
         }
         return ArchiveEntry(
             path: path,
             kind: kind,
             uncompressedSize: uncompressedSize,
-            compressedSize: compressedSize
+            compressedSize: compressedSize,
+            unixMode: unixMode,
+            rawName: decodedName
         )
+    }
+
+    /// The Unix file-type and permission bits the container records, when it
+    /// records any: a Unix host system with a nonzero mode. Anything else —
+    /// another host, or a zero mode that carries no information — yields no
+    /// mode, and kind detection falls back to the naming convention as before.
+    private static func recordedUnixMode(
+        versionMadeBy: UInt16,
+        externalAttributes: UInt32
+    ) -> UInt16? {
+        guard versionMadeBy >> 8 == 3 else {
+            return nil
+        }
+        let mode = UInt16(truncatingIfNeeded: externalAttributes >> 16)
+        if mode == 0 {
+            return nil
+        }
+        return mode
     }
 
     /// Determines an entry's kind from the type information the container
@@ -403,7 +431,7 @@ enum ZipCentralDirectoryScanner {
     ) -> ArchiveEntryKind {
         let hostSystem = versionMadeBy >> 8
         if hostSystem == 3 {
-            let mode = UInt16(truncating: externalAttributes >> 16)
+            let mode = UInt16(truncatingIfNeeded: externalAttributes >> 16)
             let typeBits = mode & 0o170000
             if typeBits != 0 {
                 switch typeBits {

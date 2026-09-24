@@ -252,7 +252,7 @@ enum EntitlementsPlistParser {
         // reasons are translated so this boundary owns its own vocabulary.
         let decoded: ProvisioningProfileValue
         do {
-            decoded = try ProvisioningProfileValue.decode(.dictionary(dictionary), limits: limits)
+            decoded = try ProvisioningProfileValue.decode(dictionary, limits: limits)
         } catch let error as ZynSignError {
             throw translate(error)
         }

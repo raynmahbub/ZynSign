@@ -86,7 +86,7 @@ final class CodeSignatureRequirementsTests: XCTestCase {
     }
 
     func testRoundTripPreservesExactBytes() throws {
-        let set = designatedSet()
+        let set = try designatedSet()
         let bytes = try set.serialized()
         let parsed = try RequirementsSet.parse(bytes)
         XCTAssertEqual(parsed.disposition, .presentAndParsed)
@@ -171,8 +171,10 @@ final class CodeSignatureRequirementsTests: XCTestCase {
             RequirementsSetEntry(kind: .guest, requirement: try FramedRequirement(expressionBytes: Data(repeating: 2, count: 8))),
         ]).serialized()
         var overlapping = small
-        // Point the second entry at the first entry's blob.
-        overlapping.replaceSubrange(20..<24, with: small.subdata(in: 16..<20))
+        // Point the second entry at the first entry's blob: the index is
+        // interleaved (kind, offset) pairs, so the second offset at 24..<28
+        // takes the first offset's value from 16..<20.
+        overlapping.replaceSubrange(24..<28, with: small.subdata(in: 16..<20))
         XCTAssertThrowsError(try RequirementsSet.parse(overlapping)) { error in
             XCTAssertEqual(error as? RequirementsError, .invalidOffset)
         }
@@ -198,7 +200,7 @@ final class CodeSignatureRequirementsTests: XCTestCase {
     // MARK: - SuperBlob integration
 
     func testRequirementsBlobIntegratesIntoSuperBlob() throws {
-        let set = designatedSet()
+        let set = try designatedSet()
         let requirementsBlob = try CodeSignatureBlob.requirements(set)
         XCTAssertEqual(requirementsBlob.magic, 0xFADE0C01)
         XCTAssertEqual(requirementsBlob.bytes, try set.serialized())
@@ -241,7 +243,7 @@ final class CodeSignatureRequirementsTests: XCTestCase {
     }
 
     func testTypedBlobContentRestrictsItsSlot() throws {
-        let set = designatedSet()
+        let set = try designatedSet()
         let requirementsBlob = try CodeSignatureBlob.requirements(set)
         // A requirements blob cannot masquerade as an entitlements slot entry.
         XCTAssertThrowsError(

@@ -118,9 +118,22 @@ struct NestedCodeDependencyGraph: Equatable {
 
     /// The nodes that remain when no further node can be emitted, which is
     /// the cycle a rejected graph contains.
+    ///
+    /// This replays emission rather than subtracting `orderedItemIDs()`:
+    /// a rejected graph has no order at all, but nodes outside the cycle
+    /// were still emittable and must not be reported as unordered.
     func unorderedItemIDs() -> [NestedCodeItemID] {
-        let ordered = Set(orderedItemIDs())
-        return items.map(\.id).filter { !ordered.contains($0) }
+        let prerequisites = Self.prerequisites(of: dependencies)
+        var emitted: Set<NestedCodeItemID> = []
+        while emitted.count < items.count {
+            let ready = items.map(\.id).filter { id in
+                guard !emitted.contains(id) else { return false }
+                return (prerequisites[id] ?? []).allSatisfy { emitted.contains($0) }
+            }
+            guard let next = ready.min(by: Self.precedes) else { break }
+            emitted.insert(next)
+        }
+        return items.map(\.id).filter { !emitted.contains($0) }
     }
 
     // MARK: - Comparison
@@ -193,7 +206,12 @@ struct NestedCodeDependencyGraph: Equatable {
 
     private func pathError() -> NestedCodeDiscoveryError? {
         for item in items {
-            if item.id != rootItemID, !item.bundlePath.isWithin(.root) {
+            // Loose code directly inside the application names the bundle
+            // root itself as its container; the root is inside the managed
+            // bundle by definition, even though strict `isWithin` excludes
+            // equality. (Locations above the bundle are inexpressible in
+            // `BundlePath`, so nothing else reaches this branch.)
+            if item.id != rootItemID, item.bundlePath != .root, !item.bundlePath.isWithin(.root) {
                 return NestedCodeDiscoveryError(
                     .invalidPath,
                     at: item.id.location,

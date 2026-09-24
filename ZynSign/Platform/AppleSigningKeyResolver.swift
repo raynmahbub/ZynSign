@@ -93,9 +93,11 @@ enum ApplePublicKeyAssociation {
             throw ZynSignError.identity(.unsupportedKeyType)
         }
         let algorithm: PublicKeyAlgorithm
+        let rsaKeyType = kSecAttrKeyTypeRSA as String
+        let ecKeyType = kSecAttrKeyTypeECSECPrimeRandom as String
         switch attributes[kSecAttrKeyType as String] as? String {
-        case kSecAttrKeyTypeRSA as String: algorithm = .rsa
-        case kSecAttrKeyTypeECSECPrimeRandom as String: algorithm = .ec
+        case rsaKeyType: algorithm = .rsa
+        case ecKeyType: algorithm = .ec
         default: throw ZynSignError.identity(.unsupportedKeyType)
         }
         guard let bytes = SecKeyCopyExternalRepresentation(publicKey, nil) as Data? else {

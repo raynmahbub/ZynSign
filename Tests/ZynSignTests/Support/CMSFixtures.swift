@@ -761,6 +761,11 @@ enum CMSFixtures {
     /// message a CMS signature over signed attributes must cover.
     static let validRSASignedAttributesMessageDigest = "5dd6a132fe338901d2a96c23ccb2ed36d10abe56012b51b94ebee3c7e3ddbf76"
 
+    /// The message-digest attribute value the valid fixture carries: SHA-256
+    /// of the encapsulated payload, independently reproducible from the
+    /// payload bytes.
+    static let validRSAContentDigest = "96c1cc9a04f78124235c9d17b2de77522e68326dea6d95b38407e3ce1a920810"
+
     /// The profile metadata the valid fixture's payload declares.
     static let validRSAProfileUUID = "2A7F6C1E-5B44-4D2A-9C31-7E8F0A1B2C3D"
     static let validRSAProfileName = "ZynSign Synthetic CMS Profile"

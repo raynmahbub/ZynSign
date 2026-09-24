@@ -122,7 +122,7 @@ struct SignMachOUseCase {
         catch { throw MachOSigningError.signatureBlobConstruction }
         var blobEntries: [CodeSignatureBlobEntry]
         do {
-            blobEntries = [CodeSignatureBlobEntry(type: .codeDirectory, blob: directoryBlob)]
+            blobEntries = [try CodeSignatureBlobEntry(type: .codeDirectory, blob: directoryBlob)]
             if let requirementsSet = preparation.requirementsSet {
                 blobEntries.append(try CodeSignatureBlobEntry(
                     type: .requirements, blob: .requirements(requirementsSet)))

@@ -78,7 +78,7 @@ final class CMSStructureReaderTests: XCTestCase {
         XCTAssertEqual(attributes.contentType, CMSObjectIdentifiers.data)
         XCTAssertEqual(
             attributes.messageDigest,
-            Data(try XCTUnwrap(CertificateFingerprint(hexDigest: CMSFixtures.validRSASignedAttributesMessageDigest)).digestBytes)
+            Data(try XCTUnwrap(CertificateFingerprint(hexDigest: CMSFixtures.validRSAContentDigest)).digestBytes)
         )
         XCTAssertEqual(attributes.messageDigest?.count, 32)
         XCTAssertNotNil(attributes.verificationMessage)
@@ -241,8 +241,14 @@ final class CMSStructureReaderTests: XCTestCase {
         }
     }
 
-    func testRejectsDetachedContent() {
-        assertCMSError(CMSFixtures.detachedContent, expected: .payloadUnavailable)
+    func testDetachedContentParsesStructurallyWithNoPayload() throws {
+        // Detached content is structurally valid: the reader reports the
+        // absent payload as nil. Rejection with .payloadUnavailable happens
+        // where the payload is required (see CMSVerificationTests), because
+        // detached messages are the normal form for Mach-O code signatures.
+        let structure = try CMSStructureReader.read(CMSFixtures.detachedContent)
+        XCTAssertEqual(structure.encapsulatedContentType, CMSObjectIdentifiers.data)
+        XCTAssertNil(structure.encapsulatedContent)
     }
 
     // MARK: - Support

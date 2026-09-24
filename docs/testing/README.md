@@ -580,6 +580,74 @@ independent topological dependency ordering, cycle refusal, nested Mach-O byte p
 and OpenSSL CMS verification. Swift balanced-delimiter and lexical checks passed for
 all new and modified files.
 
+## ZS-030 checks
+
+The final-integration review fixed two defects and added regression coverage:
+
+- `SignNestedCodeUseCase` verification now honors per-target metadata. The
+  pre-existing `testNestedTargetsCarryTheirOwnMetadataOnly` in
+  `SigningMetadataIntegrationTests` is the regression suite: it asserts a
+  succeeding run with a four-slot SuperBlob on the metadata-bearing target,
+  which the hardcoded two-slot check rejected.
+- `NestedSigningArtifactStoreTests` is new: sibling-prefix symlink escape
+  refused for reads and writes, plain outside-the-bundle escape refused,
+  and a legitimate nested read succeeding.
+
+The review environment had no Swift toolchain and no Xcode, so no XCTest
+suite was executed there — including the suites above. Balanced-delimiter
+checks passed for all new and modified Swift files, and the changed
+verification code was reviewed line by line against the
+`SignMachOUseCase.verify` implementation it mirrors. Both host vector
+scripts were executed and passed:
+
+- `Tests/Host/verify_macho_signing_vector.py` — Mach-O layout,
+  CodeDirectory fields and page hashes, CMS binding and signature, and
+  OpenSSL rejection of tampered variants;
+- `Tests/Host/verify_nested_code_signing_vector.py` — deterministic
+  dependency ordering and tie-breaking, byte preservation, OpenSSL CMS
+  verification, and cycle detection.
+
+The first executed run of the full XCTest suite, on hosted CI or a local
+Xcode installation, remains a prerequisite to any Alpha claim.
+
+## Packaging and pipeline checks
+
+The packaging and application-pipeline increment adds XCTest suites and
+one host vector script:
+
+- `ZipArchiveWriterTests` — independent golden vectors (byte sequences
+  assembled outside the implementation), determinism over shuffled
+  input, plan ordering, nine plan refusals, reader round-trip through
+  the production reader, tampered-content checksum failure, and sink
+  behavior;
+- `DirectoryArchiveExtractorTests` — files, directories, implied
+  directories, executable-bit restoration, contained link recreation
+  under policy, and refusal of unsafe names, duplicates,
+  file-directory conflicts, links by default, absolute and escaping
+  targets, unsupported kinds, and byte-bound overflow;
+- `PackageSignedApplicationTests` — bundle packaging with content,
+  executable-bit, and link preservation, determinism, refusal of
+  non-bundle names, missing information files, and absolute links, and
+  output removal when reopen validation fails;
+- `SignApplicationPipelineTests` — end-to-end signing of synthetic
+  containers (flat and nested) with every stage's evidence asserted,
+  and refusal of structurally invalid sources, incompatible profiles,
+  and already-signed executables, delivering nothing on every failure;
+- `VerifySignedApplicationTests` — independent verification passing a
+  signed container and detecting profile, seal, and metadata mismatch;
+- `InstallationCapabilityTests` — the exact limitation set for each
+  evidence combination.
+
+The review environment had no Swift toolchain and no Xcode, so no XCTest
+suite was executed there — including the suites above. Tree-sitter parse
+checks passed for all new and modified Swift files, and the new code was
+reviewed line by line against the contracts it consumes. The new host
+vector script was executed and passed:
+
+- `Tests/Host/verify_zip_writer_vectors.py` — golden-vector structure,
+  fixed fields, modes, CRC-32, ordering, offsets, and `zipfile`
+  acceptance of every committed vector.
+
 ## Expectations Today
 
 Until a test suite exists, the expectations in

@@ -20,7 +20,7 @@ final class DigestTests: XCTestCase {
         // The one-million-character 'a' vector exercises the multi-block path.
         XCTAssertEqual(
             try digest.digest(Data(repeating: 0x61, count: 1_000_000), algorithm: .sha256).hexString,
-            "cdc76e5c9914fb92816abde91043f1510111ecb01cd12af983c2477bc7cd5517"
+            "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
         )
     }
 

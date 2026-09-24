@@ -53,4 +53,6 @@ Version control actions are performed by the developer. See
 
 ## Index
 
-No documents yet.
+- [continuous-integration.md](continuous-integration.md) — the CI workflow
+  definition, what each job establishes, what it explicitly does not claim,
+  and how to run the same checks locally.

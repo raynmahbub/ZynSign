@@ -24,10 +24,10 @@ final class ProvisioningProfileInspectionTests: XCTestCase {
                 ProvisioningProfileEntitlementKeys.getTaskAllow: true,
             ],
         ]
-        guard let data = PropertyListSerialization.data(
+        guard let data = try? PropertyListSerialization.data(
             fromPropertyList: root,
-            options: [],
-            format: .binary
+            format: .binary,
+            options: 0
         ) else {
             XCTFail("Could not create the synthetic inspection payload")
             return ProvisioningProfilePayload(plistData: Data())
@@ -36,11 +36,11 @@ final class ProvisioningProfileInspectionTests: XCTestCase {
     }
 
     private func useCase(
-        decoder: any ProvisioningProfilePayloadDecoder = SyntheticPayloadDecoder(),
+        decoder: (any ProvisioningProfilePayloadDecoder)? = nil,
         clock: any EvaluationClock = FixedEvaluationClock(instant: Date(timeIntervalSince1970: 1_800_000_000))
     ) -> ProvisioningProfileInspectionUseCase {
         ProvisioningProfileInspectionUseCase(
-            payloadDecoder: decoder,
+            payloadDecoder: decoder ?? SyntheticPayloadDecoder(payload: profilePayload()),
             parser: PropertyListProvisioningProfileParser(),
             clock: clock
         )

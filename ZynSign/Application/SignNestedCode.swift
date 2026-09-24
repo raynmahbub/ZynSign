@@ -192,13 +192,30 @@ struct SignNestedCodeUseCase {
                 continue
             }
 
+            let hashConfiguration: CodeDirectoryHashConfiguration
+            do {
+                hashConfiguration = try CodeDirectoryHashConfiguration(hashType: .sha256)
+            } catch {
+                let failure = NestedSigningFailure(
+                    reason: .invalidConfiguration,
+                    itemID: item.id,
+                    path: item.executablePath,
+                    detail: "The CodeDirectory hash configuration could not be constructed.",
+                    category: .invalidInput,
+                    mutationOccurred: false
+                )
+                activeFailure = failure
+                itemResults.append(makeItemFailureResult(item: item, failure: failure, mutationOccurred: false))
+                continue
+            }
+
             let cdRequest = CodeDirectoryConstructionRequest(
                 version: .v20200,
                 flags: request.configuration.flags,
                 identifier: cdIdentifier,
                 teamIdentifier: request.teamIdentifier,
                 platform: 0,
-                hashConfiguration: CodeDirectoryHashConfiguration(hashType: .sha256),
+                hashConfiguration: hashConfiguration,
                 pageSize: .exponent(12),
                 codeLimit: codeLimit,
                 specialSlots: request.configuration.specialSlots
@@ -518,15 +535,43 @@ struct SignNestedCodeUseCase {
                     relationshipValidity: relationshipValidity
                 )
             }
-            guard embedded.superBlob.entries.count == 2,
+            guard embedded.superBlob.entries.map(\.slot) == expectedSlots,
                   let cdEntry = embedded.superBlob.entries.first(where: { $0.slot == .codeDirectory }),
                   let cmsEntry = embedded.superBlob.entries.first(where: { $0.slot == .cms }),
                   let cd = cdEntry.codeDirectory else {
                 return NestedSigningItemVerification(
-                    structuralValidity: .invalid("SuperBlob does not contain CodeDirectory and CMS slots"),
+                    structuralValidity: .invalid("SuperBlob slots do not match the expected signed layout"),
                     cryptographicValidity: cryptographicValidity,
                     relationshipValidity: relationshipValidity
                 )
+            }
+            // Embedded metadata blobs must be the exact prepared bytes, and
+            // their CodeDirectory special-slot digests must bind those bytes.
+            // Both comparisons re-derive from the per-target preparation the
+            // signing loop computed above, never from signing state.
+            if let expectedRequirementsBytes {
+                guard let requirementsEntry = embedded.superBlob.entries.first(where: { $0.slot == .requirements }),
+                      artifact.subdata(in: requirementsEntry.fileRange) == expectedRequirementsBytes,
+                      let requirementsSlot = cd.specialSlots.first(where: { $0.kind == .requirements }),
+                      requirementsSlot.hash == Data(try digest.digest(expectedRequirementsBytes, algorithm: .sha256).bytes.prefix(requirementsSlot.hash.count)) else {
+                    return NestedSigningItemVerification(
+                        structuralValidity: .invalid("Embedded requirements do not match the prepared per-target metadata"),
+                        cryptographicValidity: cryptographicValidity,
+                        relationshipValidity: relationshipValidity
+                    )
+                }
+            }
+            if let expectedEntitlementsBytes {
+                guard let entitlementsEntry = embedded.superBlob.entries.first(where: { $0.slot == .entitlements }),
+                      artifact.subdata(in: entitlementsEntry.fileRange) == expectedEntitlementsBytes,
+                      let entitlementsSlot = cd.specialSlots.first(where: { $0.kind == .entitlements }),
+                      entitlementsSlot.hash == Data(try digest.digest(expectedEntitlementsBytes, algorithm: .sha256).bytes.prefix(entitlementsSlot.hash.count)) else {
+                    return NestedSigningItemVerification(
+                        structuralValidity: .invalid("Embedded entitlements do not match the prepared per-target metadata"),
+                        cryptographicValidity: cryptographicValidity,
+                        relationshipValidity: relationshipValidity
+                    )
+                }
             }
             guard cd.identifier == expectedIdentifier else {
                 return NestedSigningItemVerification(

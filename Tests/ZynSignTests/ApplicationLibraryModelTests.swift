@@ -156,7 +156,7 @@ final class ApplicationLibraryModelTests: XCTestCase {
     }
 
     func testAPersistenceFailureProducesTheFailedPhaseWithTheErrorUserMessage() async {
-        records.failListing(with: ZynSignError.libraryCatalogUnreadable(diagnosticDetail: "synthetic damage"))
+        await records.failListing(with: ZynSignError.libraryCatalogUnreadable(diagnosticDetail: "synthetic damage"))
 
         await model.load()
 
@@ -167,13 +167,13 @@ final class ApplicationLibraryModelTests: XCTestCase {
     }
 
     func testARetryAfterAFailureLoadsTheLibraryAgain() async {
-        records.failListing(with: ZynSignError.libraryStorageFailure(diagnosticDetail: "synthetic failure"))
+        await records.failListing(with: ZynSignError.libraryStorageFailure(diagnosticDetail: "synthetic failure"))
         await model.load()
         guard case .failed = model.phase else {
             return XCTFail("Expected a failed phase, got \(model.phase)")
         }
 
-        records.failListing(with: nil)
+        await records.failListing(with: nil)
         await model.load()
 
         XCTAssertEqual(model.phase, .empty)
@@ -293,7 +293,7 @@ final class ApplicationLibraryModelTests: XCTestCase {
 
     func testAFailedDeletionKeepsTheRecordAndAnnouncesTheFailure() async throws {
         let loaded = try await loadWithTwoRecords()
-        records.failDeletion(with: ZynSignError.libraryStorageFailure(diagnosticDetail: "synthetic delete failure"))
+        await records.failDeletion(with: ZynSignError.libraryStorageFailure(diagnosticDetail: "synthetic delete failure"))
 
         await model.remove(loaded.first)
 
@@ -329,7 +329,7 @@ final class ApplicationLibraryModelTests: XCTestCase {
 
     func testARemovalRunsThroughAnObservableInFlightState() async throws {
         let loaded = try await loadWithTwoRecords()
-        records.gateDeletions()
+        await records.gateDeletions()
 
         let removal = Task { await model.remove(loaded.first) }
         await awaitCondition("The removal never started.") {

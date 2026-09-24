@@ -2,6 +2,8 @@
 /// caller's existing buffer only for the duration of parsing: no pointer or
 /// buffer escapes into a domain model. Unlike ZIP's internal `ZipField`, a
 /// failed read is never silently interpreted as zero.
+import Foundation
+
 struct BoundedBinaryReader {
     private let bytes: UnsafeRawBufferPointer
     let fileRange: Range<Int>

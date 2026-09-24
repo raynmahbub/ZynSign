@@ -275,10 +275,10 @@ final class AppleCMSSignatureVerifierTests: XCTestCase {
         }
     }
 
-    /// A platform-style error carrying only a status code, built through the
-    /// toll-free bridge so the mapping sees exactly what Security produces.
+    /// A platform-style error carrying only a status code, built directly so
+    /// the mapping sees exactly what Security produces.
     private func statusError(_ status: OSStatus) -> CFError? {
-        NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: nil) as CFError
+        CFErrorCreate(nil, kCFErrorDomainOSStatus, Int(status), nil)
     }
 }
 #endif

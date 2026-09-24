@@ -77,14 +77,19 @@ struct PropertyListProvisioningProfileParser: ProvisioningProfileParser {
             )
         }
 
-        guard format != .openStep else {
-            throw ZynSignError.unsupportedProvisioningProfilePayloadFormat(
-                diagnosticDetail: "OpenStep property lists are outside the profile payload formats supported by this parser."
-            )
-        }
+        // The dictionary check comes first: truncated input such as a bare
+        // `bplist00` magic parses as an OpenStep string, which is damaged
+        // input (malformed), not a well-formed payload in an unsupported
+        // format. Only a well-formed OpenStep dictionary reaches the format
+        // check below.
         guard let rootDictionary = root as? [String: Any] else {
             throw ZynSignError.malformedProvisioningProfilePayload(
                 diagnosticDetail: "The decoded profile payload root was not a dictionary."
+            )
+        }
+        guard format != .openStep else {
+            throw ZynSignError.unsupportedProvisioningProfilePayloadFormat(
+                diagnosticDetail: "OpenStep property lists are outside the profile payload formats supported by this parser."
             )
         }
         guard rootDictionary.count <= limits.maximumCollectionCount else {
@@ -442,7 +447,7 @@ struct PropertyListProvisioningProfileParser: ProvisioningProfileParser {
             )
         }
         switch CFNumberGetType(number as CFNumber) {
-        case .char, .sInt8, .sInt16, .sInt32, .sInt64, .cInt, .cLong, .cLongLong, .cfIndex:
+        case .charType, .sInt8Type, .sInt16Type, .sInt32Type, .sInt64Type, .intType, .longType, .longLongType, .cfIndexType:
             return number.int64Value
         default:
             throw ZynSignError.invalidProvisioningProfileFieldType(

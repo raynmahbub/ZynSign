@@ -83,6 +83,22 @@ extension ZynSignError {
         )
     }
 
+    /// ZynSign could not rebuild or rewrite an application package: the entry
+    /// set was refused, a container ceiling was exceeded, or the destination
+    /// could not be written. The source artifact is untouched on every
+    /// packaging failure; only the produced output is discarded.
+    static func packagingFailure(
+        diagnosticDetail: String? = nil,
+        underlyingError: (any Error)? = nil
+    ) -> ZynSignError {
+        ZynSignError(
+            category: .internalFailure,
+            userMessage: "ZynSign could not rebuild the application package.",
+            diagnosticDetail: diagnosticDetail,
+            underlyingError: underlyingError
+        )
+    }
+
     /// No archive is available for the artifact ZynSign was asked to examine.
     /// The failure is on the infrastructure side; it says nothing about any
     /// package's contents.

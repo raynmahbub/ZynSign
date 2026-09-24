@@ -546,7 +546,7 @@ final class NestedCodeSigningTests: XCTestCase {
         ])
 
         let result = useCase.sign(
-            request: NestedSigningRequest(plan: validated, identityID: identities.id),
+            NestedSigningRequest(plan: validated, identityID: identities.id),
             store: store
         )
 
@@ -586,7 +586,7 @@ final class NestedCodeSigningTests: XCTestCase {
         ])
 
         let result = useCase.sign(
-            request: NestedSigningRequest(plan: validated, identityID: identities.id),
+            NestedSigningRequest(plan: validated, identityID: identities.id),
             store: store
         )
 
@@ -615,7 +615,7 @@ final class NestedCodeSigningTests: XCTestCase {
         let store = MemoryNestedSigningArtifactStore(binaries: [:])
 
         let result = useCase.sign(
-            request: NestedSigningRequest(plan: validated, identityID: identities.id),
+            NestedSigningRequest(plan: validated, identityID: identities.id),
             store: store
         )
 
@@ -658,7 +658,7 @@ final class NestedCodeSigningTests: XCTestCase {
         ])
 
         let result = useCase.sign(
-            request: NestedSigningRequest(
+            NestedSigningRequest(
                 plan: validated,
                 identityID: identities.id,
                 mutationStrategy: .stagedWorkingCopy
@@ -698,7 +698,7 @@ final class NestedCodeSigningTests: XCTestCase {
         ])
 
         let result = useCase.sign(
-            request: NestedSigningRequest(
+            NestedSigningRequest(
                 plan: validated,
                 identityID: identities.id,
                 mutationStrategy: .directMutation
@@ -750,7 +750,8 @@ final class NestedCodeSigningTests: XCTestCase {
         let parsedOrig = try ReadOnlyMachOParser().parse(original)
         let origSlice = try XCTUnwrap(parsedOrig.slices.first)
         let textSection = try XCTUnwrap(origSlice.segments.first?.sections.first)
-        let textRange = textSection.fileOffset..<(textSection.fileOffset + textSection.size)
+        let textLowerBound = Int(textSection.fileOffset)
+        let textRange = textLowerBound..<(textLowerBound + Int(textSection.size))
 
         XCTAssertEqual(
             signed.subdata(in: textRange),

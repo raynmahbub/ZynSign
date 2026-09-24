@@ -234,8 +234,8 @@ struct ApplicationMetadataReader {
             // recorded as a character, any other integral type is an integer,
             // and the remainder are real numbers.
             switch CFNumberGetType(number as CFNumber) {
-            case .char: return "a boolean"
-            case .sInt8, .sInt16, .sInt32, .sInt64, .cInt, .cLong, .cLongLong, .cfIndex:
+            case .charType: return "a boolean"
+            case .sInt8Type, .sInt16Type, .sInt32Type, .sInt64Type, .intType, .longType, .longLongType, .cfIndexType:
                 return "an integer"
             default: return "a number"
             }
