@@ -122,6 +122,23 @@ not invoke private keys, generate CMS, or claim platform acceptance. The
 decision is recorded in Section 7 of [architecture.md](architecture.md) and in
 [macho-signature-region.md](macho-signature-region.md).
 
+The signing-metadata increment adds the entitlement, requirements, and
+resource-sealing layer between the provisioning work and the signing pipeline:
+a typed entitlement model whose unknown keys stay representable, with one
+deterministic canonical serialization and a clear separation of decoded,
+provisioning-compatible, embedded, and platform-authorized states; a
+requirements model that preserves framing and expression bytes without
+interpreting them, with explicit dispositions and a refusal to embed malformed
+values; a read-only resource store and CodeResources generator with
+deterministic ordering, explicit symlink policy, bounds, and caller-supplied
+nested-code seals; and the derivation of CodeDirectory special slots 2, 3, and
+5, integrated so the pipeline prepares metadata before the CodeDirectory is
+constructed, hashed, and signed. Nested signing gained per-target metadata that
+is never inherited. The decision is recorded in Section 7 of
+[architecture.md](architecture.md) and in
+[signing-metadata.md](signing-metadata.md), which also records the evidence
+levels and the byte-exactness questions that remain experiments.
+
 Everything else is intended structure only. The archive inspection stage is a
 partial capability: it reads containers, classifies layout, reads one bundle's
 declared metadata, and describes a bundle's structure; it does not verify
@@ -161,6 +178,10 @@ implemented, and no behaviour may be inferred from these documents.
 - [macho-signing-integration.md](macho-signing-integration.md) — experimental
   ZS-026 single-image RSA/SHA-256 signing, detached CMS, finalized pre-hash
   layout, verification boundaries, and outstanding Apple-host test gate.
+- [signing-metadata.md](signing-metadata.md) — ZS-029 entitlements,
+  requirements, and CodeResources: the typed models, canonical serialization,
+  resource sealing, special-slot derivation, pipeline ordering, per-target
+  nested metadata, evidence levels, and non-goals.
 - [nested-code-signing.md](nested-code-signing.md) — ZS-028 dependency-aware
   nested code signing, plan validation, sequential execution, signature replacement
   policy, failure atomicity, and independent verification.

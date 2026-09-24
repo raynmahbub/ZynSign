@@ -28,18 +28,34 @@ import Foundation
 
 // MARK: - Extension Points
 
-/// Extension point for ZS-029 entitlement and requirement integration.
-/// Currently defaults to empty special slots and zero flags as established by ZS-026.
+/// Code-directory construction parameters for nested code signing, plus the
+/// per-target signing metadata established by ZS-029.
+///
+/// Metadata is keyed by target and never inherited: the entitlements,
+/// requirements, and resource seal that apply to the root application do not
+/// silently apply to a framework, a dynamic library, or an extension, because
+/// each nested target may require different claims. A target with no entry
+/// signs with no metadata, exactly as ZS-026/028 established.
+///
+/// `specialSlots` remains the direct-construction hook it was; the signing
+/// pipeline still rejects non-empty slots, and metadata is the only supported
+/// way to derive special slots through signing.
 struct NestedCodeSigningConfiguration: Equatable {
     let flags: CodeDirectoryFlags
     let specialSlots: [CodeDirectorySpecialSlot]
 
+    /// Explicit per-target signing metadata. No entry means no metadata for
+    /// that target.
+    let targetMetadata: [NestedCodeItemID: MachOSigningMetadata]
+
     init(
         flags: CodeDirectoryFlags = [],
-        specialSlots: [CodeDirectorySpecialSlot] = []
+        specialSlots: [CodeDirectorySpecialSlot] = [],
+        targetMetadata: [NestedCodeItemID: MachOSigningMetadata] = [:]
     ) {
         self.flags = flags
         self.specialSlots = specialSlots
+        self.targetMetadata = targetMetadata
     }
 }
 
@@ -247,6 +263,13 @@ enum NestedSigningFailureReason: String, CaseIterable, Hashable {
     /// The signing capability failed to sign the prepared digest.
     case signingCapabilityFailure
 
+    /// Signing metadata (entitlements, requirements, or a resource seal) for a
+    /// target failed its own boundary: an entitlement payload that does not
+    /// decode, a requirements value that cannot be embedded, or resource-seal
+    /// bytes that do not hold. The failure belongs to the metadata stage, not
+    /// to the Mach-O layout or the cryptographic operation.
+    case signingMetadataFailure
+
     /// Verification of the signed binary failed after signing.
     case postSignVerificationFailure
 
@@ -303,6 +326,8 @@ enum NestedSigningFailureReason: String, CaseIterable, Hashable {
             return "A signed executable failed cryptographic verification."
         case .signingCapabilityFailure:
             return "The signature could not be produced by the signing identity."
+        case .signingMetadataFailure:
+            return "The signing metadata for a target is not usable."
         case .postSignVerificationFailure:
             return "Verification of the signed executable failed."
         case .partialCompletion:

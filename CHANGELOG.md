@@ -6,6 +6,49 @@ All notable changes to ZynSign will be documented here.
 
 ### Added
 
+- Signing-metadata layer (ZS-029): entitlements, requirements, and CodeResources
+  for the code-signing pipeline. Entitlements are a typed claim set over the
+  existing property-list value tree — unknown keys stay representable, dates are
+  excluded rather than coerced, and decoded, structurally valid,
+  provisioning-compatible, embedded, and platform-authorized stay five separate
+  states — with one deterministic canonical XML serialization and the
+  `0xFADE7171` blob framing; XML and binary payloads are accepted on read.
+- Requirements model (`CodeSignatureRequirements`, `RequirementsSet`): carries
+  requirement-set framing and expression bytes verbatim with explicit
+  dispositions (absent, present-and-parsed, present-but-unsupported, malformed,
+  generated, verified), interprets and generates no expression language,
+  validates framing (magic, length, offset, overlap, duplicate kind, entry
+  bounds) with typed errors, and refuses malformed values at the embedding
+  boundary before any cryptographic operation.
+- Resource sealing and CodeResources (`ResourceContentStore`,
+  `CodeResourcesGenerator`, `CodeResourcesDocument`): a read-only store port
+  with in-memory and directory implementations, deterministic ascending-path
+  sealing of exact stored bytes as `hash2`, symlink fail-closed-or-exclude
+  policy with links never followed, caller-only exclusions recorded as omissions
+  that are never serialized, caller-supplied nested-code `cdhash` seals, and a
+  typed document over the `files2`/`rules2` subset whose v1 `files`/`rules`
+  dictionaries are an explicit unsupported-subset refusal.
+- Special-slot integration (`SigningMetadataPreparation`,
+  `SigningMetadataSlotDigests`): derives the CodeDirectory special slots 2, 3,
+  and 5 from the exact entitlement blob, requirements blob, and CodeResources
+  bytes, under the ordering constraint that metadata is prepared and slots are
+  finalized before the CodeDirectory is constructed, hashed, and signed.
+- Signing-pipeline metadata support: single-image signing accepts per-request
+  metadata, embeds the requirements and entitlements blobs in the SuperBlob,
+  and verifies the signed artifact against the exact prepared bytes; nested
+  signing accepts per-target metadata that is never inherited, reports metadata
+  failures as `signingMetadataFailure` at the metadata stage, and leaves the
+  staged artifact untouched on failure. Signing without metadata is
+  byte-identical to the previous behavior.
+- Read-only embedded-metadata inspection
+  (`EmbeddedSigningMetadataInspector`): classifies the entitlements,
+  requirements, and CodeResources seal state of an existing signature without
+  mutating or verifying anything.
+- Tests for the metadata layer, including entitlement, requirements,
+  CodeResources, and signing-integration suites with independently computed
+  byte and digest vectors, tamper detection, and nested per-target metadata
+  coverage. Architecture documentation for the increment is recorded in
+  `docs/architecture/signing-metadata.md`.
 - Nested code signing layer (ZS-028): turns the cryptographic single-image signing
   capability established by ZS-026 into a dependency-aware nested signing operation
   driven by the signing plan from ZS-027. Nested Mach-O binaries (frameworks, dynamic
@@ -469,6 +512,18 @@ All notable changes to ZynSign will be documented here.
 
 ### Notes
 
+- Embedded signing metadata states facts, not permissions. An entitlement set
+  being decoded, structurally valid, provisioning-compatible, or embedded says
+  nothing about platform authorization: no local operation evaluates it, and
+  the signing result carries that state explicitly as not performed. A
+  CodeResources digest being present in special slot 3 establishes only that a
+  digest is declared, never that it is correct for any resource tree.
+- Requirements are preserved, never interpreted. A present-and-parsed
+  requirements value means the framing decoded and the bytes round-trip; no
+  requirement is evaluated, generated, or silently replaced.
+- No Swift toolchain was available in the environment where ZS-029 was written;
+  the new suites were authored against independently computed vectors but not
+  executed locally, and running them is a prerequisite to any release claim.
 - An integrated provisioning-profile result states which stage reached which
   outcome. A `valid` status means only that every stage ZynSign implements passed
   and that the configuration satisfies the policy rules ZynSign implements: it is

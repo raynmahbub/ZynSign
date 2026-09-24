@@ -1,11 +1,17 @@
 import Foundation
 
-/// An immutable, header-inclusive individual blob. Only the CodeDirectory
-/// factory creates a structurally understood blob. Opaque payloads have a
-/// checked outer frame, not validated semantics or cryptographic integrity.
+/// An immutable, header-inclusive individual blob. Only the typed factories
+/// create a structurally understood blob. Opaque payloads have a checked
+/// outer frame, not validated semantics or cryptographic integrity.
 struct CodeSignatureBlob: Equatable {
     enum Content: Equatable {
         case codeDirectory(CodeDirectorySerialization)
+        /// The entitlements blob, constructed only from the typed entitlement
+        /// model through the canonical serializer.
+        case entitlements(EntitlementsBlob)
+        /// The requirements set blob, constructed only from the typed
+        /// requirements model. Expression bytes inside it remain opaque.
+        case requirements(RequirementsSet)
         case opaque
     }
 
@@ -29,6 +35,22 @@ struct CodeSignatureBlob: Equatable {
         try serialized.validate()
         return Self(content: .codeDirectory(serialized), magic: CodeDirectory.magic,
                     bytes: serialized.bytes)
+    }
+
+    /// Wraps an already-framed entitlements blob (magic 0xFADE7171) as typed
+    /// content. Framing came from the canonical serializer; these exact bytes
+    /// are what special slot 5 digests.
+    static func entitlements(blob: EntitlementsBlob) -> Self {
+        Self(content: .entitlements(blob), magic: EntitlementsBlob.magic, bytes: blob.bytes)
+    }
+
+    /// Constructs the requirements set blob (magic 0xFADE0C01) from the typed
+    /// requirements model. Serialization is deterministic; the embedded
+    /// requirement expressions are preserved byte for byte and are never
+    /// interpreted.
+    static func requirements(_ set: RequirementsSet) throws -> Self {
+        let bytes = try set.serialized()
+        return Self(content: .requirements(set), magic: RequirementsSet.magic, bytes: bytes)
     }
 
     /// Accepts an existing complete blob, including its generic header. This
@@ -68,6 +90,10 @@ struct CodeSignatureBlobEntry: Equatable {
         switch blob.content {
         case .codeDirectory:
             guard type.isCodeDirectory else { throw SuperBlobError.unsupportedBlobType }
+        case .entitlements:
+            guard type == .entitlements else { throw SuperBlobError.unsupportedBlobType }
+        case .requirements:
+            guard type == .requirements else { throw SuperBlobError.unsupportedBlobType }
         case .opaque:
             guard !type.isCodeDirectory else {
                 throw SuperBlobError.codeDirectoryRequiresTypedConstruction
