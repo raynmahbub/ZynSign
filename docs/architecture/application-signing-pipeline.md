@@ -137,10 +137,17 @@ six validity and compatibility statements this assessment speaks in.
   assert every stage's evidence.
 - Refusal paths prove each stage fails closed and delivers nothing.
 - No XCTest suite in this increment was executed in the review
-  environment, which has no Xcode runner; the suites are written to run
-  under Xcode's test runner and the continuous-integration workflow.
-  The host vector script for the writer goldens was executed there and
-  passed; it checks the committed vectors, not the Swift
+  environment, which has no Xcode runner. The suites passed on hosted CI
+  afterwards (run 35992989870, on a simulator). The host vector script for
+  the writer goldens checks the committed vectors, not the Swift
   implementation.
+- The pipeline suites prove orchestration, not cryptography: they sign
+  through a replay capability that returns one fixed signature for any
+  input and verify through an always-valid verifier. A real private-key
+  signature first passes through the pipeline in the ZS-031 external
+  validation export, where Apple's `codesign` rejects the delivered bundle
+  because it does not recognize the resource seal, and the signature
+  format fails Apple's documented iOS 15+ requirements. See
+  [external-validation.md](external-validation.md).
 - Device conclusions — installation, platform acceptance, trust
   evaluation — remain unvalidated and unclaimed throughout.

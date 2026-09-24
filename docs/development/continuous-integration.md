@@ -1,16 +1,20 @@
 # Continuous Integration
 
 The workflow definition lives at [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml).
-It has not yet run to green on hosted infrastructure: until it has, no claim
-is made about hosted CI results, and every check below must be read as
-"defined", not "passing".
+It first ran to green on hosted infrastructure on 2026-09-24: run
+35992989870 on `main`, the merge of the packaging and application-pipeline
+work, passed the hygiene job, the application build, and the full unit-test
+target on an iPhone simulator. The opt-in Keychain integration suite skips
+there by design, as it does everywhere without
+`ZYNSIGN_RUN_KEYCHAIN_TESTS=1` in a signed iOS test host.
 
 ## Jobs
 
 | Job | Runner | Steps |
 | --- | --- | --- |
-| Repository hygiene | `ubuntu-latest` | Refuse private-key material anywhere; refuse certificate text outside `Tests/`; refuse generated artifacts and machine state (`DerivedData/`, `xcuserdata/`, `*.xcresult`, `*.xcuserstate`, `.DS_Store`); run the host vector scripts |
+| Repository hygiene | `ubuntu-latest` | Refuse private-key material anywhere; refuse certificate text outside `Tests/`; refuse generated artifacts and machine state (`DerivedData/`, `xcuserdata/`, `*.xcresult`, `*.xcuserstate`, `.DS_Store`); run the host vector scripts and the external validation harness self-test |
 | Build and test (Xcode) | `macos-15` | Select the newest stable Xcode, record the toolchain versions, build the application target for the generic iOS Simulator platform, run the `ZynSign` scheme's unit-test target on an iPhone simulator |
+| External validation (Apple tooling) | `macos-15` | Run `ExternalValidationExportTests` with `TEST_RUNNER_ZYNSIGN_EXPORT_DIR` set, judge the exported artifacts with `Tests/Host/external_validation.py run` (`codesign`, `otool`, `ditto`, `unzip`, OpenSSL, ad hoc reference signing), publish the report to the job summary, upload the report and the exports as the `external-validation` artifact, and emit one notice per artifact |
 
 The hygiene job's certificate rule has one deliberate exception: synthetic
 certificate text appears in `Tests/ZynSignTests/` as rejection vectors for
@@ -25,7 +29,13 @@ matching outside `Tests/` fails the job.
   [release security review](../security/release-review.md).
 - Whether the host vector scripts still agree with the committed Swift
   fixtures about Mach-O layout, CodeDirectory bytes, page hashes, CMS
-  binding, and nested-signing ordering.
+  binding, and nested-signing ordering, and whether the external validation
+  harness's self-test passes.
+- What Apple's desktop tooling says about the artifacts ZynSign signs, in
+  the external validation report. That job is measurement, not a gate: it
+  fails only when the harness cannot run, never because `codesign` rejects
+  an artifact. See
+  [external-validation.md](../architecture/external-validation.md).
 
 ## What CI Does Not Claim
 
@@ -35,7 +45,9 @@ matching outside `Tests/` fails the job.
   the feasibility record stay open regardless of CI.
 - **No trust or platform acceptance.** The vectors confirm byte-level
   agreement with ZynSign's own format implementation; they are not Apple
-  platform validation.
+  platform validation. `codesign` accepting an artifact in the external
+  validation job is Apple's desktop verifier speaking, not iOS: no AMFI,
+  CoreTrust, provisioning, or installation check runs there.
 - **No secret scanning beyond the checked patterns.** The hygiene job refuses
   known-bad shapes (private keys, misplaced certificates, build products).
   It is not a substitute for the hosted secret-scanning and push-protection
@@ -53,12 +65,26 @@ xcodebuild test -project ZynSign.xcodeproj -scheme ZynSign \
   -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest'
 ```
 
-Without Xcode, only the host vectors and the hygiene greps apply:
+The external validation job's two steps, with Xcode:
+
+```
+TEST_RUNNER_ZYNSIGN_EXPORT_DIR="$PWD/.external-validation/export" \
+  xcodebuild test -project ZynSign.xcodeproj -scheme ZynSign \
+  -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+  -only-testing:ZynSignTests/ExternalValidationExportTests
+python3 Tests/Host/external_validation.py run \
+  --export-dir .external-validation/export \
+  --report-dir .external-validation/report
+```
+
+Without Xcode, only the host vectors, the harness self-test, and the
+hygiene greps apply:
 
 ```
 python3 Tests/Host/verify_macho_signing_vector.py
 python3 Tests/Host/verify_nested_code_signing_vector.py
 python3 Tests/Host/verify_zip_writer_vectors.py
+python3 Tests/Host/external_validation.py self-test
 ```
 
 A clean exit from the host scripts is not an executed test run of the Swift

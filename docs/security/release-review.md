@@ -175,3 +175,28 @@ Accepted risks are Medium or Low. No Critical or High issue remains open.
   no extraction path feeding it hostile trees; the worst-case failure
   mode today is sealing a link target's bytes, not escape with a write
   primitive.
+
+## Status After the First Hosted Run (ZS-031)
+
+Facts that changed after this review, recorded without re-reviewing:
+
+- **Unexecuted suites (Medium) — closed.** Hosted run 35992989870 on
+  `main` passed the full unit-test target on an iPhone simulator on
+  2026-09-24, including the security regression corpus above. What remains
+  is the device: a simulator pass is not device evidence, and the opt-in
+  Keychain integration suite skipped by design.
+- **Directory resource-store symlink handling (Low) — first question
+  answered on the simulator.** `testDirectoryStoreSymlinkPolicy` passed in
+  that run, so final-component link detection through
+  `FileManager.attributesOfItem` holds there. Intermediate components are
+  still not canonicalized; the risk stays Low for that reason.
+- **Scope.** The packaging writer, archive extraction, and the application
+  pipeline landed in the same change as this review, after its scope was
+  fixed, and have not been security-reviewed. "No packaging writer review"
+  now describes an unreviewed writer rather than an absent one; their
+  review is outstanding.
+- **External validation adds no product boundary.** The ZS-031 export test
+  is test-only and writes public material only; its throwaway signing key
+  is generated in the test process and never serialized. The harness is
+  host tooling and runs no product code. Its first results are recorded in
+  [external-validation.md](../architecture/external-validation.md).

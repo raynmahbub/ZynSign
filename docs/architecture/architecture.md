@@ -155,7 +155,14 @@ and covered by unit tests, but it is not installed in the application
 environment: no signing interface is composed until device validation
 completes, no installation mechanism exists anywhere in the product, and no
 suite in the increment was executed in the review environment. See
-[application-signing-pipeline.md](application-signing-pipeline.md).
+[application-signing-pipeline.md](application-signing-pipeline.md). The suites
+have since passed on hosted CI, on a simulator. The external validation
+increment then measured the signing output with Apple's developer tooling for
+the first time: `codesign` accepts ZynSign's single-image signatures, rejects
+the pipeline's bundles because it does not recognize the resource seal, and the
+signature format fails Apple's documented iOS 15+ requirements. That is
+developer-side evidence, not platform acceptance; see
+[external-validation.md](external-validation.md).
 
 Nothing else in this document is a claim that any behaviour works. Every
 feasibility boundary in Section 6 remains open except where noted here, and
@@ -1941,6 +1948,14 @@ Rules, **Accepted**:
   on-device capability exists, or presenting a desktop-only test as a product
   test, is not.
 
+The external validation harness (ZS-031) is the first standing instance of the
+developer-side tier. An opt-in simulator test exports artifacts signed through
+the production use cases with a throwaway in-process key, and a host harness
+judges them with `codesign`, `otool`, and OpenSSL on a hosted macOS runner,
+compares them with `codesign`'s own ad hoc signing of the same inputs, and
+records every verdict. The CI job is measurement, not a gate. See
+[external-validation.md](external-validation.md).
+
 ## 17. Errors and Diagnostics
 
 **Accepted:**
@@ -2018,6 +2033,7 @@ depend on iOS/iPadOS behaviour are recorded as *Provisional*, *Unresolved*, or
 | 34 | CodeDirectory construction and page hashing | **Accepted** for this increment — a value-typed constructor supports only CodeDirectory versions `0x20001` and `0x20200`, the published SHA-1/SHA-256/truncated-SHA-256/SHA-384 hash types, exponent-encoded page sizes, explicit code limits, negative special-slot representation, bounded big-endian serialization, and deterministic ordinary-page hashing through the existing digest port. It does not construct SuperBlobs, CMS, requirements, entitlements, CodeResources, or Mach-O changes, and it makes no iOS/iPadOS acceptance claim; see [codedirectory-construction.md](codedirectory-construction.md). |
 | 35 | Mach-O code-signature region construction | **Accepted** for this increment — 16-byte-aligned `MachOCodeSignatureRegion` framing over validated ZS-024 SuperBlob serialization, `MachOCodeSignatureRegionLayout` arithmetic separating code limit from file length, `MachOCodeSignatureInspector` distinguishing absent, valid, and malformed existing signature states, default rejection of existing signatures with replacement unsupported, load-command capacity gating over verified zero header padding and `__LINKEDIT` virtual slack, universal binary mutation unsupported, and a narrow append-only `MachOCodeSignatureWriter` that preserves unrelated bytes byte-for-byte; no CMS, private-key signing, or platform acceptance is claimed; see [macho-signature-region.md](macho-signature-region.md). |
 | 36 | Signing metadata: entitlements, requirements, and CodeResources | **Accepted** for this increment — a typed entitlement model over the existing `ProvisioningProfileValue` tree with unknown keys preserved, no enumerated entitlement vocabulary, dates excluded rather than coerced, bounds enforced, and five separate states (decoded, structurally valid, provisioning-compatible through a bridge that reuses the ZS-020 policy validator alone, embedded with `platformAuthorization` explicitly `notEvaluated`, and platform-authorized, which no local operation claims); one canonical XML property-list serialization (fixed header, ascending UTF-8 key bytes, tab indentation, one element per line, no value transformation) framing the `0xFADE7171` blob, with XML and binary payloads accepted on read and OpenStep refused; a requirements model carrying set framing and expression bytes verbatim with dispositions absent/presentAndParsed/presentButUnsupported/malformed/generated/verified, expressions never interpreted or generated, framing validated (magic, length, offset, overlap, duplicate-kind, count bounds) and malformed values refused at the embedding boundary before any cryptographic operation; a read-only `ResourceContentStore` port with in-memory and directory stores, deterministic ascending-path sealing, exact stored bytes hashed as `hash2`, symlink fail-closed-or-exclude policy with links never followed, caller-only exclusions recorded as omissions that are never serialized, and caller-supplied nested-code `cdhash` seals (first 20 bytes of the SHA-256 CodeDirectory digest) that the generator never signs or re-derives; the CodeResources document over `files2`/optional caller `rules2` with v1 `files`/`rules` an explicit `unsupportedTopLevelKey` refusal, deterministic serialization through the one canonical serializer, and a parser accepting any legal plist spelling of the supported subset; special-slot derivation for slots 2/3/5 with digest inputs covering the complete embedded blobs for 2 and 5 and the CodeResources file bytes for 3 (**Observed**), contiguous zero-placeholder construction that never invents slot 1; pipeline ordering fixed so metadata is prepared and slots finalized before the CodeDirectory is constructed, hashed, and signed; per-target nested metadata never inherited, with metadata failures reported at the metadata stage (`signingMetadataFailure`) and leaving the staged artifact untouched; read-only inspection classifying embedded entitlements, requirements, and slot-3 state without mutating or verifying anything; structured per-stage errors with paths and counts but never contents or key material; no third-party dependency; byte-exact agreement with Apple's serializers, requirement-expression semantics, platform acceptance, and device behaviour all remain open and recorded as experiments (Section 7); see [signing-metadata.md](signing-metadata.md) |
+| 37 | External validation of signing output | **Accepted** for this increment — developer-side validation (decision 15) as a standing, non-gating CI job: an opt-in export test signs synthetic inputs through the production use cases with a throwaway in-process RSA key and the production verifier and writes public material only; a standard-library host harness judges the exports with `codesign`, `otool`, `ditto`, `unzip`, and OpenSSL, evaluates Apple's documented iOS 15+ format rules, compares against `codesign`'s ad hoc signing of the same inputs with differences labeled expected, input-dependent, or divergence, and compares tamper verdicts; results live in a known-divergence register cited by run; no external tool is called from product code, no credential exists anywhere, and no verdict is presented as platform acceptance, trust, or installability ([external-validation.md](external-validation.md)) |
 
 ## 19. Non-Goals of This Document
 

@@ -6,6 +6,34 @@ All notable changes to ZynSign will be documented here.
 
 ### Added
 
+- External validation of signing output (ZS-031): ZynSign's signatures are
+  judged by Apple's developer tooling for the first time. The opt-in
+  `ExternalValidationExportTests` suite (skipped unless
+  `ZYNSIGN_EXPORT_DIR` is set) signs the synthetic executable twice (no
+  metadata; XML entitlements) and the nested-framework container through
+  `SignApplicationPipeline`. It uses a throwaway in-process RSA key and the
+  production `AppleSignatureVerifier`, where the orchestration suites use a
+  replay capability and an always-valid verifier. It writes damaged copies
+  of each single image with ZynSign's own verdict, the public certificate,
+  and manifests.
+- External validation harness (`Tests/Host/external_validation.py`,
+  standard library only). `run` judges an export on macOS with `codesign`,
+  `otool`, `ditto`, `unzip`, and OpenSSL, and evaluates the iOS format
+  rules Apple documents (CodeDirectory version at least `0x20400`; DER
+  entitlements alongside XML entitlements; no entitlements on frameworks).
+  It signs the same unsigned inputs ad hoc with `codesign` and compares
+  field by field, labeling each difference expected, input-dependent, or a
+  divergence. It compares tamper verdicts and writes a JSON and a Markdown
+  report. `self-test` checks the parser, rules, parsers, and rendering on
+  any host and runs in the hygiene job; `annotate-xcodebuild` surfaces
+  export failures as workflow annotations.
+- A non-gating `external-validation` CI job on `macos-15` that runs the
+  export and the harness, publishes the report to the job summary, uploads
+  the report and the exports as a workflow artifact, and emits one notice
+  per artifact. It fails only when the harness cannot run.
+- `docs/architecture/external-validation.md`: the method, what each check
+  establishes and does not, the evidence discipline, and the
+  known-divergence register from the first hosted runs.
 - Complete application-signing pipeline: a nine-stage application-layer
   workflow (integrity, profile, discovery, extraction, nested signing,
   resource sealing, main-executable signing, packaging, independent
@@ -73,6 +101,23 @@ All notable changes to ZynSign will be documented here.
 
 ### Honesty notes
 
+- External validation results (ZS-031, hosted runs 36010725148 and
+  36011553668). Apple's desktop `codesign` accepts ZynSign's single-image
+  signatures ("valid on disk; satisfies its Designated Requirement"), and
+  OpenSSL verifies every CMS. `otool` agrees on the signature layout.
+  ZynSign and `codesign` reject the same nine damaged images.
+- `codesign` rejects the pipeline's bundle and its nested framework ("code
+  has no resources but signature indicates they must be present"): it does
+  not recognize ZynSign's `files2`-only resource seal. The signature
+  format also fails Apple's documented iOS 15+ requirements: CodeDirectory
+  version `0x20200`, and no DER entitlements.
+- None of this is iOS acceptance, trust, or installability. The certificate
+  is a throwaway self-signed one, the inputs are the synthetic executable
+  model, and nothing ran on a device.
+- The test suites passed on hosted CI after the packaging and
+  application-pipeline change merged (run 35992989870 on `main`, on a
+  simulator). The notes below record the environments the suites were
+  written in and remain accurate for those environments.
 - No test suite was executed in this environment, which has no Xcode
   runner: the new suites (writer golden vectors, extractor, packager,
   pipeline end-to-end, verification, installation capability) are
