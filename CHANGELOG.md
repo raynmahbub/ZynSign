@@ -6,6 +6,27 @@ All notable changes to ZynSign will be documented here.
 
 ### Added
 
+- App icon: an asset catalog with a 1024×1024 iOS app icon
+  (`ZynSign/Assets.xcassets/AppIcon.appiconset`), a violet-gradient
+  squircle carrying a white pen-nib Z emblem with a signature stroke.
+  The target sets `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon` in
+  Debug and Release; the file-system-synchronized group picks the
+  catalog up with no explicit project-file file references.
+- Unsigned device IPA in CI: a non-gating `unsigned-ipa` job builds the
+  application for `generic/platform=iOS` with `CODE_SIGNING_ALLOWED=NO`
+  and `CODE_SIGNING_REQUIRED=NO`, fails if the output carries a code
+  signature, assembles `Payload/ZynSign.app` into
+  `ZynSign-unsigned.ipa` (zip-verified), and uploads it as the
+  `ZynSign-unsigned-ipa` workflow artifact with 30-day retention. The
+  artifact is unsigned by design: not installable as-is, not signed,
+  not a release. Local reproduction commands are in
+  `docs/development/continuous-integration.md`.
+- Simulator application artifact in CI: the build-and-test job now builds
+  into a job-local derived-data directory, packages the built `ZynSign.app`
+  with `ditto` (and checks the zip reopens), and uploads it as the
+  `ZynSign-simulator` workflow artifact with 30-day retention. The artifact
+  is an iOS Simulator application only — not an IPA, not device-signed, not
+  a release. Documented in `docs/development/continuous-integration.md`.
 - External validation of signing output (ZS-031): ZynSign's signatures are
   judged by Apple's developer tooling for the first time. The opt-in
   `ExternalValidationExportTests` suite (skipped unless

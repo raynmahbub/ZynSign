@@ -13,7 +13,8 @@ there by design, as it does everywhere without
 | Job | Runner | Steps |
 | --- | --- | --- |
 | Repository hygiene | `ubuntu-latest` | Refuse private-key material anywhere; refuse certificate text outside `Tests/`; refuse generated artifacts and machine state (`DerivedData/`, `xcuserdata/`, `*.xcresult`, `*.xcuserstate`, `.DS_Store`); run the host vector scripts and the external validation harness self-test |
-| Build and test (Xcode) | `macos-15` | Select the newest stable Xcode, record the toolchain versions, build the application target for the generic iOS Simulator platform, run the `ZynSign` scheme's unit-test target on an iPhone simulator |
+| Build and test (Xcode) | `macos-15` | Select the newest stable Xcode, record the toolchain versions, build the application target for the generic iOS Simulator platform into a job-local derived-data directory, run the `ZynSign` scheme's unit-test target on an iPhone simulator, package the built `ZynSign.app` with `ditto` (round-trip checked), and upload the zip as the `ZynSign-simulator` artifact (30-day retention) |
+| Unsigned IPA (device build) | `macos-15` | Build the application target for the generic iOS platform with `CODE_SIGNING_ALLOWED=NO` and `CODE_SIGNING_REQUIRED=NO`, fail if the build output carries any code signature (`codesign -d`), assemble `Payload/ZynSign.app` into `ZynSign-unsigned.ipa`, verify the zip and its `Info.plist` entry, and upload it as the `ZynSign-unsigned-ipa` artifact (30-day retention) |
 | External validation (Apple tooling) | `macos-15` | Run `ExternalValidationExportTests` with `TEST_RUNNER_ZYNSIGN_EXPORT_DIR` set, judge the exported artifacts with `Tests/Host/external_validation.py run` (`codesign`, `otool`, `ditto`, `unzip`, OpenSSL, ad hoc reference signing), publish the report to the job summary, upload the report and the exports as the `external-validation` artifact, and emit one notice per artifact |
 
 The hygiene job's certificate rule has one deliberate exception: synthetic
@@ -27,6 +28,14 @@ matching outside `Tests/` fails the job.
 - Whether the unit-test target passes on a simulator, including the
   security regression suites listed in the
   [release security review](../security/release-review.md).
+- That the built simulator application packages into a zip that reopens
+  as `ZynSign.app`, and that the zip is downloadable from the run as the
+  `ZynSign-simulator` artifact.
+- That a device-architecture build succeeds with code signing disabled
+  end to end, that its output carries no code signature, and that the
+  assembled `ZynSign-unsigned.ipa` is a readable zip holding
+  `Payload/ZynSign.app` — downloadable as the `ZynSign-unsigned-ipa`
+  artifact.
 - Whether the host vector scripts still agree with the committed Swift
   fixtures about Mach-O layout, CodeDirectory bytes, page hashes, CMS
   binding, and nested-signing ordering, and whether the external validation
@@ -43,6 +52,18 @@ matching outside `Tests/` fails the job.
   and differing document-picker behavior mean a simulator pass says nothing
   about the corresponding device behavior. The physical-device experiments in
   the feasibility record stay open regardless of CI.
+- **No IPA, no device installation, no release.** The `ZynSign-simulator`
+  artifact is an iOS Simulator `.app` inside a zip. It runs only on a
+  simulator (for example `xcrun simctl install booted ZynSign.app` after
+  unzipping); it is not signed for a device, is not an `.ipa`, and is not
+  a distributed release. There is still no release process; see
+  [release documentation](../releases/README.md).
+- **The unsigned IPA is not installable as-is.** `ZynSign-unsigned.ipa`
+  is a device build with no signature, no provisioning profile, and no
+  trust chain — iOS will refuse to install it unchanged. It exists so a
+  developer can sign it afterwards with their own certificate and tool.
+  CI holds no Apple credentials (see [SECURITY.md](../../SECURITY.md)),
+  and the job proves absence of a signature, never presence of trust.
 - **No trust or platform acceptance.** The vectors confirm byte-level
   agreement with ZynSign's own format implementation; they are not Apple
   platform validation. `codesign` accepting an artifact in the external
@@ -60,10 +81,38 @@ With Xcode installed:
 
 ```
 xcodebuild build -project ZynSign.xcodeproj -scheme ZynSign \
-  -destination 'generic/platform=iOS Simulator'
+  -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath build/DerivedData
 xcodebuild test -project ZynSign.xcodeproj -scheme ZynSign \
-  -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest'
+  -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+  -derivedDataPath build/DerivedData
+ditto -c -k --sequesterRsrc --keepParent \
+  build/DerivedData/Build/Products/Debug-iphonesimulator/ZynSign.app \
+  ZynSign-simulator.zip
 ```
+
+Keep `build/` out of version control; the zip is a regenerated build
+product, not a fixture.
+
+The unsigned device IPA job's steps, with Xcode (no Apple developer
+account required — signing is disabled):
+
+```
+xcodebuild build -project ZynSign.xcodeproj -scheme ZynSign \
+  -configuration Release -destination 'generic/platform=iOS' \
+  -derivedDataPath build/DerivedData \
+  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+codesign -d build/DerivedData/Build/Products/Release-iphoneos/ZynSign.app
+mkdir -p build/ipa/Payload
+ditto build/DerivedData/Build/Products/Release-iphoneos/ZynSign.app \
+  build/ipa/Payload/ZynSign.app
+(cd build/ipa && zip -qry ../ZynSign-unsigned.ipa Payload)
+unzip -t build/ZynSign-unsigned.ipa
+```
+
+The last `codesign -d` must fail: the build is expected to carry no
+signature. The resulting `.ipa` is unsigned by design and cannot be
+installed until signed with your own certificate and tool.
 
 The external validation job's two steps, with Xcode:
 

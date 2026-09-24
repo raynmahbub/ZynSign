@@ -1,7 +1,8 @@
 # ZynSign continuous integration.
 #
 # Builds the application target, runs the unit-test target on a simulator,
-# and runs repository-hygiene checks. See
+# packages the simulator application as a downloadable artifact, builds an
+# unsigned device IPA, and runs repository-hygiene checks. See
 # docs/development/continuous-integration.md for what each job establishes
 # and what it explicitly does not claim.
 name: CI
@@ -78,10 +79,12 @@ jobs:
       - name: Build the application target
         run: |
           set -eu
+          echo "ZYNSIGN_DERIVED_DATA=$RUNNER_TEMP/DerivedData" >> "$GITHUB_ENV"
           xcodebuild build \
             -project ZynSign.xcodeproj \
             -scheme ZynSign \
             -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             -quiet
 
       - name: Run the unit-test target
@@ -91,7 +94,104 @@ jobs:
             -project ZynSign.xcodeproj \
             -scheme ZynSign \
             -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             -quiet
+
+      # A simulator .app only: installable on an iOS Simulator with
+      # `xcrun simctl install`. It is not an IPA, is not signed for a
+      # device, and is not a release artifact.
+      - name: Package the simulator application
+        run: |
+          set -eu
+          app_path=$(find "$ZYNSIGN_DERIVED_DATA/Build/Products" \
+            -maxdepth 2 -type d -name 'ZynSign.app' -print -quit)
+          if [ -z "$app_path" ]; then
+            echo "ZynSign.app not found under the derived-data products." >&2
+            exit 1
+          fi
+          echo "Packaging: $app_path"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$app_path" "$RUNNER_TEMP/ZynSign-simulator.zip"
+          ditto -x -k "$RUNNER_TEMP/ZynSign-simulator.zip" \
+            "$RUNNER_TEMP/zip-check"
+          test -d "$RUNNER_TEMP/zip-check/ZynSign.app"
+
+      - name: Upload the simulator application
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZynSign-simulator
+          path: ${{ runner.temp }}/ZynSign-simulator.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  # A device build with code signing disabled end to end. No Apple
+  # credentials exist in this repository or in CI, so the resulting
+  # .ipa carries no signature and is not installable as-is: installing
+  # it requires a separate signing step with the user's own certificate
+  # or tool. Not a release.
+  unsigned-ipa:
+    name: Unsigned IPA (device build)
+    runs-on: macos-15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Select the newest available Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Show the toolchain versions
+        run: |
+          set -eu
+          echo "IPA_ROOT=$RUNNER_TEMP/unsigned-ipa" >> "$GITHUB_ENV"
+          xcodebuild -version
+
+      - name: Build the application target without a signature
+        run: |
+          set -eu
+          xcodebuild build \
+            -project ZynSign.xcodeproj \
+            -scheme ZynSign \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            -quiet
+
+      - name: Package the unsigned application as an IPA
+        run: |
+          set -eu
+          app_path=$(find "$RUNNER_TEMP/DerivedData/Build/Products" \
+            -maxdepth 2 -type d -name 'ZynSign.app' -path '*iphoneos*' \
+            -print -quit)
+          if [ -z "$app_path" ]; then
+            echo "ZynSign.app not found under the derived-data products." >&2
+            exit 1
+          fi
+          test -f "$app_path/ZynSign"
+          # The build must carry no code signature at all.
+          if codesign -d "$app_path" >/dev/null 2>&1; then
+            echo "The build unexpectedly carries a code signature." >&2
+            exit 1
+          fi
+          stage="$IPA_ROOT/stage"
+          mkdir -p "$stage/Payload"
+          ditto "$app_path" "$stage/Payload/ZynSign.app"
+          ipa_path="$IPA_ROOT/ZynSign-unsigned.ipa"
+          (cd "$stage" && zip -qry "$ipa_path" Payload)
+          unzip -t "$ipa_path"
+          unzip -l "$ipa_path" | grep -q "Payload/ZynSign.app/Info.plist"
+
+      - name: Upload the unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZynSign-unsigned-ipa
+          path: ${{ runner.temp }}/unsigned-ipa/ZynSign-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
 
   # Measurement, not a gate: ZynSign-signed artifacts judged by Apple's
   # developer tooling. The job fails only when the harness cannot do its job

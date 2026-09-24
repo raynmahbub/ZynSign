@@ -9,6 +9,11 @@ xcuserdata/
 DerivedData/
 *.xcresult
 
+# Local build outputs (regenerated; never fixtures)
+build/
+*.ipa
+*.xcarchive
+
 # Python bytecode from host scripts
 __pycache__/
 *.pyc
