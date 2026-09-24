@@ -11,6 +11,12 @@ on:
     branches: ["**"]
   pull_request:
 
+# TEMPORARY (revert before merge): lets failing runs report error lines to
+# the PR because this sandbox cannot download action logs.
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   hygiene:
     name: Repository hygiene
