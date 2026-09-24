@@ -196,10 +196,14 @@ enum ZipFixtureBuilder {
         var destination = [UInt8](repeating: 0, count: capacity)
         let produced = entry.content.withUnsafeBufferPointer { source -> Int in
             destination.withUnsafeMutableBufferPointer { target -> Int in
-                compression_encode_buffer(
-                    target.baseAddress,
+                guard let targetAddress = target.baseAddress,
+                      let sourceAddress = source.baseAddress else {
+                    return 0
+                }
+                return compression_encode_buffer(
+                    targetAddress,
                     capacity,
-                    source.baseAddress,
+                    sourceAddress,
                     entry.content.count,
                     nil,
                     COMPRESSION_ZLIB

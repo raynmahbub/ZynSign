@@ -49,8 +49,8 @@ final class IPAArtifactTests: XCTestCase {
     }
 
     func testFreshImportStartsUnexamined() throws {
-        let artifact = IPAArtifact(id: identifier(), sourceFileName: "Example.ipa")
-        XCTAssertEqual(artifact.id, identifier())
+        let artifact = IPAArtifact(id: try identifier(), sourceFileName: "Example.ipa")
+        XCTAssertEqual(artifact.id, try identifier())
         XCTAssertEqual(artifact.state, .imported)
         XCTAssertEqual(artifact.sourceFileName, "Example.ipa")
         XCTAssertNil(artifact.discoveredBundle)
@@ -60,23 +60,23 @@ final class IPAArtifactTests: XCTestCase {
     }
 
     func testFreshImportWithoutSourceFileName() throws {
-        let artifact = IPAArtifact(id: identifier())
+        let artifact = IPAArtifact(id: try identifier())
         XCTAssertNil(artifact.sourceFileName)
         XCTAssertEqual(artifact.state, .imported)
     }
 
     func testSourceFileNameIsPreservedVerbatim() throws {
-        let artifact = IPAArtifact(id: identifier(), sourceFileName: "  My App (1).ipa  ")
+        let artifact = IPAArtifact(id: try identifier(), sourceFileName: "  My App (1).ipa  ")
         XCTAssertEqual(artifact.sourceFileName, "  My App (1).ipa  ")
     }
 
     func testExaminationWithValidResultInspectsArtifact() throws {
-        let artifact = IPAArtifact(id: identifier(), sourceFileName: "Example.ipa")
-        let examined = artifact.examined(bundle: bundle(), validation: ValidationResult.valid())
-        XCTAssertEqual(examined.id, identifier())
+        let artifact = IPAArtifact(id: try identifier(), sourceFileName: "Example.ipa")
+        let examined = artifact.examined(bundle: try bundle(), validation: ValidationResult.valid())
+        XCTAssertEqual(examined.id, try identifier())
         XCTAssertEqual(examined.state, .inspected)
         XCTAssertEqual(examined.sourceFileName, "Example.ipa")
-        XCTAssertEqual(examined.discoveredBundle, bundle())
+        XCTAssertEqual(examined.discoveredBundle, try bundle())
         XCTAssertEqual(examined.validation, ValidationResult.valid())
         XCTAssertTrue(examined.isExamined)
         XCTAssertTrue(examined.permitsLaterStages)
@@ -84,7 +84,7 @@ final class IPAArtifactTests: XCTestCase {
 
     func testExaminationWithRejectingResultInvalidatesArtifact() throws {
         for classification in [ValidationClassification.invalid, .unsupported, .ambiguous] {
-            let artifact = IPAArtifact(id: identifier())
+            let artifact = IPAArtifact(id: try identifier())
             let examined = artifact.examined(bundle: nil, validation: rejection(classification: classification))
             XCTAssertEqual(examined.state, .invalid, "\(classification) must invalidate the artifact.")
             XCTAssertTrue(examined.isExamined)
@@ -94,7 +94,7 @@ final class IPAArtifactTests: XCTestCase {
 
     func testExaminationDerivationMatchesStateTransitionTable() throws {
         for classification in ValidationClassification.allCases {
-            let artifact = IPAArtifact(id: identifier())
+            let artifact = IPAArtifact(id: try identifier())
             let validation = classification == .valid
                 ? ValidationResult.valid()
                 : rejection(classification: classification)
@@ -104,20 +104,20 @@ final class IPAArtifactTests: XCTestCase {
     }
 
     func testExaminationDoesNotMutateOriginal() throws {
-        let artifact = IPAArtifact(id: identifier())
-        _ = artifact.examined(bundle: bundle(), validation: ValidationResult.valid())
+        let artifact = IPAArtifact(id: try identifier())
+        _ = artifact.examined(bundle: try bundle(), validation: ValidationResult.valid())
         XCTAssertEqual(artifact.state, .imported)
         XCTAssertFalse(artifact.isExamined)
     }
 
     func testArtifactsWithSameValuesAreEqual() throws {
-        let first = IPAArtifact(id: identifier(), sourceFileName: "Example.ipa")
-        let second = IPAArtifact(id: identifier(), sourceFileName: "Example.ipa")
+        let first = IPAArtifact(id: try identifier(), sourceFileName: "Example.ipa")
+        let second = IPAArtifact(id: try identifier(), sourceFileName: "Example.ipa")
         XCTAssertEqual(first, second)
     }
 
     func testArtifactsWithDifferentIdentifiersAreNotEqual() throws {
-        let first = IPAArtifact(id: identifier(), sourceFileName: "Example.ipa")
+        let first = IPAArtifact(id: try identifier(), sourceFileName: "Example.ipa")
         let second = IPAArtifact(sourceFileName: "Example.ipa")
         XCTAssertNotEqual(first, second)
     }
@@ -125,19 +125,19 @@ final class IPAArtifactTests: XCTestCase {
     // MARK: - Metadata examination
 
     func testFreshImportHasNoMetadata() throws {
-        let artifact = IPAArtifact(id: identifier(), sourceFileName: "Example.ipa")
+        let artifact = IPAArtifact(id: try identifier(), sourceFileName: "Example.ipa")
         XCTAssertNil(artifact.metadata)
     }
 
     func testStructuralExaminationRecordsNoMetadata() throws {
-        let artifact = IPAArtifact(id: identifier())
-        let examined = artifact.examined(bundle: bundle(), validation: ValidationResult.valid())
+        let artifact = IPAArtifact(id: try identifier())
+        let examined = artifact.examined(bundle: try bundle(), validation: ValidationResult.valid())
         XCTAssertNil(examined.metadata)
     }
 
     func testMetadataExaminationRecordsMetadataAndIdentifiedBundle() throws {
-        let artifact = IPAArtifact(id: identifier(), sourceFileName: "Example.ipa")
-        let examined = artifact.examined(bundle: bundle(), validation: ValidationResult.valid())
+        let artifact = IPAArtifact(id: try identifier(), sourceFileName: "Example.ipa")
+        let examined = artifact.examined(bundle: try bundle(), validation: ValidationResult.valid())
         let identified = try identifiedBundle()
         let updated = examined.metadataExamined(
             bundle: identified,
@@ -146,15 +146,15 @@ final class IPAArtifactTests: XCTestCase {
         )
         XCTAssertEqual(updated.state, .inspected)
         XCTAssertEqual(updated.discoveredBundle, identified)
-        XCTAssertEqual(updated.metadata, metadata())
+        XCTAssertEqual(updated.metadata, try metadata())
         XCTAssertTrue(updated.permitsLaterStages)
     }
 
     func testMetadataExaminationFailureInvalidatesArtifact() throws {
-        let artifact = IPAArtifact(id: identifier())
-        let examined = artifact.examined(bundle: bundle(), validation: ValidationResult.valid())
+        let artifact = IPAArtifact(id: try identifier())
+        let examined = artifact.examined(bundle: try bundle(), validation: ValidationResult.valid())
         let updated = examined.metadataExamined(
-            bundle: bundle(),
+            bundle: try bundle(),
             metadata: nil,
             validation: ValidationResult.invalid(
                 findings: [
@@ -173,8 +173,8 @@ final class IPAArtifactTests: XCTestCase {
     }
 
     func testMetadataExaminationDoesNotMutateOriginal() throws {
-        let artifact = IPAArtifact(id: identifier())
-        let examined = artifact.examined(bundle: bundle(), validation: ValidationResult.valid())
+        let artifact = IPAArtifact(id: try identifier())
+        let examined = artifact.examined(bundle: try bundle(), validation: ValidationResult.valid())
         _ = examined.metadataExamined(
             bundle: try identifiedBundle(),
             metadata: try metadata(),

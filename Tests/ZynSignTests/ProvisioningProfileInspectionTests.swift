@@ -24,10 +24,10 @@ final class ProvisioningProfileInspectionTests: XCTestCase {
                 ProvisioningProfileEntitlementKeys.getTaskAllow: true,
             ],
         ]
-        guard let data = PropertyListSerialization.data(
+        guard let data = try? PropertyListSerialization.data(
             fromPropertyList: root,
-            options: [],
-            format: .binary
+            format: .binary,
+            options: []
         ) else {
             XCTFail("Could not create the synthetic inspection payload")
             return ProvisioningProfilePayload(plistData: Data())

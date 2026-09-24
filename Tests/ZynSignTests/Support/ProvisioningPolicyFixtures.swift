@@ -239,10 +239,10 @@ enum ProvisioningPolicyFixtures {
             provisionedDevices: devices,
             developerCertificates: certificates,
             getTaskAllow: Self.booleanEntitlement(
-                resolvedEntitlements[ProvisioningProfileEntitlementKeys.getTaskAllow]
+                resolvedEntitlements?[ProvisioningProfileEntitlementKeys.getTaskAllow]
             ),
             betaReportsActive: Self.booleanEntitlement(
-                resolvedEntitlements[ProvisioningProfileEntitlementKeys.betaReportsActive]
+                resolvedEntitlements?[ProvisioningProfileEntitlementKeys.betaReportsActive]
             ),
             provisionsAllDevices: provisionsAllDevicesOverride ?? provisionsAllDevices,
             version: version,

@@ -105,10 +105,10 @@ final class EntitlementsTests: XCTestCase {
 
     func testDecodeBinaryPlistForm() throws {
         let binary = try PropertyListSerialization.data(
-            fromPropertyList(["get-task-allow": true],
-                             format: .binary,
-                             options: 0
-        ))
+            fromPropertyList: ["get-task-allow": true],
+            format: .binary,
+            options: 0
+        )
         let entitlements = try EntitlementsPlistParser.parse(binary)
         XCTAssertEqual(entitlements["get-task-allow"], .boolean(true))
     }

@@ -23,10 +23,10 @@ final class ApplicationMetadataReaderTests: XCTestCase {
         _ root: Any,
         format: PropertyListSerialization.PropertyListFormat = .xml
     ) -> Data {
-        guard let data = PropertyListSerialization.data(
+        guard let data = try? PropertyListSerialization.data(
             fromPropertyList: root,
-            options: [],
-            format: format
+            format: format,
+            options: []
         ) else {
             XCTFail("Could not build a \(format) property list fixture")
             return Data()
@@ -134,7 +134,7 @@ final class ApplicationMetadataReaderTests: XCTestCase {
     }
 
     func testLargeButReasonableMetadataIsExtracted() throws {
-        let values: [String: Any] = [
+        var values: [String: Any] = [
             BundleInformationKeys.bundleIdentifier: validIdentifier,
             BundleInformationKeys.shortVersion: String(repeating: "1.0.", count: 100) + "final",
             BundleInformationKeys.buildVersion: String(repeating: "9", count: 255),

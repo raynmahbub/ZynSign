@@ -309,7 +309,8 @@ final class CodeResourcesTests: XCTestCase {
     func testCodeResourcesDigestMatchesIndependentVector() throws {
         let iconPath = try path("Assets/icon.png")
         let iconHash = try sha256(Data("icon-png-bytes\u{00}\u{01}".utf8))
-        XCTAssertEqual(iconHash.hexString, "5c4594f09338e9b9aa9fed75eaa29b18bc6b8229a760ee4a943478f0034fa206")
+        let iconDigest = try XCTUnwrap(Digest(algorithm: .sha256, bytes: iconHash))
+        XCTAssertEqual(iconDigest.hexString, "5c4594f09338e9b9aa9fed75eaa29b18bc6b8229a760ee4a943478f0034fa206")
         let document = try CodeResourcesDocument(files2: [
             .file(try FileResourceSeal(path: iconPath, hash2: iconHash))
         ])

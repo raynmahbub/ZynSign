@@ -86,7 +86,7 @@ final class CodeSignatureRequirementsTests: XCTestCase {
     }
 
     func testRoundTripPreservesExactBytes() throws {
-        let set = designatedSet()
+        let set = try designatedSet()
         let bytes = try set.serialized()
         let parsed = try RequirementsSet.parse(bytes)
         XCTAssertEqual(parsed.disposition, .presentAndParsed)
@@ -198,7 +198,7 @@ final class CodeSignatureRequirementsTests: XCTestCase {
     // MARK: - SuperBlob integration
 
     func testRequirementsBlobIntegratesIntoSuperBlob() throws {
-        let set = designatedSet()
+        let set = try designatedSet()
         let requirementsBlob = try CodeSignatureBlob.requirements(set)
         XCTAssertEqual(requirementsBlob.magic, 0xFADE0C01)
         XCTAssertEqual(requirementsBlob.bytes, try set.serialized())
@@ -241,7 +241,7 @@ final class CodeSignatureRequirementsTests: XCTestCase {
     }
 
     func testTypedBlobContentRestrictsItsSlot() throws {
-        let set = designatedSet()
+        let set = try designatedSet()
         let requirementsBlob = try CodeSignatureBlob.requirements(set)
         // A requirements blob cannot masquerade as an entitlements slot entry.
         XCTAssertThrowsError(

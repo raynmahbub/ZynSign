@@ -28,7 +28,7 @@ final class IPABundleMetadataInspectionTests: XCTestCase {
     // MARK: - Fixture construction
 
     private func makePlist(_ root: [String: Any]) -> Data {
-        guard let data = PropertyListSerialization.data(fromPropertyList: root, options: [], format: .xml) else {
+        guard let data = try? PropertyListSerialization.data(fromPropertyList: root, format: .xml, options: []) else {
             XCTFail("Could not build a property list fixture")
             return Data()
         }
@@ -49,7 +49,7 @@ final class IPABundleMetadataInspectionTests: XCTestCase {
 
     /// The entry table of a structurally valid package, with an optional
     /// executable entry.
-    private func entryTable(executable: String? = "Example", executableKind: ArchiveEntryKind = .regularFile) -> [ArchiveEntry] {
+    private func defaultEntryTable(executable: String? = "Example", executableKind: ArchiveEntryKind = .regularFile) -> [ArchiveEntry] {
         var table = [
             makeEntry(IPALayout.payloadDirectoryName, kind: .directory),
             makeEntry(bundlePathRaw, kind: .directory),
@@ -74,7 +74,7 @@ final class IPABundleMetadataInspectionTests: XCTestCase {
             contentByPath[infoPlistPathRaw] = plistContent
         }
         return SyntheticArchiveReader(
-            entryTable: entryTable ?? entryTable(),
+            entryTable: entryTable ?? defaultEntryTable(),
             contentByPath: contentByPath,
             failure: failure
         )
@@ -270,7 +270,7 @@ final class IPABundleMetadataInspectionTests: XCTestCase {
     func testExecutableDeclaredButAbsentIsRecorded() throws {
         var root = fullMetadataRoot
         root[BundleInformationKeys.executable] = "Ghost"
-        let reader = reader(entryTable: entryTable(executable: nil), root: root)
+        let reader = reader(entryTable: defaultEntryTable(executable: nil), root: root)
         let examined = inspection(over: reader).inspect(try inspectedArtifact())
 
         XCTAssertEqual(examined.state, .invalid)
@@ -284,7 +284,7 @@ final class IPABundleMetadataInspectionTests: XCTestCase {
 
     func testExecutableThatIsNotARegularFileIsRecorded() throws {
         let reader = reader(
-            entryTable: entryTable(executable: "Example", executableKind: .symbolicLink),
+            entryTable: defaultEntryTable(executable: "Example", executableKind: .symbolicLink),
             root: fullMetadataRoot
         )
         let examined = inspection(over: reader).inspect(try inspectedArtifact())
@@ -347,7 +347,7 @@ final class IPABundleMetadataInspectionTests: XCTestCase {
     }
 
     func testForeignFailureDetailIsNotCopiedIntoFindings() throws {
-        let reader = ForeignFailingReader(stage: .content, table: entryTable())
+        let reader = ForeignFailingReader(stage: .content, table: defaultEntryTable())
         let examined = inspection(over: reader).inspect(try inspectedArtifact())
 
         XCTAssertEqual(errorCodes(of: examined), [.unreadableInfoPlist])

@@ -31,10 +31,10 @@ final class ProvisioningProfileParserTests: XCTestCase {
         _ root: [String: Any],
         format: PropertyListSerialization.PropertyListFormat = .binary
     ) -> Data {
-        guard let data = PropertyListSerialization.data(
+        guard let data = try? PropertyListSerialization.data(
             fromPropertyList: root,
-            options: [],
-            format: format
+            format: format,
+            options: []
         ) else {
             XCTFail("Could not create synthetic property-list payload")
             return Data()
@@ -221,10 +221,10 @@ final class ProvisioningProfileParserTests: XCTestCase {
     }
 
     func testNonDictionaryPayloadIsControlled() {
-        guard let data = PropertyListSerialization.data(
+        guard let data = try? PropertyListSerialization.data(
             fromPropertyList: ["not", "a", "profile"],
-            options: [],
-            format: .binary
+            format: .binary,
+            options: []
         ) else {
             XCTFail("Could not create the synthetic non-dictionary payload")
             return

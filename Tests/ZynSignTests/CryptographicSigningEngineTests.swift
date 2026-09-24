@@ -199,7 +199,9 @@ final class CryptographicSigningEngineTests: XCTestCase {
             input: .message(Data("x".utf8))
         )
         XCTAssertThrowsError(try engine.sign(request, capability: capability)) { error in
-            let zynSignError = try XCTUnwrap(error as? ZynSignError)
+            guard let zynSignError = error as? ZynSignError else {
+                return XCTFail("Expected a ZynSignError, got \(type(of: error))")
+            }
             XCTAssertEqual(zynSignError.cryptoFailure, .signingFailure)
             // The foreign description is not carried anywhere.
             XCTAssertFalse(zynSignError.userMessage.contains("private key bytes"))
