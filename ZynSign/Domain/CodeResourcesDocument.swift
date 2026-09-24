@@ -229,7 +229,7 @@ struct CodeResourcesDocument: Equatable {
     /// special slot 3. Serialization is deterministic and independent of the
     /// order in which the document was assembled.
     func serialized() throws -> Data {
-        CodeResourcesSerializer().serialize(self)
+        try CodeResourcesSerializer().serialize(self)
     }
 }
 

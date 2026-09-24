@@ -327,7 +327,7 @@ struct IPAStructureValidator {
 
 /// An accumulator that records findings while bounding how many are kept for
 /// any one issue code.
-private struct FindingCollector {
+fileprivate struct FindingCollector {
 
     let limit: Int
 
