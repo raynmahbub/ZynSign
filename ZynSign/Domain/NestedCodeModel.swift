@@ -348,6 +348,10 @@ enum NestedCodeNotEstablished: Equatable {
     /// The executable's content could not be produced.
     case binaryUnreadable
 
+    /// No content was obtained for the executable's location even though the
+    /// structure proposes it.
+    case binaryNotInspected
+
     /// The item is a code-bearing object at a location whose structure this
     /// build does not traverse, or is a structure whose role is ambiguous.
     case unsupportedStructure

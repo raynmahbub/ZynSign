@@ -94,7 +94,7 @@ struct ApplicationBundleDiscovery: Equatable, Hashable {
             payloadPresent: payloadPresent,
             bundleCandidates: bundleCandidates.sortedByPath(),
             misplacedBundleDirectories: misplacedBundleDirectories.sortedByPath(),
-            nonDirectoryApplicationNames: nonDirectoryApplicationNames.sortedByPath()
+            nonDirectoryApplicationNames: Array(nonDirectoryApplicationNames).sortedByPath()
         )
     }
 }
