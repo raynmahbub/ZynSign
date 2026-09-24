@@ -11,12 +11,6 @@ on:
     branches: ["**"]
   pull_request:
 
-# TEMPORARY (revert before merge): lets failing runs report error lines to
-# the PR because this sandbox cannot download action logs.
-permissions:
-  contents: read
-  pull-requests: write
-
 jobs:
   hygiene:
     name: Repository hygiene
@@ -97,43 +91,3 @@ jobs:
             -scheme ZynSign \
             -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
             -quiet
-
-      # TEMPORARY (revert before merge): re-runs the test command verbosely
-      # and posts the error lines to the PR.
-      - name: Report failure details to the PR
-        if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set +e
-          xcodebuild test \
-            -project ZynSign.xcodeproj \
-            -scheme ZynSign \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
-            > /tmp/zynsign-test-output.txt 2>&1
-          grep -E "error:|FAILED|failed \(" /tmp/zynsign-test-output.txt \
-            | sort -u | head -n 250 > /tmp/zynsign-errors.txt || true
-          grep -B 12 -A 3 "Fatal error" /tmp/zynsign-test-output.txt \
-            | head -n 60 > /tmp/zynsign-crashes.txt || true
-          {
-            echo "### Diagnostic report for \`${{ github.sha }}\` (temporary step, will be reverted)"
-            echo
-            if [ -s /tmp/zynsign-crashes.txt ]; then
-              echo "Crashes:"
-              echo '```text'
-              head -c 15000 /tmp/zynsign-crashes.txt
-              echo '```'
-            fi
-            if [ -s /tmp/zynsign-errors.txt ]; then
-              echo '```text'
-              head -c 50000 /tmp/zynsign-errors.txt
-              echo '```'
-            else
-              echo "No error lines captured. Output tail:"
-              echo '```text'
-              tail -c 50000 /tmp/zynsign-test-output.txt
-              echo '```'
-            fi
-          } > /tmp/zynsign-comment.md
-          gh pr comment 30 --body-file /tmp/zynsign-comment.md
-          exit 0
