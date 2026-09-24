@@ -88,30 +88,30 @@ final class ZipArchiveReader: ArchiveReader {
         }
 
         let bound = min(max(0, maximumBytes), limits.maximumInspectionReadBytes)
-        guard record.compressedSize <= bound, record.uncompressedSize <= bound else {
+        guard record.entry.compressedSize <= bound, record.entry.uncompressedSize <= bound else {
             throw ZynSignError.archiveResourceLimitExceeded(
-                diagnosticDetail: "The entry '\(path.rawValue)' declares \(record.uncompressedSize) expanded bytes from \(record.compressedSize) stored bytes, beyond the accepted maximum of \(bound)."
+                diagnosticDetail: "The entry '\(path.rawValue)' declares \(record.entry.uncompressedSize) expanded bytes from \(record.entry.compressedSize) stored bytes, beyond the accepted maximum of \(bound)."
             )
         }
 
         let contentOffset = try contentOffset(for: record, path: path)
-        guard contentOffset + record.compressedSize <= fileSize else {
+        guard contentOffset + record.entry.compressedSize <= fileSize else {
             throw ZynSignError.archiveEntryUnreadable(
                 diagnosticDetail: "The entry '\(path.rawValue)' extends past the end of the archive."
             )
         }
 
-        let storedBytes = try readBytes(at: contentOffset, count: record.compressedSize)
+        let storedBytes = try readBytes(at: contentOffset, count: record.entry.compressedSize)
         let expanded: Data
         if record.compressionMethod == Self.storedMethod {
             expanded = Data(storedBytes)
         } else {
-            expanded = try Self.inflate(storedBytes, expectedSize: record.uncompressedSize)
+            expanded = try Self.inflate(storedBytes, expectedSize: record.entry.uncompressedSize)
         }
 
-        guard expanded.count == record.uncompressedSize else {
+        guard expanded.count == record.entry.uncompressedSize else {
             throw ZynSignError.archiveEntryUnreadable(
-                diagnosticDetail: "The entry '\(path.rawValue)' produced \(expanded.count) bytes but declares \(record.uncompressedSize)."
+                diagnosticDetail: "The entry '\(path.rawValue)' produced \(expanded.count) bytes but declares \(record.entry.uncompressedSize)."
             )
         }
         guard Self.checksum(of: expanded) == record.checksum else {
@@ -260,7 +260,7 @@ final class ZipArchiveReader: ArchiveReader {
         // header, so agreement is only checkable when the flag is absent.
         if (ZipField.uint16(header, 6) & 0x0008) == 0 {
             let localCompressedSize = Int(ZipField.uint32(header, 18))
-            guard localCompressedSize == record.compressedSize else {
+            guard localCompressedSize == record.entry.compressedSize else {
                 throw ZynSignError.archiveEntryUnreadable(
                     diagnosticDetail: "The entry header for '\(path.rawValue)' disagrees with the archive's directory about its size."
                 )
@@ -292,15 +292,22 @@ final class ZipArchiveReader: ArchiveReader {
                 diagnosticDetail: "The archive declares a negative expanded size for an entry."
             )
         }
+        guard !compressed.isEmpty else { return Data() }
         let capacity = expectedSize + 1
         var destination = [UInt8](repeating: 0, count: capacity)
 
-        let produced = compressed.withUnsafeBufferPointer { source -> Int in
-            destination.withUnsafeMutableBufferPointer { target -> Int in
-                compression_decode_buffer(
-                    target.baseAddress,
+        let produced = try compressed.withUnsafeBufferPointer { source -> Int in
+            try destination.withUnsafeMutableBufferPointer { target -> Int in
+                guard let targetAddress = target.baseAddress,
+                      let sourceAddress = source.baseAddress else {
+                    throw ZynSignError.archiveEntryUnreadable(
+                        diagnosticDetail: "The entry's compressed data could not be addressed for expansion."
+                    )
+                }
+                return compression_decode_buffer(
+                    targetAddress,
                     capacity,
-                    source.baseAddress,
+                    sourceAddress,
                     compressed.count,
                     nil,
                     COMPRESSION_ZLIB
