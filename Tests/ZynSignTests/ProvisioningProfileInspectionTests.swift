@@ -36,11 +36,11 @@ final class ProvisioningProfileInspectionTests: XCTestCase {
     }
 
     private func useCase(
-        decoder: any ProvisioningProfilePayloadDecoder = SyntheticPayloadDecoder(),
+        decoder: (any ProvisioningProfilePayloadDecoder)? = nil,
         clock: any EvaluationClock = FixedEvaluationClock(instant: Date(timeIntervalSince1970: 1_800_000_000))
     ) -> ProvisioningProfileInspectionUseCase {
         ProvisioningProfileInspectionUseCase(
-            payloadDecoder: decoder,
+            payloadDecoder: decoder ?? SyntheticPayloadDecoder(payload: profilePayload()),
             parser: PropertyListProvisioningProfileParser(),
             clock: clock
         )

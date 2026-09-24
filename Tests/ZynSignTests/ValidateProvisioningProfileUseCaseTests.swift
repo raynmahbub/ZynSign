@@ -628,7 +628,7 @@ final class ValidateProvisioningProfileUseCaseTests: XCTestCase {
 
     private func validate(
         _ request: ValidateProvisioningProfileRequest,
-        at instant: Date = Self.insideValidity,
+        at instant: Date = ValidateProvisioningProfileUseCaseTests.insideValidity,
         signatureVerifier: any CMSSignatureVerifier = RecordingCMSSignatureVerifier(),
         identityStore: (any IdentityStore)? = nil
     ) throws -> ProvisioningProfilePipelineResult {

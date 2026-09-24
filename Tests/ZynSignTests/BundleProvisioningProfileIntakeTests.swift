@@ -14,7 +14,7 @@ final class BundleProvisioningProfileIntakeTests: XCTestCase {
 
     private static let bundleName = "Example.app"
     private static let profileName = IPALayout.embeddedProvisioningProfileFileName
-    private static let profilePath = "Payload/\(Self.bundleName)/\(Self.profileName)"
+    private static let profilePath = "Payload/\(bundleName)/\(profileName)"
 
     // MARK: - Discovery and reading
 
