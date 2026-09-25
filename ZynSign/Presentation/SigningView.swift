@@ -104,6 +104,11 @@ struct SigningView: View {
                     .foregroundStyle(.orange)
                     .font(.footnote)
             }
+            NavigationLink { BundleExplorerView(inspection: env.bundleInspection, entry: entry) } label: {
+                Label("Explore IPA", systemImage: "square.stack.3d.up")
+            }
+            .disabled(!entry.isArtifactAvailable)
+            .accessibilityHint("Opens the read-only IPA explorer.")
         }
     }
 

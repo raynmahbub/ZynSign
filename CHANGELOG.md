@@ -12,6 +12,34 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — 0.1.0-alpha.1 · Step 8: IPA Explorer & Bundle Browser
+
+- **Read-only IPA explorer** — `Explore IPA` opens a native tree of the
+  package already in the library: `Payload/<App>.app`, folders, frameworks,
+  extensions, and files, with type labels and declared sizes. Expanding a
+  folder does not read the files inside it. A large folder shows one page
+  and a control for the next. iPad uses a split view; iPhone uses a stack.
+- **Search and resources** — filename, extension, and immediate folder-name
+  search, with the match highlighted and the display capped while the total
+  stays accurate. A resource browser lists images, JSON, XML, localization
+  folders, and launch assets from the same entry table.
+- **Bounded previews** — opening a file reads that entry only, through the
+  existing archive boundary, and closes the reader afterward. Text, JSON,
+  XML, property lists, and images can be shown. A larger image is refused
+  and not read. A symbolic link is listed and not followed. Nothing in the
+  explorer modifies, extracts, signs, or runs the package.
+- **Mach-O, framework, and extension pages** — a Mach-O page is a header
+  prefix: architecture, file type, load-command count, encryption-command
+  status, and signature-command presence. It is not a hex dump and not a
+  verdict. Framework and extension pages show the name, version when the
+  information file yields it, the executable, and a path back into the tree.
+  Extension entitlements are the embedded profile's declared keys, not a
+  device list and not a verification.
+- **Statistics and actions** — the card counts files, frameworks, extensions,
+  executables, images, and the declared bundle size. The only actions are
+  View Details, Reveal in Tree, Copy Path, and Copy Filename. Copy copies
+  the package-relative path, not a sandbox URL.
+
 ### Added — 0.1.0-alpha.1 · Step 7: Signing Engine Execution
 
 - **One execution engine** — `SigningEngineCoordinator` runs a complete

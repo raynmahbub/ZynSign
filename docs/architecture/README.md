@@ -46,7 +46,10 @@ the entry table rather than extracting, why it introduces no second reader or
 store, how bundle-relative paths keep navigation inside the bundle, how links
 and unsupported entries are treated, and why labels describe without
 establishing signing or trust — is recorded in Section 9 of
-[architecture.md](architecture.md).
+[architecture.md](architecture.md). Opening a file is a later, explicit
+preview: a bounded read of that entry only, still through the same archive
+boundary, with no extraction and no claim that a signature or profile is
+valid. That boundary is recorded in [ipa-explorer.md](ipa-explorer.md).
 
 The certificate and signing-identity foundation has also been added: a
 platform-independent certificate metadata model, validity evaluation that
@@ -227,6 +230,8 @@ implemented, and no behaviour may be inferred from these documents.
   validation: the export test, the Apple-tooling harness and its CI job, what
   each check establishes and does not, the evidence discipline, and the
   known-divergence register from the first hosted runs.
+- [ipa-explorer.md](ipa-explorer.md) — the read-only IPA explorer: entry-table
+  tree, bounded previews, and what a Mach-O or profile page does not establish.
 - [macho-signing-design-review.md](macho-signing-design-review.md) — historical
   design proposal and prerequisites; the integration document records the
   implemented scope and evidence.

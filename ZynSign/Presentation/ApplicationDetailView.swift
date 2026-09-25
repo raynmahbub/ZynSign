@@ -333,7 +333,7 @@ struct ApplicationDetailView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(!entry.isArtifactAvailable)
-                    .accessibilityHint("Shows the bundle's recorded files and folders without opening or changing them.")
+                    .accessibilityHint("Opens the read-only IPA explorer. Previews read a chosen file without changing it.")
 
                     Button {
                         Task { await model.refresh() }
