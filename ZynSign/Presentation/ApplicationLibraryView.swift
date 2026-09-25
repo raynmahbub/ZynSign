@@ -26,18 +26,20 @@ struct ApplicationLibraryView: View {
     @State private var selection: Set<ApplicationRecordIdentifier> = []
     @AppStorage("zynsign.library.showsGrid") private var showsGrid = false
     private let bundleInspection: IPABundleContentsInspection
+    private let detailsInspection: IPAApplicationDetailsInspection
 
     /// Creates the screen over the library, import queue, and bundle
     /// inspection use cases the composition root supplied. The queue is the
     /// application's single import path: the library model observes it, so a
     /// package that reaches the library from any entry point refreshes this
-    /// list. The inspection use case is handed on to the detail screen, which
-    /// offers the bundle explorer. The signing journal is read-only; `nil`
-    /// simply means cards never show a signed state.
+    /// list. Bundle browsing and the complete App Details report are handed
+    /// to each detail screen. The signing journal is read-only; `nil` simply
+    /// means cards never show a signed state.
     init(
         library: ApplicationLibrary,
         queue: PackageImportQueue,
         bundleInspection: IPABundleContentsInspection,
+        detailsInspection: IPAApplicationDetailsInspection,
         signingHistory: (any SigningHistoryStore)? = nil
     ) {
         _model = StateObject(wrappedValue: ApplicationLibraryModel(
@@ -46,6 +48,7 @@ struct ApplicationLibraryView: View {
             signingHistory: signingHistory
         ))
         self.bundleInspection = bundleInspection
+        self.detailsInspection = detailsInspection
     }
 
     private var noticeBinding: Binding<Bool> {
@@ -60,10 +63,18 @@ struct ApplicationLibraryView: View {
             content
                 .navigationTitle(ShellSection.library.title)
                 .navigationDestination(for: LibraryEntry.self) { entry in
-                    ApplicationDetailView(entry: entry, bundleInspection: bundleInspection)
+                    ApplicationDetailView(
+                        entry: entry,
+                        bundleInspection: bundleInspection,
+                        detailsInspection: detailsInspection
+                    )
                 }
                 .navigationDestination(item: $entryPendingDetails) { entry in
-                    ApplicationDetailView(entry: entry, bundleInspection: bundleInspection)
+                    ApplicationDetailView(
+                        entry: entry,
+                        bundleInspection: bundleInspection,
+                        detailsInspection: detailsInspection
+                    )
                 }
                 .searchable(
                     text: $model.searchText,
@@ -804,7 +815,8 @@ private enum PreviewFixtures {
     ApplicationLibraryView(
         library: previewEnvironment.library,
         queue: previewEnvironment.packageImportQueue,
-        bundleInspection: previewEnvironment.bundleInspection
+        bundleInspection: previewEnvironment.bundleInspection,
+        detailsInspection: previewEnvironment.applicationDetailsInspection
     )
 }
 

@@ -5,7 +5,7 @@ import SwiftUI
 /// Never use `.green/.orange/.red` directly in a row; use `ZStatusBadge`.
 struct ZStatusBadge: View {
     enum Kind {
-        case success, warning, error, neutral, info
+        case success, warning, error, neutral, info, unsupported
         var color: Color {
             switch self {
             case .success: return .green
@@ -13,6 +13,7 @@ struct ZStatusBadge: View {
             case .error: return .red
             case .neutral: return .secondary
             case .info: return .blue
+            case .unsupported: return .purple
             }
         }
         var background: Color {
@@ -22,6 +23,7 @@ struct ZStatusBadge: View {
             case .error: return .red.opacity(0.15)
             case .neutral: return Color(.tertiarySystemFill)
             case .info: return .blue.opacity(0.12)
+            case .unsupported: return .purple.opacity(0.14)
             }
         }
     }

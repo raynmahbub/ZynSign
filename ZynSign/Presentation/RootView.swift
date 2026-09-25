@@ -115,6 +115,7 @@ struct RootView: View {
                 library: environment.library,
                 queue: environment.packageImportQueue,
                 bundleInspection: environment.bundleInspection,
+                detailsInspection: environment.applicationDetailsInspection,
                 signingHistory: environment.signingHistory
             )
         case .certificates:

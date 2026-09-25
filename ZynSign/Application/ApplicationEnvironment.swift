@@ -39,6 +39,10 @@ struct ApplicationEnvironment {
     /// structure of a library application's bundle for the explorer.
     let bundleInspection: IPABundleContentsInspection
 
+    /// The comprehensive, bounded inspection use case for the App Details
+    /// metadata, archive summary, nested-code summary, and diagnostics.
+    let applicationDetailsInspection: IPAApplicationDetailsInspection
+
     /// The signing-identity store. The certificate list and signing capability
     /// are resolved through this port; private-key bytes never leave Platform.
     let identityStore: any IdentityStore
