@@ -177,9 +177,9 @@ struct SignApplicationOptions {
     /// The profile class the caller intends to use, when one is established.
     let intendedProfileClass: ProvisioningProfileClassification?
 
-    /// Whether to emit a deterministic DER entitlements blob in slot 7 and
-    /// use CodeDirectory v0x20400 (iOS 15+). When false, only the XML slot 5
-    /// is emitted with v0x20200.
+    /// Reserved for DER entitlements. This pipeline does NOT yet embed slot 7;
+    /// requesting it is explicitly refused instead of silently producing an
+    /// XML-only signature with a misleading v0x20400 CodeDirectory.
     let emitDEREntitlements: Bool
 
     init(
@@ -319,6 +319,16 @@ struct SignApplicationPipeline {
     ///   failure is a returned result, never a thrown error.
     func sign(_ request: SignApplicationRequest) async throws -> SignApplicationResult {
         try Task.checkCancellation()
+        guard !request.options.emitDEREntitlements else {
+            return SignApplicationResult(
+                status: .failed, outputURL: nil, stages: nil,
+                failure: ApplicationSigningFailure(
+                    stage: .mainExecutable,
+                    detail: "DER entitlements are not embedded by this signing pipeline.",
+                    category: .unsupportedInput
+                )
+            )
+        }
         let workingRoot = try makeWorkingDirectory()
         defer { try? FileManager.default.removeItem(at: workingRoot) }
         do {
@@ -827,21 +837,10 @@ struct SignApplicationPipeline {
         } catch {
             throw map(error, stage: .mainExecutable, detail: "The CodeDirectory hash configuration could not be constructed.")
         }
-        let derBlob: DEREntitlementsBlob?
-        if request.options.emitDEREntitlements {
-            // Deterministic DER encoding of the same entitlement set. The
-            // resulting blob bytes will be hashed into slot 7 (DER) alongside
-            // the XML slot 5; the version must be 0x20400 to carry slot 7.
-            derBlob = try? DEREntitlementsSerializer().blob(request.entitlements)
-        } else {
-            derBlob = nil
-        }
-        let cdVersion: CodeDirectoryVersion = request.options.emitDEREntitlements ? .v20400 : .v20200
-        // When DER is enabled, the caller and the verifier both expect the
-        // DER digest in slot 7. The Mach-O layer currently derives slot
-        // digests from metadata; version gating ensures slot 7 is only
-        // advertised when the DER form is available — see DEREntitlementsBlob.
-        _ = derBlob // retained for future slot-7 hashing when MachO layer wires it
+        // This path emits XML only. The explicit refusal in sign(_:) keeps an
+        // unsupported DER request from silently changing the version without
+        // embedding and verifying the corresponding slot-7 blob.
+        let cdVersion: CodeDirectoryVersion = .v20200
         let signingResult: MachOSigningResult
         do {
             signingResult = try singleSigner.sign(MachOSigningRequest(

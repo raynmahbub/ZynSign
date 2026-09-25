@@ -135,6 +135,27 @@ final class SignApplicationPipelineTests: XCTestCase {
 
     // MARK: - Refusals
 
+    func testDERRequestFailsClosedBeforeReadingOrWritingAnArchive() async throws {
+        let identities = try NestedSigningTestIdentityStore()
+        let source = temporaryDirectory.appendingPathComponent("not-present.ipa")
+        let output = temporaryDirectory.appendingPathComponent("must-not-be-created.ipa")
+
+        let result = try await makePipeline(identities: identities).sign(SignApplicationRequest(
+            sourceURL: source,
+            profile: CMSFixtures.validRSASignedAttributes,
+            identityID: identities.id,
+            entitlements: try CodeSigningEntitlements(values: [:]),
+            outputURL: output,
+            options: SignApplicationOptions(emitDEREntitlements: true)
+        ))
+
+        XCTAssertEqual(result.status, .failed)
+        XCTAssertEqual(result.failure?.category, .unsupportedInput)
+        XCTAssertEqual(result.failure?.stage, .mainExecutable)
+        XCTAssertNil(result.outputURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+    }
+
     func testRefusesStructurallyInvalidSource() async throws {
         let identities = try NestedSigningTestIdentityStore()
         let source = temporaryDirectory.appendingPathComponent("broken.ipa")

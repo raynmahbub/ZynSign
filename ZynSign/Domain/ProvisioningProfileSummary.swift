@@ -20,9 +20,9 @@ struct ProvisioningProfileSummary: Equatable, Hashable, Identifiable, Sendable, 
     /// profile's plist).
     let teamIdentifier: String?
 
-    /// The profile's bundle-identifier patterns (`Entitlements` →
-    /// `com.apple.developer.entitlements` or `ProvisionedDevices` /
-    /// `application-identifier` prefix).
+    /// A display-only rendering of the parsed `application-identifier` App ID
+    /// scope. Actual signing always checks the authenticated stored bytes;
+    /// this summary is not authorization evidence.
     let bundleIdentifierPatterns: [String]
 
     /// The profile's expiration date.
@@ -87,9 +87,11 @@ struct ProvisioningProfileSummary: Equatable, Hashable, Identifiable, Sendable, 
     }
 
     private func matches(pattern: String, value: String) -> Bool {
+        if pattern == "*" { return !value.isEmpty }
         if pattern.hasSuffix(".*") {
-            let prefix = String(pattern.dropLast(2))
-            return value == prefix || value.hasPrefix(prefix + ".")
+            // Keep the same component-boundary rule as the policy validator:
+            // com.example.* does not also cover the exact com.example ID.
+            return value.hasPrefix(String(pattern.dropLast()))
         }
         return pattern == value
     }

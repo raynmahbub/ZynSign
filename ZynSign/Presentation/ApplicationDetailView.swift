@@ -2,11 +2,9 @@ import SwiftUI
 
 /// The detail screen for one application record in the library.
 ///
-/// The screen renders what the persisted record holds: the identity the
-/// package declared, the state of the package file ZynSign keeps for it,
-/// and the record's import and update information. Nothing is read from
-/// storage here and no new conclusions are drawn — the entry the list
-/// produced is the whole input, mapped into display values.
+/// The screen renders the persisted record and a separate, read-only
+/// signing-health analysis. The record is presentation input; the analyzer
+/// reopens the library artifact and reports its own bounded checks.
 ///
 /// The screen states what a record is and is not: it records what the
 /// package declared and that the package passed inspection when it was
@@ -21,6 +19,12 @@ struct ApplicationDetailView: View {
 
     let entry: LibraryEntry
     private let bundleInspection: IPABundleContentsInspection
+    @Environment(\.applicationEnvironment) private var environment
+    @State private var health: SigningDiagnosticsAnalysis?
+    @State private var isAnalyzing = true
+    @State private var analysisError: String?
+    @State private var analysisGeneration = 0
+    @Environment(\.scenePhase) private var scenePhase
 
     /// Creates the screen for `entry`, with the inspection use case the
     /// bundle explorer runs on.
@@ -37,6 +41,26 @@ struct ApplicationDetailView: View {
                 LabeledContent("Identifier", value: content.bundleIdentifier)
                 LabeledContent("Version", value: content.versionText)
                 LabeledContent("Build", value: content.buildText)
+            }
+            Section {
+                SigningHealthCard(report: health?.report, isAnalyzing: isAnalyzing, error: analysisError)
+                    .listRowInsets(EdgeInsets(top: ZSpacing.sm, leading: ZSpacing.md,
+                                              bottom: ZSpacing.sm, trailing: ZSpacing.md))
+                    .listRowBackground(Color.clear)
+                if let health {
+                    NavigationLink {
+                        SigningDiagnosticsView(report: health.report, history: health.history,
+                                               changes: health.changes,
+                                               historyUnavailable: health.historyUnavailable)
+                    } label: { Label("Issues, details & history", systemImage: "doc.text.magnifyingglass") }
+                }
+                if analysisError != nil {
+                    Button("Try analysis again") { Task { await analyzeHealth(force: true) } }
+                }
+            } header: { Text("Signing Health") } footer: {
+                Text(ReleaseTrain.isAvailable(.smartSign)
+                     ? "No certificate or profile is selected here. Open Sign Application to see compatibility for your choices. The score measures local checks, not iOS acceptance."
+                     : "No certificate or profile is selected here. This score measures local checks, not iOS acceptance; signing becomes available on a later release stage.")
             }
             Section {
                 LabeledContent("Status", value: content.artifactStatus)
@@ -95,6 +119,45 @@ struct ApplicationDetailView: View {
         }
         .navigationTitle(content.name)
         .navigationBarTitleDisplayMode(.inline)
+        .task(id: entry.record.id.rawValue) { await analyzeHealth() }
+        .task {
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(60)) } catch { break }
+                guard !Task.isCancelled else { break }
+                await analyzeHealth()
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await analyzeHealth(force: true) } }
+        }
+        .refreshable { await analyzeHealth(force: true) }
+    }
+
+    @MainActor private func analyzeHealth(force: Bool = false) async {
+        analysisGeneration += 1
+        let generation = analysisGeneration
+        guard let diagnostics = environment.signingDiagnostics else {
+            isAnalyzing = false
+            analysisError = "Signing diagnostics are unavailable in this build."
+            return
+        }
+        isAnalyzing = true
+        health = nil
+        analysisError = nil
+        defer {
+            if generation == analysisGeneration { isAnalyzing = false }
+        }
+        do {
+            let result = try await diagnostics.analyze(recordWithID: entry.record.id, force: force)
+            guard !Task.isCancelled, generation == analysisGeneration else { return }
+            health = result
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled, generation == analysisGeneration else { return }
+            analysisError = (error as? SigningDiagnosticsError)?.userMessage
+                ?? "The app could not be analyzed. Please try again."
+        }
     }
 }
 

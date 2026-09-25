@@ -83,6 +83,11 @@ struct ApplicationEnvironment {
     /// composed; treated as read-only after construction.
     var appIcons: AppIconExtraction? = nil
 
+    /// Shared read-only analyzer for import, per-app health and signing.
+    /// The profile/entitlement evidence it returns stays in memory; only
+    /// redacted issue codes enter its bounded on-device journal.
+    var signingDiagnostics: SigningDiagnosticsService? = nil
+
     /// Records one local activity event when the journal preference allows.
     ///
     /// This is the only recording path the presentation layer uses. It

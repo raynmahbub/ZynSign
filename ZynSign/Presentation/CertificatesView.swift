@@ -246,6 +246,8 @@ struct CertificatesView: View {
             }
             pendingData = nil; pendingFileName = nil; password = ""; showPasswordSheet = false
             env.recordAnalyticsEvent(category: .certificate, name: "certificate.imported", succeeded: true)
+            await env.signingDiagnostics?.identitiesDidChange()
+            NotificationCenter.default.post(name: .zynsignSigningIdentityChanged, object: nil)
             await reload()
         } catch let e as ZynSignError {
             importError = e.userMessage
@@ -275,6 +277,8 @@ struct CertificatesView: View {
         if let secure = env.identityStore as? SecureIdentityStore {
             do {
                 try secure.removeRegistration(identity.id)
+                await env.signingDiagnostics?.identitiesDidChange()
+                NotificationCenter.default.post(name: .zynsignSigningIdentityChanged, object: nil)
                 await reload()
                 importSuccess = "Removed “\(identity.displayName)”."
             } catch let e as ZynSignError {

@@ -458,6 +458,7 @@ final class ProvisioningProfilesModel: ObservableObject {
             do {
                 let summary = try await importer.importProfile(at: url)
                 try await profiles.upsert(summary)
+                NotificationCenter.default.post(name: .zynsignProvisioningProfilesChanged, object: nil)
                 notice = Notice(
                     title: "Profile Imported",
                     message: "“\(summary.name)” was added to the profile library."
@@ -492,6 +493,9 @@ final class ProvisioningProfilesModel: ObservableObject {
                 message: (error as? ZynSignError)?.userMessage ?? "The profile could not be deleted."
             )
         }
+        // A file cleanup can fail after catalog removal; in either case
+        // refresh any signing view that had selected this saved profile.
+        NotificationCenter.default.post(name: .zynsignProvisioningProfilesChanged, object: nil)
         await refresh()
     }
 }

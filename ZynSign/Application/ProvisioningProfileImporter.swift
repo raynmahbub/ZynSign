@@ -5,10 +5,10 @@ import Foundation
 /// The importer reads the file's container, parses the embedded
 /// provisioning profile, validates it structurally, and reduces the
 /// parsed `ProvisioningProfile` into a `ProvisioningProfileSummary`
-/// suitable for the picker UI. The original file's bytes are *not*
-/// duplicated: the importer only records a file name reference, and the
-/// picker UI reads the file by that name when the user chooses it for a
-/// signing operation.
+/// suitable for the picker UI. An authenticated, structurally valid input
+/// is copied under an opaque name into app-owned storage. The summary is
+/// presentation metadata, never a substitute for verifying those bytes
+/// again when the user selects it for a signing operation.
 struct ProvisioningProfileImporter {
 
     /// The inspection use case that performs container decoding and
@@ -36,23 +36,37 @@ struct ProvisioningProfileImporter {
     /// library directory and returning the resulting summary. The source
     /// file is left untouched.
     func importProfile(at sourceURL: URL) async throws -> ProvisioningProfileSummary {
+        let accessing = sourceURL.startAccessingSecurityScopedResource()
+        defer { if accessing { sourceURL.stopAccessingSecurityScopedResource() } }
         let data: Data
         do {
-            data = try Data(contentsOf: sourceURL)
+            let handle = try FileHandle(forReadingFrom: sourceURL)
+            defer { try? handle.close() }
+            data = try handle.read(upToCount: ProvisioningProfileInput.maximumByteCount + 1) ?? Data()
+            guard !data.isEmpty, data.count <= ProvisioningProfileInput.maximumByteCount else {
+                throw ZynSignError.invalidProvisioningProfileFile(
+                    diagnosticDetail: "The profile is empty or exceeds the bounded CMS input size."
+                )
+            }
+        } catch let error as ZynSignError {
+            throw error
         } catch {
             throw ZynSignError.invalidProvisioningProfileFile(
-                diagnosticDetail: "Could not read the profile file at \(sourceURL.lastPathComponent).",
+                diagnosticDetail: "The selected profile file could not be read.",
                 underlyingError: error
             )
         }
         let inspectionResult = try self.inspection.inspect(ProvisioningProfileInput(bytes: data))
-        guard inspectionResult.isParsed else {
+        guard inspectionResult.authenticity == .authenticated,
+              inspectionResult.isStructurallyValid,
+              let expirationDate = inspectionResult.profile.expirationDate else {
             throw ZynSignError.invalidProvisioningProfileFile(
-                diagnosticDetail: "The profile bytes could not be decoded as a CMS container."
+                diagnosticDetail: "An authenticated, structurally valid profile with a declared expiration is required for import."
             )
         }
         let profile = inspectionResult.profile
-        let destinationName = "\(UUID().uuidString)-\(sourceURL.lastPathComponent)"
+        // Use an opaque generated name, never the user's original filename.
+        let destinationName = "\(UUID().uuidString).mobileprovision"
         let destination = storageDirectory.appendingPathComponent(destinationName, isDirectory: false)
         do {
             try FileManager.default.createDirectory(
@@ -70,7 +84,7 @@ struct ProvisioningProfileImporter {
             name: profile.profileName ?? sourceURL.deletingPathExtension().lastPathComponent,
             teamIdentifier: profile.teamIdentifiers?.first ?? profile.entitlementTeamIdentifier,
             bundleIdentifierPatterns: derivedBundleIdentifierPatterns(from: profile),
-            expirationDate: profile.expirationDate ?? now().addingTimeInterval(7 * 86400),
+            expirationDate: expirationDate,
             entitlementsKeys: derivedEntitlementsKeys(from: profile),
             allowsDebug: profile.getTaskAllow ?? false,
             sourceFileName: destinationName,
@@ -78,25 +92,15 @@ struct ProvisioningProfileImporter {
         )
     }
 
-    /// The bundle-identifier patterns the picker UI should offer as "this
-    /// profile is for". Apple's plist usually records the
-    /// `application-identifier` prefix; we surface it as `prefix.*` so a
-    /// user can sign any bundle starting with the prefix.
+    /// Presentation-only summary of the *actual* parsed scope. Never infer a
+    /// wildcard from an exact App ID or split a Team ID at a convenient dot:
+    /// the signing policy rechecks the original authenticated profile.
     private func derivedBundleIdentifierPatterns(from profile: ProvisioningProfile) -> [String] {
-        if let applicationIdentifier = profile.applicationIdentifier {
-            // applicationIdentifier.fullValue is "<prefix>.<bundle>" — strip
-            // the last component to get the prefix.
-            let raw = applicationIdentifier.fullValue
-            if let lastDot = raw.lastIndex(of: ".") {
-                let prefix = String(raw[raw.startIndex..<lastDot])
-                return ["\(prefix).*"]
-            }
-            return [raw]
+        switch profile.applicationIdentifier?.bundleIdentifierComponent {
+        case .some(.exact(let identifier)): return [identifier.rawValue]
+        case .some(.wildcard(let prefix)): return [prefix + "*"]
+        case .none: return []
         }
-        if let prefix = profile.applicationIdentifierPrefix {
-            return ["\(prefix).*"]
-        }
-        return []
     }
 
     /// The entitlement keys the profile declares. Surfaced for the picker
