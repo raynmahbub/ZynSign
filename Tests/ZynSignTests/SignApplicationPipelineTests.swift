@@ -156,6 +156,26 @@ final class SignApplicationPipelineTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
     }
 
+    func testUnsupportedDERCannotBypassPipelineGateThroughSignedWorkingCopyAPI() async throws {
+        let identities = try NestedSigningTestIdentityStore()
+        let request = SignApplicationRequest(
+            sourceURL: temporaryDirectory.appendingPathComponent("not-present.ipa"),
+            profile: CMSFixtures.validRSASignedAttributes,
+            identityID: identities.id,
+            entitlements: try CodeSigningEntitlements(values: [:]),
+            outputURL: temporaryDirectory.appendingPathComponent("not-created.ipa"),
+            options: SignApplicationOptions(emitDEREntitlements: true)
+        )
+        do {
+            _ = try await makePipeline(identities: identities).signUpToMainExecutable(request)
+            XCTFail("The signing engine's direct pipeline path must refuse DER before I/O.")
+        } catch let failure as ApplicationSigningFailure {
+            XCTAssertEqual(failure.stage, .mainExecutable)
+            XCTAssertEqual(failure.category, .unsupportedInput)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputURL.path))
+    }
+
     func testRefusesStructurallyInvalidSource() async throws {
         let identities = try NestedSigningTestIdentityStore()
         let source = temporaryDirectory.appendingPathComponent("broken.ipa")

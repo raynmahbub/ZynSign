@@ -195,25 +195,6 @@ struct SettingsView: View {
 
 // MARK: - Sub-screens
 
-private struct CertificatesSettingsView: View {
-    var body: some View {
-        List {
-            Section {
-                ContentUnavailableView {
-                    Label("No Certificates", systemImage: "signature")
-                } description: {
-                    Text("Add a .p12 or Keychain identity to sign packages. Identities stay in the Keychain, marked non-extractable, and are never logged.")
-                }
-            }
-            Section("What will be here") {
-                Label("Import .p12 (when E7 lands)", systemImage: "key.fill").foregroundStyle(.secondary)
-                Label("View certificate metadata, validity, chain", systemImage: "info.circle").foregroundStyle(.secondary)
-                Label("Per-identity readiness (key available, associated, adequate)", systemImage: "checkmark.shield").foregroundStyle(.secondary)
-            }
-        }
-        .navigationTitle("Certificates").navigationBarTitleDisplayMode(.inline)
-    }
-}
 /// Only controls that the signing screen really passes to the pipeline may
 /// appear here. Settings has no global signing configuration to silently
 /// promise a bundle-ID rewrite or plug-in removal the pipeline cannot do.

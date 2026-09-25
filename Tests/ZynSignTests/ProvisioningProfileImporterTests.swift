@@ -1,110 +1,336 @@
-import Foundation
 import XCTest
 @testable import ZynSign
 
-/// Synthetic payload decoder: these tests exercise importer decisions and
-/// storage, NOT CMS cryptography (covered separately by profile verification).
+/// `ProvisioningProfileImporter`: the rich summary the manager persists,
+/// the fixed bundle-pattern derivation, typed refusals for corrupt and
+/// oversized input, and Refresh Validation's re-read-and-repair behaviour.
 final class ProvisioningProfileImporterTests: XCTestCase {
-    private var directory: URL!
-    private var storage: URL { directory.appendingPathComponent("Saved", isDirectory: true) }
+
+    private var storageDirectory: URL!
+    private let fixedNow = Date(timeIntervalSince1970: 1_800_000_000)
+    private let profileUUID = "12345678-1234-4ABC-8DEF-1234567890AB"
+    private let team = "TEAM123456"
 
     override func setUpWithError() throws {
-        directory = try LibraryFixtures.makeTemporaryDirectory()
+        storageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ProfileImporterTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
-        if let directory { try? FileManager.default.removeItem(at: directory) }
-        directory = nil
-    }
-
-    func testAuthenticatedExactAppIDIsNotInventedAsAWildcard() async throws {
-        let input = directory.appendingPathComponent("human-readable.mobileprovision")
-        let originalBytes = Data([0x30, 0x01, 0x02])
-        try originalBytes.write(to: input)
-        let importer = try makeImporter(scope: "com.example.synthetic", authenticity: .authenticated)
-        let summary = try await importer.importProfile(at: input)
-
-        XCTAssertEqual(summary.bundleIdentifierPatterns, ["com.example.synthetic"])
-        XCTAssertTrue(summary.covers(bundleIdentifier: "com.example.synthetic"))
-        XCTAssertFalse(summary.covers(bundleIdentifier: "com.example.other"))
-        XCTAssertFalse(summary.sourceFileName.contains("human-readable"))
-        XCTAssertEqual(try Data(contentsOf: storage.appendingPathComponent(summary.sourceFileName)), originalBytes)
-        XCTAssertEqual(summary.expirationDate, Date(timeIntervalSince1970: 1_900_000_000))
-    }
-
-    func testWildcardAndBareWildcardSummariesKeepTheirActualScope() async throws {
-        let input = directory.appendingPathComponent("scope.mobileprovision")
-        try Data([0x30, 0x01, 0x03]).write(to: input)
-        let scoped = try await makeImporter(scope: "com.example.*", authenticity: .authenticated)
-            .importProfile(at: input)
-        XCTAssertEqual(scoped.bundleIdentifierPatterns, ["com.example.*"])
-        XCTAssertTrue(scoped.covers(bundleIdentifier: "com.example.app"))
-        XCTAssertFalse(scoped.covers(bundleIdentifier: "com.example"))
-        XCTAssertFalse(scoped.covers(bundleIdentifier: "com.exampleOther.app"))
-
-        let bare = try await makeImporter(scope: "*", authenticity: .authenticated)
-            .importProfile(at: input)
-        XCTAssertEqual(bare.bundleIdentifierPatterns, ["*"])
-        XCTAssertTrue(bare.covers(bundleIdentifier: "any.bundle"))
-    }
-
-    func testUnauthenticatedOrIncompleteProfilesAreNotSavedOrGivenInventedExpiry() async throws {
-        let input = directory.appendingPathComponent("not-verified.mobileprovision")
-        try Data([0x30, 0x01, 0x04]).write(to: input)
-        let unchecked = try makeImporter(scope: "com.example.synthetic", authenticity: .notEvaluated)
-        do {
-            _ = try await unchecked.importProfile(at: input)
-            XCTFail("Decoding a CMS payload without authenticating it must not create a saved profile.")
-        } catch let error as ZynSignError {
-            XCTAssertEqual(error.category, .invalidInput)
+        if let storageDirectory {
+            try? FileManager.default.removeItem(at: storageDirectory)
         }
-        let incomplete = try makeImporter(scope: "com.example.synthetic", authenticity: .authenticated,
-                                          includesExpiry: false)
-        do {
-            _ = try await incomplete.importProfile(at: input)
-            XCTFail("A missing expiry must not be replaced by an invented date.")
-        } catch let error as ZynSignError {
-            XCTAssertEqual(error.category, .invalidInput)
+    }
+
+    // MARK: - Fixtures
+
+    private func makeRoot(
+        applicationIdentifier: String = "TEAM123456.com.example.synthetic",
+        teamName: String? = "Synthetic Team",
+        includeDevices: Bool = true,
+        includeCertificates: Bool = true
+    ) -> [String: Any] {
+        let entitlements: [String: Any] = [
+            ProvisioningProfileEntitlementKeys.applicationIdentifier: applicationIdentifier,
+            ProvisioningProfileEntitlementKeys.teamIdentifier: team,
+            ProvisioningProfileEntitlementKeys.getTaskAllow: true,
+        ]
+        var root: [String: Any] = [
+            ProvisioningProfileKeys.uuid: profileUUID,
+            ProvisioningProfileKeys.name: "Synthetic Profile",
+            ProvisioningProfileKeys.creationDate: Date(timeIntervalSince1970: 1_700_000_000),
+            ProvisioningProfileKeys.expirationDate: Date(timeIntervalSince1970: 1_900_000_000),
+            ProvisioningProfileKeys.applicationIdentifierPrefix: [team],
+            ProvisioningProfileKeys.teamIdentifier: [team],
+            ProvisioningProfileKeys.entitlements: entitlements,
+            ProvisioningProfileKeys.version: 1,
+        ]
+        if let teamName {
+            root[ProvisioningProfileKeys.teamName] = teamName
         }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: storage.path))
+        if includeDevices {
+            root[ProvisioningProfileKeys.provisionedDevices] = [String(repeating: "A", count: 40)]
+        }
+        if includeCertificates {
+            root[ProvisioningProfileKeys.developerCertificates] = [Data([0x30, 0x00])]
+        }
+        return root
+    }
+
+    private func makePayload(
+        root: [String: Any],
+        authenticity: ProvisioningProfileAuthenticityStatus = .authenticated
+    ) -> ProvisioningProfilePayload {
+        guard let data = try? PropertyListSerialization.data(
+            fromPropertyList: root,
+            format: .binary,
+            options: 0
+        ) else {
+            XCTFail("Could not create synthetic profile payload")
+            return ProvisioningProfilePayload(plistData: Data())
+        }
+        return ProvisioningProfilePayload(plistData: data, authenticity: authenticity)
     }
 
     private func makeImporter(
-        scope: String, authenticity: ProvisioningProfileAuthenticityStatus,
-        includesExpiry: Bool = true
-    ) throws -> ProvisioningProfileImporter {
-        var root: [String: Any] = [
-            ProvisioningProfileKeys.uuid: "12345678-1234-4ABC-8DEF-1234567890AB",
-            ProvisioningProfileKeys.name: "Synthetic Import Profile",
-            ProvisioningProfileKeys.creationDate: Date(timeIntervalSince1970: 1_700_000_000),
-            ProvisioningProfileKeys.applicationIdentifierPrefix: ["TEAM123456"],
-            ProvisioningProfileKeys.teamIdentifier: ["TEAM123456"],
-            ProvisioningProfileKeys.platform: ["iPhoneOS"],
-            ProvisioningProfileKeys.entitlements: [
-                ProvisioningProfileEntitlementKeys.applicationIdentifier: "TEAM123456." + scope,
-                ProvisioningProfileEntitlementKeys.teamIdentifier: "TEAM123456",
-                ProvisioningProfileEntitlementKeys.getTaskAllow: true
-            ]
-        ]
-        if includesExpiry {
-            root[ProvisioningProfileKeys.expirationDate] = Date(timeIntervalSince1970: 1_900_000_000)
-        }
-        let payload = try PropertyListSerialization.data(
-            fromPropertyList: root, format: .binary, options: 0
-        )
+        payload: ProvisioningProfilePayload
+    ) -> ProvisioningProfileImporter {
         let inspection = ProvisioningProfileInspectionUseCase(
-            payloadDecoder: PreparedPayloadDecoder(payload: ProvisioningProfilePayload(
-                plistData: payload, authenticity: authenticity
-            )), clock: FixedEvaluationClock(instant: Date(timeIntervalSince1970: 1_800_000_000))
+            payloadDecoder: StubPayloadDecoder(payload: payload),
+            parser: PropertyListProvisioningProfileParser(
+                certificateParser: SyntheticCertificateParser()
+            ),
+            clock: FixedEvaluationClock(instant: fixedNow)
         )
-        return ProvisioningProfileImporter(inspection: inspection, storageDirectory: storage)
+        let now = fixedNow
+        return ProvisioningProfileImporter(
+            inspection: inspection,
+            storageDirectory: storageDirectory,
+            now: { now }
+        )
+    }
+
+    private func writeSourceFile(named name: String = "profile.mobileprovision") throws -> URL {
+        let url = storageDirectory.appendingPathComponent("source-\(name)")
+        try Data("synthetic-profile-bytes".utf8).write(to: url)
+        return url
+    }
+
+    // MARK: - Import
+
+    func testImportRecordsTheRichSummaryTheManagerDisplays() async throws {
+        let importer = makeImporter(payload: makePayload(root: makeRoot()))
+        let source = try writeSourceFile()
+
+        let summary = try await importer.importProfile(at: source)
+
+        XCTAssertEqual(summary.name, "Synthetic Profile")
+        XCTAssertEqual(summary.uuid, profileUUID)
+        XCTAssertEqual(summary.teamIdentifier, team)
+        XCTAssertEqual(summary.teamName, "Synthetic Team")
+        XCTAssertEqual(
+            summary.creationDate,
+            Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        XCTAssertEqual(summary.profileType, .development)
+        XCTAssertEqual(summary.deviceCount, 1)
+        XCTAssertEqual(
+            summary.applicationIdentifier,
+            "TEAM123456.com.example.synthetic"
+        )
+        XCTAssertEqual(summary.bundleIdentifier, "com.example.synthetic")
+        XCTAssertFalse(summary.isWildcard)
+        // The pattern is the bare bundle identifier — the derivation the
+        // compatibility engine matches with, not the old team-prefixed form.
+        XCTAssertEqual(summary.bundleIdentifierPatterns, ["com.example.synthetic"])
+        XCTAssertTrue(summary.covers(bundleIdentifier: "com.example.synthetic"))
+        XCTAssertEqual(
+            summary.certificateFingerprints,
+            [String(repeating: "ab", count: 32)]
+        )
+        XCTAssertEqual(summary.importedAt, fixedNow)
+        XCTAssertEqual(summary.entitlementsKeys.sorted(), [
+            "application-identifier",
+            "com.apple.developer.team-identifier",
+            "get-task-allow",
+        ])
+        // The stored copy exists beside the catalog under the recorded name.
+        let stored = storageDirectory.appendingPathComponent(summary.sourceFileName)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stored.path))
+        XCTAssertNotEqual(summary.sourceFileName, source.lastPathComponent)
+    }
+
+    func testImportWildcardProfileDerivesPrefixPattern() async throws {
+        let root = makeRoot(applicationIdentifier: "TEAM123456.com.example.*")
+        let importer = makeImporter(payload: makePayload(root: root))
+        let source = try writeSourceFile()
+
+        let summary = try await importer.importProfile(at: source)
+
+        XCTAssertEqual(summary.bundleIdentifierPatterns, ["com.example.*"])
+        XCTAssertNil(summary.bundleIdentifier)
+        XCTAssertTrue(summary.isWildcard)
+        XCTAssertTrue(summary.covers(bundleIdentifier: "com.example.app"))
+        XCTAssertFalse(summary.covers(bundleIdentifier: "org.other.app"))
+    }
+
+    func testImportTeamWideProfileDerivesUniversalPattern() async throws {
+        let root = makeRoot(applicationIdentifier: "TEAM123456.*")
+        let importer = makeImporter(payload: makePayload(root: root))
+        let source = try writeSourceFile()
+
+        let summary = try await importer.importProfile(at: source)
+
+        XCTAssertEqual(summary.bundleIdentifierPatterns, ["*"])
+        XCTAssertTrue(summary.isWildcard)
+        XCTAssertTrue(summary.covers(bundleIdentifier: "anything.at.all"))
+    }
+
+    func testCorruptPayloadIsRefusedWithTypedErrorAndNothingStored() async throws {
+        // The decoder yields bytes that are not a profile property list;
+        // the parser refuses them with a typed profile failure.
+        let garbage = ProvisioningProfilePayload(plistData: Data("not-a-profile".utf8))
+        let importer = makeImporter(payload: garbage)
+        let source = try writeSourceFile()
+        let before = Set(
+            try FileManager.default.contentsOfDirectory(atPath: storageDirectory.path)
+        )
+
+        do {
+            _ = try await importer.importProfile(at: source)
+            XCTFail("A corrupt payload must be refused")
+        } catch let error as ZynSignError {
+            XCTAssertNotNil(error.provisioningProfileFailure)
+            XCTAssertFalse(error.userMessage.isEmpty)
+        }
+
+        let after = Set(
+            try FileManager.default.contentsOfDirectory(atPath: storageDirectory.path)
+        )
+        XCTAssertEqual(before, after)
+    }
+
+    func testOversizedFileIsRefusedBeforeItIsReadIntoMemory() async throws {
+        let importer = makeImporter(payload: makePayload(root: makeRoot()))
+        let oversized = storageDirectory.appendingPathComponent("oversized.mobileprovision")
+        try Data(count: ProvisioningProfileInput.maximumByteCount + 1).write(to: oversized)
+
+        do {
+            _ = try await importer.importProfile(at: oversized)
+            XCTFail("An oversized profile file must be refused")
+        } catch let error as ZynSignError {
+            XCTAssertEqual(error.provisioningProfileFailure, .inputTooLarge)
+        }
+    }
+
+    func testUnauthenticatedOrMissingExpirationCannotEnterOrRefreshLibrary() async throws {
+        let source = try writeSourceFile()
+        let root = makeRoot()
+        let unverified = makeImporter(payload: makePayload(root: root, authenticity: .notEvaluated))
+        do {
+            _ = try await unverified.importProfile(at: source)
+            XCTFail("Decoding CMS without verifying it must not admit a profile.")
+        } catch let error as ZynSignError {
+            XCTAssertEqual(error.category, .invalidInput)
+        }
+
+        var missingExpiration = root
+        missingExpiration.removeValue(forKey: ProvisioningProfileKeys.expirationDate)
+        do {
+            _ = try await makeImporter(payload: makePayload(root: missingExpiration)).importProfile(at: source)
+            XCTFail("A missing expiration must not become an invented one.")
+        } catch let error as ZynSignError {
+            XCTAssertEqual(error.category, .invalidInput)
+        }
+        let stored = try FileManager.default.contentsOfDirectory(atPath: storageDirectory.path)
+        XCTAssertEqual(stored, [source.lastPathComponent])
+
+        let imported = try await makeImporter(payload: makePayload(root: root)).importProfile(at: source)
+        do {
+            _ = try await unverified.refresh(imported)
+            XCTFail("Refresh must not assert compatibility for unauthenticated bytes.")
+        } catch let error as ZynSignError {
+            XCTAssertEqual(error.category, .invalidInput)
+        }
+    }
+
+    // MARK: - Refresh Validation
+
+    func testRefreshRepairsLegacySummaryAndPreservesIdentity() async throws {
+        let importer = makeImporter(payload: makePayload(root: makeRoot()))
+        let imported = try await importer.importProfile(at: try writeSourceFile())
+
+        // A summary as the pre-manager importer would have written it:
+        // team-prefixed pattern, no new fields, its own id and import date.
+        let legacyImportedAt = fixedNow.addingTimeInterval(-1_000)
+        let legacy = ProvisioningProfileSummary(
+            id: ProvisioningProfileIdentifier(rawValue: "legacy-summary-id"),
+            name: imported.name,
+            teamIdentifier: imported.teamIdentifier,
+            bundleIdentifierPatterns: ["TEAM123456.com.example.*"],
+            expirationDate: imported.expirationDate,
+            entitlementsKeys: [],
+            allowsDebug: false,
+            sourceFileName: imported.sourceFileName,
+            importedAt: legacyImportedAt
+        )
+        XCTAssertFalse(legacy.covers(bundleIdentifier: "com.example.synthetic"))
+
+        let refreshed = try await importer.refresh(legacy)
+
+        XCTAssertEqual(refreshed.id.rawValue, "legacy-summary-id")
+        XCTAssertEqual(refreshed.importedAt, legacyImportedAt)
+        XCTAssertEqual(refreshed.bundleIdentifierPatterns, ["com.example.synthetic"])
+        XCTAssertTrue(refreshed.covers(bundleIdentifier: "com.example.synthetic"))
+        XCTAssertEqual(refreshed.uuid, profileUUID)
+        XCTAssertEqual(refreshed.teamName, "Synthetic Team")
+        XCTAssertEqual(refreshed.profileType, .development)
+        XCTAssertEqual(refreshed.deviceCount, 1)
+        XCTAssertEqual(refreshed.sourceFileName, imported.sourceFileName)
+    }
+
+    func testRefreshOfMissingStoredFileFailsWithStorageError() async throws {
+        let importer = makeImporter(payload: makePayload(root: makeRoot()))
+        let summary = ProvisioningProfileSummary(
+            name: "Gone",
+            teamIdentifier: team,
+            bundleIdentifierPatterns: ["com.example.synthetic"],
+            expirationDate: fixedNow.addingTimeInterval(86400),
+            entitlementsKeys: [],
+            allowsDebug: false,
+            sourceFileName: "vanished.mobileprovision",
+            importedAt: fixedNow
+        )
+
+        do {
+            _ = try await importer.refresh(summary)
+            XCTFail("A missing stored file must fail refresh")
+        } catch let error as ZynSignError {
+            XCTAssertEqual(
+                error.userMessage,
+                "ZynSign could not access your provisioning profiles."
+            )
+        }
     }
 }
 
-private struct PreparedPayloadDecoder: ProvisioningProfilePayloadDecoder {
+// MARK: - Test doubles
+
+private struct StubPayloadDecoder: ProvisioningProfilePayloadDecoder {
     let payload: ProvisioningProfilePayload
 
     func decodePayload(from input: ProvisioningProfileInput) throws -> ProvisioningProfilePayload {
         payload
+    }
+}
+
+/// Parses any non-empty certificate reference into fixed synthetic
+/// metadata carrying a stable fingerprint — no DER parsing, no keys.
+private struct SyntheticCertificateParser: CertificateParser {
+    func parseCertificate(_ input: CertificateInput) throws -> CertificateMetadata {
+        guard !input.bytes.isEmpty else {
+            throw ZynSignError.invalidCertificateData()
+        }
+        let distinguishedName = CertificateDistinguishedName(
+            commonName: "Synthetic Certificate",
+            rawRepresentation: "CN=Synthetic Certificate"
+        )
+        guard let serialNumber = CertificateSerialNumber(hexadecimal: "01"),
+              let fingerprint = CertificateFingerprint(
+                hexDigest: String(repeating: "ab", count: CertificateFingerprint.hexDigestLength)
+              ) else {
+            throw ZynSignError.invalidCertificateData()
+        }
+        return CertificateMetadata(
+            subject: distinguishedName,
+            issuer: distinguishedName,
+            serialNumber: serialNumber,
+            notValidBefore: Date(timeIntervalSince1970: 1_600_000_000),
+            notValidAfter: Date(timeIntervalSince1970: 2_000_000_000),
+            publicKeyInfo: PublicKeyInfo(algorithm: .rsa, keySizeInBits: 2048),
+            signatureAlgorithm: .sha256WithRSAEncryption,
+            sha256Fingerprint: fingerprint
+        )
     }
 }

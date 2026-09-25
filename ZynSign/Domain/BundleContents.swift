@@ -61,8 +61,28 @@ struct BundleContents: Equatable, Hashable {
     /// and then by path.
     let notableEntries: [BundleEntry]
 
+    /// Every listed and implied entry, in the same deterministic order used
+    /// by the explorer. The bundle root itself is not included.
+    var allEntries: [BundleEntry] {
+        entriesByPath.values.sorted(by: Self.order)
+    }
+
+    /// The number of files at every depth inside the bundle.
+    var fileCount: Int { storedFileCount }
+
+    /// The number of explicit and implied folders at every depth inside the
+    /// bundle. The `.app` directory itself is not included.
+    var folderCount: Int { storedFolderCount }
+
+    /// The number of links and unsupported entries at every depth.
+    var otherEntryCount: Int { storedOtherEntryCount }
+
+    private let storedFileCount: Int
+    private let storedFolderCount: Int
+    private let storedOtherEntryCount: Int
     private let entriesByPath: [BundlePath: BundleEntry]
     private let childrenByDirectory: [BundlePath: [BundleEntry]]
+    private let countsByDirectory: [BundlePath: BundleDirectoryCounts]
 
     /// Builds the structure of the bundle at `bundlePath` from a package's
     /// entry table.
@@ -100,6 +120,9 @@ struct BundleContents: Equatable, Hashable {
         entries.reserveCapacity(nodes.count)
         var children: [BundlePath: [BundleEntry]] = [.root: []]
         var totalBytes = 0
+        var fileCount = 0
+        var folderCount = 0
+        var otherEntryCount = 0
 
         for (path, node) in nodes {
             let entry = BundleEntry(
@@ -113,6 +136,11 @@ struct BundleContents: Equatable, Hashable {
                 )
             )
             entries[path] = entry
+            switch entry.kind {
+            case .regularFile: fileCount += 1
+            case .directory: folderCount += 1
+            case .symbolicLink, .unsupported: otherEntryCount += 1
+            }
             if entry.isDirectory, children[path] == nil {
                 children[path] = []
             }
@@ -129,13 +157,36 @@ struct BundleContents: Equatable, Hashable {
         for key in Array(children.keys) {
             children[key]?.sort(by: Self.order)
         }
+        var directoryCounts: [BundlePath: BundleDirectoryCounts] = [:]
+        directoryCounts.reserveCapacity(children.count)
+        for (directory, entries) in children {
+            var files = 0
+            var folders = 0
+            var otherEntries = 0
+            for entry in entries {
+                switch entry.kind {
+                case .regularFile: files += 1
+                case .directory: folders += 1
+                case .symbolicLink, .unsupported: otherEntries += 1
+                }
+            }
+            directoryCounts[directory] = BundleDirectoryCounts(
+                files: files,
+                folders: folders,
+                otherEntries: otherEntries
+            )
+        }
 
         self.bundleName = bundlePath.lastComponent
         self.entryCount = entries.count
         self.totalDeclaredByteCount = totalBytes
         self.omittedEntryCount = omitted
+        self.storedFileCount = fileCount
+        self.storedFolderCount = folderCount
+        self.storedOtherEntryCount = otherEntryCount
         self.entriesByPath = entries
         self.childrenByDirectory = children
+        self.countsByDirectory = directoryCounts
         self.notableEntries = entries.values
             .filter { $0.role != nil }
             .sorted(by: Self.orderNotable)
@@ -168,6 +219,13 @@ struct BundleContents: Equatable, Hashable {
     /// `directory` is not a directory the bundle holds.
     func childCount(of directory: BundlePath) -> Int? {
         childrenByDirectory[directory]?.count
+    }
+
+    /// Counts the files, folders, and other entries directly inside a
+    /// directory, or `nil` when the bundle does not hold that directory.
+    func directCounts(in directory: BundlePath) -> BundleDirectoryCounts? {
+        guard childrenByDirectory[directory] != nil else { return nil }
+        return countsByDirectory[directory]
     }
 
     /// The listing order: directories first, then by name compared as
@@ -204,4 +262,11 @@ struct BundleContents: Equatable, Hashable {
         let byteCount: Int
         let isExplicit: Bool
     }
+}
+
+/// Counts the immediate children of one bundle directory by entry kind.
+struct BundleDirectoryCounts: Equatable, Hashable {
+    let files: Int
+    let folders: Int
+    let otherEntries: Int
 }

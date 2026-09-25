@@ -1,29 +1,44 @@
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
-/// The Profiles area: ZynSign's library of imported provisioning profiles.
+/// The Profiles area: ZynSign's Provisioning Profile Manager.
 ///
-/// A profile's summary is what the tab lists — name, team, allowed bundle
-/// identifiers, entitlement keys, and expiry — all read from the profile's
-/// own declarations at import time. Importing copies the `.mobileprovision`
-/// into ZynSign's profile storage and records the summary; the original
-/// bytes are kept so a signing operation can use the very file that was
-/// imported. Deleting removes the stored copy and the summary together.
+/// The tab lists imported `.mobileprovision` summaries as rows or cards,
+/// searchable by name, team, or bundle identifier, sortable by expiration,
+/// name, import date, or type, and filterable by type and expiration
+/// state. Every card carries the facts the manager promises — name, team
+/// name, team ID, profile type, expiration status with remaining days,
+/// device count, import date, and a compatibility indicator — plus a
+/// "Selected" marker on the profile pinned for signing.
 ///
-/// Expiry is shown in words with a semantic badge, because an expired
-/// profile is the quietest way a signing operation fails.
+/// Importing copies the `.mobileprovision` into ZynSign's profile storage,
+/// records the summary, and presents an import summary sheet; a corrupted
+/// or unsupported file is refused with the typed reason and nothing is
+/// stored. Deleting removes the stored copy and the summary together.
 struct ProfilesView: View {
 
     @StateObject private var model: ProvisioningProfilesModel
 
-    /// Creates the tab over the profile library and importer the
-    /// composition root supplied. `nil` library renders an honest
-    /// unavailable state; `nil` importer disables importing with a written
-    /// reason rather than a dead control.
-    init(profiles: ProvisioningProfileLibrary?, importer: ProvisioningProfileImporter?) {
+    @AppStorage("zynsign.profiles.showsGrid") private var showsGrid = false
+
+    /// Creates the tab over the profile library, importer, compatibility
+    /// use case, and selection store the composition root supplied. `nil`
+    /// library renders an honest unavailable state; `nil` importer
+    /// disables importing with a written reason rather than a dead control.
+    init(
+        profiles: ProvisioningProfileLibrary?,
+        importer: ProvisioningProfileImporter?,
+        compatibility: ProfileCompatibilityUseCase? = nil,
+        selections: (any ProfileSelectionStore)? = nil,
+        recordEvent: ((String, Bool) -> Void)? = nil
+    ) {
         _model = StateObject(wrappedValue: ProvisioningProfilesModel(
             profiles: profiles,
-            importer: importer
+            importer: importer,
+            compatibility: compatibility,
+            selections: selections,
+            recordEvent: recordEvent
         ))
     }
 
@@ -38,19 +53,24 @@ struct ProfilesView: View {
         NavigationStack {
             content
                 .navigationTitle(ShellSection.profiles.title)
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            model.showImporter()
-                        } label: {
-                            Label("Import Profile…", systemImage: "plus")
-                        }
-                        .disabled(!model.canImport || model.isImporting)
+                .navigationDestination(for: ProvisioningProfileSummary.self) { summary in
+                    ProfileDetailView(summary: summary) {
+                        Task { await model.refresh() }
                     }
                 }
+                .navigationDestination(item: $model.pendingDetail) { summary in
+                    ProfileDetailView(summary: summary) {
+                        Task { await model.refresh() }
+                    }
+                }
+                .searchable(
+                    text: $model.searchText,
+                    placement: .navigationBarDrawer(displayMode: .automatic),
+                    prompt: Text("Name, Team, or Bundle ID")
+                )
+                .toolbar { toolbarContent }
         }
         .task { await model.load() }
-        .refreshable { await model.refresh() }
         .fileImporter(
             isPresented: Binding(
                 get: { model.isShowingImporter },
@@ -61,6 +81,16 @@ struct ProfilesView: View {
         ) { result in
             model.handlePickerResult(result)
         }
+        .sheet(item: $model.importedProfile) { summary in
+            ProfileImportSummaryView(
+                summary: summary,
+                report: model.report(for: summary),
+                onViewDetails: {
+                    model.pendingDetail = summary
+                    model.importedProfile = nil
+                }
+            )
+        }
         .alert(
             model.notice?.title ?? "",
             isPresented: noticeBinding,
@@ -70,7 +100,37 @@ struct ProfilesView: View {
         } message: { notice in
             Text(notice.message)
         }
+        .confirmationDialog(
+            "Delete Profile?",
+            isPresented: Binding(
+                get: { model.pendingRemoval != nil },
+                set: { if !$0 { model.pendingRemoval = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: model.pendingRemoval
+        ) { summary in
+            Button("Delete Profile", role: .destructive) {
+                let pending = summary
+                model.pendingRemoval = nil
+                Task { await model.remove(pending) }
+            }
+            Button("Cancel", role: .cancel) {
+                model.pendingRemoval = nil
+            }
+        } message: { summary in
+            Text("“\(summary.name)” and its stored .mobileprovision file will be permanently deleted. This cannot be undone.")
+        }
+        .zToast(
+            isPresented: Binding(
+                get: { model.isShowingToast },
+                set: { model.isShowingToast = $0 }
+            ),
+            message: model.toastMessage,
+            style: model.toastStyle
+        )
     }
+
+    // MARK: - Phases
 
     @ViewBuilder
     private var content: some View {
@@ -89,16 +149,22 @@ struct ProfilesView: View {
                 Button("Retry") { Task { await model.load() } }
                     .buttonStyle(.borderedProminent)
             }
-        case .loaded(let summaries):
-            profileList(summaries)
+        case .loaded:
+            profileContent
         }
     }
 
+    /// The friendly empty state: an illustration, an explanation in plain
+    /// words, and the one action that matters.
     private var emptyContent: some View {
         ContentUnavailableView {
-            Label("No Profiles", systemImage: ShellSection.profiles.symbolName)
+            VStack(spacing: ZSpacing.sm) {
+                ProfilesEmptyIllustration()
+                Text("No Profiles Yet")
+                    .font(.title3.weight(.semibold))
+            }
         } description: {
-            Text("Import a .mobileprovision file to add it to ZynSign's profile library. ZynSign reads the profile's name, team, bundle-identifier patterns, and expiry, and keeps the original file for signing.")
+            Text("A profile tells iOS which apps your certificates may sign. Import a .mobileprovision file — ZynSign reads it, keeps the original safe on this device, and helps you choose the right profile for each app.")
         } actions: {
             if model.canImport {
                 Button("Import Profile…") {
@@ -113,12 +179,50 @@ struct ProfilesView: View {
         }
     }
 
+    /// The loaded library: the visible projection of the current search,
+    /// sort, and filters, with explicit states when nothing matches.
+    @ViewBuilder
+    private var profileContent: some View {
+        let summaries = model.visibleProfiles()
+        if summaries.isEmpty && hasActiveQuery {
+            ContentUnavailableView.search(Text(model.searchText))
+        } else if summaries.isEmpty {
+            ContentUnavailableView {
+                Label("No Matching Profiles", systemImage: ShellSection.profiles.symbolName)
+            } description: {
+                Text("Every profile is filtered out by the current search or filters.")
+            } actions: {
+                Button("Clear Search and Filters") {
+                    model.searchText = ""
+                    model.typeFilter = .all
+                    model.expirationFilter = .all
+                }
+            }
+        } else if showsGrid {
+            profileGrid(summaries)
+        } else {
+            profileList(summaries)
+        }
+    }
+
+    private var hasActiveQuery: Bool {
+        !model.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private func profileList(_ summaries: [ProvisioningProfileSummary]) -> some View {
         List {
             Section {
                 ForEach(summaries, id: \.id) { summary in
                     NavigationLink(value: summary) {
-                        ProvisioningProfileRow(summary: summary)
+                        ProvisioningProfileRow(
+                            summary: summary,
+                            report: model.report(for: summary),
+                            isPreferred: model.preferredProfileID == summary.id
+                        )
+                    }
+                    .contextMenu { contextActions(for: summary) }
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        useForSigningSwipeAction(summary)
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
@@ -133,370 +237,476 @@ struct ProfilesView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationDestination(for: ProvisioningProfileSummary.self) { summary in
-            ProvisioningProfileDetailView(summary: summary, model: model)
-        }
-        .confirmationDialog(
-            "Delete Profile?",
-            isPresented: Binding(
-                get: { model.pendingRemoval != nil },
-                set: { if !$0 { model.pendingRemoval = nil } }
-            ),
-            titleVisibility: .visible,
-            presenting: model.pendingRemoval
-        ) { summary in
-            Button("Delete Profile", role: .destructive) {
-                let pending = summary
-                model.pendingRemoval = nil
-                Task { await model.remove(pending) }
+        .refreshable { await model.refresh() }
+    }
+
+    private func profileGrid(_ summaries: [ProvisioningProfileSummary]) -> some View {
+        ScrollView {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 168), spacing: ZSpacing.sm)],
+                spacing: ZSpacing.sm
+            ) {
+                ForEach(summaries, id: \.id) { summary in
+                    NavigationLink(value: summary) {
+                        ProvisioningProfileCard(
+                            summary: summary,
+                            report: model.report(for: summary),
+                            isPreferred: model.preferredProfileID == summary.id
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu { contextActions(for: summary) }
+                }
             }
-            Button("Cancel", role: .cancel) {
-                model.pendingRemoval = nil
-            }
-        } message: { summary in
-            Text("“\(summary.name)” and its stored .mobileprovision file will be permanently deleted. This cannot be undone.")
+            .padding(ZSpacing.sm)
         }
+        .refreshable { await model.refresh() }
+    }
+
+    // MARK: - Quick actions
+
+    /// The quick actions every entry point offers: View Details, Use for
+    /// Signing, Copy Team ID, Copy Bundle ID, Refresh Validation, Remove.
+    @ViewBuilder
+    private func contextActions(for summary: ProvisioningProfileSummary) -> some View {
+        Button {
+            model.pendingDetail = summary
+        } label: {
+            Label("View Details", systemImage: "info.circle")
+        }
+        Button {
+            model.useForSigning(summary)
+            ZHaptics.tap()
+            model.toast("“\(summary.name)” selected for signing. Apps it suits will suggest it first.")
+        } label: {
+            Label("Use for Signing", systemImage: "checkmark.shield")
+        }
+        if let team = summary.teamIdentifier {
+            Button {
+                UIPasteboard.general.string = team
+                model.toast("Team ID copied.", style: .info)
+            } label: {
+                Label("Copy Team ID", systemImage: "person.text.rectangle")
+            }
+        }
+        if let bundleID = copyableBundleIdentifier(for: summary) {
+            Button {
+                UIPasteboard.general.string = bundleID
+                model.toast("Bundle ID copied.", style: .info)
+            } label: {
+                Label("Copy Bundle ID", systemImage: "app.badge.checkmark")
+            }
+        }
+        Button {
+            Task { await model.refreshValidation(summary) }
+        } label: {
+            Label("Refresh Validation", systemImage: "arrow.clockwise")
+        }
+        Button(role: .destructive) {
+            model.requestRemoval(summary)
+        } label: {
+            Label("Remove", systemImage: "trash")
+        }
+    }
+
+    @ViewBuilder
+    private func useForSigningSwipeAction(_ summary: ProvisioningProfileSummary) -> some View {
+        Button {
+            model.useForSigning(summary)
+            ZHaptics.tap()
+            model.toast("“\(summary.name)” selected for signing. Apps it suits will suggest it first.")
+        } label: {
+            Label("Use for Signing", systemImage: "checkmark.shield")
+        }
+        .tint(.blue)
+    }
+
+    /// The identifier a "Copy Bundle ID" action copies: the explicit bundle
+    /// identifier when the profile has one, otherwise the first declared
+    /// pattern, otherwise the full App ID.
+    private func copyableBundleIdentifier(for summary: ProvisioningProfileSummary) -> String? {
+        if let bundle = summary.bundleIdentifier { return bundle }
+        if let pattern = summary.bundleIdentifierPatterns.first { return pattern }
+        return summary.applicationIdentifier
+    }
+
+    // MARK: - Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            sortMenu
+            filterMenu
+            layoutToggle
+            Button {
+                model.showImporter()
+            } label: {
+                Label("Import Profile…", systemImage: "plus")
+            }
+            .disabled(!model.canImport || model.isImporting)
+            .accessibilityHint("Imports a .mobileprovision file into the profile library.")
+        }
+    }
+
+    private var sortMenu: some View {
+        Menu {
+            Picker("Sort By", selection: $model.sortOrder) {
+                ForEach(ProvisioningProfilesModel.SortOrder.allCases) { order in
+                    Text(order.displayName).tag(order)
+                }
+            }
+        } label: {
+            Label("Sort", systemImage: "arrow.up.arrow.down")
+        }
+        .accessibilityLabel("Sort profiles")
+    }
+
+    private var filterMenu: some View {
+        Menu {
+            Picker("Type", selection: $model.typeFilter) {
+                ForEach(ProvisioningProfilesModel.TypeFilter.allCases) { filter in
+                    Text(filter.displayName).tag(filter)
+                }
+            }
+            Picker("Expiration", selection: $model.expirationFilter) {
+                ForEach(ProvisioningProfilesModel.ExpirationFilter.allCases) { filter in
+                    Text(filter.displayName).tag(filter)
+                }
+            }
+            if model.typeFilter != .all || model.expirationFilter != .all {
+                Button("Clear Filters") {
+                    model.typeFilter = .all
+                    model.expirationFilter = .all
+                }
+            }
+        } label: {
+            Label(
+                "Filter",
+                systemImage: model.typeFilter == .all && model.expirationFilter == .all
+                    ? "line.3.horizontal.decrease.circle"
+                    : "line.3.horizontal.decrease.circle.fill"
+            )
+        }
+        .accessibilityLabel("Filter profiles by type and expiration")
+    }
+
+    private var layoutToggle: some View {
+        Button {
+            ZHaptics.tap()
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showsGrid.toggle()
+            }
+        } label: {
+            Label(
+                showsGrid ? "List View" : "Grid View",
+                systemImage: showsGrid ? "list.bullet" : "square.grid.2x2"
+            )
+        }
+        .accessibilityLabel(showsGrid ? "Switch to list view" : "Switch to grid view")
     }
 }
 
 // MARK: - Row
 
-/// One profile row: name, team, expiry countdown, and the semantic badge
-/// the expiry earns — valid, expiring soon (30 days), or expired.
+/// One profile row: name, team, type and expiration badges, device count,
+/// import date, and the compatibility indicator the manager computes.
 struct ProvisioningProfileRow: View {
 
     let summary: ProvisioningProfileSummary
+    let report: ProfileCompatibilityReport?
+    let isPreferred: Bool
+
+    private var assessment: ProfileExpirationAssessment {
+        summary.expirationAssessment()
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(summary.name)
-                .font(.body)
-                .foregroundStyle(.primary)
-                .lineLimit(1)
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: ZSpacing.xs) {
-                if let team = summary.teamIdentifier {
-                    Text(team)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                Text(summary.name)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                if isPreferred {
+                    ZStatusBadge("Selected", systemImage: "star.fill", kind: .info)
                 }
-                Text(expiryText)
+            }
+            if let teamLine {
+                Text(teamLine)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
-            expiryBadge
+            HStack(spacing: ZSpacing.xs) {
+                ProfileTypeBadge(type: summary.resolvedProfileType)
+                ProfileExpirationBadge(assessment)
+                if let devices = summary.deviceCount {
+                    ZStatusBadge(
+                        "\(devices) device\(devices == 1 ? "" : "s")",
+                        systemImage: "iphone",
+                        kind: .neutral
+                    )
+                } else if summary.resolvedProfileType == .enterprise {
+                    ZStatusBadge("All devices", systemImage: "iphone", kind: .neutral)
+                }
+            }
+            HStack {
+                Text("Imported \(summary.importedAt.formatted(date: .abbreviated, time: .omitted))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: ZSpacing.xs)
+                if let report {
+                    ProfileCompatibilityBadge(outcome: report.overall)
+                }
+            }
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(summary.name), \(summary.teamIdentifier ?? "no team"), \(expiryText)")
+        .accessibilityLabel(accessibilityDescription)
     }
 
-    private var daysRemaining: Int {
-        summary.daysUntilExpiration()
-    }
-
-    private var expiryText: String {
-        if summary.isExpired() {
-            return "Expired \(summary.expirationDate.formatted(date: .abbreviated, time: .omitted))"
+    private var teamLine: String? {
+        switch (summary.teamName, summary.teamIdentifier) {
+        case (let name?, let team?): return "\(name) · \(team)"
+        case (let name?, nil): return name
+        case (nil, let team?): return team
+        case (nil, nil): return nil
         }
-        return "Expires \(summary.expirationDate.formatted(date: .abbreviated, time: .omitted))"
     }
 
-    private var expiryBadge: some View {
-        Group {
-            if summary.isExpired() {
-                ZStatusBadge("Expired", systemImage: "xmark.circle.fill", kind: .error)
-            } else if daysRemaining < 30 {
-                ZStatusBadge("\(daysRemaining)d left", systemImage: "clock.badge.exclamationmark", kind: .warning)
-            } else {
-                ZStatusBadge("\(daysRemaining)d left", systemImage: "checkmark.circle", kind: .success)
-            }
+    private var accessibilityDescription: String {
+        var parts = [summary.name]
+        if let teamLine { parts.append(teamLine) }
+        parts.append("\(summary.resolvedProfileType.displayName) profile, \(assessment.countdownText)")
+        if let devices = summary.deviceCount {
+            parts.append("\(devices) device\(devices == 1 ? "" : "s")")
         }
+        parts.append("imported \(summary.importedAt.formatted(date: .abbreviated, time: .omitted))")
+        if let report {
+            parts.append("compatibility \(report.overall.displayName)")
+        }
+        if isPreferred { parts.append("selected for signing") }
+        return parts.joined(separator: ", ")
     }
 }
 
-// MARK: - Detail
+// MARK: - Card
 
-/// One profile in full: every fact import recorded, in the profile's own
-/// words, with the expiry state at the top.
-struct ProvisioningProfileDetailView: View {
+/// The grid card: the same facts as the row, stacked for a narrower cell.
+struct ProvisioningProfileCard: View {
 
     let summary: ProvisioningProfileSummary
-    @ObservedObject var model: ProvisioningProfilesModel
+    let report: ProfileCompatibilityReport?
+    let isPreferred: Bool
+
+    private var assessment: ProfileExpirationAssessment {
+        summary.expirationAssessment()
+    }
 
     var body: some View {
-        List {
-            Section {
-                HStack {
-                    expiryBadge
-                    Spacer()
-                    Text(summary.expirationDate, format: .dateTime.year().month().day())
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: ZSpacing.xs) {
+                Text(summary.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+                if isPreferred {
+                    Image(systemName: "star.fill")
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                        .accessibilityLabel("Selected for signing")
                 }
-            } header: {
-                Text("Expiry")
-            } footer: {
-                Text(summary.isExpired()
-                     ? "This profile is past its expiration date. A signing operation that uses it will produce a package iOS refuses to launch."
-                     : "\(daysRemainingText) remain. Profiles past expiration are the quietest way a signing operation fails.")
             }
-            Section("Identity") {
-                LabeledContent("Name", value: summary.name)
-                if let team = summary.teamIdentifier {
-                    LabeledContent("Team", value: team)
+            if let teamLine = summary.teamName ?? summary.teamIdentifier {
+                Text(teamLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            HStack(spacing: ZSpacing.xs) {
+                ProfileTypeBadge(type: summary.resolvedProfileType)
+                if let devices = summary.deviceCount {
+                    ZStatusBadge("\(devices)", systemImage: "iphone", kind: .neutral)
+                } else if summary.resolvedProfileType == .enterprise {
+                    ZStatusBadge("All devices", systemImage: "iphone", kind: .neutral)
                 }
-                LabeledContent("Type", value: summary.allowsDebug ? "Development (get-task-allow)" : "Distribution")
-                LabeledContent("Imported", value: summary.importedAt.formatted(date: .abbreviated, time: .shortened))
             }
-            Section {
-                if summary.bundleIdentifierPatterns.isEmpty {
-                    Text("The profile declares no bundle-identifier patterns.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(summary.bundleIdentifierPatterns, id: \.self) { pattern in
-                        Text(pattern)
+            ProfileExpirationBadge(assessment)
+            HStack {
+                Text("Imported \(summary.importedAt.formatted(date: .abbreviated, time: .omitted))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                if let report {
+                    ProfileCompatibilityBadge(outcome: report.overall)
+                }
+            }
+        }
+        .padding(ZSpacing.sm)
+        .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: ZRadius.card)
+                .fill(Color(.secondarySystemBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ZRadius.card)
+                .stroke(isPreferred ? Color.blue.opacity(0.35) : Color.clear, lineWidth: 1)
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityDescription)
+    }
+
+    private var accessibilityDescription: String {
+        var parts = [summary.name]
+        if let team = summary.teamName ?? summary.teamIdentifier { parts.append(team) }
+        parts.append("\(summary.resolvedProfileType.displayName) profile, \(assessment.countdownText)")
+        if let report { parts.append("compatibility \(report.overall.displayName)") }
+        if isPreferred { parts.append("selected for signing") }
+        return parts.joined(separator: ", ")
+    }
+}
+
+// MARK: - Empty-state illustration
+
+/// A friendly, asset-free illustration for the empty library: the profile
+/// symbol on a soft disc, dressed with a sparkle. SF Symbols keep the empty
+/// state crisp at every Dynamic Type size and in Dark Mode without adding
+/// image assets to the bundle.
+struct ProfilesEmptyIllustration: View {
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color.accentColor.opacity(0.12))
+                .frame(width: 120, height: 120)
+            Image(systemName: "person.text.rectangle.fill")
+                .font(.system(size: 52))
+                .foregroundStyle(Color.accentColor)
+            Image(systemName: "sparkles")
+                .font(.title3)
+                .foregroundStyle(.orange)
+                .offset(x: 38, y: -34)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Import summary
+
+/// The import summary sheet: what ZynSign read from the file just imported,
+/// the compatibility quick look, and where the original bytes now live.
+/// "View Details" opens the full profile detail screen.
+struct ProfileImportSummaryView: View {
+
+    let summary: ProvisioningProfileSummary
+    let report: ProfileCompatibilityReport?
+    let onViewDetails: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    HStack(spacing: ZSpacing.xs) {
+                        ZStatusBadge("Imported", systemImage: "checkmark.seal.fill", kind: .success)
+                        Text("“\(summary.name)” was added to your profile library.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 2)
+                }
+                Section("Profile Facts") {
+                    LabeledContent("Name", value: summary.name)
+                    if let teamName = summary.teamName {
+                        LabeledContent("Team", value: teamName)
+                    }
+                    if let team = summary.teamIdentifier {
+                        LabeledContent("Team ID", value: team)
+                    }
+                    LabeledContent("Type", value: summary.resolvedProfileType.displayName)
+                    LabeledContent("App ID") {
+                        Text(summary.applicationIdentifier ?? "—")
                             .font(.footnote.monospaced())
                             .textSelection(.enabled)
                     }
-                }
-            } header: {
-                Text("Bundle Identifiers")
-            } footer: {
-                Text("A wildcard ends in .* and covers every identifier beneath its prefix.")
-            }
-            Section {
-                if summary.entitlementsKeys.isEmpty {
-                    Text("The profile grants no entitlement keys.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(summary.entitlementsKeys, id: \.self) { key in
-                        Text(key)
-                            .font(.footnote.monospaced())
+                    if let bundle = summary.bundleIdentifier {
+                        LabeledContent("Bundle ID", value: bundle)
+                        LabeledContent("App ID Kind", value: summary.isWildcard ? "Wildcard" : "Explicit")
+                    }
+                    LabeledContent("Devices", value: deviceText)
+                    if let created = summary.creationDate {
+                        LabeledContent("Created") {
+                            Text(created, format: .dateTime.year().month().day())
+                        }
+                    }
+                    LabeledContent("Expires") {
+                        HStack(spacing: ZSpacing.xs) {
+                            Text(summary.expirationDate, format: .dateTime.year().month().day())
+                                .monospacedDigit()
+                            ProfileExpirationBadge(summary.expirationAssessment())
+                        }
+                    }
+                    if let uuid = summary.uuid {
+                        LabeledContent("UUID") {
+                            Text(uuid)
+                                .font(.caption.monospaced())
+                                .textSelection(.enabled)
+                        }
+                    }
+                    if let fingerprints = summary.certificateFingerprints, !fingerprints.isEmpty {
+                        LabeledContent("Certificates", value: "\(fingerprints.count)")
                     }
                 }
-            } header: {
-                Text("Entitlements")
-            } footer: {
-                Text("The entitlement keys the profile declares. Signing derives the application's entitlements from this profile.")
+                if let report {
+                    Section {
+                        HStack(spacing: ZSpacing.xs) {
+                            ProfileCompatibilityBadge(outcome: report.overall)
+                            Text(report.summaryLine)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 2)
+                    } header: {
+                        Text("Compatibility")
+                    } footer: {
+                        Text(report.overall.explanation)
+                    }
+                }
+                Section {
+                    Text("The original .mobileprovision file was copied into ZynSign's profile storage on this device and is kept unchanged for signing and re-validation.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
-            Section {
-                Button(role: .destructive) {
-                    model.requestRemoval(summary)
-                } label: {
-                    Label("Delete Profile", systemImage: "trash")
+            .navigationTitle("Profile Imported")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("View Details") { onViewDetails() }
                 }
             }
         }
-        .navigationTitle(summary.name)
-        .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog(
-            "Delete Profile?",
-            isPresented: Binding(
-                get: { model.pendingRemoval != nil },
-                set: { if !$0 { model.pendingRemoval = nil } }
-            ),
-            titleVisibility: .visible,
-            presenting: model.pendingRemoval
-        ) { summary in
-            Button("Delete Profile", role: .destructive) {
-                let pending = summary
-                model.pendingRemoval = nil
-                Task { await model.remove(pending) }
-            }
-            Button("Cancel", role: .cancel) {
-                model.pendingRemoval = nil
-            }
-        } message: { summary in
-            Text("“\(summary.name)” and its stored .mobileprovision file will be permanently deleted. This cannot be undone.")
+        .presentationDetents([.medium, .large])
+    }
+
+    private var deviceText: String {
+        if let devices = summary.deviceCount {
+            return "\(devices)"
         }
-    }
-
-    private var daysRemaining: Int {
-        summary.daysUntilExpiration()
-    }
-
-    private var daysRemainingText: String {
-        let days = daysRemaining
-        return "\(days) day\(days == 1 ? "" : "s")"
-    }
-
-    private var expiryBadge: some View {
-        Group {
-            if summary.isExpired() {
-                ZStatusBadge("Expired", systemImage: "xmark.circle.fill", kind: .error)
-            } else if daysRemaining < 30 {
-                ZStatusBadge("\(daysRemaining)d left", systemImage: "clock.badge.exclamationmark", kind: .warning)
-            } else {
-                ZStatusBadge("Valid", systemImage: "checkmark.circle", kind: .success)
-            }
+        switch summary.resolvedProfileType {
+        case .enterprise: return "All devices"
+        case .appStore: return "—"
+        case .development, .adHoc, .unknown: return "—"
         }
-    }
-}
-
-// MARK: - Model
-
-/// The presentation-side state machine for the Profiles tab.
-///
-/// One content phase at a time — loading, loaded, empty, failed — so the
-/// screen never shows an empty library while profiles are still being read.
-/// Import and removal re-read the library after they settle, so the screen
-/// always shows what the profile library holds.
-@MainActor
-final class ProvisioningProfilesModel: ObservableObject {
-
-    enum Phase: Equatable {
-        case loading
-        case loaded([ProvisioningProfileSummary])
-        case empty
-        case failed(String)
-    }
-
-    struct Notice: Equatable, Identifiable {
-        let title: String
-        let message: String
-
-        var id: String { "\(title)-\(message)" }
-    }
-
-    @Published private(set) var phase: Phase = .loading
-    @Published private(set) var isImporting = false
-    @Published var isShowingImporter = false
-    @Published private(set) var notice: Notice?
-
-    /// The profile awaiting a confirmed removal, if any.
-    @Published var pendingRemoval: ProvisioningProfileSummary?
-
-    private let profiles: ProvisioningProfileLibrary?
-    private let importer: ProvisioningProfileImporter?
-
-    /// The content types the profile picker offers: the `.mobileprovision`
-    /// extension type when the system can form it, with `.data` as the
-    /// supertype that keeps the file selectable regardless of how the
-    /// provider reports it. The importer re-checks the file either way.
-    static var importableTypes: [UTType] {
-        var types: [UTType] = []
-        if let mobileprovision = UTType(filenameExtension: "mobileprovision", conformingTo: .data) {
-            types.append(mobileprovision)
-        }
-        if let plain = UTType(filenameExtension: "mobileprovision") {
-            types.append(plain)
-        }
-        types.append(.data)
-        return types
-    }
-
-    init(profiles: ProvisioningProfileLibrary?, importer: ProvisioningProfileImporter?) {
-        self.profiles = profiles
-        self.importer = importer
-    }
-
-    /// Whether importing is possible in this composition. A missing library
-    /// or a missing importer both mean no.
-    var canImport: Bool {
-        profiles != nil && importer != nil
-    }
-
-    func showImporter() {
-        guard canImport else { return }
-        isShowingImporter = true
-    }
-
-    /// Loads the profiles when the screen appears. A refresh keeps content
-    /// on screen and announces failure instead of replacing it.
-    func load() async {
-        switch phase {
-        case .loaded, .empty:
-            await refresh()
-        case .loading, .failed:
-            await readProfiles(presentingLoadingState: true)
-        }
-    }
-
-    func refresh() async {
-        await readProfiles(presentingLoadingState: false)
-    }
-
-    private func readProfiles(presentingLoadingState: Bool) async {
-        guard let profiles else {
-            phase = .failed("The profile library is not part of this build's composition.")
-            return
-        }
-        if presentingLoadingState {
-            phase = .loading
-        }
-        do {
-            let summaries = try await profiles.allProfiles()
-            phase = summaries.isEmpty ? .empty : .loaded(summaries)
-        } catch {
-            let message = (error as? ZynSignError)?.userMessage ?? "The profile library could not be accessed."
-            if presentingLoadingState {
-                phase = .failed(message)
-            } else {
-                notice = Notice(title: "Refresh Failed", message: message)
-            }
-        }
-    }
-
-    /// Records how the system picker closed and, when a file was chosen,
-    /// imports it. The importer owns validation; a refused file is announced
-    /// with the typed reason and nothing is stored.
-    func handlePickerResult(_ result: Result<[URL], any Error>) {
-        guard case .success(let urls) = result else {
-            return // The user closed the picker without choosing. Ordinary.
-        }
-        guard let url = urls.first else {
-            return
-        }
-        guard let importer, let profiles else { return }
-        isImporting = true
-        Task {
-            defer { isImporting = false }
-            do {
-                let summary = try await importer.importProfile(at: url)
-                try await profiles.upsert(summary)
-                NotificationCenter.default.post(name: .zynsignProvisioningProfilesChanged, object: nil)
-                notice = Notice(
-                    title: "Profile Imported",
-                    message: "“\(summary.name)” was added to the profile library."
-                )
-                await refresh()
-            } catch let error as ZynSignError {
-                notice = Notice(title: "Import Failed", message: error.userMessage)
-            } catch {
-                notice = Notice(title: "Import Failed", message: "The profile could not be imported.")
-            }
-        }
-    }
-
-    /// Requests removal; the view confirms before calling `remove(_:)`.
-    func requestRemoval(_ summary: ProvisioningProfileSummary) {
-        pendingRemoval = summary
-    }
-
-    /// Clears the announcement once the user has acknowledged it.
-    func clearNotice() {
-        notice = nil
-    }
-
-    /// Removes the profile and its stored file, then re-reads the library.
-    func remove(_ summary: ProvisioningProfileSummary) async {
-        guard let profiles else { return }
-        do {
-            try await profiles.remove(profileWithID: summary.id)
-        } catch {
-            notice = Notice(
-                title: "Deletion Failed",
-                message: (error as? ZynSignError)?.userMessage ?? "The profile could not be deleted."
-            )
-        }
-        // A file cleanup can fail after catalog removal; in either case
-        // refresh any signing view that had selected this saved profile.
-        NotificationCenter.default.post(name: .zynsignProvisioningProfilesChanged, object: nil)
-        await refresh()
     }
 }
 

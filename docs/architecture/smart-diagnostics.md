@@ -1,6 +1,6 @@
 # Smart Diagnostics & Signing Health
 
-Signing Health is a **read-only, local pre-sign observation**. It appears on an imported application's detail screen and, with the selected certificate/profile/options, on the signing screen. Admission starts a background scan; visible app screens rescan on opening, foregrounding, refresh, and every 60 seconds. The signing screen rescans when an identity, profile, or actual signing option changes. Signing forces a fresh package inspection and re-reads any saved profile before invoking the independent nine-stage signing pipeline. A diagnostic scan never signs, rewrites an IPA, accesses a private key, or installs anything.
+Signing Health is a **read-only, local pre-sign observation**. It appears on an imported application's detail screen and, with the selected certificate/profile/options, on the signing screen. Admission starts a background scan; visible app screens rescan on opening, foregrounding, refresh, and every 60 seconds. The signing screen rescans when an identity, profile, or actual signing option changes. Signing forces a fresh package inspection and re-reads any saved profile before invoking the ten-stage signing engine and its pipeline. A diagnostic scan never signs, rewrites an IPA, accesses a private key, or installs anything.
 
 ## What is measured
 

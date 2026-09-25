@@ -132,6 +132,27 @@ final class ProvisioningProfileParserTests: XCTestCase {
         XCTAssertNil(profile.developerCertificates)
     }
 
+    func testParsesTeamNameWhenDeclared() throws {
+        var root = validRoot()
+        root[ProvisioningProfileKeys.teamName] = "Synthetic Team"
+        let profile = try parse(root)
+        XCTAssertEqual(profile.teamName, "Synthetic Team")
+    }
+
+    func testTeamNameRemainsNilWhenAbsent() throws {
+        let profile = try parse(validRoot())
+        XCTAssertNil(profile.teamName)
+    }
+
+    func testMalformedTeamNameTypeIsNotCoerced() {
+        var root = validRoot()
+        root[ProvisioningProfileKeys.teamName] = 42
+        assertProfileFailure(
+            parser().parse(makePayload(root)),
+            reason: .invalidFieldType
+        )
+    }
+
     func testParsesXMLPayloadWithoutChangingTheModel() throws {
         let profile = try parser().parse(makePayload(validRoot(), format: .xml))
         XCTAssertEqual(profile.uuid?.uuidString, profileUUID)

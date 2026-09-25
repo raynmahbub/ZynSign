@@ -68,7 +68,8 @@ actor FileProvisioningProfileLibrary: ProvisioningProfileLibrary {
 
     private func storedFile(named name: String) -> URL? {
         guard !name.isEmpty, name != ".", name != "..",
-              name.lowercased().hasSuffix(".mobileprovision"),
+              (name.lowercased().hasSuffix(".mobileprovision") ||
+               name.lowercased().hasSuffix(".provisionprofile")),
               name != catalogLocation.lastPathComponent,
               !name.contains("/"), !name.contains("\\"),
               !name.contains(where: { $0.isControl }) else { return nil }

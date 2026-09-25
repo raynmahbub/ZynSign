@@ -36,8 +36,17 @@ struct ApplicationEnvironment {
     let library: ApplicationLibrary
 
     /// The bundle contents inspection use case: describes, read-only, the
-    /// structure of a library application's bundle for the explorer.
+    /// structure of a library application's bundle for the explorer. It reads
+    /// the entry table and no file bytes.
     let bundleInspection: IPABundleContentsInspection
+
+    /// The comprehensive, bounded inspection use case for the App Details
+    /// metadata, archive summary, nested-code summary, and diagnostics.
+    let applicationDetailsInspection: IPAApplicationDetailsInspection
+
+    /// On-demand preview of one entry. Used only when the user opens a file,
+    /// framework, or extension. It never writes the package.
+    let bundleEntryInspection: IPABundleEntryInspection
 
     /// The signing-identity store. The certificate list and signing capability
     /// are resolved through this port; private-key bytes never leave Platform.
@@ -51,6 +60,13 @@ struct ApplicationEnvironment {
     /// user explicitly signs an imported package with a chosen identity and
     /// provisioning profile.
     let signingPipeline: SignApplicationPipeline
+
+    /// The signing engine: the coordinator that executes one complete signing
+    /// run — isolated working copy, pre-signing bundle validation, inner-first
+    /// nested signing, application signing, independent verification, and
+    /// packaging — behind one entry point and one progress stream. The
+    /// Signing screen drives this and nothing below it directly.
+    let signingEngine: SigningEngineCoordinator
 
     /// The local activity journal: on-device-only analytics the Settings
     /// → Analytics screen reads. Recording goes through
@@ -78,15 +94,28 @@ struct ApplicationEnvironment {
     /// construction.
     var provisioningProfileImporter: ProvisioningProfileImporter? = nil
 
+    /// The Smart Compatibility Engine and Profile Matching use case: the
+    /// pre-sign checks, the Compatibility Summary, and the automatic
+    /// profile suggestion for an app. Optional so older composition paths
+    /// and tests can omit it; production paths supply it.
+    var profileCompatibility: ProfileCompatibilityUseCase? = nil
+
+    /// The profile-selection store behind "Use for Signing" and the
+    /// per-app manual override. Optional for the same reason.
+    var profileSelections: (any ProfileSelectionStore)? = nil
+
     /// Extracts application icons from the packages the library holds, for
     /// the Home and Library cards. `nil` where no reader provider is
     /// composed; treated as read-only after construction.
     var appIcons: AppIconExtraction? = nil
 
     /// Shared read-only analyzer for import, per-app health and signing.
-    /// The profile/entitlement evidence it returns stays in memory; only
-    /// redacted issue codes enter its bounded on-device journal.
+    /// Profile/entitlement evidence stays in memory; only redacted issue
+    /// codes enter its bounded on-device journal.
     var signingDiagnostics: SigningDiagnosticsService? = nil
+
+    /// The local-only annotation store behind the Certificates area.
+    var identityAnnotations: (any IdentityAnnotationsStore)? = nil
 
     /// Records one local activity event when the journal preference allows.
     ///
