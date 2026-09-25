@@ -25,6 +25,8 @@ struct SigningView: View {
     @State private var showErrorToast = false
     @State private var emitDEREntitlements = false
     @StateObject private var liveActivity = LiveActivityService()
+    @Environment(\.signingQueuePresentation) private var signingQueuePresentation
+    @State private var showQueuedToast = false
 
     private var selectedIdentity: SigningIdentity? {
         guard let id = selectedIdentityID else { return nil }
@@ -55,6 +57,7 @@ struct SigningView: View {
         .sheet(item: $shareItem) { item in ShareSheet(url: item.url) }
         .alert("Signing Failed", isPresented: Binding(get: { signingError != nil }, set: { if !$0 { signingError = nil } })) { Button("OK", role: .cancel) { signingError = nil } } message: { Text(signingError ?? "") }
         .zToast(isPresented: $showSuccessToast, message: "Signed — ready in Documents/Signed", style: .success)
+        .zToast(isPresented: $showQueuedToast, message: "Added to the signing queue", style: .info)
         .zToast(isPresented: $showErrorToast, message: signingError ?? "Refused — working copy discarded", style: .error, duration: .seconds(4))
         .zBottomSheet(isPresented: $showSigningOptions) {
             NavigationStack { SigningOptionsView().toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { showSigningOptions = false } } } }
@@ -168,6 +171,17 @@ struct SigningView: View {
             }
             .listRowBackground(canSign ? Color.accentColor : Color.gray.opacity(0.3)).foregroundStyle(canSign ? .white : .secondary).disabled(!canSign)
             if !canSign && entry.isArtifactAvailable { Text(whyDisabled).font(.caption).foregroundStyle(.secondary) }
+            if signingQueuePresentation.isAvailable {
+                Button { addToQueue() } label: {
+                    Label("Add to Signing Queue Instead", systemImage: "tray.and.arrow.down")
+                }
+                .disabled(!canSign)
+                .accessibilityHint("Queues this configuration and returns immediately; the queue signs in the background while you keep using ZynSign.")
+                Button { signingQueuePresentation.present() } label: {
+                    Label("Open Signing Queue", systemImage: "list.bullet.rectangle")
+                }
+                .foregroundStyle(.secondary)
+            }
         } footer: { Text("The nine-stage pipeline runs: integrity, profile, discovery, extraction, nested signing, resource sealing, main-executable signing, packaging, verification. Any refusal ends the run and delivers nothing.") }
     }
 
@@ -290,6 +304,32 @@ struct SigningView: View {
         }
     }
 
+    /// Hands the current configuration to the signing queue instead of
+    /// running it here: the queue owns the work from this moment, and the
+    /// screen is free to be left.
+    private func addToQueue() {
+        guard let identityID = selectedIdentityID, let profile = profileData, entry.isArtifactAvailable else { return }
+        let summary = ProfileEntitlementDerivation.displaySummary(fromProvisioningProfile: profile)
+        let submission = SigningJobSubmission(
+            recordID: entry.record.id,
+            artifactID: entry.record.artifact.artifactID,
+            applicationName: entry.record.displayName ?? entry.record.bundleIdentifier.rawValue,
+            bundleIdentifier: entry.record.bundleIdentifier.rawValue,
+            versionText: ApplicationLibraryRowContent(entry: entry).versionText,
+            identityID: identityID,
+            identityDisplayName: selectedIdentity?.displayName,
+            certificateFingerprint: selectedIdentity?.fingerprint,
+            profile: profile,
+            profileDisplayName: summary?.name ?? profileFileName,
+            profileTeamIdentifier: summary?.teamIdentifier,
+            emitDEREntitlements: emitDEREntitlements
+        )
+        env.signingQueue.enqueue(submission, priority: .normal, origin: .signingScreen)
+        env.recordAnalyticsEvent(category: .signing, name: "queue.job.enqueued", succeeded: true)
+        ZHaptics.tap()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { showQueuedToast = true }
+    }
+
     private func sign() async {
         guard let identityID = selectedIdentityID, let profile = profileData else { signingError = "Select an identity and a provisioning profile."; return }
         guard entry.isArtifactAvailable else { signingError = "The package file is not available."; return }
@@ -346,21 +386,11 @@ private struct ShareSheet: UIViewControllerRepresentable {
 }
 
 extension SigningView {
+    /// The one derivation every signing entry point shares — inline Smart
+    /// Sign and the signing queue alike — so the same profile yields the
+    /// same entitlements wherever it is used.
     fileprivate static func entitlements(fromProvisioningProfile data: Data) throws -> CodeSigningEntitlements {
-        let payload: Data
-        if let cms = try? CMSStructureReader.read(data), let content = cms.encapsulatedContent { payload = content }
-        else if let r = data.range(of: Data("<?xml".utf8)) { payload = data.subdata(in: r.lowerBound..<data.endIndex) }
-        else if let r = data.range(of: Data("bplist00".utf8)) { payload = data.subdata(in: r.lowerBound..<data.endIndex) }
-        else { payload = data }
-        let parser = PropertyListProvisioningProfileParser()
-        do {
-            let profile = try parser.parse(ProvisioningProfilePayload(plistData: payload))
-            if let ent = profile.entitlements { return try CodeSigningEntitlements(profileEntitlements: ent) }
-            return try CodeSigningEntitlements(values: [:])
-        } catch {
-            if let direct = try? EntitlementsPlistParser.parse(payload) { return direct }
-            throw error
-        }
+        try ProfileEntitlementDerivation.entitlements(fromProvisioningProfile: data)
     }
     fileprivate static func entitlementValueSummary(_ value: ProvisioningProfileValue?) -> String {
         guard let value else { return "—" }

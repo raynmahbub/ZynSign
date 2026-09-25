@@ -23,6 +23,11 @@ struct RootView: View {
     @Environment(\.applicationEnvironment) private var environment
     @State private var selected: ShellSection = .home
     @State private var isShowingImport = false
+    @State private var isShowingSigningQueue = false
+
+    /// The signing-queue notice currently shown as a toast, if any.
+    @State private var visibleQueueNotice: SigningQueueNotice?
+    @State private var isShowingQueueToast = false
 
     /// The jobs whose outcome has already been recorded, so an import is
     /// reported exactly once however many times the job list changes.
@@ -39,6 +44,7 @@ struct RootView: View {
                         )
                     }
                     .tag(section)
+                    .badge(section == .library ? activeSigningJobBadge : 0)
             }
         }
         .tint(.primary)
@@ -49,6 +55,23 @@ struct RootView: View {
                 isAvailable: true
             )
         )
+        .environment(
+            \.signingQueuePresentation,
+            SigningQueuePresentation(
+                present: { presentSigningQueue() },
+                isAvailable: SigningQueueAvailability.isAvailable
+            )
+        )
+        .sheet(isPresented: $isShowingSigningQueue) {
+            SigningQueueView(
+                queue: environment.signingQueue,
+                onOpenLibrary: {
+                    isShowingSigningQueue = false
+                    selected = .library
+                },
+                onDone: { isShowingSigningQueue = false }
+            )
+        }
         .sheet(isPresented: $isShowingImport) {
             ImportQueueView(
                 queue: environment.packageImportQueue,
@@ -62,6 +85,78 @@ struct RootView: View {
         .onOpenURL { url in acceptIncoming(url) }
         .onReceive(environment.packageImportQueue.$jobs) { jobs in
             reportOutcomes(of: jobs)
+        }
+        .onReceive(environment.signingQueue.$pendingNotices.receive(on: DispatchQueue.main)) { notices in
+            // Delivered after the change lands (a `@Published` emits before
+            // storing), so acknowledging here can never be overwritten.
+            showNextQueueNotice(from: notices)
+        }
+        .onReceive(environment.signingQueue.$jobs) { jobs in
+            activeSigningJobBadge = SigningQueueAvailability.isAvailable
+                ? jobs.filter { $0.isActive }.count
+                : 0
+        }
+        .zToast(
+            isPresented: $isShowingQueueToast,
+            message: visibleQueueNotice.map { "\($0.title) — \($0.message)" } ?? "",
+            style: visibleQueueNotice?.kind == .jobFailed ? .error : .success,
+            duration: .seconds(4)
+        )
+        .onChange(of: isShowingQueueToast) { _, isShowing in
+            // A dismissed toast makes room for the next pending notice.
+            guard !isShowing else { return }
+            visibleQueueNotice = nil
+            showNextQueueNotice(from: environment.signingQueue.pendingNotices)
+        }
+        .task {
+            // Restore the persisted queue once per launch. Restoration is
+            // gated with the feature: a build that does not show the queue
+            // never runs queued work behind the user's back.
+            guard SigningQueueAvailability.isAvailable else { return }
+            await environment.signingQueue.restore()
+        }
+    }
+
+    /// The number of active signing jobs shown as the Library tab's badge,
+    /// so work in flight stays visible wherever the user navigates.
+    @State private var activeSigningJobBadge = 0
+
+    // MARK: - Signing queue
+
+    /// Opens the signing queue dashboard. When the import area is up, it
+    /// is closed first and the dashboard follows once the sheet is gone —
+    /// presenting over a dismissing sheet would race.
+    private func presentSigningQueue() {
+        guard SigningQueueAvailability.isAvailable else { return }
+        if isShowingImport {
+            isShowingImport = false
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 450_000_000)
+                isShowingSigningQueue = true
+            }
+        } else {
+            isShowingSigningQueue = true
+        }
+    }
+
+    /// Shows the oldest pending queue notice: a toast (with its haptic)
+    /// and a VoiceOver announcement. The notice is acknowledged as soon as it
+    /// is on screen, so it is delivered exactly once however often the
+    /// queue publishes.
+    private func showNextQueueNotice(from notices: [SigningQueueNotice]) {
+        guard SigningQueueAvailability.isAvailable else { return }
+        guard visibleQueueNotice == nil, let next = notices.first else { return }
+        visibleQueueNotice = next
+        environment.signingQueue.acknowledgeNotice(next.id)
+        // The toast plays its own haptic on appearing; nothing is doubled.
+        AccessibilityNotification.Announcement(SigningQueueRendering.announcement(for: next)).post()
+        environment.recordAnalyticsEvent(
+            category: .signing,
+            name: next.kind == .jobFailed ? "queue.job.failed" : (next.kind == .jobCompleted ? "queue.job.completed" : "queue.finished"),
+            succeeded: next.kind != .jobFailed
+        )
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            isShowingQueueToast = true
         }
     }
 

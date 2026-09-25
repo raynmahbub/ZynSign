@@ -33,6 +33,12 @@ struct ImportQueueView: View {
     @State private var isShowingPicker = false
     @State private var pickerFailure: String?
 
+    @Environment(\.signingQueuePresentation) private var signingQueuePresentation
+
+    /// The imported applications awaiting a signing-queue configuration,
+    /// when the user asked to queue them straight from the import area.
+    @State private var queueConfiguration: SigningQueueConfigurationRequest?
+
     var body: some View {
         NavigationStack {
             content
@@ -45,6 +51,14 @@ struct ImportQueueView: View {
                     allowsMultipleSelection: true
                 ) { result in
                     handlePickerResult(result)
+                }
+                .sheet(item: $queueConfiguration) { request in
+                    SigningQueueConfigurationView(
+                        entries: request.entries,
+                        origin: request.origin,
+                        onOpenQueue: { signingQueuePresentation.present() },
+                        onDone: { queueConfiguration = nil }
+                    )
                 }
                 .alert(
                     "Import Failed",
@@ -101,7 +115,13 @@ struct ImportQueueView: View {
                     ImportSummaryCard(
                         summary: queue.summary,
                         onOpenLibrary: onOpenLibrary,
-                        onClear: { withAnimation(.snappy) { queue.removeSettled() } }
+                        onClear: { withAnimation(.snappy) { queue.removeSettled() } },
+                        onQueueImported: queueableImportedEntries.isEmpty ? nil : {
+                            queueConfiguration = SigningQueueConfigurationRequest(
+                                entries: queueableImportedEntries,
+                                origin: .importHub
+                            )
+                        }
                     )
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
@@ -135,9 +155,38 @@ struct ImportQueueView: View {
         .animation(.snappy, value: queue.jobs.map(\.id))
     }
 
+    /// The library entries the finished imports produced, one per record,
+    /// in the order they settled — what "sign what I just imported" means.
+    /// Empty where the signing queue is not exposed.
+    private var queueableImportedEntries: [LibraryEntry] {
+        guard signingQueuePresentation.isAvailable else { return [] }
+        var seen = Set<ApplicationRecordIdentifier>()
+        return queue.settledJobs.compactMap { job -> LibraryEntry? in
+            guard let settlement = job.settlement, settlement.kind.isAccepted,
+                  let record = settlement.record,
+                  seen.insert(record.id).inserted else { return nil }
+            return LibraryEntry(record: record, artifactAvailability: .available)
+        }
+    }
+
+    /// The entry one finished import produced, when it can be queued.
+    private func queueableEntry(for job: PackageImportQueue.Job) -> LibraryEntry? {
+        guard signingQueuePresentation.isAvailable,
+              let settlement = job.settlement, settlement.kind.isAccepted,
+              let record = settlement.record else { return nil }
+        return LibraryEntry(record: record, artifactAvailability: .available)
+    }
+
     private func row(for job: PackageImportQueue.Job) -> some View {
-        ImportJobRow(
+        var onQueueForSigning: (() -> Void)?
+        if let entry = queueableEntry(for: job) {
+            onQueueForSigning = {
+                queueConfiguration = SigningQueueConfigurationRequest(entry: entry, origin: .importHub)
+            }
+        }
+        return ImportJobRow(
             job: job,
+            onQueueForSigning: onQueueForSigning,
             onCancel: { queue.cancel(job.id) },
             onRetry: { queue.retry(job.id) },
             onRemove: { withAnimation(.snappy) { queue.remove(job.id) } },
@@ -193,6 +242,9 @@ struct ImportQueueView: View {
 private struct ImportJobRow: View {
 
     let job: PackageImportQueue.Job
+    /// Queues the imported application for signing, when the import stored
+    /// one and the signing queue is exposed; `nil` hides the action.
+    let onQueueForSigning: (() -> Void)?
     let onCancel: () -> Void
     let onRetry: () -> Void
     let onRemove: () -> Void
@@ -275,6 +327,17 @@ private struct ImportJobRow: View {
     @ViewBuilder
     private var trailingActions: some View {
         HStack(spacing: ZSpacing.xs) {
+            if let onQueueForSigning {
+                Button {
+                    ZHaptics.tap()
+                    onQueueForSigning()
+                } label: {
+                    Image(systemName: "tray.and.arrow.down")
+                        .font(.body)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Queue \(job.sourceFileName) for signing")
+            }
             if job.isRetryable {
                 Button {
                     ZHaptics.tap()
@@ -432,6 +495,19 @@ private struct ImportSummaryCard: View {
     let summary: ImportSummary
     let onOpenLibrary: () -> Void
     let onClear: () -> Void
+    /// Queues every application the finished imports stored, when the
+    /// signing queue is exposed and there is something to queue.
+    var onQueueImported: (() -> Void)? = nil
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    /// Buttons side by side, or stacked at accessibility text sizes so no
+    /// label is truncated or squeezed off screen.
+    private var actionLayout: AnyLayout {
+        dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: ZSpacing.xs))
+            : AnyLayout(HStackLayout(spacing: ZSpacing.sm))
+    }
 
     var body: some View {
         ZCard(variant: .material) {
@@ -447,13 +523,22 @@ private struct ImportSummaryCard: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: ZSpacing.sm) {
+                actionLayout {
                     if summary.addedCount > 0 {
                         Button("View Library") {
                             ZHaptics.tap()
                             onOpenLibrary()
                         }
                         .buttonStyle(.borderedProminent)
+                    }
+                    if let onQueueImported {
+                        Button {
+                            ZHaptics.tap()
+                            onQueueImported()
+                        } label: {
+                            Label("Queue for Signing", systemImage: "tray.and.arrow.down")
+                        }
+                        .buttonStyle(.bordered)
                     }
                     Button("Clear Finished") {
                         ZHaptics.tap()

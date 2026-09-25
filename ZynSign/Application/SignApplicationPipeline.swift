@@ -313,33 +313,52 @@ struct SignApplicationPipeline {
 
     /// Signs one application container.
     ///
+    /// - Parameters:
+    ///   - request: the container, profile, identity, entitlements, output
+    ///     location, and options for the run.
+    ///   - stageObserver: called with each pipeline stage immediately before
+    ///     that stage's work begins, so a caller — the signing queue above
+    ///     all — can report honest stage-boundary progress. Called on
+    ///     whatever context the run is on; an observer that needs a
+    ///     particular actor hops there itself. Advisory only: an observer
+    ///     that drops or reorders reports changes what a watcher sees,
+    ///     never what the run does. `nil` observes nothing.
     /// - Returns: The run's outcome: a delivered container with every
     ///   stage's evidence, or the refusing stage with a typed reason.
     /// - Throws: `CancellationError` when the run is cancelled. Every other
     ///   failure is a returned result, never a thrown error.
-    func sign(_ request: SignApplicationRequest) async throws -> SignApplicationResult {
+    func sign(
+        _ request: SignApplicationRequest,
+        reportingStage stageObserver: (@Sendable (ApplicationSigningStage) -> Void)? = nil
+    ) async throws -> SignApplicationResult {
         try Task.checkCancellation()
         let workingRoot = try makeWorkingDirectory()
         defer { try? FileManager.default.removeItem(at: workingRoot) }
         do {
+            stageObserver?(.integrity)
             let integrity = try runIntegrity(request: request)
             try Task.checkCancellation()
+            stageObserver?(.profile)
             let profile = try runProfile(request: request, metadata: integrity.metadata)
             try Task.checkCancellation()
+            stageObserver?(.discovery)
             let plan = try runDiscovery(request: request, integrity: integrity)
             try Task.checkCancellation()
+            stageObserver?(.extraction)
             let extraction = try await runExtraction(
                 request: request,
                 integrity: integrity,
                 workingRoot: workingRoot
             )
             try Task.checkCancellation()
+            stageObserver?(.nestedSigning)
             let nested = try runNestedSigning(
                 request: request,
                 plan: plan,
                 bundleDirectory: extraction.bundleDirectory
             )
             try Task.checkCancellation()
+            stageObserver?(.resourceSealing)
             let sealing = try runSealing(
                 plan: plan,
                 nested: nested,
@@ -347,6 +366,7 @@ struct SignApplicationPipeline {
                 bundleDirectory: extraction.bundleDirectory
             )
             try Task.checkCancellation()
+            stageObserver?(.mainExecutable)
             let main = try runMainExecutable(
                 request: request,
                 integrity: integrity,
@@ -354,12 +374,14 @@ struct SignApplicationPipeline {
                 bundleDirectory: extraction.bundleDirectory
             )
             try Task.checkCancellation()
+            stageObserver?(.packaging)
             let packaging = try await runPackaging(
                 request: request,
                 integrity: integrity,
                 bundleDirectory: extraction.bundleDirectory
             )
             try Task.checkCancellation()
+            stageObserver?(.verification)
             let verification = try await runVerification(
                 request: request,
                 integrity: integrity,

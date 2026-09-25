@@ -19,6 +19,12 @@ struct ApplicationLibraryView: View {
 
     @StateObject private var model: ApplicationLibraryModel
     @Environment(\.importPresentation) private var importPresentation
+    @Environment(\.signingQueuePresentation) private var signingQueuePresentation
+    @Environment(\.applicationEnvironment) private var environment
+
+    /// The applications awaiting a signing-queue configuration, when the
+    /// user asked to queue one or several.
+    @State private var queueConfiguration: SigningQueueConfigurationRequest?
     @State private var entryPendingRemoval: LibraryEntry?
     @State private var selectionPendingRemoval: [LibraryEntry] = []
     @State private var entryPendingDetails: LibraryEntry?
@@ -75,6 +81,14 @@ struct ApplicationLibraryView: View {
         }
         .task { await model.load() }
         .safeAreaInset(edge: .bottom) { selectionBar }
+        .sheet(item: $queueConfiguration) { request in
+            SigningQueueConfigurationView(
+                entries: request.entries,
+                origin: request.origin,
+                onOpenQueue: { signingQueuePresentation.present() },
+                onDone: { queueConfiguration = nil }
+            )
+        }
         .alert(
             model.notice?.title ?? "",
             isPresented: noticeBinding,
@@ -244,10 +258,29 @@ struct ApplicationLibraryView: View {
                     Label("Details", systemImage: "info.circle")
                 }
                 .tint(.blue)
+                if isQueueAvailable && entry.isArtifactAvailable {
+                    Button {
+                        queueConfiguration = SigningQueueConfigurationRequest(entry: entry, origin: .library)
+                    } label: {
+                        Label("Queue", systemImage: "tray.and.arrow.down")
+                    }
+                    .tint(.indigo)
+                }
                 Button(role: .destructive) {
                     entryPendingRemoval = entry
                 } label: {
                     Label("Delete", systemImage: "trash")
+                }
+            }
+        }
+        .contextMenu {
+            // The same queue action the swipe offers, reachable from a
+            // long press, a secondary click, or keyboard focus on iPad.
+            if !isSelecting && isQueueAvailable && entry.isArtifactAvailable {
+                Button {
+                    queueConfiguration = SigningQueueConfigurationRequest(entry: entry, origin: .library)
+                } label: {
+                    Label("Queue for Signing…", systemImage: "tray.and.arrow.down")
                 }
             }
         }
@@ -306,6 +339,13 @@ struct ApplicationLibraryView: View {
                 } label: {
                     Label("Details", systemImage: "info.circle")
                 }
+                if isQueueAvailable && entry.isArtifactAvailable {
+                    Button {
+                        queueConfiguration = SigningQueueConfigurationRequest(entry: entry, origin: .library)
+                    } label: {
+                        Label("Queue for Signing…", systemImage: "tray.and.arrow.down")
+                    }
+                }
                 Button(role: .destructive) {
                     entryPendingRemoval = entry
                 } label: {
@@ -313,6 +353,11 @@ struct ApplicationLibraryView: View {
                 }
             }
         }
+    }
+
+    /// Whether the signing queue is exposed in this build.
+    private var isQueueAvailable: Bool {
+        signingQueuePresentation.isAvailable
     }
 
     // MARK: - Selection
@@ -377,6 +422,11 @@ struct ApplicationLibraryView: View {
                     }
                 }
             } else {
+                if isQueueAvailable {
+                    SigningQueueToolbarButton(queue: environment.signingQueue) {
+                        signingQueuePresentation.present()
+                    }
+                }
                 sortMenu
                 layoutToggle
                 Button {
@@ -428,6 +478,21 @@ struct ApplicationLibraryView: View {
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
                 Spacer()
+                if isQueueAvailable {
+                    Button {
+                        let entries = selectedEntries.filter { $0.isArtifactAvailable }
+                        guard !entries.isEmpty else { return }
+                        queueConfiguration = SigningQueueConfigurationRequest(
+                            entries: entries,
+                            origin: .bulkSelection
+                        )
+                        exitSelectionMode()
+                    } label: {
+                        Label("Queue Selected", systemImage: "tray.and.arrow.down")
+                    }
+                    .disabled(!selectedEntries.contains { $0.isArtifactAvailable } || model.isRemovingSelection)
+                    .accessibilityHint("Adds the selected applications to the signing queue with one configuration.")
+                }
                 Button {
                     selectionPendingRemoval = selectedEntries
                 } label: {
@@ -841,4 +906,43 @@ private enum PreviewFixtures {
     ApplicationLibraryFailureView(
         message: "ZynSign could not access its application library."
     ) {}
+}
+
+// MARK: - Signing queue toolbar button
+
+/// The Library's way into the signing queue: a toolbar button whose badge
+/// counts the jobs running or waiting, so queued work stays visible from
+/// the screen the jobs were queued on. `⌘⇧Q` opens it from a keyboard.
+struct SigningQueueToolbarButton: View {
+
+    @ObservedObject var queue: SigningQueue
+    let action: () -> Void
+
+    private var activeCount: Int {
+        queue.jobs.filter { $0.isActive }.count
+    }
+
+    var body: some View {
+        Button {
+            ZHaptics.tap()
+            action()
+        } label: {
+            Label("Signing Queue", systemImage: activeCount > 0 ? "tray.full.fill" : "tray.full")
+                .overlay(alignment: .topTrailing) {
+                    if activeCount > 0 {
+                        Text("\(activeCount)")
+                            .font(.caption2.weight(.bold))
+                            .monospacedDigit()
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4)
+                            .background(Capsule().fill(Color.accentColor))
+                            .offset(x: 8, y: -6)
+                            .accessibilityHidden(true)
+                    }
+                }
+        }
+        .keyboardShortcut("q", modifiers: [.command, .shift])
+        .accessibilityLabel("Signing Queue")
+        .accessibilityValue(activeCount == 0 ? "No active jobs" : "\(activeCount) active job\(activeCount == 1 ? "" : "s")")
+    }
 }

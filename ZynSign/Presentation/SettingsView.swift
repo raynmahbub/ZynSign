@@ -11,6 +11,7 @@ import UIKit
 struct SettingsView: View {
 
     @Environment(\.applicationEnvironment) private var environment
+    @Environment(\.signingQueuePresentation) private var signingQueuePresentation
     @State private var showResetConfirm = false
     @State private var resetMessage: String?
 
@@ -79,6 +80,12 @@ struct SettingsView: View {
         Section {
             NavigationLink { SigningOptionsView() } label: {
                 Label("Signing Options", systemImage: "slider.horizontal.3")
+            }
+            if signingQueuePresentation.isAvailable {
+                Button { signingQueuePresentation.present() } label: {
+                    Label("Signing Queue", systemImage: "tray.full")
+                }
+                .accessibilityHint("Opens the signing queue dashboard.")
             }
         } header: { Text("Signing") } footer: {
             Text("Configure the options used when the pipeline is composed for signing. Certificates and profiles are managed in their own tabs.")

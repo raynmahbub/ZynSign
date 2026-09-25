@@ -22,6 +22,9 @@ struct ApplicationDetailView: View {
     let entry: LibraryEntry
     private let bundleInspection: IPABundleContentsInspection
 
+    @Environment(\.signingQueuePresentation) private var signingQueuePresentation
+    @State private var queueConfiguration: SigningQueueConfigurationRequest?
+
     /// Creates the screen for `entry`, with the inspection use case the
     /// bundle explorer runs on.
     init(entry: LibraryEntry, bundleInspection: IPABundleContentsInspection) {
@@ -57,6 +60,18 @@ struct ApplicationDetailView: View {
                             Label("Sign Application…", systemImage: "signature")
                         }
                         .accessibilityHint("Sign this imported package with a certificate and provisioning profile.")
+                    }
+                    if signingQueuePresentation.isAvailable {
+                        Button {
+                            ZHaptics.tap()
+                            queueConfiguration = SigningQueueConfigurationRequest(
+                                entry: entry,
+                                origin: .applicationDetails
+                            )
+                        } label: {
+                            Label("Add to Signing Queue…", systemImage: "tray.and.arrow.down")
+                        }
+                        .accessibilityHint("Queues this application to be signed in the background while you keep using ZynSign.")
                     }
                 } else {
                     Label(ReleaseTrain.isAvailable(.smartSign)
@@ -95,6 +110,14 @@ struct ApplicationDetailView: View {
         }
         .navigationTitle(content.name)
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $queueConfiguration) { request in
+            SigningQueueConfigurationView(
+                entries: request.entries,
+                origin: request.origin,
+                onOpenQueue: { signingQueuePresentation.present() },
+                onDone: { queueConfiguration = nil }
+            )
+        }
     }
 }
 

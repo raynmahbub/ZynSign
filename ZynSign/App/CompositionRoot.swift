@@ -33,6 +33,12 @@ enum CompositionRoot {
         let presets = makeSigningPresetStore()
         let history = makeSigningHistoryStore()
         let profiles = makeProvisioningProfileLibrary()
+        let queueNotifier = makeSigningQueueNotifier()
+        let signingQueue = makeSigningQueue(
+            pipeline: pipeline,
+            history: history,
+            notifier: queueNotifier
+        )
         var environment = ApplicationEnvironment(
             applicationInfo: ApplicationInfo.current(bundle: .main),
             packageImport: packageImport,
@@ -42,6 +48,7 @@ enum CompositionRoot {
             identityStore: identityStore,
             pkcs12Importer: pkcs12Importer,
             signingPipeline: pipeline,
+            signingQueue: signingQueue,
             analyticsJournal: makeAnalyticsJournal(),
             signingPresets: presets,
             signingHistory: history,
@@ -49,7 +56,92 @@ enum CompositionRoot {
         )
         environment.provisioningProfileImporter = makeProvisioningProfileImporter()
         environment.appIcons = makeAppIconExtraction()
+        environment.queueNotifier = queueNotifier
         return environment
+    }
+
+    /// Builds the signing queue: the job orchestration every queued signing
+    /// runs through. The executor wraps the same pipeline the inline Smart
+    /// Sign screen uses — one signing machinery, two entry points — and
+    /// records every settled run in the same history journal the library's
+    /// signed badges read. The store persists the queue's list and its
+    /// queue-owned profile copies under the library root; the working
+    /// directory root it sweeps is the same root the pipeline creates its
+    /// per-run directories under.
+    static func makeSigningQueue(
+        pipeline: SignApplicationPipeline,
+        history: any SigningHistoryStore,
+        notifier: (any SigningQueueNotifying)? = nil
+    ) -> SigningQueue {
+        SigningQueue(
+            executor: PipelineSigningExecutor(pipeline: pipeline, history: history),
+            store: makeSigningQueueStore(),
+            notifier: notifier,
+            artifactURLResolver: { artifactID in libraryArtifactFileURL(for: artifactID) },
+            outputDirectory: signedOutputDirectory
+        )
+    }
+
+    /// Builds the file-backed signing queue store at the canonical
+    /// Application Support location, sweeping the pipeline's working
+    /// directory root during recovery.
+    static func makeSigningQueueStore() -> any SigningQueueStore {
+        FileSigningQueueStore(
+            queueDirectory: signingQueueDirectory,
+            workingDirectoryRoot: signingWorkingDirectoryRoot
+        )
+    }
+
+    /// The local notifier for settled signing jobs. Composed on iOS, where
+    /// `UserNotifications` exists; elsewhere the queue posts in-app notices
+    /// only, which is the whole notifier contract.
+    static func makeSigningQueueNotifier() -> (any SigningQueueNotifying)? {
+        #if os(iOS)
+        return LocalSigningQueueNotifier()
+        #else
+        return UnavailableSigningQueueNotifier()
+        #endif
+    }
+
+    /// The durable directory holding the signing queue's snapshot and its
+    /// queue-owned profile copies, under the same library root as the
+    /// catalogs. Created on first use; nothing is created at composition
+    /// time.
+    static var signingQueueDirectory: URL {
+        libraryRootDirectory.appendingPathComponent("SigningQueue", isDirectory: true)
+    }
+
+    /// The root of the per-run signing working directories, inside the
+    /// system temporary directory. Every pipeline run creates its own
+    /// unique subdirectory here; queue recovery sweeps subdirectories
+    /// created before the current session, because a working directory
+    /// that survives a launch belongs to a dead process.
+    static var signingWorkingDirectoryRoot: URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZynSignSigningQueue", isDirectory: true)
+    }
+
+    /// Where delivered signed containers go: `Documents/Signed`, the
+    /// location the inline signing screen already delivers to and Files
+    /// exposes. One delivery directory for both signing entry points, so a
+    /// user looking for a signed IPA has exactly one place to look.
+    static var signedOutputDirectory: URL {
+        let documents = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)
+            .first
+            ?? FileManager.default.temporaryDirectory
+        return documents.appendingPathComponent("Signed", isDirectory: true)
+    }
+
+    /// The file URL of the artifact the library holds for `id`, under the
+    /// library's own storage convention. The same convention
+    /// `ApplicationEnvironment.artifactFileURL(for:)` re-derives for the
+    /// presentation layer; the queue receives it as a resolver so it never
+    /// hard-codes a location itself.
+    static func libraryArtifactFileURL(for id: ArtifactIdentifier) -> URL {
+        libraryArtifactDirectory
+            .appendingPathComponent(id.rawValue, isDirectory: false)
+            .appendingPathExtension("ipa")
     }
 
     /// Builds the provisioning-profile importer the Profiles tab drives. It
@@ -613,7 +705,12 @@ enum CompositionRoot {
                 identityStore: identityStore
             ),
             writer: writer,
-            limits: limits
+            limits: limits,
+            // Every run creates its own unique working directory under this
+            // root, and queue recovery sweeps directories left by earlier
+            // sessions: a working copy that survives an interruption belongs
+            // to a dead process and is never resumed.
+            workingDirectoryRoot: signingWorkingDirectoryRoot
         )
     }
 

@@ -52,6 +52,15 @@ struct ApplicationEnvironment {
     /// provisioning profile.
     let signingPipeline: SignApplicationPipeline
 
+    /// The signing queue: the job orchestration every queued signing runs
+    /// through. It owns scheduling, priorities, per-job progress,
+    /// cancellation, retries, notices, and persistence, and it runs jobs
+    /// through the pipeline's executor. Screens enqueue through it and
+    /// observe it; none of them owns a signing task of its own once a job
+    /// is queued. The inline Smart Sign screen keeps its direct pipeline
+    /// path for the single, foreground, configured-by-hand run.
+    let signingQueue: SigningQueue
+
     /// The local activity journal: on-device-only analytics the Settings
     /// → Analytics screen reads. Recording goes through
     /// `recordAnalyticsEvent(category:name:succeeded:)`, which enforces the
@@ -83,6 +92,14 @@ struct ApplicationEnvironment {
     /// composed; treated as read-only after construction.
     var appIcons: AppIconExtraction? = nil
 
+    /// The local-notification boundary for settled signing jobs, held as
+    /// the port. Optional: `nil` means the queue posts in-app notices
+    /// only. The composition root installs the platform notifier, which is
+    /// observable; screens that bind the user's notification preference
+    /// reach the concrete type through a presentation-side cast, the same
+    /// way the signing screen holds the Live Activity service.
+    var queueNotifier: (any SigningQueueNotifying)? = nil
+
     /// Records one local activity event when the journal preference allows.
     ///
     /// This is the only recording path the presentation layer uses. It
@@ -100,6 +117,37 @@ struct ApplicationEnvironment {
         analyticsJournal.record(
             LocalAnalyticsEvent(category: category, name: name, succeeded: succeeded)
         )
+    }
+
+    /// Returns the file URL of a delivered signed container by its file
+    /// name, under the same `Documents/Signed` convention the signing
+    /// queue and the inline signing screen both deliver to. A label the
+    /// queue captured becomes a location only here, so no screen names a
+    /// path itself.
+    func signedOutputFileURL(named fileName: String) -> URL {
+        let documents = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)
+            .first
+            ?? FileManager.default.temporaryDirectory
+        return documents
+            .appendingPathComponent("Signed", isDirectory: true)
+            .appendingPathComponent(fileName, isDirectory: false)
+    }
+
+    /// Returns the file URL of an imported provisioning profile's original
+    /// bytes by the file name its summary recorded, under the same library
+    /// storage convention the profile importer writes to. The queue's
+    /// configuration sheet reads a chosen library profile's bytes through
+    /// this location; the summary itself never carries them.
+    func provisioningProfileFileURL(named sourceFileName: String) -> URL {
+        let applicationSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return applicationSupport
+            .appendingPathComponent("ZynSignLibrary", isDirectory: true)
+            .appendingPathComponent(sourceFileName, isDirectory: false)
     }
 
     /// Returns the file URL of the artifact the library holds for `id`, when

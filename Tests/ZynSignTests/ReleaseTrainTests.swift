@@ -57,14 +57,30 @@ final class ReleaseTrainTests: XCTestCase {
     }
 
     func testFeatureRolloutMatchesThePlan() {
-        XCTAssertEqual(ReleaseStage.alpha1.features, [.certificateStudio])
-        XCTAssertEqual(ReleaseStage.alpha2.features, [.certificateStudio, .smartSign])
-        XCTAssertEqual(ReleaseStage.alpha3.features, [.certificateStudio, .smartSign, .appStore, .downloads])
-        XCTAssertEqual(ReleaseStage.beta1.features, Set(ReleaseFeature.allCases))
+        XCTAssertEqual(ReleaseStage.alpha1.features, [.certificateStudio, .libraryPowerFeatures])
+        XCTAssertEqual(ReleaseStage.alpha2.features, [
+            .certificateStudio, .libraryPowerFeatures,
+            .smartSign, .provisioningProfileManager, .signingQueue,
+        ])
+        XCTAssertEqual(ReleaseStage.alpha3.features, [
+            .certificateStudio, .libraryPowerFeatures,
+            .smartSign, .provisioningProfileManager, .signingQueue,
+            .appStore, .downloads,
+        ])
+        XCTAssertFalse(ReleaseStage.beta1.features.contains(.batchSigning), "Batch signing ships in beta 3")
+        XCTAssertEqual(ReleaseStage.beta3.features, Set(ReleaseFeature.allCases).subtracting([.signingHealthScore]))
+        XCTAssertEqual(ReleaseStage.stable.features, Set(ReleaseFeature.allCases))
     }
 
-    func testFeatureCompleteFromBetaOnwards() {
-        for stage in ReleaseStage.allCases where stage >= .beta1 {
+    func testTheSigningQueueShipsWithSmartSignInAlpha2() {
+        XCTAssertTrue(ReleaseStage.alpha2.introducedFeatures.contains(.signingQueue))
+        XCTAssertFalse(ReleaseStage.alpha1.features.contains(.signingQueue))
+        XCTAssertEqual(ReleaseFeature.signingQueue.prerequisites, [.smartSign])
+        XCTAssertEqual(ReleaseFeature.signingQueue.displayName, "Professional Signing Queue")
+    }
+
+    func testFeatureCompleteFromTheFinalRelease() {
+        for stage in ReleaseStage.allCases where stage >= .stable {
             XCTAssertEqual(stage.features, Set(ReleaseFeature.allCases), "\(stage) must be feature complete")
         }
     }
