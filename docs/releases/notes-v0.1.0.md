@@ -1,6 +1,6 @@
 ## [0.1.0] - 2026-09-25
 
-First public development build — **Horizon** — on `arena/01a0d570-zynsign`.
+First public development build — **Horizon** — tagged from `main`.
 Market `0.1.0` build `4` (`CFBundleShortVersionString 0.1.0`, `CFBundleVersion 4`),
 tag `v0.1.0`. The same binary is tested privately (TestFlight internal / ad-hoc IPA)
 and then published — no rebuild between private and public.
@@ -136,7 +136,7 @@ while the installation delivery hand-off and the local activity journal are wire
 - **Sideload only** — not App Store, not install-claiming. Deliver `Documents/Signed` via MDM / OTA + confirmation.
 - **Private → public gate** — this tag (`v0.1.0`) is the privately tested commit (`docs/releases/private-testing.md`
   matrix on iOS 17 + iOS 18, two devices + simulator).
-- **Branch** `arena/01a0d570-zynsign` (Horizon `58e604c` + installation delivery hand-off, local
+- **Built on** `main` (Horizon `58e604c` + installation delivery hand-off, local
   activity journal, pairing/JIT/mux feasibility record; market `0.1.0` build `4`).
   History tags `v0.1.0-dev` / `v0.1.1-dev` / `v0.2.0-dev` at `58e604c`.
 - **External validation** (ZS-031, runs `36010725148` / `36011553668`): `codesign` accepts single-image,

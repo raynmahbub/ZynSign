@@ -24,7 +24,7 @@ struct RootView: View {
                 .tabItem { Label(ShellSection.library.title, systemImage: selected == .library ? ShellSection.library.symbolName : ShellSection.library.symbolNameUnselected) }
                 .tag(ShellSection.library)
 
-            HomeView()
+            HomeView(onOpenSection: { selected = $0 })
                 .tabItem { Label(ShellSection.home.title, systemImage: selected == .home ? ShellSection.home.symbolName : ShellSection.home.symbolNameUnselected) }
                 .tag(ShellSection.home)
 

@@ -32,6 +32,19 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   `ReleaseTrain.current`, publishes alpha / beta / rc tags as pre-releases, and pushes the
   generated changelog to the default branch instead of a stale session branch.
 
+### Fixed
+
+- Home → **Library** and **Files** quick actions now switch tabs (they did nothing).
+- Home **Signed** / **Sources** stats show real counts (`Documents/Signed/*.ipa`,
+  saved sources) instead of a permanent “—”.
+- Mission Control no longer force-unwraps the sources file URL (possible crash).
+- Library **Signed** segment shows the real signed-IPA count and where to find them.
+  The old copy said signing “was not yet composed”.
+- Pairing screen and comments no longer mention the retired “0.1.0-dev → 0.2.0” versions.
+- Removed an unused `onInfo` parameter from the Files row.
+- Docs point to `main` instead of a stale session branch. The TestFlight build number is `4`.
+- Private Test Build runs the release-train check and warns that Debug shows every feature.
+
 ### Staged (built, switched on by a later release)
 
 | Release | Switches on |
@@ -43,7 +56,7 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [0.1.0] - 2026-09-25
 
-First public development build — **Horizon** — on `arena/01a0d570-zynsign`.
+First public development build — **Horizon** — tagged from `main`.
 Market `0.1.0` build `4` (`CFBundleShortVersionString 0.1.0`, `CFBundleVersion 4`),
 tag `v0.1.0`. The same binary is tested privately (TestFlight internal / ad-hoc IPA)
 and then published — no rebuild between private and public.
@@ -179,7 +192,7 @@ while the installation delivery hand-off and the local activity journal are wire
 - **Sideload only** — not App Store, not install-claiming. Deliver `Documents/Signed` via MDM / OTA + confirmation.
 - **Private → public gate** — this tag (`v0.1.0`) is the privately tested commit (`docs/releases/private-testing.md`
   matrix on iOS 17 + iOS 18, two devices + simulator).
-- **Branch** `arena/01a0d570-zynsign` (Horizon `58e604c` + installation delivery hand-off, local
+- **Built on** `main` (Horizon `58e604c` + installation delivery hand-off, local
   activity journal, pairing/JIT/mux feasibility record; market `0.1.0` build `4`).
   History tags `v0.1.0-dev` / `v0.1.1-dev` / `v0.2.0-dev` at `58e604c`.
 - **External validation** (ZS-031, runs `36010725148` / `36011553668`): `codesign` accepts single-image,

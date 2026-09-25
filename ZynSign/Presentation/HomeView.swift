@@ -6,9 +6,14 @@ import SwiftUI
 /// matter most: bringing a package in and seeing what is already there.
 struct HomeView: View {
 
+    /// Switches the shell to another tab. `RootView` binds it to its selection.
+    var onOpenSection: (ShellSection) -> Void = { _ in }
+
     @Environment(\.applicationEnvironment) private var environment
     @StateObject private var missionControl = MissionControlService()
     @State private var libraryCount: Int = 0
+    @State private var signedCount: Int = 0
+    @State private var sourceCount: Int = 0
     @State private var failedLoad = false
     @State private var isShowingImporter = false
     @State private var importNotice: String?
@@ -109,15 +114,7 @@ struct HomeView: View {
                     ZHaptics.tap()
                     Task {
                         _ = await missionControl.refreshEverything(
-                            refreshRepositories: {
-                                // Trigger AppStore refresh via notification; count sources from persistence
-                                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-                                let storeURL = docs?.appendingPathComponent("ZynSignSources.json")
-                                if let data = try? Data(contentsOf: storeURL!), let arr = try? JSONDecoder().decode([[String:String]].self, from: data) {
-                                    return arr.count
-                                }
-                                return 0
-                            },
+                            refreshRepositories: { HomeStorageCounts.sourceCount() },
                             checkLibrary: {
                                 if let entries = try? await environment.library.entries() { return entries.count }
                                 return 0
@@ -144,8 +141,12 @@ struct HomeView: View {
                 HomeActionButton(title: "Import IPA", icon: "square.and.arrow.down.fill", color: .blue) {
                     isShowingImporter = true
                 }
-                HomeActionButton(title: "Library", icon: "square.grid.2x2.fill", color: .purple) {}
-                HomeActionButton(title: "Files", icon: "folder.fill", color: .orange) {}
+                HomeActionButton(title: "Library", icon: "square.grid.2x2.fill", color: .purple) {
+                    onOpenSection(.library)
+                }
+                HomeActionButton(title: "Files", icon: "folder.fill", color: .orange) {
+                    onOpenSection(.files)
+                }
             }
         }
     }
@@ -175,10 +176,10 @@ struct HomeView: View {
                 HStack(spacing: ZSpacing.sm) {
                     StatPill(value: "\(libraryCount)", label: "Imported")
                     if ReleaseTrain.isAvailable(.smartSign) {
-                        StatPill(value: "—", label: "Signed")
+                        StatPill(value: "\(signedCount)", label: "Signed")
                     }
                     if ReleaseTrain.isAvailable(.appStore) {
-                        StatPill(value: "—", label: "Sources")
+                        StatPill(value: "\(sourceCount)", label: "Sources")
                     }
                 }
             }
@@ -257,6 +258,8 @@ struct HomeView: View {
     }
 
     private func reloadCount() async {
+        signedCount = HomeStorageCounts.signedCount()
+        sourceCount = HomeStorageCounts.sourceCount()
         do {
             let entries = try await environment.library.entries()
             libraryCount = entries.count
@@ -264,6 +267,30 @@ struct HomeView: View {
         } catch {
             failedLoad = true
         }
+    }
+}
+
+/// Counts Home shows without touching the library: signed IPAs written by
+/// `SigningView` to `Documents/Signed`, and sources saved by the App Store tab
+/// in `Documents/ZynSignSources.json`. A missing or unreadable file counts as 0.
+enum HomeStorageCounts {
+    private static var documents: URL? {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+    }
+
+    static func signedCount() -> Int {
+        guard let dir = documents?.appendingPathComponent("Signed", isDirectory: true),
+              let items = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+        else { return 0 }
+        return items.filter { $0.pathExtension.lowercased() == "ipa" }.count
+    }
+
+    static func sourceCount() -> Int {
+        guard let url = documents?.appendingPathComponent("ZynSignSources.json"),
+              let data = try? Data(contentsOf: url),
+              let sources = try? JSONDecoder().decode([[String: String]].self, from: data)
+        else { return 0 }
+        return sources.count
     }
 }
 

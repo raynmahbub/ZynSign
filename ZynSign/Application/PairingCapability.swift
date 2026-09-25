@@ -1,6 +1,6 @@
 import Foundation
 
-/// Pairing / JIT / Mux / OpenSSL — explicitly never planned for 0.1.0-dev → 0.2.0 Horizon.
+/// Pairing / JIT / Mux / OpenSSL — explicitly never planned for any release through 1.0.0.
 ///
 /// This file is the honest boundary for three commonly-requested capabilities
 /// that ZynSign deliberately does *not* ship. Each is modelled as an

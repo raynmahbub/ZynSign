@@ -133,7 +133,7 @@ Semantic Versioning applies:
 
 ## Current Position
 
-First public dev build is Horizon `0.1.0` (market `0.1.0`, build `4`, 2026-09-25). Previous Horizon tags `v0.2.0-dev`/`v0.1.1-dev`/`v0.1.0-dev` point at `58e604c`; the first public tag `v0.1.0` will be the private-tested commit on `arena/01a0d570-zynsign` (HEAD). The Xcode project already carries `MARKETING_VERSION 0.1.0` / `CURRENT_PROJECT_VERSION 4` so the private binary and the public release are the same binary — see [private-testing.md](private-testing.md) for the private distribution (TestFlight internal or ad-hoc IPA, not a public release) and the device matrix that gates `v0.1.0`.
+First public dev build is Horizon `0.1.0` (market `0.1.0`, build `4`, 2026-09-25). Previous Horizon tags `v0.2.0-dev`/`v0.1.1-dev`/`v0.1.0-dev` point at `58e604c`; the first public tag `v0.1.0` will be the private-tested commit on `main`. The Xcode project already carries `MARKETING_VERSION 0.1.0` / `CURRENT_PROJECT_VERSION 4` so the private binary and the public release are the same binary — see [private-testing.md](private-testing.md) for the private distribution (TestFlight internal or ad-hoc IPA, not a public release) and the device matrix that gates `v0.1.0`.
 
 Of the blockers recorded with the final-integration review, three have
 changed since the history now included in 0.1.0 Horizon (58e604c):

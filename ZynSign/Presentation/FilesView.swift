@@ -113,8 +113,7 @@ struct FilesView: View {
                     onTap: { handleTap(item) },
                     onShare: { shareItem = ShareURL(url: item.url) },
                     onRename: { fileToRename = item; renameText = item.name },
-                    onDelete: { model.delete(item) },
-                    onInfo: {}
+                    onDelete: { model.delete(item) }
                 )
             }
         }
@@ -274,7 +273,6 @@ private struct FileRowView: View {
     let onShare: () -> Void
     let onRename: () -> Void
     let onDelete: () -> Void
-    let onInfo: () -> Void
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: item.icon)

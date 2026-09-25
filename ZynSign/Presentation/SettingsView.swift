@@ -268,8 +268,8 @@ private struct PairingHonestView: View {
         List {
             Section {
                 HStack(spacing: ZSpacing.xs) { ZStatusBadge("Never", systemImage: "xmark.octagon", kind: .error); ZStatusBadge("4 capabilities", systemImage: "cable.connector", kind: .neutral) }
-                Text("Pairing / JIT / Mux / OpenSSL linkage are never planned for 0.1.0-dev → 0.2.0 Horizon. No PairingKit, no JITBroker, no usbmuxd, no OpenSSL linked into the app binary. Keeps the binary reviewable and avoids private-API risk.").font(.footnote).foregroundStyle(.secondary)
-            } header: { Text("Pairing / JIT / Mux — Never") } footer: { Text("Until an ADR demonstrates feasibility, every `PairingCapabilityAssessment.assess(_:)` returns `supported == false` with typed limitations. The feasibility record — the private surface each capability needs and the triggers that would reopen the question — is docs/architecture/pairing-jit-mux-feasibility.md. See also WHAT_DOES_NOT_EXIST.md 0.2.0.") }
+                Text("Pairing / JIT / Mux / OpenSSL linkage are not planned for any release through 1.0.0. No PairingKit, no JITBroker, no usbmuxd, no OpenSSL linked into the app binary. Keeps the binary reviewable and avoids private-API risk.").font(.footnote).foregroundStyle(.secondary)
+            } header: { Text("Pairing / JIT / Mux — Never") } footer: { Text("Until an ADR demonstrates feasibility, every `PairingCapabilityAssessment.assess(_:)` returns `supported == false` with typed limitations. The feasibility record — the private surface each capability needs and the triggers that would reopen the question — is docs/architecture/pairing-jit-mux-feasibility.md. See also docs/product/WHAT_DOES_NOT_EXIST.md.") }
             ForEach(assessments, id: \.capability) { a in
                 Section(a.capability.rawValue.capitalized) {
                     HStack { ZStatusBadge("Unavailable", systemImage: "xmark.shield", kind: .error); Spacer(); Text(a.summary).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
