@@ -88,6 +88,24 @@ struct ApplicationEnvironment {
     /// `signingPresets`.
     let provisioningProfiles: ProvisioningProfileLibrary?
 
+    /// The Export Center: the signed artifacts ZynSign produced, each with the
+    /// current availability of the file behind it. It owns naming, recording,
+    /// verification results, and the removal of exported artifacts — and it
+    /// cannot reach the library's own artifacts, which is why deleting signed
+    /// output can never delete the application it came from.
+    let exportCenter: ExportCenter
+
+    /// The signing operation runner: the one path that signs an application
+    /// and delivers the result to the Export Center. It records the run's
+    /// timeline, its failure when it fails, and its artifact when it
+    /// succeeds, so the signing history is written by the operation that
+    /// happened rather than assembled by an interface.
+    let signingOperations: SigningOperationCenter
+
+    /// The storage use case: what ZynSign is using, and the cleanups the
+    /// storage screen may run. It never removes an imported application.
+    let storageManagement: StorageManagement
+
     /// Imports `.mobileprovision` files into the provisioning-profile
     /// library. Presented by the Profiles tab; `nil` where the composition
     /// root supplies no profile storage, and treated as read-only after
