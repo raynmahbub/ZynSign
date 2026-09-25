@@ -36,8 +36,24 @@ enum CompositionRoot {
             bundleInspection: makeBundleContentsInspection(intake: intake, library: library),
             identityStore: identityStore,
             pkcs12Importer: pkcs12Importer,
-            signingPipeline: pipeline
+            signingPipeline: pipeline,
+            analyticsJournal: makeAnalyticsJournal()
         )
+    }
+
+    /// Selects the local activity journal implementation: the file-backed
+    /// journal on iOS, and the in-memory journal elsewhere. Both live
+    /// entirely on-device; the choice only decides whether the journal
+    /// survives relaunch.
+    static func makeAnalyticsJournal() -> any LocalAnalyticsRecording {
+        #if os(iOS)
+        return FileLocalAnalyticsJournal(
+            location: FileLocalAnalyticsJournal.defaultLocation(),
+            capacity: AnalyticsPolicy.journalCapacity
+        )
+        #else
+        return InMemoryLocalAnalyticsJournal(capacity: AnalyticsPolicy.journalCapacity)
+        #endif
     }
 
     /// The signing identity store for this launch.

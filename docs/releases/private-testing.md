@@ -6,7 +6,7 @@ This document is the single checklist for the **private test** that gates the fi
 
 ## Principle
 
-* **Private build = same code, same version, no public tag.** It is built from `arena/01a0d4c7-zynsign` at the commit you intend to publish (currently `afd3c83` (Horizon `58e604c` + market `0.1.0` build `3`)), with `MARKETING_VERSION 0.1.0` `CURRENT_PROJECT_VERSION 3`, but distributed only to your trusted testers.
+* **Private build = same code, same version, no public tag.** It is built from `arena/01a0d570-zynsign` at the commit you intend to publish (Horizon `58e604c` + installation delivery hand-off, local activity journal, pairing/JIT/mux ADR; market `0.1.0` build `4`), with `MARKETING_VERSION 0.1.0` `CURRENT_PROJECT_VERSION 4`, but distributed only to your trusted testers.
 * **Public build = same commit, same binary, new tag.** After private green, you push `v0.1.0` and publish the GitHub release. The market version does not change between private and public — the build is not rebuilt to avoid binary drift.
 
 ## When to run
@@ -74,27 +74,29 @@ Test on **two real devices**: one iOS 17 (e.g., iPhone 13) + one iOS 18 (e.g., i
 | **Repository** | `App Store → Add Source` `https://qnblackcat.github.io/AltStore/apps.json` + bad URL → `Check Health` | `Fast <800ms` / `Slow` / `Offline` + `ms` + `ZStatusBadge`, bad URL → `Offline` |
 | **Downloads** | Add `https://…/app.ipa` on device (LTE), lock, `Pause` → `Resume` → `Cancel`, kill app mid-download, relaunch | Background `com.zynsign.downloads` resumes, `Retry ×3`, survives backgrounding |
 | **Mission Control** | `Home → Refresh Everything` (repeat 3×), check `tmp` + `Downloads` pruning | Report `Completed` + `N sources` + `N apps` + `N cleaned` + `ms`, no re-sign auto-triggered |
-| **Honest 8-10** | `Settings → Installation` / `Pairing` / `Analytics` | `Unavailable` `Never` `None` + typed `InstallationLimitation`/`PairingLimitation`/`Guarantee` + `ZStatusBadge` |
+| **Honest screens** | `Settings → Installation` / `Pairing` / `Analytics` | `Unavailable` `Never` `None` + typed `InstallationLimitation`/`PairingLimitation`/`Guarantee` + `ZStatusBadge`; Installation screen describes the delivery hand-off; Pairing screen renders feasibility notes + ADR anchors |
+| **Deliver hand-off** | Sign a package → `Deliver…` → enter a real HTTPS host → build manifest | `manifest.plist` + `itms-services://…` link + QR generated; `http://`/`file://` refused with a typed error; proxy shows **no** traffic from ZynSign |
+| **Analytics journal** | Exercise import / sign / download → `Settings → Analytics` | Counts + recent activity appear; toggle off stops recording; Clear + Export work; proxy shows **no** outbound traffic |
 | **Diagnostics** | `Settings → Diagnostics & Logs` | Redacted, no key/profile bytes, no `AnalyticsKit` traffic (Charles proxy shows none) |
 
 Log results in `docs/releases/private-testing.md` (append a dated table) — the private build is green only when the matrix is all green.
 
 ## From private green to public publish
 
-1. **Do not rebuild.** The public release is the *same commit* you privately tested (`afd3c83` today — Horizon `58e604c` + `0.1.0`/`3`).
-2. **Changelog ready?** `CHANGELOG.md` `0.1.0` Highlights must match the binary you tested (already done in `58e604c` (notes at `afd3c83`)).
+1. **Do not rebuild.** The public release is the *same commit* you privately tested (today: `arena/01a0d570-zynsign` HEAD — Horizon + hand-off/journal/ADR, `0.1.0`/`4`).
+2. **Changelog ready?** `CHANGELOG.md` `0.1.0` must match the binary you tested (hand-off, journal, ADR included; notes at `docs/releases/notes-v0.1.0.md`).
 3. **Tag and publish (one command after green):**
 
 ```sh
 git tag -a v0.1.0 -m "ZynSign 0.1.0 Horizon — first public dev (private-tested)" HEAD
 git push origin tag v0.1.0
-gh release create v0.1.0 --target arena/01a0d4c7-zynsign \
+gh release create v0.1.0 --target arena/01a0d570-zynsign \
   --title "ZynSign 0.1.0 Horizon — first public dev" \
   --notes-file docs/releases/notes-v0.1.0.md
 # Attach the *same* IPA you privately tested only if you want an asset — otherwise sideload/TestFlight is the distribution
 ```
 
-4. **Market version is already correct:** `MARKETING_VERSION 0.1.0` `CURRENT_PROJECT_VERSION 3` (`ZynSign.xcodeproj/project.pbxproj:332` …). For the next build, bump `CURRENT_PROJECT_VERSION` +1; for next feature, bump `MARKETING_VERSION` per `version-strategy.md`.
+4. **Market version is already correct:** `MARKETING_VERSION 0.1.0` `CURRENT_PROJECT_VERSION 4` (`ZynSign.xcodeproj/project.pbxproj` …). For the next build, bump `CURRENT_PROJECT_VERSION` +1 (→ `5`); for next feature, bump `MARKETING_VERSION` per `version-strategy.md`.
 
 ## ExportOptions templates
 
@@ -107,16 +109,16 @@ Both set `teamID: YOUR_TEAM_ID` (replace), `compileBitcode: false`, `signingStyl
 
 ## CI help
 
-`.github/workflows/private-test-build.yml` builds `Release` on `macos-15` for `iphoneos`/`iphonesimulator`, runs `ci.yml` hygiene + `external_validation.py self-test`, and uploads `ZynSign-private.ipa` as a **private** workflow artifact (`retention-days: 7`, not a release). Trigger: `workflow_dispatch` on `arena/01a0d4c7-zynsign` only — never on `main`.
+`.github/workflows/private-test-build.yml` builds `Release` on `macos-15` for `iphoneos`/`iphonesimulator`, runs `ci.yml` hygiene + `external_validation.py self-test`, and uploads `ZynSign-private.ipa` as a **private** workflow artifact (`retention-days: 7`, not a release). Trigger: `workflow_dispatch` on `arena/01a0d570-zynsign` only — never on `main`.
 
 ## Checklist before you push `v0.1.0` public
 
 - [ ] Private matrix all green on 2 real devices (log appended below)
 - [ ] `Product → Archive` succeeds (Release, `MARKETING_VERSION 0.1.0` `CURRENT_PROJECT_VERSION 3`)
-- [ ] `Diagnostics` redacted, `Settings → Analytics` `0 events` + 5 guarantees, Charles shows no telemetry
-- [ ] `CHANGELOG.md` `0.1.0-dev` matches binary, `README.md` `0.1.0` badges, `WHAT_DOES_NOT_EXIST.md` `7 wired · 3 honest`
+- [ ] `Diagnostics` redacted, `Settings → Analytics` off-device `0 events sent` + 6 guarantees, journal Clear/Export work, Charles shows no telemetry
+- [ ] `CHANGELOG.md` `0.1.0` matches binary, `README.md` `0.1.0` badges, `WHAT_DOES_NOT_EXIST.md` `9 wired · 3 never`
 - [ ] No `/.ai/`, no `Generated by`, no private keys in `git diff`
-- [ ] Tag `v0.1.0` annotated, `gh release` `--target arena/01a0d4c7-zynsign`
+- [ ] Tag `v0.1.0` annotated, `gh release` `--target arena/01a0d570-zynsign`
 
 ---
 
@@ -124,4 +126,4 @@ Both set `teamID: YOUR_TEAM_ID` (replace), `compileBitcode: false`, `signingStyl
 
 | Date (Asia/Dhaka) | Tester | Devices (iOS) | Build `0.1.0 (3)` | Result | Notes |
 |---|---|---|---|---|---|
-| 2026-09-25 | _you_ | iPhone — / iPhone — | `afd3c83` | ☐ green / ☐ needs fix |  |
+| 2026-09-25 | _you_ | iPhone — / iPhone — | `HEAD` | ☐ green / ☐ needs fix |  |

@@ -42,6 +42,29 @@ struct ApplicationEnvironment {
     /// provisioning profile.
     let signingPipeline: SignApplicationPipeline
 
+    /// The local activity journal: on-device-only analytics the Settings
+    /// → Analytics screen reads. Recording goes through
+    /// `recordAnalyticsEvent(category:name:succeeded:)`, which enforces the
+    /// `AnalyticsPolicy` journal preference; nothing here can transmit.
+    let analyticsJournal: any LocalAnalyticsRecording
+
+    /// Records one local activity event when the journal preference allows.
+    ///
+    /// This is the only recording path the presentation layer uses. It
+    /// checks `AnalyticsPolicy.isJournalEnabled` so a call site cannot
+    /// bypass the preference, and it constructs the event itself so a call
+    /// site cannot attach an identifier or free-form text.
+    func recordAnalyticsEvent(
+        category: LocalAnalyticsEvent.Category,
+        name: String,
+        succeeded: Bool
+    ) {
+        guard AnalyticsPolicy.isJournalEnabled else { return }
+        analyticsJournal.record(
+            LocalAnalyticsEvent(category: category, name: name, succeeded: succeeded)
+        )
+    }
+
     /// Returns the file URL of the artifact the library holds for `id`, when
     /// the library holds one. The location is the library artifact directory
     /// plus the identifier and the canonical `ipa` extension; no part of a

@@ -2,10 +2,10 @@
 #
 # README is the storefront and must not drift from
 #   - ZynSign.xcodeproj/project.pbxproj MARKETING_VERSION (market 0.1.0)
-#   - docs/product/WHAT_DOES_NOT_EXIST.md (7 wired · 3 honest)
+#   - docs/product/WHAT_DOES_NOT_EXIST.md (counts derived from its tables)
 #
 # When you add a feature in ZynSign/** or docs/product/** and push to
-# arena/01a0d4c7-zynsign (or main), this workflow runs
+# arena/01a0d570-zynsign (or main), this workflow runs
 # Scripts/update_readme.py and commits the fix if the badge/header
 # is stale. It is the "repos readme automatically updates when add new
 # features" automation the first public dev needs.
@@ -72,7 +72,7 @@ jobs:
           git add README.md
           git commit -m "docs(readme): auto-sync version/badge from MARKETING_VERSION and WHAT_DOES_NOT_EXIST
 
-          Triggered by ${{ github.sha }} on ${{ github.ref_name }} — Scripts/update_readme.py keeps README honest (market 0.1.0, 7 wired · 3 honest)."
+          Triggered by ${{ github.sha }} on ${{ github.ref_name }} — Scripts/update_readme.py keeps README honest (market 0.1.0, counts from WHAT_DOES_NOT_EXIST tables)."
           # Push to the same branch that triggered the workflow
           BRANCH="${GITHUB_REF_NAME}"
           echo "Pushing README fix to ${BRANCH}"
