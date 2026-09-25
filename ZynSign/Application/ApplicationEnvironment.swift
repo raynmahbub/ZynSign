@@ -52,6 +52,13 @@ struct ApplicationEnvironment {
     /// provisioning profile.
     let signingPipeline: SignApplicationPipeline
 
+    /// The signing engine: the coordinator that executes one complete signing
+    /// run — isolated working copy, pre-signing bundle validation, inner-first
+    /// nested signing, application signing, independent verification, and
+    /// packaging — behind one entry point and one progress stream. The
+    /// Signing screen drives this and nothing below it directly.
+    let signingEngine: SigningEngineCoordinator
+
     /// The local activity journal: on-device-only analytics the Settings
     /// → Analytics screen reads. Recording goes through
     /// `recordAnalyticsEvent(category:name:succeeded:)`, which enforces the

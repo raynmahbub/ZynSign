@@ -12,6 +12,75 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — 0.1.0-alpha.1 · Step 7: Signing Engine Execution
+
+- **One execution engine** — `SigningEngineCoordinator` runs a complete
+  signing attempt behind a single call and answers with a structured result:
+  every stage's outcome, the run's summary metrics, both verification reports,
+  the working copy's facts, or the stage that refused with a typed reason and
+  the recovery facts. Stages are named once, in `SigningEngineStage`, and the
+  coordinator, the progress tracker, the diagnostics, and the interface all
+  use that one vocabulary.
+- **The original package is never signed** — every write happens inside an
+  isolated `SigningWorkingCopy` under the configured root. The original is
+  fingerprinted (SHA-256) when the copy is made and re-measured when the copy
+  is discarded, so "original unchanged" is a measurement. Discarding reports
+  the items and bytes reclaimed, and the source container is only ever read
+  through the ordinary read-only archive boundary.
+- **Validation gate before signing** — `SigningEngineBundleValidator` checks
+  the payload layout, the information file, the declared executable, the
+  required files, every location nested discovery found (each with a readable
+  information file and a recorded executable), and the supported layout —
+  including refusing inputs that already carry a signature under the run's
+  policy. A failed check stops the run at Validating with nothing written.
+- **Inner-first nested signing** — Frameworks, then dynamic libraries, then
+  extensions, then nested applications, then the host application, each stage
+  reported separately and skipped-with-reason when a bundle carries none of
+  that kind. The underlying plan keeps a child finalized before its container;
+  the host executable is sealed and signed last, with the seal referencing
+  every nested binary by digest.
+- **Independent verification, twice** — `SigningEngineVerifier` re-reads the
+  signed working copy and re-derives the CodeDirectory facts, the page hashes,
+  the special slots (seal in slot 3, canonical entitlements in slot 5), the
+  embedded entitlements, and the CMS signature under the certificate resolved
+  at verification time, plus bundle consistency and provisioning
+  compatibility; `VerifySignedApplication` then re-reads the *written
+  container* through the archive boundary. Neither shares state with signing,
+  and neither claims trust or installability.
+- **Delivery only after verification** — the IPA is packaged in the pipeline's
+  deterministic `Payload/` form into a scratch path inside the working copy,
+  verified there, and moved to the delivery location only after it passed. A
+  failed run leaves an artifact already at that location untouched and reports
+  that it existed; a verification failure removes nothing but the working
+  copy.
+- **Progress that is a fact, not a spinner** — `SigningEngineProgressTracker`
+  keeps one record per stage (state, item counts, latest detail) and a
+  fraction whose weights sum to `1`. An estimate is offered only after enough
+  of the run has happened (10% and 0.4 s) for a projection to mean something.
+  The tracker is I/O-free and clock-free — callers pass elapsed time in — so
+  the behaviour is testable without waiting.
+- **Failure recovery** — a refusal returns the stage, a bounded detail, a
+  category, a user message, and the recovery facts (original unchanged,
+  working copy discarded, output removed, output pre-existed), with retry
+  offered only for input faults where a second attempt cannot help.
+  Cancellation propagates as `CancellationError` after the working copy is
+  discarded; a partially signed bundle is never left where it could look
+  complete.
+- **One signing screen** — `SigningView` drives the engine end to end: stage
+  rows with live counts, the fraction ring, the estimate when it exists,
+  stage-scoped failure diagnostics, and the export actions — **Export IPA**
+  (share sheet), **Open Details** (`SigningDetailsView`: stage table,
+  verification checks, recovery facts), **Verify Again** (re-runs container
+  verification, never deletes), and **Return to Library** — with semantic
+  fonts, VoiceOver stage summaries, and Dark Mode tokens.
+- `SigningEngineCoordinatorTests`: end-to-end delivery with every stage's
+  outcome and both verification reports, nested-framework runs, refusal of an
+  already-signed input before signing, refusal of a bundle with no information
+  file, an artifact already at the delivery location surviving a failed run,
+  the working copy being discarded on success and on failure, monotonic
+  progress with a complete final snapshot, and verifying a delivered container
+  again — including after it is tampered with.
+
 ### Added — 0.1.0-alpha.1 · Step 2: Production-Grade IPA Import
 
 - **Import queue** — `PackageImportQueue` accepts packages from every entry
