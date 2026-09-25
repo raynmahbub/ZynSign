@@ -63,6 +63,19 @@ struct ApplicationSigningProfileReport: Equatable {
     let overallStatus: ProvisioningProfilePipelineStatus
 }
 
+/// One nested target the validated plan signs.
+struct ApplicationSigningNestedTargetReport: Equatable {
+
+    /// The target's executable location, relative to the bundle.
+    let executablePath: BundlePath
+
+    /// The target's kind, as discovery classified it by location.
+    let kind: NestedCodeKind
+
+    /// The identifier the target's container declared, when it declared one.
+    let bundleIdentifier: String?
+}
+
 /// The discovery stage's evidence.
 struct ApplicationSigningDiscoveryReport: Equatable {
 
@@ -71,6 +84,21 @@ struct ApplicationSigningDiscoveryReport: Equatable {
 
     /// The number of signing steps, including the deferred application step.
     let stepCount: Int
+
+    /// The nested targets themselves, in the plan's deterministic signing
+    /// order. Carried so a later stage can verify each target's identifier
+    /// without re-reading the source container.
+    let nestedTargets: [ApplicationSigningNestedTargetReport]
+
+    init(
+        nestedItemCount: Int,
+        stepCount: Int,
+        nestedTargets: [ApplicationSigningNestedTargetReport] = []
+    ) {
+        self.nestedItemCount = nestedItemCount
+        self.stepCount = stepCount
+        self.nestedTargets = nestedTargets
+    }
 }
 
 /// The sealing stage's evidence.
@@ -110,6 +138,77 @@ struct ApplicationSigningStageReports: Equatable {
     let verification: VerifySignedApplicationReport
 }
 
+/// The evidence every stage up to and including main-executable signing
+/// established, together with the signed working copy those stages left in
+/// place.
+///
+/// The type exists so a caller that wants to verify or package the signed
+/// bundle itself — the signing engine coordinator does exactly that — can run
+/// the pipeline's signing stages without giving up ownership of the working
+/// copy. The caller that receives one of these owns it and must discard it;
+/// `sign(_:)` does so itself.
+struct ApplicationSigningSignedWorkingCopy {
+
+    /// The working copy's own directory, removed by `discard()`.
+    let workingRoot: URL
+
+    /// The signed `<Name>.app` directory inside the working copy.
+    let bundleDirectory: URL
+
+    /// The bundle directory's own name.
+    let bundleName: String
+
+    /// Where the caller intends the container to be written.
+    let outputURL: URL
+
+    /// Whether the run created the working root itself. A caller-supplied
+    /// root belongs to its caller; `discard()` removes it either way, because
+    /// the holder of the copy is the one discarding it.
+    let ownsWorkingRoot: Bool
+
+    /// Every stage's evidence, in pipeline order, without packaging or
+    /// verification — those have not run yet.
+    let reports: ApplicationSigningSignedReports
+
+    /// What an independent verification must hold the delivered container to.
+    let expectations: SignedApplicationExpectations
+
+    /// Removes the working copy. Idempotent.
+    func discard() {
+        try? FileManager.default.removeItem(at: workingRoot)
+    }
+}
+
+/// The stage evidence a signed but not yet packaged working copy carries.
+struct ApplicationSigningSignedReports: Equatable {
+
+    let integrity: ApplicationSigningIntegrityReport
+    let profile: ApplicationSigningProfileReport
+    let discovery: ApplicationSigningDiscoveryReport
+    let extraction: ArchiveExtractionReport
+    let nested: NestedSigningSummary
+    let sealing: ApplicationSigningSealingReport
+    let mainExecutable: ApplicationSigningMainExecutableReport
+
+    /// Every stage's evidence once packaging and verification have run too.
+    func completed(
+        packaging: PackageSignedApplicationReport,
+        verification: VerifySignedApplicationReport
+    ) -> ApplicationSigningStageReports {
+        ApplicationSigningStageReports(
+            integrity: integrity,
+            profile: profile,
+            discovery: discovery,
+            extraction: extraction,
+            nested: nested,
+            sealing: sealing,
+            mainExecutable: mainExecutable,
+            packaging: packaging,
+            verification: verification
+        )
+    }
+}
+
 /// Why one signing run failed.
 struct ApplicationSigningFailure: Error, Equatable {
 
@@ -124,29 +223,6 @@ struct ApplicationSigningFailure: Error, Equatable {
     /// The failure's category.
     let category: DiagnosticCategory
 }
-
-/// One report a signing run makes about a stage while it runs.
-///
-/// Reports are advisory: they exist so a caller can show the run's actual
-/// stage-by-stage progress and record a truthful timeline. Nothing about the
-/// run depends on them — an absent observer, or one that does nothing, changes
-/// no result.
-enum ApplicationSigningStageEvent: Equatable, Sendable {
-
-    /// The stage began its work.
-    case began(ApplicationSigningStage)
-
-    /// The stage completed.
-    case finished(ApplicationSigningStage)
-
-    /// The stage refused the run or failed. `detail` is the stage's own
-    /// fixed-language explanation and carries no secrets.
-    case failed(ApplicationSigningStage, detail: String)
-}
-
-/// Receives one run's stage reports. Called synchronously on the run's task,
-/// in the order the stages happen.
-typealias ApplicationSigningStageObserver = @Sendable (ApplicationSigningStageEvent) -> Void
 
 /// Whether one signing run produced a signed container.
 enum ApplicationSigningStatus: String, Equatable {
@@ -200,9 +276,9 @@ struct SignApplicationOptions {
     /// The profile class the caller intends to use, when one is established.
     let intendedProfileClass: ProvisioningProfileClassification?
 
-    /// Whether to emit a deterministic DER entitlements blob in slot 7 and
-    /// use CodeDirectory v0x20400 (iOS 15+). When false, only the XML slot 5
-    /// is emitted with v0x20200.
+    /// Reserved for DER entitlements. This pipeline does NOT yet embed slot 7;
+    /// requesting it is explicitly refused instead of silently producing an
+    /// XML-only signature with a misleading v0x20400 CodeDirectory.
     let emitDEREntitlements: Bool
 
     init(
@@ -336,108 +412,51 @@ struct SignApplicationPipeline {
 
     /// Signs one application container.
     ///
+    /// The run is the composition of the two steps a caller can also drive
+    /// itself: `signUpToMainExecutable(_:observer:)`, then packaging, then
+    /// independent verification of the written container. The working copy is
+    /// discarded on every path, and a run that fails at any stage delivers
+    /// nothing.
+    ///
     /// - Parameters:
     ///   - request: The run's inputs.
-    ///   - workingDirectoryRoot: The directory the run's working copy is
-    ///     created under, when the caller wants the run's temporary state in
-    ///     a place of its own — one directory per operation, so two runs can
-    ///     never write into each other's files. `nil` uses the root the
-    ///     pipeline was composed with.
-    ///   - observer: An optional receiver for the run's stage reports, so a
-    ///     caller can show what is happening and record a truthful timeline.
-    ///     Reporting never changes the run.
+    ///   - observer: Receives progress events as the run advances. `nil` runs
+    ///     silently; an observer cannot influence the run.
     /// - Returns: The run's outcome: a delivered container with every
     ///   stage's evidence, or the refusing stage with a typed reason.
     /// - Throws: `CancellationError` when the run is cancelled. Every other
     ///   failure is a returned result, never a thrown error.
     func sign(
         _ request: SignApplicationRequest,
-        workingDirectoryRoot: URL? = nil,
-        observe observer: ApplicationSigningStageObserver? = nil
+        observer: ApplicationSigningProgressObserver? = nil,
+        workingRoot: URL? = nil
     ) async throws -> SignApplicationResult {
         try Task.checkCancellation()
-        let workingRoot = try makeWorkingDirectory(under: workingDirectoryRoot)
-        defer { try? FileManager.default.removeItem(at: workingRoot) }
+        guard !request.options.emitDEREntitlements else {
+            return SignApplicationResult(
+                status: .failed, outputURL: nil, stages: nil,
+                failure: ApplicationSigningFailure(
+                    stage: .mainExecutable,
+                    detail: "DER entitlements are not embedded by this signing pipeline.",
+                    category: .unsupportedInput
+                )
+            )
+        }
         do {
-            let integrity = try await observing(.integrity, observer) {
-                try runIntegrity(request: request)
-            }
+            let signed = try await signUpToMainExecutable(request, observer: observer, workingRoot: workingRoot)
+            defer { signed.discard() }
             try Task.checkCancellation()
-            let profile = try await observing(.profile, observer) {
-                try runProfile(request: request, metadata: integrity.metadata)
-            }
+            let packaging = try await package(signed, outputURL: request.outputURL, observer: observer)
             try Task.checkCancellation()
-            let plan = try await observing(.discovery, observer) {
-                try runDiscovery(request: request, integrity: integrity)
-            }
-            try Task.checkCancellation()
-            let extraction = try await observing(.extraction, observer) {
-                try await runExtraction(
-                    request: request,
-                    integrity: integrity,
-                    workingRoot: workingRoot
-                )
-            }
-            try Task.checkCancellation()
-            let nested = try await observing(.nestedSigning, observer) {
-                try runNestedSigning(
-                    request: request,
-                    plan: plan,
-                    bundleDirectory: extraction.bundleDirectory
-                )
-            }
-            try Task.checkCancellation()
-            let sealing = try await observing(.resourceSealing, observer) {
-                try runSealing(
-                    plan: plan,
-                    nested: nested,
-                    integrity: integrity,
-                    bundleDirectory: extraction.bundleDirectory
-                )
-            }
-            try Task.checkCancellation()
-            let main = try await observing(.mainExecutable, observer) {
-                try runMainExecutable(
-                    request: request,
-                    integrity: integrity,
-                    sealed: sealing.seal,
-                    bundleDirectory: extraction.bundleDirectory
-                )
-            }
-            try Task.checkCancellation()
-            let packaging = try await observing(.packaging, observer) {
-                try await runPackaging(
-                    request: request,
-                    integrity: integrity,
-                    bundleDirectory: extraction.bundleDirectory
-                )
-            }
-            try Task.checkCancellation()
-            let verification = try await observing(.verification, observer) {
-                try await runVerification(
-                    request: request,
-                    integrity: integrity,
-                    plan: plan,
-                    sealed: sealing.seal
-                )
-            }
+            let verification = try await verify(
+                containerURL: request.outputURL,
+                expectations: signed.expectations,
+                observer: observer
+            )
             return SignApplicationResult(
                 status: .signed,
                 outputURL: request.outputURL,
-                stages: ApplicationSigningStageReports(
-                    integrity: integrity.report,
-                    profile: profile,
-                    discovery: ApplicationSigningDiscoveryReport(
-                        nestedItemCount: plan.items.count,
-                        stepCount: plan.stepCount
-                    ),
-                    extraction: extraction.report,
-                    nested: nested.summary,
-                    sealing: sealing.report,
-                    mainExecutable: main,
-                    packaging: packaging,
-                    verification: verification
-                ),
+                stages: signed.reports.completed(packaging: packaging, verification: verification),
                 failure: nil
             )
         } catch let failure as ApplicationSigningFailure {
@@ -445,46 +464,232 @@ struct SignApplicationPipeline {
         }
     }
 
-    // MARK: - Stage reporting
-
-    /// Runs one stage's work, reporting it to the observer as it begins,
-    /// finishes, or fails.
+    /// Runs every signing stage up to and including main-executable signing,
+    /// leaving the signed working copy in place for the caller.
     ///
-    /// Reporting is advisory and cannot alter the run: the observer is called
-    /// for its side effect only, its return value is discarded, and no
-    /// failure it might produce is propagated — a caller that throws from the
-    /// observer would otherwise be able to fail a signing run from a progress
-    /// callback.
-    private func observing<T>(
-        _ stage: ApplicationSigningStage,
-        _ observer: ApplicationSigningStageObserver?,
-        _ body: () async throws -> T
-    ) async throws -> T {
-        observer?(.began(stage))
+    /// The caller that receives a working copy owns it and must discard it.
+    /// The stage order is the pipeline's fixed order — integrity, profile,
+    /// discovery, extraction, nested signing, resource sealing, main
+    /// executable — and any refusal or failure ends the run with a typed
+    /// reason, discards the working copy, and leaves the source container
+    /// untouched.
+    ///
+    /// - Parameters:
+    ///   - request: The run's inputs.
+    ///   - observer: Receives progress events as the run advances.
+    ///   - workingRoot: A directory the run extracts into, when the caller
+    ///     already owns one — the signing engine's working copy, for example.
+    ///     A supplied directory is never removed by the pipeline, on any path;
+    ///     its owner discards it. When `nil`, the pipeline creates its own and
+    ///     removes it when the run ends or fails.
+    /// - Returns: The signed working copy with every stage's evidence.
+    /// - Throws: `ApplicationSigningFailure` when a stage refuses the run, and
+    ///   `CancellationError` when the run is cancelled.
+    func signUpToMainExecutable(
+        _ request: SignApplicationRequest,
+        observer: ApplicationSigningProgressObserver? = nil,
+        workingRoot suppliedWorkingRoot: URL? = nil
+    ) async throws -> ApplicationSigningSignedWorkingCopy {
+        try Task.checkCancellation()
+        // The signing engine drives this entry point directly (not sign()).
+        // Refuse unsupported DER before allocating a working copy or touching
+        // an archive: the signer does not serialize/bind entitlement slot 7.
+        guard !request.options.emitDEREntitlements else {
+            throw ApplicationSigningFailure(
+                stage: .mainExecutable,
+                detail: "DER entitlements are not embedded by this signing pipeline.",
+                category: .unsupportedInput
+            )
+        }
+        let ownsWorkingRoot = suppliedWorkingRoot == nil
+        let workingRoot = try suppliedWorkingRoot ?? makeWorkingDirectory()
         do {
-            let value = try await body()
-            observer?(.finished(stage))
-            return value
+            observer?(.stageStarted(.integrity))
+            let integrity = try runIntegrity(request: request)
+            observer?(.stageCompleted(.integrity))
+            try Task.checkCancellation()
+
+            observer?(.stageStarted(.profile))
+            let profile = try runProfile(request: request, metadata: integrity.metadata)
+            observer?(.stageCompleted(.profile))
+            try Task.checkCancellation()
+
+            observer?(.stageStarted(.discovery))
+            let plan = try runDiscovery(request: request, integrity: integrity)
+            observer?(.nestedPlan(Self.nestedTotals(of: plan)))
+            observer?(.stageCompleted(.discovery))
+            try Task.checkCancellation()
+
+            observer?(.stageStarted(.extraction))
+            let extraction = try await runExtraction(
+                request: request,
+                integrity: integrity,
+                workingRoot: workingRoot
+            )
+            observer?(.stageCompleted(.extraction))
+            try Task.checkCancellation()
+
+            observer?(.stageStarted(.nestedSigning))
+            let nested = try runNestedSigning(
+                request: request,
+                plan: plan,
+                bundleDirectory: extraction.bundleDirectory,
+                observer: observer
+            )
+            observer?(.stageCompleted(.nestedSigning))
+            try Task.checkCancellation()
+
+            observer?(.stageStarted(.resourceSealing))
+            let sealing = try runSealing(
+                plan: plan,
+                nested: nested,
+                integrity: integrity,
+                bundleDirectory: extraction.bundleDirectory
+            )
+            observer?(.stageCompleted(.resourceSealing))
+            try Task.checkCancellation()
+
+            observer?(.stageStarted(.mainExecutable))
+            let main = try runMainExecutable(
+                request: request,
+                integrity: integrity,
+                sealed: sealing.seal,
+                bundleDirectory: extraction.bundleDirectory
+            )
+            observer?(.stageCompleted(.mainExecutable))
+
+            guard let bundleName = integrity.report.bundlePath.components.last else {
+                throw ApplicationSigningFailure(
+                    stage: .mainExecutable,
+                    detail: "The bundle name cannot be recovered for packaging.",
+                    category: .internalFailure
+                )
+            }
+            return ApplicationSigningSignedWorkingCopy(
+                workingRoot: workingRoot,
+                bundleDirectory: extraction.bundleDirectory,
+                bundleName: bundleName,
+                outputURL: request.outputURL,
+                ownsWorkingRoot: ownsWorkingRoot,
+                reports: ApplicationSigningSignedReports(
+                    integrity: integrity.report,
+                    profile: profile,
+                    discovery: ApplicationSigningDiscoveryReport(
+                        nestedItemCount: plan.items.count,
+                        stepCount: plan.stepCount,
+                        nestedTargets: plan.items.map { item in
+                            ApplicationSigningNestedTargetReport(
+                                executablePath: item.executablePath,
+                                kind: item.kind,
+                                bundleIdentifier: item.bundleIdentifier?.rawValue
+                            )
+                        }
+                    ),
+                    extraction: extraction.report,
+                    nested: nested.summary,
+                    sealing: sealing.report,
+                    mainExecutable: main
+                ),
+                expectations: SignedApplicationExpectations(
+                    bundlePath: integrity.report.bundlePath,
+                    bundleIdentifier: integrity.report.bundleIdentifier,
+                    executableName: integrity.report.executableName,
+                    executablePath: integrity.report.executablePath,
+                    profile: request.profile,
+                    sealedCodeResources: sealing.seal.bytes,
+                    entitlements: request.entitlements,
+                    nestedExecutablePaths: plan.items.map { $0.executablePath }
+                )
+            )
         } catch {
-            observer?(.failed(stage, detail: Self.observerDetail(for: error)))
+            if ownsWorkingRoot {
+                try? FileManager.default.removeItem(at: workingRoot)
+            }
             throw error
         }
     }
 
-    /// The detail reported with a failed stage: the failure's own fixed
-    /// language when it carries any, and a neutral sentence otherwise.
-    private static func observerDetail(for error: any Error) -> String {
-        if let failure = error as? ApplicationSigningFailure { return failure.detail }
-        if let nested = error as? NestedSigningFailure { return nested.detail }
-        if let zynsignError = error as? ZynSignError { return zynsignError.userMessage }
-        if error is CancellationError { return "The operation was cancelled." }
-        return "The stage did not complete."
+    /// Rebuilds a signed working copy as a deterministic container.
+    ///
+    /// - Parameters:
+    ///   - workingCopy: The signed working copy to package. Read but never
+    ///     modified.
+    ///   - outputURL: Where the container is written. Any partial file is
+    ///     removed when packaging fails.
+    ///   - observer: Receives the packaging stage's progress events.
+    /// - Throws: `ApplicationSigningFailure` when packaging refuses.
+    func package(
+        _ workingCopy: ApplicationSigningSignedWorkingCopy,
+        outputURL: URL,
+        observer: ApplicationSigningProgressObserver? = nil
+    ) async throws -> PackageSignedApplicationReport {
+        observer?(.stageStarted(.packaging))
+        do {
+            let report = try await packager.package(PackageSignedApplicationRequest(
+                bundleDirectory: workingCopy.bundleDirectory,
+                bundleName: workingCopy.bundleName,
+                outputURL: outputURL
+            ))
+            observer?(.stageCompleted(.packaging))
+            return report
+        } catch let cancellation as CancellationError {
+            throw cancellation
+        } catch {
+            throw map(error, stage: .packaging, detail: "The signed bundle could not be packaged.")
+        }
+    }
+
+    /// Verifies a written container independently against the run's
+    /// expectations.
+    ///
+    /// The verification is the same one the single-call run performs: a fresh
+    /// read of the delivered container through the archive boundary, sharing
+    /// no signing state. A container that fails is removed and reported,
+    /// never delivered.
+    ///
+    /// - Throws: `ApplicationSigningFailure` at the verification stage when
+    ///   the container does not hold up.
+    func verify(
+        containerURL: URL,
+        expectations: SignedApplicationExpectations,
+        observer: ApplicationSigningProgressObserver? = nil
+    ) async throws -> VerifySignedApplicationReport {
+        observer?(.stageStarted(.verification))
+        let report: VerifySignedApplicationReport
+        do {
+            report = try await verifier.verify(containerURL: containerURL, expectations: expectations)
+        } catch let cancellation as CancellationError {
+            try? FileManager.default.removeItem(at: containerURL)
+            throw cancellation
+        } catch {
+            try? FileManager.default.removeItem(at: containerURL)
+            throw map(error, stage: .verification, detail: "The signed container could not be verified.")
+        }
+        guard report.passed else {
+            try? FileManager.default.removeItem(at: containerURL)
+            throw ApplicationSigningFailure(
+                stage: .verification,
+                detail: "Independent verification refused the signed container.",
+                category: .internalFailure
+            )
+        }
+        observer?(.stageCompleted(.verification))
+        return report
+    }
+
+    /// How many nested targets each kind contributes, for progress reporting.
+    static func nestedTotals(of plan: NestedSigningPlan) -> [NestedCodeKind: Int] {
+        var totals: [NestedCodeKind: Int] = [:]
+        for item in plan.items {
+            totals[item.kind, default: 0] += 1
+        }
+        return totals
     }
 
     // MARK: - Working directories
 
-    private func makeWorkingDirectory(under requestedRoot: URL?) throws -> URL {
-        let root = (requestedRoot ?? workingDirectoryRoot ?? FileManager.default.temporaryDirectory)
+    private func makeWorkingDirectory() throws -> URL {
+        let root = (workingDirectoryRoot ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("zynsign-signing-\(UUID().uuidString)", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -695,12 +900,40 @@ struct SignApplicationPipeline {
     private func runNestedSigning(
         request: SignApplicationRequest,
         plan: NestedSigningPlan,
-        bundleDirectory: URL
+        bundleDirectory: URL,
+        observer: ApplicationSigningProgressObserver? = nil
     ) throws -> NestedSigningResult {
         let store = DirectoryBundleBinaryStore(
             bundleDirectory: bundleDirectory,
             maximumBinaryBytes: limits.maximumEntryBytes
         )
+        let nestedObserver: NestedSigningProgressObserver? = observer.map { report in
+            { progress in
+                switch progress.phase {
+                case .signing:
+                    report(.nestedItemStarted(
+                        order: progress.order,
+                        total: progress.total,
+                        kind: progress.kind,
+                        path: progress.executablePath
+                    ))
+                case .signed:
+                    report(.nestedItemSigned(
+                        order: progress.order,
+                        total: progress.total,
+                        kind: progress.kind,
+                        path: progress.executablePath
+                    ))
+                case .refused:
+                    report(.nestedItemRefused(
+                        order: progress.order,
+                        total: progress.total,
+                        kind: progress.kind,
+                        path: progress.executablePath
+                    ))
+                }
+            }
+        }
         let result = nestedSigner.sign(
             NestedSigningRequest(
                 plan: plan,
@@ -709,7 +942,8 @@ struct SignApplicationPipeline {
                 teamIdentifier: request.options.teamIdentifier,
                 mutationStrategy: .directMutation
             ),
-            store: store
+            store: store,
+            observer: nestedObserver
         )
         guard result.isSuccess else {
             let detail = result.itemResults.first {
@@ -918,21 +1152,10 @@ struct SignApplicationPipeline {
         } catch {
             throw map(error, stage: .mainExecutable, detail: "The CodeDirectory hash configuration could not be constructed.")
         }
-        let derBlob: DEREntitlementsBlob?
-        if request.options.emitDEREntitlements {
-            // Deterministic DER encoding of the same entitlement set. The
-            // resulting blob bytes will be hashed into slot 7 (DER) alongside
-            // the XML slot 5; the version must be 0x20400 to carry slot 7.
-            derBlob = try? DEREntitlementsSerializer().blob(request.entitlements)
-        } else {
-            derBlob = nil
-        }
-        let cdVersion: CodeDirectoryVersion = request.options.emitDEREntitlements ? .v20400 : .v20200
-        // When DER is enabled, the caller and the verifier both expect the
-        // DER digest in slot 7. The Mach-O layer currently derives slot
-        // digests from metadata; version gating ensures slot 7 is only
-        // advertised when the DER form is available — see DEREntitlementsBlob.
-        _ = derBlob // retained for future slot-7 hashing when MachO layer wires it
+        // This path emits XML only. The explicit refusal in sign(_:) keeps an
+        // unsupported DER request from silently changing the version without
+        // embedding and verifying the corresponding slot-7 blob.
+        let cdVersion: CodeDirectoryVersion = .v20200
         let signingResult: MachOSigningResult
         do {
             signingResult = try singleSigner.sign(MachOSigningRequest(
@@ -965,69 +1188,6 @@ struct SignApplicationPipeline {
             throw map(error, stage: .mainExecutable, detail: "The signed main executable could not be written.")
         }
         return ApplicationSigningMainExecutableReport(signatureByteCount: signingResult.cryptographicSignature.count)
-    }
-
-    // MARK: - Packaging and verification
-
-    private func runPackaging(
-        request: SignApplicationRequest,
-        integrity: IntegrityContext,
-        bundleDirectory: URL
-    ) async throws -> PackageSignedApplicationReport {
-        guard let bundleName = integrity.report.bundlePath.components.last else {
-            throw ApplicationSigningFailure(
-                stage: .packaging,
-                detail: "The bundle name cannot be recovered for packaging.",
-                category: .internalFailure
-            )
-        }
-        do {
-            return try await packager.package(PackageSignedApplicationRequest(
-                bundleDirectory: bundleDirectory,
-                bundleName: bundleName,
-                outputURL: request.outputURL
-            ))
-        } catch let cancellation as CancellationError {
-            throw cancellation
-        } catch {
-            throw map(error, stage: .packaging, detail: "The signed bundle could not be packaged.")
-        }
-    }
-
-    private func runVerification(
-        request: SignApplicationRequest,
-        integrity: IntegrityContext,
-        plan: NestedSigningPlan,
-        sealed: SealedCodeResources
-    ) async throws -> VerifySignedApplicationReport {
-        let expectations = SignedApplicationExpectations(
-            bundlePath: integrity.report.bundlePath,
-            bundleIdentifier: integrity.report.bundleIdentifier,
-            executableName: integrity.report.executableName,
-            executablePath: integrity.report.executablePath,
-            profile: request.profile,
-            sealedCodeResources: sealed.bytes,
-            entitlements: request.entitlements,
-            nestedExecutablePaths: plan.items.map { $0.executablePath }
-        )
-        let report: VerifySignedApplicationReport
-        do {
-            report = try await verifier.verify(containerURL: request.outputURL, expectations: expectations)
-        } catch let cancellation as CancellationError {
-            try? FileManager.default.removeItem(at: request.outputURL)
-            throw cancellation
-        } catch {
-            throw map(error, stage: .verification, detail: "The signed container could not be verified.")
-        }
-        guard report.passed else {
-            try? FileManager.default.removeItem(at: request.outputURL)
-            throw ApplicationSigningFailure(
-                stage: .verification,
-                detail: "Independent verification refused the signed container.",
-                category: .internalFailure
-            )
-        }
-        return report
     }
 
     // MARK: - Error mapping

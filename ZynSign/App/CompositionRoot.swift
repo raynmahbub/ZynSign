@@ -25,11 +25,17 @@ enum CompositionRoot {
     /// the same cryptographic machinery that the tests cover.
     static func makeApplicationEnvironment() -> ApplicationEnvironment {
         let intake = SecurityScopedArtifactIntake(directory: importStagingDirectory)
-        let library = makeApplicationLibrary(intake: intake)
-        let packageImport = makePackageImport(intake: intake, library: library)
+        let diagnosticHistory = makeSigningDiagnosticsHistoryStore()
+        let library = makeApplicationLibrary(intake: intake, diagnosticHistory: diagnosticHistory)
         let identityStore = makeIdentityStore()
+        let diagnostics = makeSigningDiagnostics(
+            library: library, intake: intake, identities: identityStore,
+            history: diagnosticHistory
+        )
+        let packageImport = makePackageImport(intake: intake, library: library, diagnostics: diagnostics)
         let pkcs12Importer = makePKCS12Importer(identityStore: identityStore)
         let pipeline = makeSignApplicationPipeline(identityStore: identityStore)
+        let signingEngine = makeSigningEngine(identityStore: identityStore, pipeline: pipeline)
         let presets = makeSigningPresetStore()
         let history = makeSigningHistoryStore()
         let profiles = makeProvisioningProfileLibrary()
@@ -41,9 +47,12 @@ enum CompositionRoot {
             packageImportQueue: PackageImportQueue(importing: packageImport),
             library: library,
             bundleInspection: makeBundleContentsInspection(intake: intake, library: library),
+            applicationDetailsInspection: makeApplicationDetailsInspection(intake: intake, library: library),
+            bundleEntryInspection: makeBundleEntryInspection(intake: intake, library: library),
             identityStore: identityStore,
             pkcs12Importer: pkcs12Importer,
             signingPipeline: pipeline,
+            signingEngine: signingEngine,
             analyticsJournal: makeAnalyticsJournal(),
             signingPresets: presets,
             signingHistory: history,
@@ -57,8 +66,35 @@ enum CompositionRoot {
             storageManagement: storage
         )
         environment.provisioningProfileImporter = makeProvisioningProfileImporter()
+        environment.profileCompatibility = ProfileCompatibilityUseCase(identityStore: identityStore)
+        environment.profileSelections = UserDefaultsProfileSelectionStore()
         environment.appIcons = makeAppIconExtraction()
+        environment.signingDiagnostics = diagnostics
+        environment.identityAnnotations = makeIdentityAnnotationsStore()
         return environment
+    }
+
+    /// Builds the file-backed local annotation store the Certificates area
+    /// drives: display labels, import dates, and the default identity. The
+    /// catalog holds public certificate fingerprints and user-chosen labels
+    /// only — no key material, no passwords — and lives next to the other
+    /// local workspaces under Application Support.
+    static func makeIdentityAnnotationsStore() -> any IdentityAnnotationsStore {
+        FileIdentityAnnotationsStore(catalogLocation: identityAnnotationsCatalogLocation())
+    }
+
+    /// The on-disk location of the identity annotation catalog. Lives under
+    /// Application Support so it is not part of any iCloud or iTunes
+    /// backup, in the same directory as the other local workspaces.
+    static func identityAnnotationsCatalogLocation() -> URL {
+        let applicationSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return applicationSupport
+            .appendingPathComponent("ZynSignLibrary", isDirectory: true)
+            .appendingPathComponent("IdentityAnnotations.json", isDirectory: false)
     }
 
     /// Builds the provisioning-profile importer the Profiles tab drives. It
@@ -358,7 +394,8 @@ enum CompositionRoot {
     static func makePackageImport(
         intake: SecurityScopedArtifactIntake,
         library: ApplicationLibrary,
-        limits: ArchiveLimits = .default
+        limits: ArchiveLimits = .default,
+        diagnostics: SigningDiagnosticsService? = nil
     ) -> IPAPackageImport {
         let readerProvider = DirectoryArtifactArchiveReaderProvider(
             directories: [libraryArtifactDirectory, intake.directory],
@@ -369,7 +406,8 @@ enum CompositionRoot {
             intake: intake,
             readerProvider: readerProvider,
             library: library,
-            limits: limits
+            limits: limits,
+            diagnostics: diagnostics
         )
     }
 
@@ -587,14 +625,34 @@ enum CompositionRoot {
         #endif
     }
 
+    /// Builds the on-demand entry preview the IPA explorer uses when the user
+    /// opens a file. It shares the library artifact directory and the default
+    /// resource policy with structure inspection. Preview reads are bounded
+    /// and read-only; this factory wires no writer.
+    static func makeBundleEntryInspection(
+        intake: SecurityScopedArtifactIntake,
+        library: ApplicationLibrary,
+        limits: ArchiveLimits = .default
+    ) -> IPABundleEntryInspection {
+        IPABundleEntryInspection(
+            library: library,
+            readerProvider: DirectoryArtifactArchiveReaderProvider(
+                directory: libraryArtifactDirectory,
+                fileExtension: intake.fileExtension,
+                limits: limits
+            ),
+            limits: limits
+        )
+    }
+
     /// Builds the bundle contents inspection use case over the given library,
     /// selecting the concrete archive implementation.
     ///
     /// The explorer describes applications the library holds, so its archive
     /// boundary reads library storage only, under the same file-extension
     /// convention and the same resource policy as import. It is the same
-    /// reader implementation import uses, chosen here and nowhere below;
-    /// inspection reads a package's entry table and never writes.
+    /// reader implementation import uses, chosen here and nowhere below.
+    /// Structure listing reads a package's entry table and never writes.
     static func makeBundleContentsInspection(
         intake: SecurityScopedArtifactIntake,
         library: ApplicationLibrary,
@@ -607,6 +665,40 @@ enum CompositionRoot {
                 fileExtension: intake.fileExtension,
                 limits: limits
             )
+        )
+    }
+
+    /// Builds the comprehensive, read-only inspection used by App Details.
+    ///
+    /// Metadata reads keep the ordinary 4 MiB policy. The archive reader is
+    /// configured to permit a separate, explicit 32 MiB ceiling for a
+    /// best-effort Mach-O signature-structure summary; larger executables are
+    /// not loaded and are reported as not inspected. This is structural
+    /// parsing only, not cryptographic verification.
+    static func makeApplicationDetailsInspection(
+        intake: SecurityScopedArtifactIntake,
+        library: ApplicationLibrary,
+        limits: ArchiveLimits = .default,
+        maximumExecutableReadBytes: Int = 32 * 1_024 * 1_024
+    ) -> IPAApplicationDetailsInspection {
+        let readerLimits = ArchiveLimits(
+            maximumEntryCount: limits.maximumEntryCount,
+            maximumEntryNameLength: limits.maximumEntryNameLength,
+            maximumPathDepth: limits.maximumPathDepth,
+            maximumEntryBytes: limits.maximumEntryBytes,
+            maximumTotalUncompressedBytes: limits.maximumTotalUncompressedBytes,
+            maximumCompressionRatio: limits.maximumCompressionRatio,
+            maximumInspectionReadBytes: max(limits.maximumInspectionReadBytes, maximumExecutableReadBytes)
+        )
+        return IPAApplicationDetailsInspection(
+            library: library,
+            readerProvider: DirectoryArtifactArchiveReaderProvider(
+                directory: libraryArtifactDirectory,
+                fileExtension: intake.fileExtension,
+                limits: readerLimits
+            ),
+            limits: limits,
+            maximumExecutableReadBytes: maximumExecutableReadBytes
         )
     }
 
@@ -697,6 +789,40 @@ enum CompositionRoot {
         VerifySignedApplication(digest: digest, limits: limits)
     }
 
+    /// Builds the signing engine over the pipeline the environment exposes.
+    ///
+    /// The engine's validator reads the source container through the ordinary
+    /// archive boundary; its working-copy verifier re-reads the signed bundle
+    /// and its container verifier reopens the written container. All three
+    /// are composed over the same reader, digest, and limits the rest of the
+    /// application uses, so no signing path has a private implementation of
+    /// reading, hashing, or verification.
+    static func makeSigningEngine(
+        identityStore: any IdentityStore,
+        pipeline: SignApplicationPipeline,
+        digest: any MessageDigest = makeMessageDigest(),
+        signatureVerifier: any CryptographicSignatureVerifier = makeCryptographicSignatureVerifier(),
+        limits: ArchiveLimits = .default,
+        workingDirectoryRoot: URL? = nil
+    ) -> SigningEngineCoordinator {
+        SigningEngineCoordinator(
+            pipeline: pipeline,
+            validator: SigningEngineBundleValidator(
+                makeReader: { ZipArchiveReader(location: $0, limits: limits) },
+                limits: limits
+            ),
+            workingCopyVerifier: SigningEngineVerifier(
+                identities: identityStore,
+                digest: digest,
+                cryptographicVerifier: signatureVerifier,
+                maximumBinaryBytes: limits.maximumEntryBytes
+            ),
+            containerVerifier: makeVerifySignedApplication(digest: digest, limits: limits),
+            digest: digest,
+            workingDirectoryRoot: workingDirectoryRoot
+        )
+    }
+
     /// Builds the end-to-end application signing pipeline over the given
     /// identity store.
     ///
@@ -734,14 +860,48 @@ enum CompositionRoot {
     /// application-owned artifact storage fed from the intake's staging
     /// directory for the bytes behind them. Nothing is created on disk at
     /// composition time; both stores create their directories on first use.
-    private static func makeApplicationLibrary(intake: SecurityScopedArtifactIntake) -> ApplicationLibrary {
+    private static func makeApplicationLibrary(
+        intake: SecurityScopedArtifactIntake,
+        diagnosticHistory: any SigningDiagnosticsHistoryStore
+    ) -> ApplicationLibrary {
         ApplicationLibrary(
             records: FileApplicationRecordStore(catalogLocation: libraryCatalogLocation),
             artifacts: FileLibraryArtifactStore(
                 stagingDirectory: intake.directory,
                 libraryDirectory: libraryArtifactDirectory,
                 fileExtension: intake.fileExtension
-            )
+            ),
+            diagnosticHistory: diagnosticHistory
+        )
+    }
+
+    static func makeSigningDiagnosticsHistoryStore() -> any SigningDiagnosticsHistoryStore {
+        FileSigningDiagnosticsHistoryStore(
+            location: libraryRootDirectory.appendingPathComponent("SigningDiagnostics.json")
+        )
+    }
+
+    /// One read-only analyzer for import, app details and the signing screen.
+    /// The same profile validator, Keychain metadata port, archive reader and
+    /// Mach-O admission rule are used by the pipeline; no second policy or
+    /// filesystem location is invented by a view.
+    static func makeSigningDiagnostics(
+        library: ApplicationLibrary,
+        intake: SecurityScopedArtifactIntake,
+        identities: any IdentityStore,
+        history: any SigningDiagnosticsHistoryStore
+    ) -> SigningDiagnosticsService {
+        SigningDiagnosticsService(
+            library: library,
+            readerProvider: DirectoryArtifactArchiveReaderProvider(
+                directory: libraryArtifactDirectory,
+                fileExtension: intake.fileExtension
+            ),
+            identities: identities,
+            profilePipeline: makeProvisioningProfilePipeline(identityStore: identities),
+            policy: makeProvisioningPolicyValidation(identityStore: identities),
+            digest: makeMessageDigest(),
+            historyStore: history
         )
     }
 

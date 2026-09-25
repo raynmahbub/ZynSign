@@ -69,7 +69,11 @@ struct HomeView: View {
             }
             .refreshable { await reload() }
             .navigationDestination(for: LibraryEntry.self) { entry in
-                ApplicationDetailView(entry: entry, bundleInspection: environment.bundleInspection)
+                ApplicationDetailView(
+                    entry: entry,
+                    bundleInspection: environment.bundleInspection,
+                    detailsInspection: environment.applicationDetailsInspection
+                )
             }
         }
     }

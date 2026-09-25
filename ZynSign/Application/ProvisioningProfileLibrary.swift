@@ -17,6 +17,12 @@ protocol ProvisioningProfileLibrary: Sendable {
     /// Retrieves the profile with `id`, or `nil` when none exists.
     func profile(withID id: ProvisioningProfileIdentifier) async throws -> ProvisioningProfileSummary?
 
+    /// The original bytes of a stored profile, bounded to the CMS input
+    /// limit, or nil if the record was removed. Used for explicit selection
+    /// on the signing screen; the UI never constructs a storage path from a
+    /// profile's name and never treats a summary as verification evidence.
+    func profileBytes(withID id: ProvisioningProfileIdentifier) async throws -> Data?
+
     /// Inserts or replaces a profile summary.
     func upsert(_ summary: ProvisioningProfileSummary) async throws
 
@@ -25,4 +31,10 @@ protocol ProvisioningProfileLibrary: Sendable {
 
     /// The number of stored profiles. Convenience for "X profiles" UI.
     func count() async throws -> Int
+}
+
+extension ProvisioningProfileLibrary {
+    /// Existing test doubles that hold summaries only have no stored bytes.
+    /// A signing screen treats nil as unavailable, never as an empty profile.
+    func profileBytes(withID id: ProvisioningProfileIdentifier) async throws -> Data? { nil }
 }

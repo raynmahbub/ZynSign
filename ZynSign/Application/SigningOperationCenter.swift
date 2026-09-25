@@ -323,16 +323,20 @@ struct SigningOperationCenter {
 
         let result: SignApplicationResult
         do {
-            // The working copy is created inside this operation's own
-            // directory, so a concurrent run — or a cleanup — can never
-            // reach it, and an interrupted run leaves exactly one directory
-            // for recovery to remove.
+            // This operation's own directory is handed to the run as its
+            // working root, so the working copy is extracted where nothing
+            // else writes: a concurrent run, or a cleanup, can never reach
+            // it, and an interrupted run leaves exactly one directory for
+            // recovery to remove. The pipeline takes a supplied working root
+            // as the caller's and never removes it, which is what lets this
+            // run clean up after itself on every path below.
             result = try await pipeline.sign(
                 signingRequest,
-                workingDirectoryRoot: operationDirectory
-            ) { event in
-                timeline.apply(event)
-            }
+                observer: { event in
+                    timeline.apply(event)
+                },
+                workingRoot: operationDirectory
+            )
         } catch is CancellationError {
             timeline.cancelledActiveStage(detail: "The operation was cancelled during this stage.")
             timeline.notRun(.export, detail: "No artifact was committed.")
@@ -585,6 +589,17 @@ struct SigningOperationCenter {
         startedAt: Date,
         timeline: SigningTimelineBox
     ) async -> SigningOperationOutcome {
+        // The pipeline reports the stage it refused as part of the failure
+        // rather than through progress — progress says what ran, and a
+        // refused stage did not run to completion — so the failure is marked
+        // here, before the timeline is read. Marking is what makes a failed
+        // run show ✕ at the stage that stopped it instead of a row of
+        // stages that merely never concluded.
+        timeline.failed(
+            Self.pipelineStage(for: failure.stage),
+            at: now(),
+            detail: failure.detail
+        )
         let built = timeline.build()
         let summary = Self.failureSummary(for: failure, timeline: built)
         let record = makeRecord(
@@ -710,15 +725,26 @@ struct SigningOperationCenter {
 
     /// The failure in the form the history keeps: the stage's own explanation
     /// first, and the pipeline's own vocabulary behind it.
+    ///
+    /// The stage recorded is the one the timeline shows — the same stage the
+    /// run stopped at — so a failure's stage and its ✕ can never disagree.
+    /// The pipeline's own stage name is quoted only when it maps to that same
+    /// timeline stage; when it does not, the failure stopped somewhere the
+    /// timeline named more precisely, and the quotation is left out rather
+    /// than printed against the wrong stage.
     static func failureSummary(
         for failure: ApplicationSigningFailure,
         timeline: SigningTimeline
     ) -> SigningFailureSummary {
-        SigningFailureSummary(
-            stage: timeline.failedStage ?? pipelineStage(for: failure.stage),
+        let reported = pipelineStage(for: failure.stage)
+        let stage = timeline.failedStage ?? reported
+        return SigningFailureSummary(
+            stage: stage,
             category: failure.category.rawValue,
             explanation: failure.detail,
-            technicalDetail: "Pipeline stage: \(failure.stage.rawValue) · Category: \(failure.category.rawValue)"
+            technicalDetail: stage == reported
+                ? "Pipeline stage: \(failure.stage.rawValue) · Category: \(failure.category.rawValue)"
+                : "Category: \(failure.category.rawValue)"
         )
     }
 
@@ -773,13 +799,17 @@ struct SigningOperationCenter {
     }
 }
 
-/// The run's timeline, shared with the stage observer.
+/// The run's timeline, shared with the pipeline's progress observer.
 ///
-/// The pipeline reports stages from the run's own task, so the timeline is
+/// The pipeline reports progress from the run's own task, so the timeline is
 /// guarded by a lock rather than confined to an actor: an observer callback
 /// must be able to record without awaiting, and the run's own task must be
 /// able to read the timeline the moment the pipeline returns. Only the
 /// timeline's own state is behind the lock; nothing else is shared.
+///
+/// Progress describes what ran, never what failed: a refused stage does not
+/// emit a completion, so the run reports the failing stage itself through
+/// `failed(_:at:detail:)`. Nothing here infers a failure from silence.
 final class SigningTimelineBox: @unchecked Sendable {
 
     private let lock = NSLock()
@@ -787,26 +817,62 @@ final class SigningTimelineBox: @unchecked Sendable {
     private var recorder = SigningTimelineRecorder()
     private var active: SigningOperationStage?
 
+    /// How many nested targets the run's plan holds, when it reported one.
+    private var nestedPlannedCount: Int?
+
+    /// How many nested targets the run reported signing.
+    private var nestedSignedCount = 0
+
     init(now: @escaping @Sendable () -> Date) {
         self.now = now
     }
 
-    /// Applies one pipeline stage report.
-    func apply(_ event: ApplicationSigningStageEvent) {
+    /// Applies one progress event from the pipeline.
+    ///
+    /// Stage events are mapped onto the timeline's stages; nested-target
+    /// events are counted, so the nested-signing entry can say how much it
+    /// signed rather than repeating a sentence that says only that it ran.
+    /// Both are reports of work that happened — an event that never arrives
+    /// records nothing.
+    func apply(_ event: ApplicationSigningProgressEvent) {
+        lock.lock()
+        defer { lock.unlock() }
         switch event {
-        case .began(let stage):
-            began(SigningOperationCenter.pipelineStage(for: stage), at: now())
-        case .finished(let stage):
+        case .stageStarted(let stage):
+            recordBegan(SigningOperationCenter.pipelineStage(for: stage), at: now())
+        case .stageCompleted(let stage):
             guard SigningOperationCenter.concludesTimelineStage(stage) else { return }
             let mapped = SigningOperationCenter.pipelineStage(for: stage)
-            finished(
-                mapped,
-                at: now(),
-                detail: SigningOperationCenter.completionDetail(for: mapped)
-            )
-        case .failed(let stage, let detail):
-            failed(SigningOperationCenter.pipelineStage(for: stage), at: now(), detail: detail)
+            recordFinished(mapped, at: now(), detail: completionDetail(for: mapped))
+        case .nestedPlan(let totals):
+            nestedPlannedCount = totals.values.reduce(0, +)
+        case .nestedItemSigned:
+            nestedSignedCount += 1
+        case .nestedItemStarted, .nestedItemRefused:
+            // A target that began or refused is not a conclusion about the
+            // stage: the stage's own completion, or the run's failure,
+            // is what the timeline records.
+            break
         }
+    }
+
+    /// The detail recorded when a timeline stage completes.
+    ///
+    /// Nested signing is the one stage the pipeline reports the size of, so
+    /// its entry carries what was signed; every other stage uses its fixed
+    /// sentence.
+    private func completionDetail(for stage: SigningOperationStage) -> String? {
+        guard stage == .nestedSigning else {
+            return SigningOperationCenter.completionDetail(for: stage)
+        }
+        if nestedSignedCount > 0 {
+            let signed = nestedSignedCount
+            return "Signed \(signed) nested code target\(signed == 1 ? "" : "s")"
+        }
+        if let planned = nestedPlannedCount, planned == 0 {
+            return "No nested code targets found"
+        }
+        return SigningOperationCenter.completionDetail(for: stage)
     }
 
     /// The timeline stage currently in flight, when one is.
@@ -819,13 +885,23 @@ final class SigningTimelineBox: @unchecked Sendable {
     func began(_ stage: SigningOperationStage, at instant: Date) {
         lock.lock()
         defer { lock.unlock() }
-        recorder.began(stage, at: instant)
-        active = stage
+        recordBegan(stage, at: instant)
     }
 
     func finished(_ stage: SigningOperationStage, at instant: Date, detail: String? = nil) {
         lock.lock()
         defer { lock.unlock() }
+        recordFinished(stage, at: instant, detail: detail)
+    }
+
+    /// Records a stage beginning. The caller holds the lock.
+    private func recordBegan(_ stage: SigningOperationStage, at instant: Date) {
+        recorder.began(stage, at: instant)
+        active = stage
+    }
+
+    /// Records a stage finishing. The caller holds the lock.
+    private func recordFinished(_ stage: SigningOperationStage, at instant: Date, detail: String?) {
         recorder.finished(stage, at: instant, detail: detail)
         if active == stage { active = nil }
     }

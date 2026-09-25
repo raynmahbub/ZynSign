@@ -42,9 +42,18 @@ struct SignNestedCodeUseCase {
     }
 
     /// Signs nested code according to a validated request and artifact store.
+    ///
+    /// - Parameters:
+    ///   - request: The validated plan, identity, and configuration.
+    ///   - store: The artifact store the targets are read from and written to.
+    ///   - observer: Receives one event per target as it begins and finishes or
+    ///     is refused. The observer cannot influence the run: it has no return
+    ///     value and no failure channel, and it is called on the run's own
+    ///     execution context.
     func sign(
         _ request: NestedSigningRequest,
-        store: any NestedSigningArtifactStore
+        store: any NestedSigningArtifactStore,
+        observer: NestedSigningProgressObserver? = nil
     ) -> NestedSigningResult {
         // 1. Validate identity availability.
         guard let identityID = request.identityID else {
@@ -116,6 +125,26 @@ struct SignNestedCodeUseCase {
                     mutationOccurred: false
                 ))
                 continue
+            }
+
+            observer?(NestedSigningItemProgress(
+                phase: .signing,
+                order: item.order,
+                total: request.plan.items.count,
+                kind: item.kind,
+                executablePath: item.executablePath
+            ))
+            // Every exit from this iteration — success, refused, or an error
+            // that ends the run — reports the target's outcome exactly once.
+            var reportedPhase = NestedSigningItemProgress.Phase.refused
+            defer {
+                observer?(NestedSigningItemProgress(
+                    phase: reportedPhase,
+                    order: item.order,
+                    total: request.plan.items.count,
+                    kind: item.kind,
+                    executablePath: item.executablePath
+                ))
             }
 
             // Step A: Read binary from artifact store.
@@ -353,6 +382,7 @@ struct SignNestedCodeUseCase {
                 signatureByteCount: signingResult.cryptographicSignature.count,
                 verification: verificationOutcome
             )
+            reportedPhase = .signed
             itemResults.append(NestedSigningItemResult(
                 itemID: item.id,
                 executablePath: item.executablePath,

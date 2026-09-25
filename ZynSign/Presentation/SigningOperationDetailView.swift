@@ -82,7 +82,7 @@ struct SigningOperationDetailView: View {
         Section {
             detailRow("Certificate", operation.certificateDisplayName ?? "Not recorded")
             if let fingerprint = operation.certificateFingerprint {
-                detailRow("Fingerprint", fingerprint.hexValue)
+                detailRow("Fingerprint", fingerprint.hexDigest)
             }
             detailRow("Team ID", operation.teamIdentifier ?? "Not recorded")
             detailRow("Profile", operation.provisioningProfileName ?? "Not recorded")

@@ -81,7 +81,7 @@ struct SettingsView: View {
                 Label("Signing Options", systemImage: "slider.horizontal.3")
             }
         } header: { Text("Signing") } footer: {
-            Text("Configure the options used when the pipeline is composed for signing. Certificates and profiles are managed in their own tabs.")
+            Text("Options are chosen per app on its signing screen. Certificates and profiles are managed in their own tabs.")
         }
     }
 
@@ -195,40 +195,32 @@ struct SettingsView: View {
 
 // MARK: - Sub-screens
 
-private struct CertificatesSettingsView: View {
-    var body: some View {
-        List {
-            Section {
-                ContentUnavailableView {
-                    Label("No Certificates", systemImage: "signature")
-                } description: {
-                    Text("Add a .p12 or Keychain identity to sign packages. Identities stay in the Keychain, marked non-extractable, and are never logged.")
-                }
-            }
-            Section("What will be here") {
-                Label("Import .p12 (when E7 lands)", systemImage: "key.fill").foregroundStyle(.secondary)
-                Label("View certificate metadata, validity, chain", systemImage: "info.circle").foregroundStyle(.secondary)
-                Label("Per-identity readiness (key available, associated, adequate)", systemImage: "checkmark.shield").foregroundStyle(.secondary)
-            }
-        }
-        .navigationTitle("Certificates").navigationBarTitleDisplayMode(.inline)
-    }
-}
+/// Only controls that the signing screen really passes to the pipeline may
+/// appear here. Settings has no global signing configuration to silently
+/// promise a bundle-ID rewrite or plug-in removal the pipeline cannot do.
 struct SigningOptionsView: View {
-    @AppStorage("zynsign.signing.bundleIdPrefix") private var bundlePrefix = ""
-    @AppStorage("zynsign.signing.stripPlugins") private var stripPlugins = false
+    private let emitDEREntitlements: Binding<Bool>?
+
+    init(emitDEREntitlements: Binding<Bool>? = nil) {
+        self.emitDEREntitlements = emitDEREntitlements
+    }
+
     var body: some View {
         Form {
-            Section("Bundle Identifier") {
-                TextField("Optional prefix (e.g. com.example)", text: $bundlePrefix)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                Text("Applied when the provisioning profile's App ID scope covers the identifier. No wildcard is inferred.").font(.caption).foregroundStyle(.secondary)
+            Section("Entitlement encoding") {
+                if let emitDEREntitlements {
+                    Toggle("Request DER entitlements (unsupported)", isOn: emitDEREntitlements)
+                    Text("This build embeds XML only. Requesting DER will be diagnosed as unsupported and block signing; the signer does not yet write slot 7. For an iOS 15+ target requiring DER, use a signer with verified DER support.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                } else {
+                    Text("This build embeds XML entitlements only. DER output is not supported. Open an app in the Library to review its local signing diagnostics.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
             }
-            Section("Advanced") {
-                Toggle("Strip plug-ins before signing", isOn: $stripPlugins)
-                Text("Removes unsupported nested code rather than refusing the package. Disabled by default — the pipeline fails closed.").font(.caption).foregroundStyle(.secondary)
+            Section("Supported today") {
+                Text("The current pipeline only signs supported unsigned Mach-O layouts. It cannot replace existing signatures, change bundle identifiers, or strip nested code. Pre-sign diagnostics checks those limits before signing.")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
-            Section { Text("Options are applied by the pipeline's nested-signing and metadata stages in fixed order and are verified independently. Nothing is persisted until device validation is complete.").font(.footnote).foregroundStyle(.secondary) }
         }
         .navigationTitle("Signing Options").navigationBarTitleDisplayMode(.inline)
     }
