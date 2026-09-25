@@ -373,6 +373,7 @@ final class ProvisioningProfilesModel: ObservableObject {
             do {
                 let summary = try await importer.importProfile(at: url)
                 try await profiles.upsert(summary)
+                NotificationCenter.default.post(name: .zynsignProvisioningProfilesChanged, object: nil)
                 recordEvent?("profile.imported", true)
                 importedProfile = summary
                 await refresh()
@@ -417,6 +418,7 @@ final class ProvisioningProfilesModel: ObservableObject {
         do {
             let refreshed = try await importer.refresh(summary)
             try await profiles.upsert(refreshed)
+            NotificationCenter.default.post(name: .zynsignProvisioningProfilesChanged, object: nil)
             recordEvent?("profile.refreshed", true)
         } catch let error as ZynSignError {
             recordEvent?("profile.refreshed", false)
@@ -463,6 +465,9 @@ final class ProvisioningProfilesModel: ObservableObject {
                 message: (error as? ZynSignError)?.userMessage ?? "The profile could not be deleted."
             )
         }
+        // Catalog deletion can succeed even when file cleanup reports an
+        // error; either way signing must re-read its chosen stored bytes.
+        NotificationCenter.default.post(name: .zynsignProvisioningProfilesChanged, object: nil)
         await refresh()
     }
 }

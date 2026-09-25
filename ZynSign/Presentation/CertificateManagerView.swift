@@ -177,6 +177,8 @@ struct CertificateManagerView: View {
                     itemPendingRemoval = nil
                     Task {
                         if await model.remove(item) {
+                            await env.signingDiagnostics?.identitiesDidChange()
+                            NotificationCenter.default.post(name: .zynsignSigningIdentityChanged, object: nil)
                             presentToast("“\(item.displayName)” removed", style: .success)
                         }
                     }
@@ -606,6 +608,8 @@ struct CertificateManagerView: View {
     private func runImport(data: Data, password: String) async {
         let imported = await model.performImport(data: data, password: password)
         if imported != nil {
+            await env.signingDiagnostics?.identitiesDidChange()
+            NotificationCenter.default.post(name: .zynsignSigningIdentityChanged, object: nil)
             pendingData = nil
             pendingFileName = nil
             showPasswordSheet = false

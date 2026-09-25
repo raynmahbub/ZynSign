@@ -14,6 +14,11 @@ struct ApplicationDetailView: View {
 
     @Environment(\.applicationEnvironment) private var environment
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var health: SigningDiagnosticsAnalysis?
+    @State private var isAnalyzingHealth = true
+    @State private var healthError: String?
+    @State private var healthGeneration = 0
     @StateObject private var model: ApplicationDetailsModel
     @State private var isGeneralExpanded = true
     @State private var isBundleInfoExpanded = false
@@ -98,6 +103,7 @@ struct ApplicationDetailView: View {
             LazyVStack(alignment: .leading, spacing: ZSpacing.md) {
                 hero
                 overviewCard
+                signingHealthCard
                 signingStatusCard
                 quickActionsCard
                 profileSuggestionCard
@@ -152,7 +158,75 @@ struct ApplicationDetailView: View {
         }
         .task { await model.load() }
         .task { await loadProfileSuggestion() }
-        .refreshable { await model.refresh() }
+        .task(id: entry.record.id.rawValue) { await analyzeHealth() }
+        .task {
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(60)) } catch { break }
+                guard !Task.isCancelled else { break }
+                await analyzeHealth()
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await analyzeHealth(force: true) } }
+        }
+        .refreshable {
+            await model.refresh()
+            await analyzeHealth(force: true)
+            await loadProfileSuggestion()
+        }
+    }
+
+    /// Diagnostics and the richer app-detail inspection use separate read-only
+    /// boundaries; neither a structural detail verdict nor a saved profile
+    /// summary is promoted into a signing authorization.
+    private var signingHealthCard: some View {
+        VStack(alignment: .leading, spacing: ZSpacing.sm) {
+            SigningHealthCard(report: health?.report, isAnalyzing: isAnalyzingHealth, error: healthError)
+            if let health {
+                NavigationLink {
+                    SigningDiagnosticsView(report: health.report, history: health.history,
+                                           changes: health.changes,
+                                           historyUnavailable: health.historyUnavailable)
+                } label: {
+                    Label("Issues, recommendations & scan history", systemImage: "doc.text.magnifyingglass")
+                        .font(.subheadline)
+                }
+                .accessibilityHint("Opens the read-only local diagnostics inspector")
+            }
+            if healthError != nil {
+                Button("Retry signing health check") { Task { await analyzeHealth(force: true) } }
+            }
+            Text("No signing identity or profile is selected here. Open Sign App to check your actual configuration. A local score does not establish iOS acceptance.")
+                .font(.footnote).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @MainActor private func analyzeHealth(force: Bool = false) async {
+        healthGeneration += 1
+        let generation = healthGeneration
+        guard let diagnostics = environment.signingDiagnostics else {
+            isAnalyzingHealth = false
+            healthError = "Signing diagnostics are unavailable in this build."
+            return
+        }
+        isAnalyzingHealth = true
+        health = nil
+        healthError = nil
+        defer {
+            if generation == healthGeneration { isAnalyzingHealth = false }
+        }
+        do {
+            let result = try await diagnostics.analyze(recordWithID: entry.record.id, force: force)
+            guard !Task.isCancelled, generation == healthGeneration else { return }
+            health = result
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled, generation == healthGeneration else { return }
+            healthError = (error as? SigningDiagnosticsError)?.userMessage
+                ?? "The app could not be analyzed. Please try again."
+        }
     }
 
     // MARK: - Overview
@@ -436,7 +510,7 @@ struct ApplicationDetailView: View {
             VStack(alignment: .leading, spacing: ZSpacing.md) {
                 SectionHeading(title: "Provisioning Profile", symbol: "shippingbox")
                 profileSuggestionContent
-                Text("Suggestions rank your profiles by bundle ID, team, certificates, and validity. You can always pick a different profile for this app — the choice is remembered.")
+                Text("Suggestions rank saved display summaries by bundle ID, team, certificates, and declared dates. They do not authenticate the stored file or grant signing authority; Sign App verifies the original bytes before a run. You can pick a different profile for this app.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

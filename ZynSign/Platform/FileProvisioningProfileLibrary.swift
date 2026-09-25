@@ -34,6 +34,48 @@ actor FileProvisioningProfileLibrary: ProvisioningProfileLibrary {
         try loadedProfilesOrRead()[id]
     }
 
+    func profileBytes(withID id: ProvisioningProfileIdentifier) async throws -> Data? {
+        guard let summary = try loadedProfilesOrRead()[id] else { return nil }
+        guard let location = storedFile(named: summary.sourceFileName) else {
+            throw ZynSignError.profileLibraryUnreadable(
+                diagnosticDetail: "The saved profile has an unsafe file reference."
+            )
+        }
+        do {
+            let values = try location.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            guard values.isRegularFile == true, values.isSymbolicLink != true else {
+                throw ZynSignError.invalidProvisioningProfileFile(
+                    diagnosticDetail: "The stored profile is not a regular file."
+                )
+            }
+            let handle = try FileHandle(forReadingFrom: location)
+            defer { try? handle.close() }
+            let bytes = try handle.read(upToCount: ProvisioningProfileInput.maximumByteCount + 1) ?? Data()
+            guard !bytes.isEmpty, bytes.count <= ProvisioningProfileInput.maximumByteCount else {
+                throw ZynSignError.invalidProvisioningProfileFile(
+                    diagnosticDetail: "The stored profile is empty or exceeds the inspection limit."
+                )
+            }
+            return bytes
+        } catch let error as ZynSignError {
+            throw error
+        } catch {
+            throw ZynSignError.profileLibraryStorageFailure(
+                diagnosticDetail: "The stored profile could not be read.", underlyingError: error
+            )
+        }
+    }
+
+    private func storedFile(named name: String) -> URL? {
+        guard !name.isEmpty, name != ".", name != "..",
+              (name.lowercased().hasSuffix(".mobileprovision") ||
+               name.lowercased().hasSuffix(".provisionprofile")),
+              name != catalogLocation.lastPathComponent,
+              !name.contains("/"), !name.contains("\\"),
+              !name.contains(where: { $0.isControl }) else { return nil }
+        return catalogLocation.deletingLastPathComponent().appendingPathComponent(name, isDirectory: false)
+    }
+
     func upsert(_ summary: ProvisioningProfileSummary) async throws {
         var profiles = try loadedProfilesOrRead()
         profiles[summary.id] = summary
@@ -42,8 +84,22 @@ actor FileProvisioningProfileLibrary: ProvisioningProfileLibrary {
 
     func remove(profileWithID id: ProvisioningProfileIdentifier) async throws {
         var profiles = try loadedProfilesOrRead()
-        guard profiles.removeValue(forKey: id) != nil else { return }
+        guard let removed = profiles.removeValue(forKey: id) else { return }
         try persist(profiles)
+        // Another summary can legitimately reference the same imported file.
+        // Do not remove it while still referenced. Never follow an unsafe
+        // catalog file name to a location outside the profile directory.
+        if !profiles.values.contains(where: { $0.sourceFileName == removed.sourceFileName }),
+           let location = storedFile(named: removed.sourceFileName),
+           FileManager.default.fileExists(atPath: location.path) {
+            do { try FileManager.default.removeItem(at: location) }
+            catch {
+                throw ZynSignError.profileLibraryStorageFailure(
+                    diagnosticDetail: "The removed profile's stored file could not be deleted.",
+                    underlyingError: error
+                )
+            }
+        }
     }
 
     func count() async throws -> Int {

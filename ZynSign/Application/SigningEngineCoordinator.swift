@@ -246,6 +246,17 @@ struct SigningEngineCoordinator {
             )
         }
 
+        // Even direct engine callers must not allocate a working copy or
+        // attempt a private-key operation for an option the signer lacks.
+        if request.options.emitDEREntitlements {
+            return fail(
+                .validating,
+                "DER entitlements are not embedded by this signing pipeline.",
+                .unsupportedInput,
+                "DER entitlements are not available in this build."
+            )
+        }
+
         do {
             // 1. Preparing — an isolated working copy, and the original's
             //    fingerprint, before anything else touches the container.

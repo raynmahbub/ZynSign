@@ -109,12 +109,12 @@ struct ApplicationEnvironment {
     /// composed; treated as read-only after construction.
     var appIcons: AppIconExtraction? = nil
 
-    /// The local-only annotation store behind the Certificates area: display
-    /// labels, import dates, and the default signing identity. `nil` where
-    /// the composition root supplies no annotation storage; the Certificates
-    /// area then lists identities without local notes and treats default and
-    /// rename as unavailable. Production paths are supplied by the
-    /// composition root.
+    /// Shared read-only analyzer for import, per-app health and signing.
+    /// Profile/entitlement evidence stays in memory; only redacted issue
+    /// codes enter its bounded on-device journal.
+    var signingDiagnostics: SigningDiagnosticsService? = nil
+
+    /// The local-only annotation store behind the Certificates area.
     var identityAnnotations: (any IdentityAnnotationsStore)? = nil
 
     /// Records one local activity event when the journal preference allows.

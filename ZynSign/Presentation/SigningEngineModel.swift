@@ -190,17 +190,17 @@ final class SigningEngineModel: ObservableObject {
     }
 
     /// Where a signed container for `entry` is delivered:
-    /// `Documents/Signed/<name>_signed.ipa`, with the name derived from the
-    /// record rather than from a user-selected file name.
+    /// `Documents/Signed/<record-UUID>-<run-UUID>.ipa`. User-controlled app
+    /// display text never chooses a path; a new run cannot overwrite an
+    /// existing signed container.
     static func signedOutputURL(for entry: LibraryEntry) -> URL {
         let documents = FileManager.default
             .urls(for: .documentDirectory, in: .userDomainMask)
             .first ?? FileManager.default.temporaryDirectory
         let directory = documents.appendingPathComponent("Signed", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let base = (entry.record.displayName ?? entry.record.bundleIdentifier.rawValue)
-            .replacingOccurrences(of: " ", with: "_")
-            .replacingOccurrences(of: "/", with: "_")
-        return directory.appendingPathComponent("\(base)_signed.ipa", isDirectory: false)
+        return directory.appendingPathComponent(
+            "\(entry.record.id.rawValue)-\(UUID().uuidString).ipa", isDirectory: false
+        )
     }
 }

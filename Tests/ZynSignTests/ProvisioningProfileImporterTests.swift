@@ -58,7 +58,10 @@ final class ProvisioningProfileImporterTests: XCTestCase {
         return root
     }
 
-    private func makePayload(root: [String: Any]) -> ProvisioningProfilePayload {
+    private func makePayload(
+        root: [String: Any],
+        authenticity: ProvisioningProfileAuthenticityStatus = .authenticated
+    ) -> ProvisioningProfilePayload {
         guard let data = try? PropertyListSerialization.data(
             fromPropertyList: root,
             format: .binary,
@@ -67,7 +70,7 @@ final class ProvisioningProfileImporterTests: XCTestCase {
             XCTFail("Could not create synthetic profile payload")
             return ProvisioningProfilePayload(plistData: Data())
         }
-        return ProvisioningProfilePayload(plistData: data)
+        return ProvisioningProfilePayload(plistData: data, authenticity: authenticity)
     }
 
     private func makeImporter(
@@ -198,6 +201,37 @@ final class ProvisioningProfileImporterTests: XCTestCase {
             XCTFail("An oversized profile file must be refused")
         } catch let error as ZynSignError {
             XCTAssertEqual(error.provisioningProfileFailure, .inputTooLarge)
+        }
+    }
+
+    func testUnauthenticatedOrMissingExpirationCannotEnterOrRefreshLibrary() async throws {
+        let source = try writeSourceFile()
+        let root = makeRoot()
+        let unverified = makeImporter(payload: makePayload(root: root, authenticity: .notEvaluated))
+        do {
+            _ = try await unverified.importProfile(at: source)
+            XCTFail("Decoding CMS without verifying it must not admit a profile.")
+        } catch let error as ZynSignError {
+            XCTAssertEqual(error.category, .invalidInput)
+        }
+
+        var missingExpiration = root
+        missingExpiration.removeValue(forKey: ProvisioningProfileKeys.expirationDate)
+        do {
+            _ = try await makeImporter(payload: makePayload(root: missingExpiration)).importProfile(at: source)
+            XCTFail("A missing expiration must not become an invented one.")
+        } catch let error as ZynSignError {
+            XCTAssertEqual(error.category, .invalidInput)
+        }
+        let stored = try FileManager.default.contentsOfDirectory(atPath: storageDirectory.path)
+        XCTAssertEqual(stored, [source.lastPathComponent])
+
+        let imported = try await makeImporter(payload: makePayload(root: root)).importProfile(at: source)
+        do {
+            _ = try await unverified.refresh(imported)
+            XCTFail("Refresh must not assert compatibility for unauthenticated bytes.")
+        } catch let error as ZynSignError {
+            XCTAssertEqual(error.category, .invalidInput)
         }
     }
 

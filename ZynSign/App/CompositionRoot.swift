@@ -25,9 +25,14 @@ enum CompositionRoot {
     /// the same cryptographic machinery that the tests cover.
     static func makeApplicationEnvironment() -> ApplicationEnvironment {
         let intake = SecurityScopedArtifactIntake(directory: importStagingDirectory)
-        let library = makeApplicationLibrary(intake: intake)
-        let packageImport = makePackageImport(intake: intake, library: library)
+        let diagnosticHistory = makeSigningDiagnosticsHistoryStore()
+        let library = makeApplicationLibrary(intake: intake, diagnosticHistory: diagnosticHistory)
         let identityStore = makeIdentityStore()
+        let diagnostics = makeSigningDiagnostics(
+            library: library, intake: intake, identities: identityStore,
+            history: diagnosticHistory
+        )
+        let packageImport = makePackageImport(intake: intake, library: library, diagnostics: diagnostics)
         let pkcs12Importer = makePKCS12Importer(identityStore: identityStore)
         let pipeline = makeSignApplicationPipeline(identityStore: identityStore)
         let signingEngine = makeSigningEngine(identityStore: identityStore, pipeline: pipeline)
@@ -55,6 +60,7 @@ enum CompositionRoot {
         environment.profileCompatibility = ProfileCompatibilityUseCase(identityStore: identityStore)
         environment.profileSelections = UserDefaultsProfileSelectionStore()
         environment.appIcons = makeAppIconExtraction()
+        environment.signingDiagnostics = diagnostics
         environment.identityAnnotations = makeIdentityAnnotationsStore()
         return environment
     }
@@ -276,7 +282,8 @@ enum CompositionRoot {
     static func makePackageImport(
         intake: SecurityScopedArtifactIntake,
         library: ApplicationLibrary,
-        limits: ArchiveLimits = .default
+        limits: ArchiveLimits = .default,
+        diagnostics: SigningDiagnosticsService? = nil
     ) -> IPAPackageImport {
         let readerProvider = DirectoryArtifactArchiveReaderProvider(
             directories: [libraryArtifactDirectory, intake.directory],
@@ -287,7 +294,8 @@ enum CompositionRoot {
             intake: intake,
             readerProvider: readerProvider,
             library: library,
-            limits: limits
+            limits: limits,
+            diagnostics: diagnostics
         )
     }
 
@@ -740,14 +748,48 @@ enum CompositionRoot {
     /// application-owned artifact storage fed from the intake's staging
     /// directory for the bytes behind them. Nothing is created on disk at
     /// composition time; both stores create their directories on first use.
-    private static func makeApplicationLibrary(intake: SecurityScopedArtifactIntake) -> ApplicationLibrary {
+    private static func makeApplicationLibrary(
+        intake: SecurityScopedArtifactIntake,
+        diagnosticHistory: any SigningDiagnosticsHistoryStore
+    ) -> ApplicationLibrary {
         ApplicationLibrary(
             records: FileApplicationRecordStore(catalogLocation: libraryCatalogLocation),
             artifacts: FileLibraryArtifactStore(
                 stagingDirectory: intake.directory,
                 libraryDirectory: libraryArtifactDirectory,
                 fileExtension: intake.fileExtension
-            )
+            ),
+            diagnosticHistory: diagnosticHistory
+        )
+    }
+
+    static func makeSigningDiagnosticsHistoryStore() -> any SigningDiagnosticsHistoryStore {
+        FileSigningDiagnosticsHistoryStore(
+            location: libraryRootDirectory.appendingPathComponent("SigningDiagnostics.json")
+        )
+    }
+
+    /// One read-only analyzer for import, app details and the signing screen.
+    /// The same profile validator, Keychain metadata port, archive reader and
+    /// Mach-O admission rule are used by the pipeline; no second policy or
+    /// filesystem location is invented by a view.
+    static func makeSigningDiagnostics(
+        library: ApplicationLibrary,
+        intake: SecurityScopedArtifactIntake,
+        identities: any IdentityStore,
+        history: any SigningDiagnosticsHistoryStore
+    ) -> SigningDiagnosticsService {
+        SigningDiagnosticsService(
+            library: library,
+            readerProvider: DirectoryArtifactArchiveReaderProvider(
+                directory: libraryArtifactDirectory,
+                fileExtension: intake.fileExtension
+            ),
+            identities: identities,
+            profilePipeline: makeProvisioningProfilePipeline(identityStore: identities),
+            policy: makeProvisioningPolicyValidation(identityStore: identities),
+            digest: makeMessageDigest(),
+            historyStore: history
         )
     }
 

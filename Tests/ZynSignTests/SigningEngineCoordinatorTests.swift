@@ -135,6 +135,26 @@ final class SigningEngineCoordinatorTests: XCTestCase {
 
     // MARK: - Refusals
 
+    func testUnsupportedDERFailsBeforeCreatingAWorkingCopyOrReadingTheSource() async throws {
+        let identities = try NestedSigningTestIdentityStore()
+        let source = temporaryDirectory.appendingPathComponent("not-present.ipa")
+        let output = temporaryDirectory.appendingPathComponent("must-not-exist.ipa")
+        let request = SigningEngineRequest(
+            sourceURL: source, profile: CMSFixtures.validRSASignedAttributes,
+            identityID: identities.id,
+            entitlements: try CodeSigningEntitlements(values: [:]),
+            outputURL: output,
+            options: SignApplicationOptions(emitDEREntitlements: true)
+        )
+
+        let result = try await makeEngine(identities: identities).sign(request)
+        XCTAssertEqual(result.status, .failed)
+        XCTAssertEqual(result.failure?.stage, .validating)
+        XCTAssertEqual(result.failure?.category, .unsupportedInput)
+        XCTAssertNil(result.workingCopy)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+    }
+
     func testRefusesAlreadySignedInputBeforeSigningAnything() async throws {
         let identities = try NestedSigningTestIdentityStore()
         let source = try writeSource(entries: [
