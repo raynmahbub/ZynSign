@@ -30,6 +30,7 @@ enum CompositionRoot {
         let identityStore = makeIdentityStore()
         let pkcs12Importer = makePKCS12Importer(identityStore: identityStore)
         let pipeline = makeSignApplicationPipeline(identityStore: identityStore)
+        let signingEngine = makeSigningEngine(identityStore: identityStore, pipeline: pipeline)
         let presets = makeSigningPresetStore()
         let history = makeSigningHistoryStore()
         let profiles = makeProvisioningProfileLibrary()
@@ -43,6 +44,7 @@ enum CompositionRoot {
             identityStore: identityStore,
             pkcs12Importer: pkcs12Importer,
             signingPipeline: pipeline,
+            signingEngine: signingEngine,
             analyticsJournal: makeAnalyticsJournal(),
             signingPresets: presets,
             signingHistory: history,
@@ -644,6 +646,40 @@ enum CompositionRoot {
         limits: ArchiveLimits = .default
     ) -> VerifySignedApplication {
         VerifySignedApplication(digest: digest, limits: limits)
+    }
+
+    /// Builds the signing engine over the pipeline the environment exposes.
+    ///
+    /// The engine's validator reads the source container through the ordinary
+    /// archive boundary; its working-copy verifier re-reads the signed bundle
+    /// and its container verifier reopens the written container. All three
+    /// are composed over the same reader, digest, and limits the rest of the
+    /// application uses, so no signing path has a private implementation of
+    /// reading, hashing, or verification.
+    static func makeSigningEngine(
+        identityStore: any IdentityStore,
+        pipeline: SignApplicationPipeline,
+        digest: any MessageDigest = makeMessageDigest(),
+        signatureVerifier: any CryptographicSignatureVerifier = makeCryptographicSignatureVerifier(),
+        limits: ArchiveLimits = .default,
+        workingDirectoryRoot: URL? = nil
+    ) -> SigningEngineCoordinator {
+        SigningEngineCoordinator(
+            pipeline: pipeline,
+            validator: SigningEngineBundleValidator(
+                makeReader: { ZipArchiveReader(location: $0, limits: limits) },
+                limits: limits
+            ),
+            workingCopyVerifier: SigningEngineVerifier(
+                identities: identityStore,
+                digest: digest,
+                cryptographicVerifier: signatureVerifier,
+                maximumBinaryBytes: limits.maximumEntryBytes
+            ),
+            containerVerifier: makeVerifySignedApplication(digest: digest, limits: limits),
+            digest: digest,
+            workingDirectoryRoot: workingDirectoryRoot
+        )
     }
 
     /// Builds the end-to-end application signing pipeline over the given
