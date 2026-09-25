@@ -168,7 +168,11 @@ interface consumes it yet. Library records are kept across launches and are list
 Applications area. Certificate parsing and identity modeling exist as domain
 foundation; application signing, verification, and packaging exist below the
 interface (see [application-signing-pipeline.md](application-signing-pipeline.md)),
-and installation is not implemented. No other workflow behaviour is
+and installation is not implemented. The signing engine that executes a
+complete run — isolated working copy, validation gate, inner-first nested
+order, independent verification, delivery only after verification — now sits
+above that pipeline (see [signing-engine-execution.md](signing-engine-execution.md)),
+and the Signing screen drives it. No other workflow behaviour is
 implemented, and no behaviour may be inferred from these documents.
 
 ## Index
@@ -216,6 +220,12 @@ implemented, and no behaviour may be inferred from these documents.
   end-to-end signing workflow, deterministic packaging, safe extraction,
   independent verification, and installation-capability assessment, with
   the composition facts that bound what the pipeline can sign.
+- [signing-engine-execution.md](signing-engine-execution.md) — the signing
+  engine that executes one complete run behind a single entry point: the
+  stage vocabulary and its weights, the isolated working copy that is the
+  only writable directory, the pre-signing validation gate, inner-first
+  nested order, the two independent verifications, packaging outside the
+  delivery location, and the recovery facts a refused run reports.
 - [external-validation.md](external-validation.md) — ZS-031 external
   validation: the export test, the Apple-tooling harness and its CI job, what
   each check establishes and does not, the evidence discipline, and the
