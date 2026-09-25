@@ -12,21 +12,27 @@ import SwiftUI
 /// Nothing here is decorative data: every count is read from the same use
 /// cases the tabs read, and the onboarding steps are complete only when the
 /// library, certificate store, and profile library actually hold something.
+///
+/// Importing is not Home's business. Every import action here — the toolbar
+/// button, the quick action, the first onboarding step — opens the shell's
+/// import area, where the file is chosen and the queue, progress, duplicate
+/// questions, and outcomes live. Home only reads the results: when an import
+/// settles, the dashboard's counts and its recently imported list are read
+/// again, so what is on screen is what the library holds.
 struct HomeView: View {
 
     /// Switches the shell to another tab. `RootView` binds it to its selection.
     var onOpenSection: (ShellSection) -> Void = { _ in }
 
     @Environment(\.applicationEnvironment) private var environment
+    @Environment(\.importPresentation) private var importPresentation
     @StateObject private var missionControl = MissionControlService()
     @State private var entries: [LibraryEntry] = []
     @State private var certificateCount: Int?
     @State private var profileCount: Int?
     @State private var failedLoad = false
     @State private var hasReadLibrary = false
-    @State private var isShowingImporter = false
-    @State private var importNotice: String?
-    @State private var importInProgress = false
+    @State private var settledImportCount = 0
     @AppStorage("zynsign.onboarding.completed") private var onboardingCompleted = false
 
     var body: some View {
@@ -42,14 +48,6 @@ struct HomeView: View {
                     if !entries.isEmpty {
                         recentlyImportedCard
                     }
-                    if importInProgress {
-                        HStack { ProgressView(); Text("Importing…").font(.footnote).foregroundStyle(.secondary) }
-                            .frame(maxWidth: .infinity).padding().zynCardBackground()
-                    }
-                    if let notice = importNotice {
-                        Text(notice).font(.footnote).foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading).padding().zynCardBackground()
-                    }
                     if ReleaseTrain.isAvailable(.missionControl) {
                         missionControlCard
                     }
@@ -59,27 +57,16 @@ struct HomeView: View {
             .navigationTitle("Home")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { isShowingImporter = true } label: {
+                    Button { importPresentation.present() } label: {
                         Label("Import IPA", systemImage: "square.and.arrow.down")
                     }
-                    .disabled(importInProgress)
-                }
-            }
-            .fileImporter(
-                isPresented: $isShowingImporter,
-                allowedContentTypes: ImportablePackage.contentTypes,
-                allowsMultipleSelection: false
-            ) { result in
-                switch result {
-                case .success(let urls):
-                    if let url = urls.first {
-                        handlePicker(.success(url))
-                    }
-                case .failure(let error):
-                    handlePicker(.failure(error))
+                    .disabled(!importPresentation.isAvailable)
                 }
             }
             .task { await reload() }
+            .onReceive(environment.packageImportQueue.$jobs) { jobs in
+                reloadWhenAnImportSettles(jobs)
+            }
             .refreshable { await reload() }
             .navigationDestination(for: LibraryEntry.self) { entry in
                 ApplicationDetailView(entry: entry, bundleInspection: environment.bundleInspection)
@@ -136,7 +123,7 @@ struct HomeView: View {
                 .accessibilityAddTraits(.isHeader)
             HStack(spacing: ZSpacing.sm) {
                 HomeActionButton(title: "Import IPA", icon: "square.and.arrow.down.fill", color: .blue) {
-                    isShowingImporter = true
+                    importPresentation.present()
                 }
                 HomeActionButton(title: "Certificates", icon: "signature", color: .purple) {
                     onOpenSection(.certificates)
@@ -277,7 +264,7 @@ struct HomeView: View {
                     icon: "square.and.arrow.down.fill",
                     color: .blue,
                     isComplete: !entries.isEmpty,
-                    action: { isShowingImporter = true }
+                    action: { importPresentation.present() }
                 )
                 OnboardingStepRow(
                     number: 2,
@@ -374,35 +361,17 @@ struct HomeView: View {
 
     // MARK: - Import
 
-    private func handlePicker(_ result: Result<URL, any Error>) {
-        switch result {
-        case .success(let url):
-            importInProgress = true
-            importNotice = nil
-            Task {
-                do {
-                    let res = try await environment.packageImport.importArtifact(from: url)
-                    if res.isAccepted {
-                        importNotice = "Imported \(res.artifact.metadata?.identity.bundleIdentifier.rawValue ?? "package") — added to Library."
-                    } else {
-                        let code = res.artifact.validation?.errors.first?.code
-                        importNotice = code.map { "Import rejected: \($0)" } ?? "This file is not a valid application package."
-                    }
-                } catch let e as ZynSignError {
-                    importNotice = e.userMessage
-                } catch is CancellationError {
-                    importNotice = "Import cancelled."
-                } catch {
-                    importNotice = "The import could not be completed."
-                }
-                importInProgress = false
-                await reload()
-            }
-        case .failure(let err):
-            let ns = err as NSError
-            if ns.domain == NSCocoaErrorDomain && ns.code == NSUserCancelledError { return }
-            importNotice = (err as? ZynSignError)?.userMessage ?? "The picker could not provide the selected file."
-        }
+    /// Reads the dashboard again when the number of settled imports changes.
+    ///
+    /// Home does not act on an import — the import area owns that — it only
+    /// notices that the library it describes may have changed. The count is
+    /// kept in `@State` so a re-read happens once per settle, not on every
+    /// progress report.
+    private func reloadWhenAnImportSettles(_ jobs: [PackageImportQueue.Job]) {
+        let settled = jobs.filter { $0.state.isSettled }.count
+        guard settled != settledImportCount else { return }
+        settledImportCount = settled
+        Task { await reload() }
     }
 }
 

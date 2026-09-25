@@ -75,15 +75,23 @@ enum ApplicationRecordDuplicatePolicy {
     /// recorded; only held records can make the candidate a duplicate. The
     /// default treats every record as held, which is the pure comparison of
     /// references with no storage in the picture.
+    ///
+    /// `allowingDuplicateContent` skips the byte-identity check entirely, so
+    /// a candidate the library already holds is treated as a distinct
+    /// artifact and every record sharing its bundle identifier is related
+    /// instead. It exists for the one case where the answer is "store it
+    /// anyway" — a user who was shown the duplicate and chose to keep both.
     static func evaluate(
         candidate: ArtifactReference,
         identity: ApplicationIdentity,
         against records: [ApplicationRecord],
-        holding isHeld: (ApplicationRecord) -> Bool = { _ in true }
+        holding isHeld: (ApplicationRecord) -> Bool = { _ in true },
+        allowingDuplicateContent: Bool = false
     ) -> Verdict {
         let ordered = records.sorted(by: ApplicationRecord.libraryOrder)
 
-        if let identical = ordered.first(where: { isHeld($0) && $0.artifact.describesSameContent(as: candidate) }) {
+        if !allowingDuplicateContent,
+           let identical = ordered.first(where: { isHeld($0) && $0.artifact.describesSameContent(as: candidate) }) {
             return .identical(existing: identical)
         }
 
