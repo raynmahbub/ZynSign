@@ -83,7 +83,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
         case .certificates:
             return "Signing identities in the Keychain — imported from .p12 containers, inspected, and never exportable with their private keys."
         case .profiles:
-            return "Imported provisioning profiles — name, team, allowed bundle identifiers, and expiry, read from each profile's own declarations."
+            return "Imported provisioning profiles — searchable, sortable, and filterable, with expiration countdowns, pre-sign compatibility checks, actionable diagnostics, and per-app suggestions."
         case .settings:
             return "Signing preferences, appearance, storage, diagnostics, and the honest capability screens."
         case .files:

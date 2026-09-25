@@ -48,6 +48,8 @@ enum CompositionRoot {
             provisioningProfiles: profiles
         )
         environment.provisioningProfileImporter = makeProvisioningProfileImporter()
+        environment.profileCompatibility = ProfileCompatibilityUseCase(identityStore: identityStore)
+        environment.profileSelections = UserDefaultsProfileSelectionStore()
         environment.appIcons = makeAppIconExtraction()
         return environment
     }

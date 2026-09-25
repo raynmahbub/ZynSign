@@ -78,6 +78,16 @@ struct ApplicationEnvironment {
     /// construction.
     var provisioningProfileImporter: ProvisioningProfileImporter? = nil
 
+    /// The Smart Compatibility Engine and Profile Matching use case: the
+    /// pre-sign checks, the Compatibility Summary, and the automatic
+    /// profile suggestion for an app. Optional so older composition paths
+    /// and tests can omit it; production paths supply it.
+    var profileCompatibility: ProfileCompatibilityUseCase? = nil
+
+    /// The profile-selection store behind "Use for Signing" and the
+    /// per-app manual override. Optional for the same reason.
+    var profileSelections: (any ProfileSelectionStore)? = nil
+
     /// Extracts application icons from the packages the library holds, for
     /// the Home and Library cards. `nil` where no reader provider is
     /// composed; treated as read-only after construction.

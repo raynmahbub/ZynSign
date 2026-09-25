@@ -22,11 +22,57 @@ struct ApplicationDetailView: View {
     let entry: LibraryEntry
     private let bundleInspection: IPABundleContentsInspection
 
+    @Environment(\.applicationEnvironment) private var environment
+
+    /// The profile-suggestion state for this app. Loading while the
+    /// library and the compatibility engine are consulted.
+    @State private var profilePhase: ProfileSuggestionPhase = .loading
+
+    /// Every profile in the library, kept for the "Change Profile…" menu.
+    @State private var allProfiles: [ProvisioningProfileSummary] = []
+
     /// Creates the screen for `entry`, with the inspection use case the
     /// bundle explorer runs on.
     init(entry: LibraryEntry, bundleInspection: IPABundleContentsInspection) {
         self.entry = entry
         self.bundleInspection = bundleInspection
+    }
+
+    /// What the Provisioning Profile section currently shows.
+    private enum ProfileSuggestionPhase {
+        case loading
+        /// No compatibility use case in this composition.
+        case unavailable
+        /// The library holds no profiles yet.
+        case noProfiles
+        /// Profiles exist, but none suits this app.
+        case noneSuitable
+        /// A profile was chosen: automatically, from the pinned "Use for
+        /// Signing" profile, or by the user's manual override.
+        case resolved(Suggestion)
+        /// The user's manual override names a profile that is not eligible
+        /// for this app. Shown honestly, with its own report.
+        case overriddenIneligible(
+            profile: ProvisioningProfileSummary,
+            report: ProfileCompatibilityReport
+        )
+    }
+
+    /// The chosen profile plus everything the section needs to present it.
+    private struct Suggestion {
+        let match: ProfileMatch
+        let source: Source
+        /// Every eligible profile, best-first, for the change menu.
+        let ranked: [ProfileMatch]
+
+        enum Source: Equatable {
+            /// The highest-ranked eligible profile.
+            case automatic
+            /// The profile pinned by "Use for Signing", when it ranks.
+            case pinned
+            /// The user's manual override for this app.
+            case `override`
+        }
     }
 
     var body: some View {
@@ -74,6 +120,7 @@ struct ApplicationDetailView: View {
                          : "Exploring lists the files and folders inside the application bundle. It reads the package's own records of them and does not open, run, or change any file.")
                 }
             }
+            profileSuggestionSection
             Section("Library Record") {
                 LabeledContent("Original File", value: content.sourceFileName)
                 LabeledContent("Imported") {
@@ -95,6 +142,253 @@ struct ApplicationDetailView: View {
         }
         .navigationTitle(content.name)
         .navigationBarTitleDisplayMode(.inline)
+        .task { await loadProfileSuggestion() }
+    }
+
+    // MARK: - Profile suggestion
+
+    @ViewBuilder
+    private var profileSuggestionSection: some View {
+        Section {
+            profileSuggestionContent
+        } header: {
+            Text("Provisioning Profile")
+        } footer: {
+            Text("Suggestions rank your profiles by bundle ID, team, certificates, and validity. You can always pick a different profile for this app — the choice is remembered.")
+        }
+    }
+
+    @ViewBuilder
+    private var profileSuggestionContent: some View {
+        switch profilePhase {
+        case .loading:
+            HStack(spacing: ZSpacing.xs) {
+                ProgressView()
+                Text("Finding the best profile…")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        case .unavailable:
+            Label(
+                "Profile suggestions are not part of this build's composition.",
+                systemImage: "questionmark.circle"
+            )
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+        case .noProfiles:
+            Label(
+                "No profiles yet. Import a .mobileprovision file in the Profiles tab, then return here for a suggestion.",
+                systemImage: "person.text.rectangle"
+            )
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+        case .noneSuitable:
+            VStack(alignment: .leading, spacing: ZSpacing.xs) {
+                ZStatusBadge(
+                    ProfileDiagnosticSeverity.error.displayName,
+                    systemImage: ProfileDiagnosticSeverity.error.systemImage,
+                    kind: .error
+                )
+                Text("Profile not suitable for this app")
+                    .font(.subheadline.weight(.semibold))
+                Text("None of your imported profiles covers \(entry.record.bundleIdentifier.rawValue). Import a profile whose App ID matches this app, then reopen its details.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.vertical, 2)
+            .accessibilityElement(children: .combine)
+        case .overriddenIneligible(let profile, let report):
+            overriddenContent(profile: profile, report: report)
+        case .resolved(let suggestion):
+            resolvedContent(suggestion)
+        }
+    }
+
+    private func resolvedContent(_ suggestion: Suggestion) -> some View {
+        let profile = suggestion.match.profile
+        return VStack(alignment: .leading, spacing: ZSpacing.sm) {
+            HStack(spacing: ZSpacing.xs) {
+                Text(sourceLabel(for: suggestion.source))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                if environment.profileSelections != nil {
+                    Menu {
+                        ForEach(allProfiles, id: \.id) { candidate in
+                            Button {
+                                Task { await chooseProfile(candidate) }
+                            } label: {
+                                if candidate.id == profile.id {
+                                    Label(candidate.name, systemImage: "checkmark")
+                                } else {
+                                    Text(candidate.name)
+                                }
+                            }
+                        }
+                        if suggestion.source == .override {
+                            Button {
+                                Task { await useBestMatch() }
+                            } label: {
+                                Label("Use Best Match", systemImage: "wand.and.stars")
+                            }
+                        }
+                    } label: {
+                        Label("Change…", systemImage: "ellipsis.circle")
+                    }
+                    .accessibilityHint("Manually pick a different profile for this app.")
+                }
+            }
+            Text(profile.name)
+                .font(.body.weight(.medium))
+                .lineLimit(1)
+            HStack(spacing: ZSpacing.xs) {
+                ProfileTypeBadge(type: profile.resolvedProfileType)
+                ProfileExpirationBadge(profile.expirationAssessment())
+                ProfileCompatibilityBadge(outcome: suggestion.match.report.overall)
+            }
+            if !suggestion.match.reasons.isEmpty {
+                Text(suggestion.match.reasons.joined(separator: " · "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            ProfileCompatibilitySummaryView(report: suggestion.match.report)
+            NavigationLink {
+                ProfileDetailView(summary: profile) {
+                    Task { await loadProfileSuggestion() }
+                }
+            } label: {
+                Label("View Profile Details", systemImage: "info.circle")
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Provisioning profile suggestion")
+    }
+
+    private func overriddenContent(
+        profile: ProvisioningProfileSummary,
+        report: ProfileCompatibilityReport
+    ) -> some View {
+        VStack(alignment: .leading, spacing: ZSpacing.sm) {
+            HStack(spacing: ZSpacing.xs) {
+                Text("Your choice")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                if environment.profileSelections != nil {
+                    Button {
+                        Task { await useBestMatch() }
+                    } label: {
+                        Label("Use Best Match", systemImage: "wand.and.stars")
+                    }
+                    .font(.caption)
+                }
+            }
+            Text(profile.name)
+                .font(.body.weight(.medium))
+                .lineLimit(1)
+            HStack(spacing: ZSpacing.xs) {
+                ZStatusBadge(
+                    "Not suitable for this app",
+                    systemImage: "exclamationmark.triangle.fill",
+                    kind: .warning
+                )
+                ProfileExpirationBadge(profile.expirationAssessment())
+            }
+            ProfileCompatibilitySummaryView(report: report)
+            NavigationLink {
+                ProfileDetailView(summary: profile) {
+                    Task { await loadProfileSuggestion() }
+                }
+            } label: {
+                Label("View Profile Details", systemImage: "info.circle")
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func sourceLabel(for source: Suggestion.Source) -> String {
+        switch source {
+        case .automatic: return "Suggested for this app"
+        case .pinned: return "Your pinned profile"
+        case .override: return "Your choice for this app"
+        }
+    }
+
+    /// Re-reads the library and recomputes the suggestion for this app:
+    /// manual override first, then the pinned "Use for Signing" profile
+    /// when it ranks, then the best match.
+    private func loadProfileSuggestion() async {
+        guard let compatibility = environment.profileCompatibility else {
+            profilePhase = .unavailable
+            return
+        }
+        let profiles: [ProvisioningProfileSummary]
+        if let library = environment.provisioningProfiles {
+            do {
+                profiles = try await library.allProfiles()
+            } catch {
+                profiles = []
+            }
+        } else {
+            profiles = []
+        }
+        allProfiles = profiles
+        guard !profiles.isEmpty else {
+            profilePhase = .noProfiles
+            return
+        }
+
+        let bundle = entry.record.bundleIdentifier.rawValue
+        let ranked = compatibility.rank(profiles: profiles, targetBundleIdentifier: bundle)
+
+        // The user's manual override wins, even when it is ineligible —
+        // but an ineligible override is shown with its honest report and
+        // an obvious way back to the best match.
+        if let overrideID = environment.profileSelections?.selection(forApplication: entry.record.id),
+           let overridden = profiles.first(where: { $0.id == overrideID }) {
+            if let match = ranked.first(where: { $0.profile.id == overrideID }) {
+                profilePhase = .resolved(Suggestion(match: match, source: .override, ranked: ranked))
+            } else {
+                profilePhase = .overriddenIneligible(
+                    profile: overridden,
+                    report: compatibility.evaluate(profile: overridden, targetBundleIdentifier: bundle)
+                )
+            }
+            return
+        }
+
+        if let preferredID = environment.profileSelections?.preferredProfileID(),
+           let pinned = ranked.first(where: { $0.profile.id == preferredID }) {
+            profilePhase = .resolved(Suggestion(match: pinned, source: .pinned, ranked: ranked))
+            return
+        }
+
+        if let best = ranked.first {
+            profilePhase = .resolved(Suggestion(match: best, source: .automatic, ranked: ranked))
+            return
+        }
+
+        profilePhase = .noneSuitable
+    }
+
+    /// Remembers the user's manual override for this app.
+    private func chooseProfile(_ profile: ProvisioningProfileSummary) async {
+        environment.profileSelections?.setSelection(
+            profile.id,
+            forApplication: entry.record.id
+        )
+        ZHaptics.tap()
+        await loadProfileSuggestion()
+    }
+
+    /// Clears the override so the automatic ranking decides again.
+    private func useBestMatch() async {
+        environment.profileSelections?.setSelection(nil, forApplication: entry.record.id)
+        ZHaptics.tap()
+        await loadProfileSuggestion()
     }
 }
 
