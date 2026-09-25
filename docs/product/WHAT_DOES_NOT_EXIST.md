@@ -1,6 +1,6 @@
 # What Does Not Exist — Honest Limitations
 
-> ZynSign `0.1.0` Horizon as tagged from `arena/01a0d570-zynsign` — **9 wired · 3 never**, where two of the three nevers are narrower than the original Horizon scope: what stays never is *in-app installation* and *off-device measurement*; Pairing/JIT/Mux stays never outright. The delivery hand-off and the local activity journal are wired in `0.1.0` build `4`. This file stays the anti-roadmap: what is still *not* claimed, so no one mistakes a local success for platform trust. Details in `docs/architecture/installation-compatibility.md`, `docs/architecture/pairing-jit-mux-feasibility.md`, and `docs/releases/version-strategy.md`.
+> ZynSign `0.1.0` Horizon as tagged from `main` — **9 wired · 3 never**, where two of the three nevers are narrower than the original Horizon scope: what stays never is *in-app installation* and *off-device measurement*; Pairing/JIT/Mux stays never outright. The delivery hand-off and the local activity journal are wired in `0.1.0` build `4`. This file stays the anti-roadmap: what is still *not* claimed, so no one mistakes a local success for platform trust. Details in `docs/architecture/installation-compatibility.md`, `docs/architecture/pairing-jit-mux-feasibility.md`, and `docs/releases/version-strategy.md`.
 
 ## ✅ Now Exists (since 0.1.0 Horizon)
 

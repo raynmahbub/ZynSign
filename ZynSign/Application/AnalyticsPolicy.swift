@@ -25,7 +25,7 @@ import Foundation
 enum AnalyticsPolicy {
 
     /// Whether **off-device analytics** is enabled. Always `false` in
-    /// 0.1.0-dev → 0.2.0 Horizon. The local activity journal is governed
+    /// every release through 1.0.0. The local activity journal is governed
     /// separately by `isJournalEnabled`.
     static let isEnabled = false
 

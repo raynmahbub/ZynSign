@@ -12,8 +12,8 @@
   <a href="docs/product/WHAT_DOES_NOT_EXIST.md"><img alt="Honest" src="https://img.shields.io/badge/honest-9%20wired%20·%203%20never-green"></a>
 </p>
 
-> **0.1.0 Horizon (2026-09-25) — `arena/01a0d570-zynsign`**  
-> Import, inspection, library, **Certificate Studio**, **Smart Sign (9 stages + DER 0x20400 + Live Activity)**, **Repository Health**, **Background Downloads**, **Mission Control**, **Installation Delivery Hand-off (OTA manifest + QR + operator guides)**, and a **Local Activity Journal (on-device, never transmitted)** are reachable through the interface. In-app installation remains a platform fact (`noDeliveryMechanism`); Pairing/JIT/Mux stays **never** (ADR-recorded); off-device analytics stays **off**.
+> **0.1.0 Horizon (2026-09-25) — release train**  
+> The whole app is built: import, inspection, library, **Certificate Studio**, **Smart Sign (9 stages + DER 0x20400 + Live Activity)**, **Repository Health**, **Background Downloads**, **Mission Control**, **Installation Delivery Hand-off (OTA manifest + QR + operator guides)**, and a **Local Activity Journal (on-device, never transmitted)**. It ships **one release at a time**: `0.1.0` shows Files, Import, Library and Bundle Explorer, and each alpha switches on more (see [Release train](#release-train)). In-app installation remains a platform fact (`noDeliveryMechanism`); Pairing/JIT/Mux stays **never** (ADR-recorded); off-device analytics stays **off**.
 
 ---
 
@@ -35,21 +35,43 @@ Full product identity: [`docs/product/UNIQUE_VALUE_PROPOSITION.md`](docs/product
 
 ---
 
-## What works today
+## Release train
+
+Features are finished and compiled in. `ReleaseTrain.current` in [`ReleaseTrain.swift`](ZynSign/Application/ReleaseTrain.swift) decides which ones a Release build shows. Full procedure: [`docs/releases/release-train.md`](docs/releases/release-train.md).
+
+| Release | Switches on |
+|---|---|
+| **`v0.1.0`** ◀ current | Files · Import · Library · Bundle Explorer · Home · Settings |
+| `v0.1.0-alpha.1` | Certificate Studio |
+| `v0.1.0-alpha.2` | Smart Sign (+ Signing Options, Installation screen) |
+| `v0.1.0-alpha.3` | App Store + Repository Health · Background Downloads |
+| `v0.9.0-beta.1` | Mission Control · Delivery Hand-off · Activity Journal — **feature complete** |
+| `v0.9.0-beta.2…4` → `v1.0.0-rc.1…3` → `v1.0.0` | Fixes only |
+
+```sh
+python3 Scripts/release_train.py status     # what's visible now, what's next
+python3 Scripts/release_train.py promote    # switch on the next release
+```
+
+Debug builds show everything. Add the launch argument `-ZynSignReleaseStage alpha2` to preview a specific release.
+
+## What's built
+
+The **Ships in** column is the first release that shows the feature.
 
 | Area | State · Entry point | Notes |
 |---|---|---|
-| **Import** | `ipa` / `tipa` via Files, Library, Downloads (security-scoped, bounded, SHA-256) | Rejects >100k entries, depth >32, >4 MiB inspection / 512 MiB extraction. Staged in `tmp`, adopted to `Application Support/ZynSignLibrary` |
-| **Library** | Durable `FileApplicationRecordStore` + `FileLibraryArtifactStore`, `isArtifactAvailable`, `BundleExplorerView` read-only, row `⋯ → Sign` | Survives relaunch, duplicate SHA-256, missing-artifact banner |
-| **Certificates** | `Settings → Certificates` → `CertificatesView` + `CertificateDetailView` | `.p12/.pfx` 10 MiB, `ApplePKCS12Importer` → `SecureIdentityStore` (`WhenUnlockedThisDeviceOnly`, non-extractable), `ZStatusBadge` readiness, **Export public JSON** (`CertificateExportService` `tmp/ZynSign-Export/*.json` via share sheet) — private key never exported |
-| **Smart Sign** | `Library → ⋯ → Sign` / `Detail → Sign` → `SigningView` | 9 stages: integrity → profile → discovery → extraction → nested → sealing → main → packaging → verification. Profile-derived `CodeSigningEntitlements` (CMS `CMSStructureReader` + `PropertyListProvisioningProfileParser`), **DER toggle** `0x20200` `slot 5` ↔ `0x20400` `slot 5+7` (`DEREntitlementsSerializer` `0xFADE7172`), **Live Activity** (`LiveActivityService` `ActivityKit` on 16.1+ else `ZStatusBadge`) → `Documents/Signed/*_signed.ipa` + Share |
-| **Repository browser** | `App Store` (`AppStoreView`) AltSource feed, Featured + All, add/remove sources | **Health** `Fast` (<800 ms) / `Slow` (<3000 ms) / `Offline` (`RepositoryHealthProbe` 3 s, JSON validation, `ZStatusBadge` + `Check Health`) |
-| **Downloads** | `Downloads` (`DownloadsView`) `https` / `itms-services` / `manifest.plist` | **BackgroundURLSession** `com.zynsign.downloads` (resumeData, 600 s, retry ×3, checksum), `Pause`/`Resume`/`Cancel`, progress, survives backgrounding (foreground on Simulator) |
-| **Mission Control** | `Home` (`HomeView`) + `MissionControlService` | **Refresh Everything**: sources → library re-read → cache cleanup (`tmp` 24h + `Downloads` 500 MiB/7d) with report `Completed`/`Unavailable` + counts + ms |
+| **Import** <br/><sub>Ships in `v0.1.0`</sub> | `ipa` / `tipa` via Files, Library, Downloads (security-scoped, bounded, SHA-256) | Rejects >100k entries, depth >32, >4 MiB inspection / 512 MiB extraction. Staged in `tmp`, adopted to `Application Support/ZynSignLibrary` |
+| **Library** <br/><sub>Ships in `v0.1.0`</sub> | Durable `FileApplicationRecordStore` + `FileLibraryArtifactStore`, `isArtifactAvailable`, `BundleExplorerView` read-only, row `⋯ → Sign` | Survives relaunch, duplicate SHA-256, missing-artifact banner |
+| **Certificates** <br/><sub>Ships in `v0.1.0-alpha.1`</sub> | `Settings → Certificates` → `CertificatesView` + `CertificateDetailView` | `.p12/.pfx` 10 MiB, `ApplePKCS12Importer` → `SecureIdentityStore` (`WhenUnlockedThisDeviceOnly`, non-extractable), `ZStatusBadge` readiness, **Export public JSON** (`CertificateExportService` `tmp/ZynSign-Export/*.json` via share sheet) — private key never exported |
+| **Smart Sign** <br/><sub>Ships in `v0.1.0-alpha.2`</sub> | `Library → ⋯ → Sign` / `Detail → Sign` → `SigningView` | 9 stages: integrity → profile → discovery → extraction → nested → sealing → main → packaging → verification. Profile-derived `CodeSigningEntitlements` (CMS `CMSStructureReader` + `PropertyListProvisioningProfileParser`), **DER toggle** `0x20200` `slot 5` ↔ `0x20400` `slot 5+7` (`DEREntitlementsSerializer` `0xFADE7172`), **Live Activity** (`LiveActivityService` `ActivityKit` on 16.1+ else `ZStatusBadge`) → `Documents/Signed/*_signed.ipa` + Share |
+| **Repository browser** <br/><sub>Ships in `v0.1.0-alpha.3`</sub> | `App Store` (`AppStoreView`) AltSource feed, Featured + All, add/remove sources | **Health** `Fast` (<800 ms) / `Slow` (<3000 ms) / `Offline` (`RepositoryHealthProbe` 3 s, JSON validation, `ZStatusBadge` + `Check Health`) |
+| **Downloads** <br/><sub>Ships in `v0.1.0-alpha.3`</sub> | `Downloads` (`DownloadsView`) `https` / `itms-services` / `manifest.plist` | **BackgroundURLSession** `com.zynsign.downloads` (resumeData, 600 s, retry ×3, checksum), `Pause`/`Resume`/`Cancel`, progress, survives backgrounding (foreground on Simulator) |
+| **Mission Control** <br/><sub>Ships in `v0.9.0-beta.1`</sub> | `Home` (`HomeView`) + `MissionControlService` | **Refresh Everything**: sources → library re-read → cache cleanup (`tmp` 24h + `Downloads` 500 MiB/7d) with report `Completed`/`Unavailable` + counts + ms |
 | **Design System** | `DesignSystem/` `ZCard/ZStatusBadge/ZSkeleton/ZProgressRing/ZToast/ZBottomSheet` + `DesignTokens` | ZDL v1.0, `Four-layer` `Presentation→Application→Domain←Platform` via `CompositionRoot` |
 | **Provisioning** | Payload parsing, CMS verification, policy (`9 categories`), staged pipeline + bundle intake | Below UI; no trust/authorization claim |
 | **Packaging** | Deterministic `PackageSignedApplication` + `DirectoryArchiveExtractor` (confinement, symlink `.exclude`) | Built at composition root |
-| **Installation** | **Hand-off wired · in-app install still honest-unavailable** `deliveryMechanismAvailable == false` | Sign → **Deliver…** → `InstallationDeliveryView` builds the OTA `manifest.plist` (`itms-services`), a copy-ready install link, an on-device **QR code** (Core Image), and step guides for OTA / MDM / host tooling. ZynSign never uploads, hosts, or learns an install outcome. `Settings → Installation` keeps the typed `noDeliveryMechanism` assessment. See `docs/architecture/installation-compatibility.md` |
+| **Installation** <br/><sub>Ships in `v0.9.0-beta.1 (hand-off)`</sub> | **Hand-off wired · in-app install still honest-unavailable** `deliveryMechanismAvailable == false` | Sign → **Deliver…** → `InstallationDeliveryView` builds the OTA `manifest.plist` (`itms-services`), a copy-ready install link, an on-device **QR code** (Core Image), and step guides for OTA / MDM / host tooling. ZynSign never uploads, hosts, or learns an install outcome. `Settings → Installation` keeps the typed `noDeliveryMechanism` assessment. See `docs/architecture/installation-compatibility.md` |
 | **Pairing/JIT/Mux** | **Never** — `PairingCapabilityAssessment.allUnavailable` + feasibility ADR | `Settings → Pairing` `Never` + `requiresPrivateEntitlement/requiresLockdownDaemon/notComposed` + per-capability `feasibilityNote` naming the private surface (usbmuxd, lockdown entitlements, `get-task-allow`). Record: `docs/architecture/pairing-jit-mux-feasibility.md`. OpenSSL only `Tests/Host` |
 | **Analytics** | **Local journal wired · off-device measurement never** `AnalyticsPolicy.isEnabled == false` | `Settings → Analytics`: on-device **activity journal** (category + fixed slug + outcome — no identifiers/paths), toggle, live counts, recent activity, one-tap **Clear**, **Export**; 6 typed guarantees incl. `localJournalOnly`. No Kit/SDK/endpoint; nothing ever transmitted |
 | **Build / Tests** | Xcode `ZynSign.xcodeproj` app + unit-test target; CI on iPhone simulator + host `external_validation.py` (`codesign`/`otool`/`openssl`) | Dependencies: Apple frameworks + Swift stdlib only |
@@ -138,9 +160,9 @@ ZynSign is built in small, explicitly scoped increments:
 - **One branch per task** (`arena/<id>-zynsign`) until reviewed.
 - **No speculative code** — no docs about non-existent functionality (or labelled `planned`).
 - **Verifiable** — build / test / explicit “no check applies”.
-- **Human-controlled Git** — commits/pushes/tags/releases by the developer; this branch is `arena/01a0d570-zynsign` → `origin/arena/01a0d570-zynsign`.
+- **Human-controlled Git** — commits/pushes/tags/releases by the developer; work lands on `main` through reviewed `arena/<id>-zynsign` branches.
 
-Current branch: `arena/01a0d570-zynsign` — `0.1.0` Horizon + delivery hand-off, local activity journal, pairing/JIT/mux ADR (market `0.1.0`, build `4`; public tag `v0.1.0` after the private matrix is green).
+Current release: `0.1.0` Horizon on the release train (market `0.1.0`, build `4`; public tag `v0.1.0` after the private matrix is green). Next: `v0.1.0-alpha.1` (Certificate Studio) via `python3 Scripts/release_train.py promote`.
 
 ```sh
 git clone https://github.com/raynmahbub/ZynSign.git

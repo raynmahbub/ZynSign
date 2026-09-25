@@ -1,8 +1,12 @@
 # Private test build — manual only, not a public release.
 #
-# Purpose: build the same commit you intend to publish as v0.1.0
-# (market 0.1.0, build 4) and upload the IPA as a *private* workflow
-# artifact (retention 7 days) or prepare it for TestFlight internal.
+# Purpose: build the same commit you intend to publish (the current
+# ReleaseTrain stage — see docs/releases/release-train.md) and upload the IPA
+# as a *private* workflow artifact (retention 7 days) or prepare it for
+# TestFlight internal.
+#
+# Use Release to test what users will get. Debug builds expose EVERY feature
+# regardless of ReleaseTrain.current, so a Debug IPA is not release evidence.
 # Nothing in this workflow creates a tag or a GitHub release.
 #
 # See docs/releases/private-testing.md for the full private → public gate.
@@ -12,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       configuration:
-        description: "Xcode configuration"
+        description: "Xcode configuration (Release = what users get; Debug shows every feature)"
         type: choice
         options: [Release, Debug]
         default: Release
@@ -54,6 +58,8 @@ jobs:
               echo "Forbidden: $p" >&2; failed=1; fi
           done
           exit $failed
+      - name: Release train consistent
+        run: python3 Scripts/release_train.py check
       - name: Host vectors
         run: |
           set -eu

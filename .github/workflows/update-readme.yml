@@ -5,7 +5,7 @@
 #   - docs/product/WHAT_DOES_NOT_EXIST.md (counts derived from its tables)
 #
 # When you add a feature in ZynSign/** or docs/product/** and push to
-# arena/01a0d570-zynsign (or main), this workflow runs
+# an arena/** branch (or main), this workflow runs
 # Scripts/update_readme.py and commits the fix if the badge/header
 # is stale. It is the "repos readme automatically updates when add new
 # features" automation the first public dev needs.

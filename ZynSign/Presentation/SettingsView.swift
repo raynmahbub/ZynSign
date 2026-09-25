@@ -16,7 +16,9 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 aboutSection
-                certificatesSection
+                if ReleaseTrain.isAvailable(.certificateStudio) || ReleaseTrain.isAvailable(.smartSign) {
+                    certificatesSection
+                }
                 signingSection
                 appearanceSection
                 storageSection
@@ -47,14 +49,20 @@ struct SettingsView: View {
 
     private var certificatesSection: some View {
         Section {
-            NavigationLink { CertificatesView() } label: {
-                Label("Certificates", systemImage: "signature")
+            if ReleaseTrain.isAvailable(.certificateStudio) {
+                NavigationLink { CertificatesView() } label: {
+                    Label("Certificates", systemImage: "signature")
+                }
             }
-            NavigationLink { SigningOptionsView() } label: {
-                Label("Signing Options", systemImage: "slider.horizontal.3")
+            if ReleaseTrain.isAvailable(.smartSign) {
+                NavigationLink { SigningOptionsView() } label: {
+                    Label("Signing Options", systemImage: "slider.horizontal.3")
+                }
             }
         } header: { Text("Signing") } footer: {
-            Text("Add and manage signing certificates, and configure the options used when the pipeline is composed for signing. Certificates are device-only, never leave the Keychain.")
+            Text(ReleaseTrain.isAvailable(.smartSign)
+                 ? "Add and manage signing certificates, and configure the options used when the pipeline is composed for signing. Certificates are device-only, never leave the Keychain."
+                 : "Add and manage signing certificates. Certificates are device-only and never leave the Keychain. On-device signing arrives in a later release.")
         }
     }
 
@@ -63,8 +71,10 @@ struct SettingsView: View {
             NavigationLink { ArchiveSettingsView() } label: {
                 Label("Archive & Extraction", systemImage: "doc.zipper")
             }
-            NavigationLink { InstallationSettingsView() } label: {
-                Label("Installation", systemImage: "arrow.down.app")
+            if ReleaseTrain.isAvailable(.smartSign) {
+                NavigationLink { InstallationSettingsView() } label: {
+                    Label("Installation", systemImage: "arrow.down.app")
+                }
             }
             NavigationLink { PairingHonestView() } label: {
                 Label("Pairing / JIT / Mux", systemImage: "cable.connector")
@@ -73,8 +83,26 @@ struct SettingsView: View {
                 Label("Analytics", systemImage: "chart.bar.doc.horizontal")
             }
         } header: { Text("Workflow") } footer: {
-            Text("Installation is a delivery hand-off — ZynSign still never installs. Pairing/JIT/Mux is a documented never. Analytics is a local, on-device journal with off-device measurement permanently off. See each screen for the typed reason and the doc link.")
+            Text(workflowFooter)
         }
+    }
+
+    /// The Workflow footer only describes screens this release shows.
+    private var workflowFooter: String {
+        var parts: [String] = []
+        if ReleaseTrain.isAvailable(.deliveryHandoff) {
+            parts.append("Installation is a delivery hand-off — ZynSign still never installs.")
+        } else if ReleaseTrain.isAvailable(.smartSign) {
+            parts.append("Installation is reported as unavailable — ZynSign never installs.")
+        }
+        parts.append("Pairing/JIT/Mux is a documented never.")
+        if ReleaseTrain.isAvailable(.activityJournal) {
+            parts.append("Analytics is a local, on-device journal with off-device measurement permanently off.")
+        } else {
+            parts.append("Off-device analytics is permanently off.")
+        }
+        parts.append("See each screen for the typed reason and the doc link.")
+        return parts.joined(separator: " ")
     }
 
     private var appearanceSection: some View {
@@ -216,10 +244,12 @@ private struct InstallationSettingsView: View {
                         .listRowInsets(EdgeInsets(top: 4, leading: 32, bottom: 4, trailing: 16))
                 }
             } header: { Text("Installation — Honest Unavailable") } footer: { Text("`InstallationCapabilityAssessment.deliveryMechanismAvailable == false` on every path. Extending requires a demonstrated mechanism (MDM/OTA/host) and an ADR. See docs/architecture/installation-compatibility.md.") }
-            Section("Delivery hand-off") {
-                ZStatusBadge("Hand-off wired", systemImage: "tray.and.arrow.up", kind: .info)
-                Text("After a successful sign, **Deliver…** on the signing screen builds an over-the-air manifest (itms-services), a ready-to-paste install link, and a QR code, plus step-by-step guides for the three operator channels: OTA hosting, MDM, and host tooling (Finder / Apple Configurator).").font(.footnote).foregroundStyle(.secondary)
-                Text("The hand-off produces artifacts for you — it never uploads, hosts, contacts a server, or learns whether an install happened. Installation itself remains exactly as unavailable as above.").font(.caption).foregroundStyle(.secondary)
+            if ReleaseTrain.isAvailable(.deliveryHandoff) {
+                Section("Delivery hand-off") {
+                    ZStatusBadge("Hand-off wired", systemImage: "tray.and.arrow.up", kind: .info)
+                    Text("After a successful sign, **Deliver…** on the signing screen builds an over-the-air manifest (itms-services), a ready-to-paste install link, and a QR code, plus step-by-step guides for the three operator channels: OTA hosting, MDM, and host tooling (Finder / Apple Configurator).").font(.footnote).foregroundStyle(.secondary)
+                    Text("The hand-off produces artifacts for you — it never uploads, hosts, contacts a server, or learns whether an install happened. Installation itself remains exactly as unavailable as above.").font(.caption).foregroundStyle(.secondary)
+                }
             }
             Section("What ZynSign does today") {
                 Text("Validates artifact, signature, and provisioning separately and reports installation as unavailable with exact limitations. Delivery of a signed IPA is the operator's responsibility (MDM, OTA with user confirmation, or host tooling). Signed output is in `Documents/Signed/*_signed.ipa`.").font(.footnote).foregroundStyle(.secondary)
@@ -238,8 +268,8 @@ private struct PairingHonestView: View {
         List {
             Section {
                 HStack(spacing: ZSpacing.xs) { ZStatusBadge("Never", systemImage: "xmark.octagon", kind: .error); ZStatusBadge("4 capabilities", systemImage: "cable.connector", kind: .neutral) }
-                Text("Pairing / JIT / Mux / OpenSSL linkage are never planned for 0.1.0-dev → 0.2.0 Horizon. No PairingKit, no JITBroker, no usbmuxd, no OpenSSL linked into the app binary. Keeps the binary reviewable and avoids private-API risk.").font(.footnote).foregroundStyle(.secondary)
-            } header: { Text("Pairing / JIT / Mux — Never") } footer: { Text("Until an ADR demonstrates feasibility, every `PairingCapabilityAssessment.assess(_:)` returns `supported == false` with typed limitations. The feasibility record — the private surface each capability needs and the triggers that would reopen the question — is docs/architecture/pairing-jit-mux-feasibility.md. See also WHAT_DOES_NOT_EXIST.md 0.2.0.") }
+                Text("Pairing / JIT / Mux / OpenSSL linkage are not planned for any release through 1.0.0. No PairingKit, no JITBroker, no usbmuxd, no OpenSSL linked into the app binary. Keeps the binary reviewable and avoids private-API risk.").font(.footnote).foregroundStyle(.secondary)
+            } header: { Text("Pairing / JIT / Mux — Never") } footer: { Text("Until an ADR demonstrates feasibility, every `PairingCapabilityAssessment.assess(_:)` returns `supported == false` with typed limitations. The feasibility record — the private surface each capability needs and the triggers that would reopen the question — is docs/architecture/pairing-jit-mux-feasibility.md. See also docs/product/WHAT_DOES_NOT_EXIST.md.") }
             ForEach(assessments, id: \.capability) { a in
                 Section(a.capability.rawValue.capitalized) {
                     HStack { ZStatusBadge("Unavailable", systemImage: "xmark.shield", kind: .error); Spacer(); Text(a.summary).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
@@ -266,8 +296,10 @@ private struct AnalyticsHonestView: View {
     var body: some View {
         List {
             measurementSection
-            journalSection
-            if !recentEvents.isEmpty { recentSection }
+            if ReleaseTrain.isAvailable(.activityJournal) {
+                journalSection
+                if !recentEvents.isEmpty { recentSection }
+            }
             guaranteesSection
             notCollectedSection
         }
@@ -426,6 +458,7 @@ private struct DiagnosticsView: View {
             Section("Build") {
                 LabeledContent("Marketing version", value: env.applicationInfo.marketingVersion)
                 LabeledContent("Build version", value: env.applicationInfo.buildVersion)
+                LabeledContent("Release", value: ReleaseTrain.gate.summary)
             }
         }.navigationTitle("Diagnostics").navigationBarTitleDisplayMode(.inline)
     }

@@ -49,6 +49,9 @@ jobs:
           done
           exit $failed
 
+      - name: Check the release train is consistent
+        run: python3 Scripts/release_train.py check
+
       - name: Run host vector checks
         run: |
           set -eu

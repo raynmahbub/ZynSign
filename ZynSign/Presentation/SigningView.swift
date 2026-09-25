@@ -237,10 +237,12 @@ struct SigningView: View {
                     }
                     Button { shareItem = ShareURL(url: url) } label: { Label("Share Signed IPA…", systemImage: "square.and.arrow.up") }
                     Button { shareItem = ShareURL(url: url) } label: { Label("Open in Files", systemImage: "folder") }
-                    NavigationLink {
-                        InstallationDeliveryView(package: InstallationDeliveryPackage(signedIPA: url, record: entry.record))
-                    } label: {
-                        Label("Deliver…", systemImage: "tray.and.arrow.up")
+                    if ReleaseTrain.isAvailable(.deliveryHandoff) {
+                        NavigationLink {
+                            InstallationDeliveryView(package: InstallationDeliveryPackage(signedIPA: url, record: entry.record))
+                        } label: {
+                            Label("Deliver…", systemImage: "tray.and.arrow.up")
+                        }
                     }
                     Text("The signed container is in Documents/Signed. It is the exact artifact the pipeline produced and independently verified — not a trust or installability claim.").font(.caption).foregroundStyle(.secondary)
                 }

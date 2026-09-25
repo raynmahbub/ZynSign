@@ -1,49 +1,60 @@
 ## [0.1.0] - 2026-09-25
 
-First public development build — **Horizon** — on `arena/01a0d570-zynsign`.
+First public development build — **Horizon** — tagged from `main`.
 Market `0.1.0` build `4` (`CFBundleShortVersionString 0.1.0`, `CFBundleVersion 4`),
 tag `v0.1.0`. The same binary is tested privately (TestFlight internal / ad-hoc IPA)
 and then published — no rebuild between private and public.
 
-This release completes `docs/product/WHAT_DOES_NOT_EXIST.md`: **9 wired, 3 never** —
+**Release train.** The whole app is built into this binary, but `0.1.0` *shows*
+only the core: **Files, Import (`ipa`/`tipa`), Library, Bundle Explorer, Home, and
+Settings**. Every other feature below is marked with the release that switches it
+on (`ReleaseTrain.swift`, see `docs/releases/release-train.md`). Hidden features
+can't be reached from the interface and record nothing.
+
+The codebase completes `docs/product/WHAT_DOES_NOT_EXIST.md`: **9 wired, 3 never** —
 in-app installation, Pairing/JIT/Mux, and off-device analytics stay claimed-never,
-while the installation delivery hand-off and the local activity journal are wired.
-Signed output is `Documents/Signed/*_signed.ipa` with Share and **Deliver…**.
+while the installation delivery hand-off and the local activity journal are wired
+(visible from `v0.9.0-beta.1`).
 
 ### Added
 
-- **Certificate Studio + Export** — Import `.p12`/`.pfx` (≤ 10 MiB) via `SecPKCS12Import`,
+- **Import, Library, Files, Bundle Explorer** *(visible in `v0.1.0`)* — import `ipa`/`tipa`
+  from Files or Home (security-scoped, bounded, SHA-256), durable library that survives
+  relaunch, duplicate detection, missing-artifact banner, read-only bundle explorer,
+  and a Files browser over ZynSign's own container.
+
+- **Certificate Studio + Export** *(built · visible from `v0.1.0-alpha.1`)* — Import `.p12`/`.pfx` (≤ 10 MiB) via `SecPKCS12Import`,
   store in `SecureIdentityStore` (`WhenUnlockedThisDeviceOnly`, non-extractable, duplicate
   SHA-256 rejected). `Settings → Certificates` shows subject / issuer / serial / SHA-256 /
   validity / key info with `ZStatusBadge` and exports *public* JSON only
   (`CertificateExportService` → `tmp/ZynSign-Export/*.json` via `UIActivityViewController`).
   Private key never leaves the Keychain.
 
-- **Smart Sign (9 stages)** — `Library → Sign` / `Detail → Sign` runs
+- **Smart Sign (9 stages)** *(built · visible from `v0.1.0-alpha.2`)* — `Library → Sign` / `Detail → Sign` runs
   `integrity → profile → discovery → extraction → nestedSigning → resourceSealing → mainExecutable → packaging → verification`
   with `ZProgressRing` + `ZSigningStatusMachine`. Entitlements are derived from the
   `.mobileprovision` (CMS → plist → `CodeSigningEntitlements`, unknown keys preserved,
   8-key preview) with fallback to empty only when derivation fails. `tipa` accepted as alias for `ipa`.
 
-- **DER entitlements (iOS 15+)** — Toggle `0x20200` (slot 5) / `0x20400` (slot 5+7) in
+- **DER entitlements (iOS 15+)** *(built · visible from `v0.1.0-alpha.2`)* — Toggle `0x20200` (slot 5) / `0x20400` (slot 5+7) in
   `SigningView`. `DEREntitlementsSerializer` produces deterministic `DER SET` (`0xFADE7172`)
   and `CodeDirectoryVersion.v20400` (52-byte header, slot 7 gated). Pipeline wired via
   `SignApplicationOptions.emitDEREntitlements` (default `false`).
 
-- **Live Activities** — `LiveActivityService` (`ActivityKit` on iOS 16.1+, in-app `ZStatusBadge` fallback)
+- **Live Activities** *(built · visible from `v0.1.0-alpha.2`)* — `LiveActivityService` (`ActivityKit` on iOS 16.1+, in-app `ZStatusBadge` fallback)
   mirrors `ZynSignLiveActivityState` (stage / progress / detail) during signing
   (`start → update 0.2/0.9 → end`) in `SigningView`.
 
-- **Repository Health** — `App Store` sources show `Fast < 800 ms` / `Slow < 3 s` / `Offline`
+- **Repository Health** *(built · visible from `v0.1.0-alpha.3`)* — `App Store` sources show `Fast < 800 ms` / `Slow < 3 s` / `Offline`
   (`RepositoryHealthProbe` 3 s, `reloadIgnoringLocalCacheData`, HTTP 2xx + JSON validation).
   Row displays `ZStatusBadge` + latency and `Check Health` on demand; `refresh()` maps latency to health.
 
-- **Background Downloads** — `Downloads` uses `BackgroundURLSession` (`com.zynsign.downloads`,
+- **Background Downloads** *(built · visible from `v0.1.0-alpha.3`)* — `Downloads` uses `BackgroundURLSession` (`com.zynsign.downloads`,
   60 s request / 600 s resource, `waitsForConnectivity`, `sessionSendsLaunchEvents`) with
   resume data, retry × 3, SHA-256 verification, `Pause` / `Resume` / `Cancel`, and progress.
   Survives backgrounding (foreground on Simulator).
 
-- **Mission Control** — `Home → Refresh Everything` (`MissionControlService`) runs
+- **Mission Control** *(built · visible from `v0.9.0-beta.1`)* — `Home → Refresh Everything` (`MissionControlService`) runs
   `refresh repositories → library re-read → cache cleanup` (`tmp` 24 h + `Downloads` 500 MiB / 7 d)
   with report (`Completed` / `Unavailable` + counts + duration ms). Re-sign is policy-checked, never auto-triggered.
 
@@ -53,7 +64,7 @@ Signed output is `Documents/Signed/*_signed.ipa` with Share and **Deliver…**.
   (`isEnabled == false`, `0 events sent`, 6 guarantees incl. `localJournalOnly`).
   See `docs/product/WHAT_DOES_NOT_EXIST.md` for code references.
 
-- **Installation delivery hand-off** — `Sign → Deliver…` opens `InstallationDeliveryView`
+- **Installation delivery hand-off** *(built · visible from `v0.9.0-beta.1`)* — `Sign → Deliver…` opens `InstallationDeliveryView`
   (`Application/InstallationDelivery.swift`): enter the HTTPS address where you will host the
   signed IPA and ZynSign builds Apple's `itms-services` `manifest.plist`, a percent-encoded
   install link, an on-device QR code (Core Image `CIQRCodeGenerator`,
@@ -62,7 +73,7 @@ Signed output is `Documents/Signed/*_signed.ipa` with Share and **Deliver…**.
   typed `InstallationDeliveryError`). ZynSign never uploads, hosts, probes a server, or learns
   an installation outcome; `deliveryMechanismAvailable` stays `false` on every path.
 
-- **Local activity journal (on-device analytics)** — `LocalAnalyticsEvent` (category + fixed
+- **Local activity journal (on-device analytics)** *(built · visible from `v0.9.0-beta.1`)* — `LocalAnalyticsEvent` (category + fixed
   slug + outcome + time — no bundle identifiers, paths, or device/user identifiers) recorded
   by `FileLocalAnalyticsJournal` (JSONL in the app container, capacity 500, atomic writes,
   damaged lines skipped) behind the `LocalAnalyticsRecording` port
@@ -125,7 +136,7 @@ Signed output is `Documents/Signed/*_signed.ipa` with Share and **Deliver…**.
 - **Sideload only** — not App Store, not install-claiming. Deliver `Documents/Signed` via MDM / OTA + confirmation.
 - **Private → public gate** — this tag (`v0.1.0`) is the privately tested commit (`docs/releases/private-testing.md`
   matrix on iOS 17 + iOS 18, two devices + simulator).
-- **Branch** `arena/01a0d570-zynsign` (Horizon `58e604c` + installation delivery hand-off, local
+- **Built on** `main` (Horizon `58e604c` + installation delivery hand-off, local
   activity journal, pairing/JIT/mux feasibility record; market `0.1.0` build `4`).
   History tags `v0.1.0-dev` / `v0.1.1-dev` / `v0.2.0-dev` at `58e604c`.
 - **External validation** (ZS-031, runs `36010725148` / `36011553668`): `codesign` accepts single-image,

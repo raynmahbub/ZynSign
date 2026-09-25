@@ -21,13 +21,15 @@ struct LibraryTabView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Picker("", selection: $selectedSegment) {
-                    Text("Imported").tag(0)
-                    Text("Signed").tag(1)
+                if ReleaseTrain.isAvailable(.smartSign) {
+                    Picker("", selection: $selectedSegment) {
+                        Text("Imported").tag(0)
+                        Text("Signed").tag(1)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
                 }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
 
                 // The real library list is the existing ApplicationLibraryView's
                 // content, but we embed it without its own NavigationStack to
@@ -77,8 +79,8 @@ private struct LibrarySegmentContent: View {
         return entries.filter { $0.record.bundleIdentifier.rawValue.localizedCaseInsensitiveContains(searchText) || ($0.record.displayName?.localizedCaseInsensitiveContains(searchText) ?? false) }
     }
 
-    // Signed segment is the same storage filtered by presence of _CodeSignature
-    // in the bundle — until signing is composed, it is simply empty with an honest message.
+    // Signed output is not re-imported into the library: SigningView writes it
+    // to Documents/Signed, so this segment points there with the real count.
     var body: some View {
         Group {
             if isLoading {
@@ -90,17 +92,22 @@ private struct LibrarySegmentContent: View {
                     Button("Retry") { Task { await load() } }.buttonStyle(.borderedProminent)
                 }
             } else if segment == 1 {
-                // Signed — honest empty state until pipeline is composed
+                // Signed — output lives in Documents/Signed, browsable in Files
+                let signed = HomeStorageCounts.signedCount()
                 ContentUnavailableView {
-                    Label("No Signed Apps", systemImage: "signature")
+                    Label(signed == 0 ? "No Signed Apps" : "\(signed) Signed App\(signed == 1 ? "" : "s")", systemImage: "signature")
                 } description: {
-                    Text("Signed applications will appear here once the signing pipeline is composed for device use. Until then every accepted import is listed under Imported.")
+                    Text(signed == 0
+                         ? "Sign an application from Imported (touch and hold → Sign Application…). The signed IPA is saved to Documents/Signed."
+                         : "Signed IPAs are saved to Documents/Signed. Open the Files tab → Signed to share them.")
                 }
             } else if filtered.isEmpty {
                 ContentUnavailableView {
                     Label("No Apps", systemImage: "square.stack.3d.up")
                 } description: {
-                    Text("Import an .ipa from Files or Downloads. Accepted packages are kept across launches and listed here.")
+                    Text(ReleaseTrain.isAvailable(.downloads)
+                         ? "Import an .ipa from Files or Downloads. Accepted packages are kept across launches and listed here."
+                         : "Import an .ipa from Files or Home. Accepted packages are kept across launches and listed here.")
                 }
             } else {
                 List {
@@ -118,7 +125,7 @@ private struct LibrarySegmentContent: View {
                         .contentShape(Rectangle())
                         .onTapGesture { if isSelecting { toggle(entry) } }
                         .contextMenu {
-                            if entry.isArtifactAvailable {
+                            if entry.isArtifactAvailable && ReleaseTrain.isAvailable(.smartSign) {
                                 NavigationLink { SigningView(entry: entry) } label: {
                                     Label("Sign Application…", systemImage: "signature")
                                 }

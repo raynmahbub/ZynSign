@@ -4,9 +4,29 @@
 
 This document is the single checklist for the **private test** that gates the first public dev build. It is the professional way to ship: internal → external, with the same binary discipline.
 
+## Release train scope
+
+Each release on the [release train](release-train.md) switches on more of the
+finished app. Test the **Release configuration**, which shows exactly
+`ReleaseTrain.current`. For each release:
+
+1. Check Settings → Diagnostics → Build → **Release** shows the expected tag
+   (for example `v0.1.0 · 0 of 7 staged features`).
+2. Run the matrix rows for features visible in this release. For `v0.1.0` that
+   means Import, Library, Bundle Explorer, Files, Home, Settings, Diagnostics,
+   and the honest Pairing/Analytics screens.
+3. Confirm that features not yet released are **absent**: no App Store or
+   Downloads tab, no Certificates row, no “Sign Application…”, no Mission Control
+   card, no “Deliver…”, and no Activity Journal.
+4. Re-run the rows for previously released features as a regression check.
+
+Rows for features shipping later (Certificate, Smart Sign, Repository health,
+Downloads, Mission Control, delivery hand-off, journal) become required in the
+release that switches them on.
+
 ## Principle
 
-* **Private build = same code, same version, no public tag.** It is built from `arena/01a0d570-zynsign` at the commit you intend to publish (Horizon `58e604c` + installation delivery hand-off, local activity journal, pairing/JIT/mux ADR; market `0.1.0` build `4`), with `MARKETING_VERSION 0.1.0` `CURRENT_PROJECT_VERSION 4`, but distributed only to your trusted testers.
+* **Private build = same code, same version, no public tag.** It is built from `main` at the commit you intend to publish (Horizon `58e604c` + installation delivery hand-off, local activity journal, pairing/JIT/mux ADR; market `0.1.0` build `4`), with `MARKETING_VERSION 0.1.0` `CURRENT_PROJECT_VERSION 4`, but distributed only to your trusted testers.
 * **Public build = same commit, same binary, new tag.** After private green, you push `v0.1.0` and publish the GitHub release. The market version does not change between private and public — the build is not rebuilt to avoid binary drift.
 
 ## When to run
@@ -57,7 +77,7 @@ xcrun altool --upload-app -f build/private-appstore/ZynSign.ipa -t ios -u YOUR_A
 # or: fastlane pilot upload --ipa build/private-appstore/ZynSign.ipa --distribute_external false
 ```
 
-4. **TestFlight → Internal Testing → Horizon Private → select build 0.1.0 (3)** → `Add Testers`.
+4. **TestFlight → Internal Testing → Horizon Private → select build 0.1.0 (4)** → `Add Testers`.
 
 No external review, no public page, no `v0.1.0` tag yet.
 
@@ -83,14 +103,14 @@ Log results in `docs/releases/private-testing.md` (append a dated table) — the
 
 ## From private green to public publish
 
-1. **Do not rebuild.** The public release is the *same commit* you privately tested (today: `arena/01a0d570-zynsign` HEAD — Horizon + hand-off/journal/ADR, `0.1.0`/`4`).
+1. **Do not rebuild.** The public release is the *same commit* you privately tested (today: `main` HEAD after the release-train merge, `0.1.0`/`4`).
 2. **Changelog ready?** `CHANGELOG.md` `0.1.0` must match the binary you tested (hand-off, journal, ADR included; notes at `docs/releases/notes-v0.1.0.md`).
 3. **Tag and publish (one command after green):**
 
 ```sh
 git tag -a v0.1.0 -m "ZynSign 0.1.0 Horizon — first public dev (private-tested)" HEAD
 git push origin tag v0.1.0
-gh release create v0.1.0 --target arena/01a0d570-zynsign \
+gh release create v0.1.0 --target main \
   --title "ZynSign 0.1.0 Horizon — first public dev" \
   --notes-file docs/releases/notes-v0.1.0.md
 # Attach the *same* IPA you privately tested only if you want an asset — otherwise sideload/TestFlight is the distribution
@@ -109,7 +129,7 @@ Both set `teamID: YOUR_TEAM_ID` (replace), `compileBitcode: false`, `signingStyl
 
 ## CI help
 
-`.github/workflows/private-test-build.yml` builds `Release` on `macos-15` for `iphoneos`/`iphonesimulator`, runs `ci.yml` hygiene + `external_validation.py self-test`, and uploads `ZynSign-private.ipa` as a **private** workflow artifact (`retention-days: 7`, not a release). Trigger: `workflow_dispatch` on `arena/01a0d570-zynsign` only — never on `main`.
+`.github/workflows/private-test-build.yml` builds `Release` on `macos-15` for `iphoneos`/`iphonesimulator`, runs `ci.yml` hygiene + `external_validation.py self-test`, and uploads `ZynSign-private.ipa` as a **private** workflow artifact (`retention-days: 7`, not a release). Trigger: `workflow_dispatch` on the commit you intend to tag (normally `main`), with configuration **Release**. Debug exposes every feature regardless of the release train, so it is not release evidence.
 
 ## Checklist before you push `v0.1.0` public
 
@@ -118,7 +138,7 @@ Both set `teamID: YOUR_TEAM_ID` (replace), `compileBitcode: false`, `signingStyl
 - [ ] `Diagnostics` redacted, `Settings → Analytics` off-device `0 events sent` + 6 guarantees, journal Clear/Export work, Charles shows no telemetry
 - [ ] `CHANGELOG.md` `0.1.0` matches binary, `README.md` `0.1.0` badges, `WHAT_DOES_NOT_EXIST.md` `9 wired · 3 never`
 - [ ] No `/.ai/`, no `Generated by`, no private keys in `git diff`
-- [ ] Tag `v0.1.0` annotated, `gh release` `--target arena/01a0d570-zynsign`
+- [ ] Tag `v0.1.0` annotated, `gh release` `--target main`
 
 ---
 
