@@ -73,7 +73,7 @@ struct SigningView: View {
             LabeledContent("Build", value: entry.record.identity.buildVersion ?? "—")
             LabeledContent("Package", value: entry.artifactAvailability.displayName).foregroundStyle(entry.isArtifactAvailable ? .primary : .orange)
             if !entry.isArtifactAvailable { Label("The package file is not available. Re-import the application before signing.", systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.footnote) }
-            NavigationLink { BundleExplorerView(inspection: env.bundleInspection, entry: entry) } label: { Label("Explore Bundle", systemImage: "folder") }.disabled(!entry.isArtifactAvailable)
+            NavigationLink { BundleExplorerView(inspection: env.bundleInspection, entry: entry) } label: { Label("Explore IPA", systemImage: "square.stack.3d.up") }.disabled(!entry.isArtifactAvailable)
         }
     }
 

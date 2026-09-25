@@ -36,8 +36,13 @@ struct ApplicationEnvironment {
     let library: ApplicationLibrary
 
     /// The bundle contents inspection use case: describes, read-only, the
-    /// structure of a library application's bundle for the explorer.
+    /// structure of a library application's bundle for the explorer. It reads
+    /// the entry table and no file bytes.
     let bundleInspection: IPABundleContentsInspection
+
+    /// On-demand preview of one entry. Used only when the user opens a file,
+    /// framework, or extension. It never writes the package.
+    let bundleEntryInspection: IPABundleEntryInspection
 
     /// The signing-identity store. The certificate list and signing capability
     /// are resolved through this port; private-key bytes never leave Platform.

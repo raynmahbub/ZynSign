@@ -313,6 +313,59 @@ final class ZipArchiveReaderTests: XCTestCase {
         XCTAssertTrue(error.diagnosticDetail?.contains("checksum") ?? false)
     }
 
+    func testReadsAStoredPrefixWithoutTheWholeEntry() throws {
+        let payload = Array(0..<180).map { UInt8($0) }
+        let reader = try reader(for: [
+            ZipFixtureBuilder.Entry(name: "Payload/Example.app/blob", content: payload),
+        ])
+        let prefix = try reader.readEntryPrefix(
+            at: makePath("Payload/Example.app/blob"),
+            maximumBytes: 16
+        )
+        XCTAssertEqual(Array(prefix), Array(payload.prefix(16)))
+    }
+
+    func testReadsADeflatedPrefixWithoutTheWholeEntry() throws {
+        let payload = Array(repeating: UInt8(0x41), count: 50_000)
+        let reader = try reader(for: [
+            ZipFixtureBuilder.Entry(name: "Payload/Example.app/blob", content: payload, deflate: true),
+        ])
+        let prefix = try reader.readEntryPrefix(
+            at: makePath("Payload/Example.app/blob"),
+            maximumBytes: 100
+        )
+        XCTAssertEqual(prefix.count, 100)
+        XCTAssertEqual(Array(prefix), Array(repeating: 0x41, count: 100))
+    }
+
+    func testAStoredPrefixDoesNotRequireTheWholeEntryChecksum() throws {
+        var bytes = ZipFixtureBuilder.archive([
+            ZipFixtureBuilder.Entry(name: "Payload/Example.app/blob", content: Array(repeating: 0x41, count: 64)),
+        ])
+        let offset = contentOffsetOfFirstEntry(in: bytes)
+        bytes[offset + 63] ^= 0xFF
+        let reader = try reader(for: bytes)
+        let path = makePath("Payload/Example.app/blob")
+        let prefix = try reader.readEntryPrefix(at: path, maximumBytes: 16)
+        XCTAssertEqual(Array(prefix), Array(repeating: 0x41, count: 16))
+        let error = try thrownError {
+            _ = try reader.readEntryData(at: path, maximumBytes: 4_096)
+        }
+        XCTAssertTrue(error.diagnosticDetail?.contains("checksum") ?? false)
+    }
+
+    func testAPrefixInsideTheBoundStillVerifiesTheWholeEntry() throws {
+        var bytes = ZipFixtureBuilder.archive([
+            ZipFixtureBuilder.Entry(name: "Payload/Example.app/blob", content: Array(repeating: 0x42, count: 32)),
+        ])
+        bytes[contentOffsetOfFirstEntry(in: bytes)] ^= 0xFF
+        let reader = try reader(for: bytes)
+        let error = try thrownError {
+            _ = try reader.readEntryPrefix(at: makePath("Payload/Example.app/blob"), maximumBytes: 64)
+        }
+        XCTAssertTrue(error.diagnosticDetail?.contains("checksum") ?? false)
+    }
+
     // MARK: - Lifecycle
 
     func testCloseIsIdempotentAndPreventsFurtherUse() throws {

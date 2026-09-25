@@ -75,8 +75,9 @@ staged result. The integrated path can also receive the profile a bundle embeds:
 a read-only intake reads that one entry through the existing archive boundary and
 hands its bytes to the pipeline. The integration performs no trust evaluation, no
 authorization, no signing, no persistence, and adds no profile-management,
-entitlement, or installation interface; the bundle explorer still reads no entry
-content, and nothing here is wired into the interface.
+entitlement, or installation interface. The bundle explorer's structure listing
+still reads no entry content; an explicit preview is a separate bounded read
+and is not this pipeline.
 The signing-cryptographic-foundation increment then adds the generic
 cryptographic primitives the signing stage will build on: a digest value and
 digest boundary over CryptoKit's hashing primitives, a focused signing request
@@ -1577,6 +1578,14 @@ files are small or enormous, and the extraction boundary that later workflows
 may need remains as Unresolved as the Reading Decision left it; nothing here
 may be read as a step toward it.
 
+**Updated — explicit preview.** Structure listing is unchanged. When the user
+opens a file, a framework, or an extension, a separate use case may read that
+entry through the same archive boundary, under a bound that does not raise the
+archive policy, and then close the reader. A Mach-O page is a header prefix,
+not a load of the executable. A profile page is a declared property list, not
+a verification. The preview does not extract, write, sign, or run the package.
+See [ipa-explorer.md](ipa-explorer.md).
+
 **Why no second reader or store.** The capability the explorer needs —
 enumerate, restrict, describe — is a subset of what the archive boundary
 already provides for import, and the bytes it describes are the bytes
@@ -2061,7 +2070,7 @@ depend on iOS/iPadOS behaviour are recorded as *Provisional*, *Unresolved*, or
 | 24 | Installation in the first release | **Unresolved** |
 | 25 | Import intake and temporary staging | **Accepted** for the document-import path — one bounded-chunk staging per import, identifier-addressed application-owned temporary storage, security-scoped access held only while copying, staged archives adopted by the library or discarded before the import returns (Section 8) |
 | 26 | Persistence is not trust | **Accepted** — a library record states that a package passed inspection when imported and which bytes it refers to; the fingerprint identifies bytes only, declared metadata stays untrusted, and no record is evidence that a package is signed, genuine, or installable (Section 15) |
-| 27 | Bundle inspection is read-only and descriptive | **Accepted** — the explorer derives a bundle's structure from the container's entry table through the existing `ArchiveReader` and library storage, with no extraction, content reading, hashing, or parsing; locations are bundle-relative `BundlePath` values that cannot name anything above the root; links and unsupported entries are listed, never followed; labels on conventional locations describe and do not establish signing, trust, or installability (Section 9) |
+| 27 | Bundle inspection is read-only and descriptive | **Accepted** — the explorer derives a bundle's structure from the container's entry table through the existing `ArchiveReader` and library storage, with no extraction; structure listing does not read, hash, or parse entry content; an explicit preview may later read one bounded entry and does not establish signing, trust, or installability ([ipa-explorer.md](ipa-explorer.md)); locations are bundle-relative `BundlePath` values that cannot name anything above the root; links and unsupported entries are listed, never followed; labels on conventional locations describe and do not establish signing, trust, or installability (Section 9) |
 | 28 | Certificate and signing identity foundation | **Accepted** for this increment — platform-independent `CertificateMetadata`, `CertificateDistinguishedName`, `PublicKeyInfo`, `SignatureAlgorithm`, `CertificateFingerprint`, `CertificateValidity` that distinguishes parsing success from currently valid, `CertificateChain` leaf-first without trust evaluation, `CodeSigningSuitability` with explicit checks and unsuitability reasons, `SigningCapability` narrow protocol that returns signatures without exposing private-key bytes, `SigningIdentity` distinct from certificate with `SigningIdentityIdentifier` and `SigningKeyAvailability`, `IdentityStore` protocol in Application, `CertificateParser` port in Domain with `AppleCertificateParser` in Platform using a bounded DER reader because `SecCertificateCopyValues` is not available on iOS (**Verified**), PKCS#12 treated as separate capability not implemented, trust validation boundary not implemented and represented as `notEvaluated`, raw certificate bytes ownership boundary owned by Platform and not persisted in ordinary storage, no certificate-management UI, no signing engine, no private keys stored in application database (Section 7) |
 
 | 29 | Provisioning-profile CMS verification | **Accepted** for this increment — SignedData is read by ZynSign's own bounded structure reader because `CMSDecoderCreate`, `CMSDecoderCopySignerStatus`, and `CMSSignerStatus` are documented for macOS/Mac Catalyst only and not for iOS (**Verified**); signatures are checked through the `CMSSignatureVerifier` port using `SecCertificateCopyKey` and `SecKeyVerifySignature` with hashing left inside the platform primitive; signed attributes are re-encoded as a `SET OF` and bound to the payload through the message-digest attribute before any signature check; the signer certificate is selected by serial and compared by SHA-256 fingerprint, never by name, label, or bag order; five states stay separate with trust `notPerformed` and authorization `notEvaluated`; payloads are parsed only after verification; identity stores are read-only and never asked for a signing capability; CMS construction, trust evaluation, signing policy, compatibility decisions, persistence, and profile interfaces remain out of scope (Section 7) |

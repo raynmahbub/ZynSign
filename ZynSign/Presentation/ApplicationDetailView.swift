@@ -49,9 +49,9 @@ struct ApplicationDetailView: View {
                     NavigationLink {
                         BundleExplorerView(inspection: bundleInspection, entry: entry)
                     } label: {
-                        Label("Explore Bundle", systemImage: "folder")
+                        Label("Explore IPA", systemImage: "square.stack.3d.up")
                     }
-                    .accessibilityHint("Lists the files and folders inside the application bundle.")
+                    .accessibilityHint("Opens the read-only IPA explorer.")
                     if ReleaseTrain.isAvailable(.smartSign) {
                         NavigationLink { SigningView(entry: entry) } label: {
                             Label("Sign Application…", systemImage: "signature")
@@ -70,8 +70,8 @@ struct ApplicationDetailView: View {
             } footer: {
                 if content.canExploreBundle {
                     Text(ReleaseTrain.isAvailable(.smartSign)
-                         ? "Exploring lists the files and folders inside the application bundle. It reads the package's own records of them and does not open, run, or change any file. Signing runs the nine-stage pipeline end to end and delivers a signed IPA to Documents/Signed."
-                         : "Exploring lists the files and folders inside the application bundle. It reads the package's own records of them and does not open, run, or change any file.")
+                         ? "Exploring lists the package and can preview a file you choose. A preview is a bounded, read-only look: it does not modify, extract, run, or resign anything. Signing runs the nine-stage pipeline end to end and delivers a signed IPA to Documents/Signed."
+                         : "Exploring lists the package and can preview a file you choose. A preview is a bounded, read-only look: it does not modify, extract, run, or resign anything.")
                 }
             }
             Section("Library Record") {

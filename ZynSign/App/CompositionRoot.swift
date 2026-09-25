@@ -39,6 +39,7 @@ enum CompositionRoot {
             packageImportQueue: PackageImportQueue(importing: packageImport),
             library: library,
             bundleInspection: makeBundleContentsInspection(intake: intake, library: library),
+            bundleEntryInspection: makeBundleEntryInspection(intake: intake, library: library),
             identityStore: identityStore,
             pkcs12Importer: pkcs12Importer,
             signingPipeline: pipeline,
@@ -475,14 +476,34 @@ enum CompositionRoot {
         #endif
     }
 
+    /// Builds the on-demand entry preview the IPA explorer uses when the user
+    /// opens a file. It shares the library artifact directory and the default
+    /// resource policy with structure inspection. Preview reads are bounded
+    /// and read-only; this factory wires no writer.
+    static func makeBundleEntryInspection(
+        intake: SecurityScopedArtifactIntake,
+        library: ApplicationLibrary,
+        limits: ArchiveLimits = .default
+    ) -> IPABundleEntryInspection {
+        IPABundleEntryInspection(
+            library: library,
+            readerProvider: DirectoryArtifactArchiveReaderProvider(
+                directory: libraryArtifactDirectory,
+                fileExtension: intake.fileExtension,
+                limits: limits
+            ),
+            limits: limits
+        )
+    }
+
     /// Builds the bundle contents inspection use case over the given library,
     /// selecting the concrete archive implementation.
     ///
     /// The explorer describes applications the library holds, so its archive
     /// boundary reads library storage only, under the same file-extension
     /// convention and the same resource policy as import. It is the same
-    /// reader implementation import uses, chosen here and nowhere below;
-    /// inspection reads a package's entry table and never writes.
+    /// reader implementation import uses, chosen here and nowhere below.
+    /// Structure listing reads a package's entry table and never writes.
     static func makeBundleContentsInspection(
         intake: SecurityScopedArtifactIntake,
         library: ApplicationLibrary,
