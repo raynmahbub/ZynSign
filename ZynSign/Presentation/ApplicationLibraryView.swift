@@ -3,13 +3,17 @@ import SwiftUI
 /// The Applications area of the shell: ZynSign's application library.
 ///
 /// The screen presents the persisted records of accepted imports and offers
-/// the two operations this build supports: importing another package through
-/// the existing document-import workflow, and deleting an entry together
-/// with the package file behind it. Each record opens a detail screen, from
-/// which the bundle explorer lists the package's contents read-only. There
-/// are deliberately no signing, installation, or verification controls —
-/// those capabilities do not exist in this build, and a control that
-/// pretended otherwise would misrepresent the application.
+/// the everyday library operations: importing another package through the
+/// existing document-import workflow, opening an application's detail
+/// screen (and from there the read-only bundle explorer), marking favourites,
+/// and deleting entries together with the package files behind them — one at
+/// a time or in a selection.
+///
+/// The list can be shown as rows or as a grid of cards, filtered by name or
+/// bundle identifier, and ordered by recency, name, or declared version.
+/// Nothing here pretends to sign: the signed state a card shows is read from
+/// the on-device signing journal, and a card whose package file has drifted
+/// from its record says so.
 struct ApplicationLibraryView: View {
 
     @StateObject private var model: ApplicationLibraryModel
@@ -17,6 +21,11 @@ struct ApplicationLibraryView: View {
     @Environment(\.applicationEnvironment) private var environment
     @State private var isShowingImporter = false
     @State private var entryPendingRemoval: LibraryEntry?
+    @State private var selectionPendingRemoval: [LibraryEntry] = []
+    @State private var entryPendingDetails: LibraryEntry?
+    @State private var isSelecting = false
+    @State private var selection: Set<ApplicationRecordIdentifier> = []
+    @AppStorage("zynsign.library.showsGrid") private var showsGrid = false
     private let bundleInspection: IPABundleContentsInspection
 
     /// Creates the screen over the library, import, and bundle inspection
@@ -24,11 +33,21 @@ struct ApplicationLibraryView: View {
     /// model is the same phase machine the Import area uses; the library
     /// model observes its outcomes, so a successful import refreshes the
     /// list. The inspection use case is handed on to the detail screen,
-    /// which offers the bundle explorer.
-    init(library: ApplicationLibrary, importing: IPAPackageImport, bundleInspection: IPABundleContentsInspection) {
+    /// which offers the bundle explorer. The signing journal is read-only;
+    /// `nil` simply means cards never show a signed state.
+    init(
+        library: ApplicationLibrary,
+        importing: IPAPackageImport,
+        bundleInspection: IPABundleContentsInspection,
+        signingHistory: (any SigningHistoryStore)? = nil
+    ) {
         let importModel = PackageImportModel(importing: importing)
         _importing = StateObject(wrappedValue: importModel)
-        _model = StateObject(wrappedValue: ApplicationLibraryModel(library: library, importing: importModel))
+        _model = StateObject(wrappedValue: ApplicationLibraryModel(
+            library: library,
+            importing: importModel,
+            signingHistory: signingHistory
+        ))
         self.bundleInspection = bundleInspection
     }
 
@@ -46,22 +65,23 @@ struct ApplicationLibraryView: View {
                 .navigationDestination(for: LibraryEntry.self) { entry in
                     ApplicationDetailView(entry: entry, bundleInspection: bundleInspection)
                 }
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            isShowingImporter = true
-                        } label: {
-                            Label("Import Package…", systemImage: "square.and.arrow.down")
-                        }
-                        .disabled(importing.phase == .importing)
-                    }
+                .navigationDestination(item: $entryPendingDetails) { entry in
+                    ApplicationDetailView(entry: entry, bundleInspection: bundleInspection)
                 }
+                .searchable(
+                    text: $model.searchText,
+                    placement: .navigationBarDrawer(displayMode: .automatic),
+                    prompt: Text("Name or Bundle ID")
+                )
+                .toolbar { toolbarContent }
+                .disabled(model.isRemovingSelection)
         }
         .task { await model.load() }
         .onChange(of: importing.phase) { _, phase in
             switch phase {
             case .succeeded:
                 environment.recordAnalyticsEvent(category: .intake, name: "import.accepted", succeeded: true)
+                exitSelectionMode()
             case .failed:
                 environment.recordAnalyticsEvent(category: .intake, name: "import.rejected", succeeded: false)
             case .idle, .importing, .cancelled:
@@ -74,7 +94,14 @@ struct ApplicationLibraryView: View {
             allowedContentTypes: ImportablePackage.contentTypes,
             allowsMultipleSelection: false
         ) { result in
-            model.handlePickerResult(result)
+            switch result {
+            case .success(let urls):
+                if let url = urls.first {
+                    model.handlePickerResult(.success(url))
+                }
+            case .failure(let error):
+                model.handlePickerResult(.failure(error))
+            }
         }
         .alert(
             model.notice?.title ?? "",
@@ -95,7 +122,9 @@ struct ApplicationLibraryView: View {
             presenting: entryPendingRemoval
         ) { entry in
             Button("Delete Application", role: .destructive) {
+                guard let pending = entryPendingRemoval else { return }
                 entryPendingRemoval = nil
+                removeFromSelection(pending)
                 Task { await model.remove(entry) }
             }
             Button("Cancel", role: .cancel) {
@@ -103,6 +132,27 @@ struct ApplicationLibraryView: View {
             }
         } message: { entry in
             Text("“\(ApplicationLibraryRowContent(entry: entry).name)” and its package file will be permanently deleted from ZynSign's library. This cannot be undone.")
+        }
+        .confirmationDialog(
+            "Delete Selected Applications?",
+            isPresented: Binding(
+                get: { !selectionPendingRemoval.isEmpty },
+                set: { if !$0 { selectionPendingRemoval = [] } }
+            ),
+            titleVisibility: .visible,
+            presenting: selectionPendingRemoval
+        ) { entries in
+            Button("Delete \(entries.count) Application\(entries.count == 1 ? "" : "s")", role: .destructive) {
+                let pending = selectionPendingRemoval
+                selectionPendingRemoval = []
+                exitSelectionMode()
+                Task { await model.removeEntries(pending) }
+            }
+            Button("Cancel", role: .cancel) {
+                selectionPendingRemoval = []
+            }
+        } message: { entries in
+            Text("\(entries.count) application\(entries.count == 1 ? "" : "s") and \(entries.count == 1 ? "its" : "their") package file\(entries.count == 1 ? "" : "s") will be permanently deleted from ZynSign's library. This cannot be undone.")
         }
     }
 
@@ -119,8 +169,8 @@ struct ApplicationLibraryView: View {
             ApplicationLibraryFailureView(message: message) {
                 Task { await model.load() }
             }
-        case .loaded(let entries):
-            libraryList(entries)
+        case .loaded:
+            libraryContent
         }
     }
 
@@ -137,25 +187,285 @@ struct ApplicationLibraryView: View {
         }
     }
 
+    /// The loaded library: the visible projection of the current search and
+    /// sort, with an explicit state when the search matches nothing.
+    @ViewBuilder
+    private var libraryContent: some View {
+        let entries = model.visibleEntries()
+        if entries.isEmpty && !model.searchText.isEmpty {
+            ContentUnavailableView.search(Text(model.searchText))
+        } else if entries.isEmpty {
+            ContentUnavailableView {
+                Label("No Matching Applications", systemImage: ShellSection.library.symbolName)
+            } description: {
+                Text("Every application is filtered out by the current search.")
+            }
+        } else if showsGrid {
+            libraryGrid(entries)
+        } else {
+            libraryList(entries)
+        }
+    }
+
     private func libraryList(_ entries: [LibraryEntry]) -> some View {
         List {
             ForEach(entries, id: \.record.id) { entry in
                 libraryRow(for: entry)
             }
         }
+        .listStyle(.insetGrouped)
         .refreshable { await model.refresh() }
     }
 
+    private func libraryGrid(_ entries: [LibraryEntry]) -> some View {
+        ScrollView {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 108), spacing: ZSpacing.sm)],
+                spacing: ZSpacing.sm
+            ) {
+                ForEach(entries, id: \.record.id) { entry in
+                    gridCard(for: entry)
+                }
+            }
+            .padding(ZSpacing.sm)
+        }
+        .refreshable { await model.refresh() }
+    }
+
+    // MARK: - Rows and cards
+
+    @ViewBuilder
     private func libraryRow(for entry: LibraryEntry) -> some View {
-        NavigationLink(value: entry) {
-            ApplicationLibraryRow(entry: entry)
+        Group {
+            if isSelecting {
+                Button {
+                    toggleSelection(entry)
+                } label: {
+                    selectionRow(entry)
+                }
+                .buttonStyle(.plain)
+            } else {
+                NavigationLink(value: entry) {
+                    ApplicationLibraryRow(entry: entry, signingState: model.signingState(for: entry))
+                }
+            }
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            if !isSelecting {
+                Button {
+                    Task { await model.setFavorite(!entry.record.isFavorite, on: entry) }
+                } label: {
+                    Label(
+                        entry.record.isFavorite ? "Unfavorite" : "Favorite",
+                        systemImage: entry.record.isFavorite ? "star.slash" : "star.fill"
+                    )
+                }
+                .tint(.yellow)
+            }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                entryPendingRemoval = entry
-            } label: {
-                Label("Delete", systemImage: "trash")
+            if !isSelecting {
+                Button {
+                    entryPendingDetails = entry
+                } label: {
+                    Label("Details", systemImage: "info.circle")
+                }
+                .tint(.blue)
+                Button(role: .destructive) {
+                    entryPendingRemoval = entry
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
             }
+        }
+    }
+
+    /// The row shown in selection mode: the same content with an explicit
+    /// selection mark, because a checkmark the system draws for editing a
+    /// `List` cannot be reproduced per-row without the editing machinery.
+    private func selectionRow(_ entry: LibraryEntry) -> some View {
+        HStack(spacing: ZSpacing.sm) {
+            Image(systemName: selection.contains(entry.record.id) ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(selection.contains(entry.record.id) ? Color.accentColor : Color(.tertiaryLabel))
+                .imageScale(.large)
+                .accessibilityLabel(selection.contains(entry.record.id) ? "Selected" : "Not selected")
+            ApplicationLibraryRow(entry: entry, signingState: model.signingState(for: entry))
+        }
+    }
+
+    @ViewBuilder
+    private func gridCard(for entry: LibraryEntry) -> some View {
+        Group {
+            if isSelecting {
+                Button {
+                    toggleSelection(entry)
+                } label: {
+                    ApplicationLibraryCard(
+                        entry: entry,
+                        signingState: model.signingState(for: entry),
+                        isSelected: selection.contains(entry.record.id)
+                    )
+                }
+                .buttonStyle(.plain)
+            } else {
+                NavigationLink(value: entry) {
+                    ApplicationLibraryCard(
+                        entry: entry,
+                        signingState: model.signingState(for: entry),
+                        isSelected: nil
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .contextMenu {
+            if !isSelecting {
+                Button {
+                    Task { await model.setFavorite(!entry.record.isFavorite, on: entry) }
+                } label: {
+                    Label(
+                        entry.record.isFavorite ? "Unfavorite" : "Favorite",
+                        systemImage: entry.record.isFavorite ? "star.slash" : "star.fill"
+                    )
+                }
+                Button {
+                    entryPendingDetails = entry
+                } label: {
+                    Label("Details", systemImage: "info.circle")
+                }
+                Button(role: .destructive) {
+                    entryPendingRemoval = entry
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        }
+    }
+
+    // MARK: - Selection
+
+    private func toggleSelection(_ entry: LibraryEntry) {
+        ZHaptics.tap()
+        withAnimation(.easeInOut(duration: 0.15)) {
+            if selection.contains(entry.record.id) {
+                selection.remove(entry.record.id)
+            } else {
+                selection.insert(entry.record.id)
+            }
+        }
+    }
+
+    private func exitSelectionMode() {
+        isSelecting = false
+        selection = []
+    }
+
+    /// Removes an entry from the local selection when it is being deleted,
+    /// so a confirmed removal never leaves a selected identifier the
+    /// library no longer holds.
+    private func removeFromSelection(_ entry: LibraryEntry) {
+        selection.remove(entry.record.id)
+    }
+
+    /// The entries the current selection names, in the order the screen
+    /// shows them.
+    private var selectedEntries: [LibraryEntry] {
+        model.visibleEntries().filter { selection.contains($0.record.id) }
+    }
+
+    // MARK: - Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            if case .loaded = model.phase {
+                Button(isSelecting ? "Done" : "Select") {
+                    ZHaptics.tap()
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        if isSelecting {
+                            exitSelectionMode()
+                        } else {
+                            isSelecting = true
+                        }
+                    }
+                }
+            }
+        }
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            if isSelecting {
+                Button(selection.isEmpty ? "Select All" : "Deselect All") {
+                    ZHaptics.tap()
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        if selection.isEmpty {
+                            selection = Set(model.visibleEntries().map { $0.record.id })
+                        } else {
+                            selection = []
+                        }
+                    }
+                }
+            } else {
+                sortMenu
+                layoutToggle
+                Button {
+                    isShowingImporter = true
+                } label: {
+                    Label("Import Package…", systemImage: "plus")
+                }
+                .disabled(importing.phase == .importing)
+            }
+        }
+    }
+
+    private var sortMenu: some View {
+        Menu {
+            Picker("Sort By", selection: $model.sortOrder) {
+                ForEach(ApplicationLibraryModel.SortOrder.allCases) { order in
+                    Text(order.displayName).tag(order)
+                }
+            }
+        } label: {
+            Label("Sort", systemImage: "arrow.up.arrow.down")
+        }
+        .accessibilityLabel("Sort applications")
+    }
+
+    private var layoutToggle: some View {
+        Button {
+            ZHaptics.tap()
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showsGrid.toggle()
+            }
+        } label: {
+            Label(
+                showsGrid ? "List View" : "Grid View",
+                systemImage: showsGrid ? "list.bullet" : "square.grid.2x2"
+            )
+        }
+        .accessibilityLabel(showsGrid ? "Switch to list view" : "Switch to grid view")
+    }
+
+    // MARK: - Selection action bar
+
+    @ViewBuilder
+    private var selectionBar: some View {
+        if isSelecting {
+            HStack(spacing: ZSpacing.md) {
+                Text("\(selection.count) selected")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                Spacer()
+                Button {
+                    selectionPendingRemoval = selectedEntries
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                .disabled(selection.isEmpty || model.isRemovingSelection)
+                .tint(.red)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, ZSpacing.xs)
+            .background(.bar)
         }
     }
 
@@ -179,47 +489,205 @@ struct ApplicationLibraryView: View {
             }
             .padding()
             .background(.bar)
+        } else {
+            selectionBar
         }
     }
 }
 
 // MARK: - Row
 
-/// One library entry in the list: the application's declared name,
-/// identifier, and declared versions, with the artifact's availability
-/// flagged when the package file is not what the record expects.
+/// One library entry in the list: the application's icon, its declared name,
+/// identifier, declared versions, the date it was imported, and the state
+/// badges its card carries. Favorite and artifact state are shown inline —
+/// words first, never styling alone.
 struct ApplicationLibraryRow: View {
 
     let entry: LibraryEntry
+    var signingState: ApplicationLibraryModel.SigningState = .notSigned
 
     var body: some View {
         let content = ApplicationLibraryRowContent(entry: entry)
-        VStack(alignment: .leading, spacing: 4) {
-            Text(content.name)
-                .font(.body)
-                .foregroundStyle(.primary)
-            Text(content.bundleIdentifier)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Text(content.versionText ?? "No Declared Version")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-            if let availabilityText = content.availabilityText {
-                Label(availabilityText, systemImage: "exclamationmark.triangle")
+        HStack(spacing: ZSpacing.sm) {
+            ApplicationIconView(
+                artifactID: entry.record.artifact.artifactID,
+                displayName: content.name,
+                bundleIdentifier: content.bundleIdentifier
+            )
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: ZSpacing.xxs) {
+                    Text(content.name)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    if entry.record.isFavorite {
+                        Image(systemName: "star.fill")
+                            .font(.caption)
+                            .foregroundStyle(.yellow)
+                            .accessibilityLabel("Favorite")
+                    }
+                }
+                Text(content.bundleIdentifier)
                     .font(.footnote)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                HStack(spacing: ZSpacing.xs) {
+                    if let versionText = content.versionText {
+                        Text(versionText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Text(entry.record.importedAt, format: .dateTime.year().month().day())
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                signingBadge
             }
+            Spacer(minLength: 0)
         }
-        // The row is read as one element: name, identifier, versions, and —
-        // when present — the artifact problem, so nothing depends on visual
-        // styling alone.
-        .accessibilityElement(children: .combine)
+        .padding(.vertical, 2)
+        // The row is read as one element: name, identifier, versions, import
+        // date, badges — so nothing depends on visual styling alone.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityDescription(content))
+    }
+
+    @ViewBuilder
+    private var signingBadge: some View {
+        switch signingState {
+        case .signed:
+            ZStatusBadge("Signed", systemImage: "checkmark.seal.fill", kind: .success)
+        case .notSigned:
+            ZStatusBadge("Not Signed", systemImage: "circle.dashed", kind: .neutral)
+        case .packageProblem:
+            ZStatusBadge(content.availabilityText ?? "Package Problem", systemImage: "exclamationmark.triangle.fill", kind: .warning)
+        }
+    }
+
+    private func accessibilityDescription(_ content: ApplicationLibraryRowContent) -> String {
+        var parts: [String] = [content.name]
+        if entry.record.isFavorite {
+            parts.append("favourite")
+        }
+        parts.append(content.bundleIdentifier)
+        if let versionText = content.versionText {
+            parts.append(versionText)
+        }
+        parts.append("Imported \(entry.record.importedAt.formatted(date: .abbreviated, time: .omitted))")
+        switch signingState {
+        case .signed: parts.append("Signed")
+        case .notSigned: parts.append("Not signed")
+        case .packageProblem: parts.append(content.availabilityText ?? "Package problem")
+        }
+        return parts.joined(separator: ", ")
     }
 }
 
-/// The display values for one library row, derived from the entry.
+// MARK: - Card
+
+/// One library entry as a grid card: the application's icon, its declared
+/// name and version, the import date, the signing state, and a favourite
+/// indicator. In selection mode the card carries an explicit selection
+/// mark instead of opening the detail screen.
+struct ApplicationLibraryCard: View {
+
+    let entry: LibraryEntry
+    var signingState: ApplicationLibraryModel.SigningState = .notSigned
+
+    /// `nil` outside selection mode; otherwise whether the entry is selected.
+    var isSelected: Bool? = nil
+
+    var body: some View {
+        let content = ApplicationLibraryRowContent(entry: entry)
+        VStack(spacing: ZSpacing.xxs) {
+            ZStack(alignment: .topTrailing) {
+                ApplicationIconView(
+                    artifactID: entry.record.artifact.artifactID,
+                    displayName: content.name,
+                    bundleIdentifier: content.bundleIdentifier,
+                    size: 64
+                )
+                if let isSelected {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.body)
+                        .foregroundStyle(isSelected ? Color.accentColor : Color(.tertiaryLabel))
+                        .background(Circle().fill(.thinMaterial))
+                        .offset(x: 6, y: -6)
+                        .accessibilityLabel(isSelected ? "Selected" : "Not selected")
+                }
+            }
+            .frame(maxWidth: .infinity)
+            HStack(spacing: 2) {
+                Text(content.name)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.8)
+                if entry.record.isFavorite {
+                    Image(systemName: "star.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.yellow)
+                        .accessibilityLabel("Favorite")
+                }
+            }
+            .frame(maxWidth: .infinity)
+            Text(content.versionText ?? "No Declared Version")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            statusLine(content)
+        }
+        .padding(ZSpacing.xs)
+        .frame(maxWidth: .infinity)
+        .zynCardBackground()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityDescription(content))
+        .accessibilityHint(isSelected == nil ? "Opens the application's details" : "")
+    }
+
+    /// The card's compact status: a signing mark when it has one, otherwise
+    /// the declared import date. A package problem outranks both.
+    @ViewBuilder
+    private func statusLine(_ content: ApplicationLibraryRowContent) -> some View {
+        switch signingState {
+        case .packageProblem:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+                .accessibilityLabel(content.availabilityText ?? "Package problem")
+        case .signed:
+            Image(systemName: "checkmark.seal.fill")
+                .font(.caption2)
+                .foregroundStyle(.green)
+                .accessibilityLabel("Signed")
+        case .notSigned:
+            Text(entry.record.importedAt, format: .dateTime.month(.abbreviated).day())
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    private func accessibilityDescription(_ content: ApplicationLibraryRowContent) -> String {
+        var parts: [String] = [content.name]
+        if entry.record.isFavorite {
+            parts.append("favourite")
+        }
+        parts.append(content.versionText ?? "no declared version")
+        switch signingState {
+        case .signed: parts.append("Signed")
+        case .notSigned: parts.append("Not signed")
+        case .packageProblem: parts.append(content.availabilityText ?? "Package problem")
+        }
+        return parts.joined(separator: ", ")
+    }
+}
+
+// MARK: - Row content
+
+/// The display values for one library row or card, derived from the entry.
 ///
 /// Absent declarations are never replaced by invented values: an
 /// application that declared no usable name is shown as unnamed, and an
@@ -267,26 +735,40 @@ struct ApplicationLibraryRowContent: Equatable {
     }
 }
 
-// MARK: - Loading and failure presentations
+// MARK: - Loading and failure
 
-/// The presentation shown while the library is being read from persistence.
-/// It exists so an empty library is never shown while records are still
-/// being read.
+/// The loading state: skeletons in the shape of the rows that will replace
+/// them, so the screen never presents an empty library as a finding.
 struct ApplicationLibraryLoadingView: View {
-
     var body: some View {
-        ProgressView {
-            Text("Loading Library…")
+        ScrollView {
+            VStack(spacing: ZSpacing.sm) {
+                ForEach(0..<6, id: \.self) { _ in
+                    HStack(spacing: ZSpacing.sm) {
+                        RoundedRectangle(cornerRadius: ZRadius.icon)
+                            .fill(Color(.tertiarySystemFill))
+                            .frame(width: 52, height: 52)
+                        VStack(alignment: .leading, spacing: ZSpacing.xxs) {
+                            RoundedRectangle(cornerRadius: 3).fill(Color(.tertiarySystemFill)).frame(height: 14)
+                            RoundedRectangle(cornerRadius: 3).fill(Color(.tertiarySystemFill)).frame(height: 10).padding(.trailing, 60)
+                            RoundedRectangle(cornerRadius: 3).fill(Color(.tertiarySystemFill)).frame(height: 10).padding(.trailing, 120)
+                        }
+                        Spacer()
+                    }
+                    .redacted(reason: .placeholder)
+                    .padding(.horizontal)
+                    .padding(.vertical, ZSpacing.xxs)
+                }
+            }
+            .padding(.top, ZSpacing.sm)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityLabel("Loading applications")
     }
 }
 
-/// The presentation shown when the library could not be read at all. The
-/// message is the typed error's user-facing text; the retry action re-reads
-/// persistence.
+/// The failure state: the library could not be read, and the screen says so
+/// instead of showing an empty list.
 struct ApplicationLibraryFailureView: View {
-
     let message: String
     let retry: () -> Void
 
@@ -296,7 +778,7 @@ struct ApplicationLibraryFailureView: View {
         } description: {
             Text(message)
         } actions: {
-            Button("Try Again") { retry() }
+            Button("Retry") { retry() }
                 .buttonStyle(.borderedProminent)
         }
     }
@@ -304,40 +786,14 @@ struct ApplicationLibraryFailureView: View {
 
 // MARK: - Previews
 
-/// One environment shared by the screen previews, so a preview that imports
-/// acts on the same library the screen displays.
 private let previewEnvironment = CompositionRoot.makeApplicationEnvironment()
 
-/// Representative library entries: a fully declared application, one with a
-/// long declared name and identifier, one that declared nothing optional,
-/// and two whose package files are missing or no longer match their records.
 private enum PreviewFixtures {
-
-    static func record(
-        identity: ApplicationIdentity,
-        importedAt: Date = Date(timeIntervalSinceReferenceDate: 750_000_000)
-    ) -> ApplicationRecord {
-        ApplicationRecord(
-            id: ApplicationRecordIdentifier(),
-            identity: identity,
-            executableName: nil,
-            sourceFileName: "Example.ipa",
-            artifact: ArtifactReference(
-                artifactID: ArtifactIdentifier(),
-                byteCount: 4_194_304,
-                fingerprint: fingerprint
-            ),
-            inspection: ApplicationRecord.InspectionSummary(classification: .valid),
-            importedAt: importedAt,
-            updatedAt: importedAt
-        )
-    }
-
     static func identity(
         bundleIdentifier: String,
-        displayName: String? = nil,
-        shortVersion: String? = nil,
-        build: String? = nil
+        displayName: String,
+        shortVersion: String? = "1.2",
+        build: String? = "34"
     ) -> ApplicationIdentity {
         guard let identifier = BundleIdentifier(rawValue: bundleIdentifier) else {
             preconditionFailure("Preview fixture bundle identifier is not valid: \(bundleIdentifier)")
@@ -350,62 +806,49 @@ private enum PreviewFixtures {
         )
     }
 
-    private static var fingerprint: ArtifactFingerprint {
+    static func record(
+        identity: ApplicationIdentity,
+        importedAt: Date = Date(timeIntervalSinceReferenceDate: 750_000_000)
+    ) -> ApplicationRecord {
         guard let fingerprint = ArtifactFingerprint(
             algorithm: .sha256,
             digestBytes: Array(repeating: 0xAB, count: 32)
         ) else {
             preconditionFailure("A 32-byte digest must always form a fingerprint.")
         }
-        return fingerprint
+        return ApplicationRecord(
+            id: ApplicationRecordIdentifier(),
+            identity: identity,
+            executableName: nil,
+            sourceFileName: nil,
+            artifact: ArtifactReference(
+                artifactID: ArtifactIdentifier(),
+                byteCount: 1_024,
+                fingerprint: fingerprint
+            ),
+            inspection: ApplicationRecord.InspectionSummary(classification: .valid),
+            importedAt: importedAt,
+            updatedAt: importedAt
+        )
     }
 
     static let complete = LibraryEntry(
         record: record(identity: identity(
-            bundleIdentifier: "com.example.synthetic",
-            displayName: "Example",
-            shortVersion: "1.2",
-            build: "34"
+            bundleIdentifier: "com.example.complete",
+            displayName: "Example"
         )),
         artifactAvailability: .available
     )
 
-    static let longDeclaredValues = LibraryEntry(
-        record: record(identity: identity(
-            bundleIdentifier: "com.example.very.long.bundle.identifier.an-example-application",
-            displayName: "An Extremely Long Application Name That Must Still Wrap And Stay Readable",
-            shortVersion: "10.4",
-            build: "981"
-        ), importedAt: Date(timeIntervalSinceReferenceDate: 750_000_060)),
-        artifactAvailability: .available
-    )
-
-    static let undeclaredMetadata = LibraryEntry(
-        record: record(identity: identity(bundleIdentifier: "com.example.minimal")),
-        artifactAvailability: .available
-    )
-
     static let missingArtifact = LibraryEntry(
-        record: record(identity: identity(
-            bundleIdentifier: "com.example.missing",
-            displayName: "Missing Package",
-            shortVersion: "2.0",
-            build: "45"
-        ), importedAt: Date(timeIntervalSinceReferenceDate: 750_000_120)),
+        record: record(
+            identity: identity(bundleIdentifier: "com.example.orphandesk", displayName: "Orphan Desk"),
+            importedAt: Date(timeIntervalSinceReferenceDate: 750_000_120)
+        ),
         artifactAvailability: .missing
     )
 
-    static let inconsistentArtifact = LibraryEntry(
-        record: record(identity: identity(
-            bundleIdentifier: "com.example.changed",
-            displayName: "Changed Package",
-            shortVersion: "0.9",
-            build: "12"
-        ), importedAt: Date(timeIntervalSinceReferenceDate: 750_000_180)),
-        artifactAvailability: .inconsistent(recordedByteCount: 4_194_304, observedByteCount: 2_097_152)
-    )
-
-    static let all = [complete, longDeclaredValues, undeclaredMetadata, missingArtifact, inconsistentArtifact]
+    static let all = [complete, missingArtifact]
 }
 
 #Preview("Empty Library") {
@@ -427,6 +870,18 @@ private enum PreviewFixtures {
         }
         .navigationTitle("Applications")
     }
+}
+
+#Preview("Library Grid") {
+    ScrollView {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 108), spacing: ZSpacing.sm)], spacing: ZSpacing.sm) {
+            ForEach(PreviewFixtures.all, id: \.record.id) { entry in
+                ApplicationLibraryCard(entry: entry)
+            }
+        }
+        .padding()
+    }
+    .background(Color(.systemGroupedBackground))
 }
 
 #Preview("Loading") {

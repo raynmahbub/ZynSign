@@ -12,6 +12,68 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — 0.1.0-alpha.1 · Step 1: Home Dashboard & App Library
+
+- **Home Dashboard** — the screen users land on: a welcome header with a
+  time-of-day greeting, a Quick Actions row (**Import IPA · Certificates ·
+  Profiles**), **Recently Imported** (the newest three applications, each
+  opening its detail), and **Library statistics** (Apps / Certificates /
+  Profiles) with tiles that open the tab that manages each count. Every
+  number is read from the same use cases the tabs read — nothing is
+  decorative, and a count that cannot be read shows "—", never a
+  fabricated zero.
+- **First-launch onboarding** — an empty-state card on Home walks through
+  importing an application, adding a certificate, and importing a
+  provisioning profile. Each step is marked complete only when the
+  corresponding store actually holds something; it dismisses for good and
+  completes itself once all three are true.
+- **App Library power tools** — grid/list layout toggle (remembered across
+  launches), instant search across declared name, bundle identifier, and
+  source file name, sorting by **Recently Imported / Name / Version**
+  (versions sort the way people read them: 10.0 above 2.0), swipe actions
+  (**Favorite**, **Details**, **Delete**) with context-menu equivalents on
+  grid cards, and **multi-selection mode** (Select/Done, Select All /
+  Deselect All, confirmed bulk delete).
+- **App cards and rows** — each shows the application's **icon** (extracted
+  read-only from the package through `AppIconExtraction`, bounded and
+  cached, with an honest monogram-and-palette fallback derived from the
+  bundle identifier when the package carries no readable icon), the app
+  name, bundle ID, **version + build**, import date, a **signing status
+  badge** (read from the on-device signing journal — "Signed" only where
+  successful output is recorded; a package whose bytes drifted from its
+  record says so), and a **favorite indicator**.
+- **Profiles tab** — the provisioning-profile library as a first-class tab:
+  import `.mobileprovision` (validated through the same inspection use case
+  the signing pipeline composes), a list with team, expiry countdown, and
+  semantic badges (valid / expiring soon / expired), a detail screen with
+  bundle-identifier patterns and entitlement keys, and delete with
+  confirmation. Composition composes `ProvisioningProfileImporter` for the
+  first time and stores profile files beside the profile catalog.
+- **Navigation foundation** — the shell is five tabs: **Home, Library,
+  Certificates, Profiles, Settings**. Files, App Store, and Downloads
+  remain complete, reachable areas — linked from Settings → Browse — so
+  the bottom navigation is a stable foundation for the milestones that
+  follow.
+- `AppIconExtractionTests`, favourite tests in `ApplicationLibraryTests`,
+  search/sort/favourite/signing-state/bulk-removal tests in
+  `ApplicationLibraryModelTests`, and catalog schema-2 tests including the
+  schema 1 → 2 conversion.
+
+### Changed
+
+- **Library catalog schema version 2** — records carry the user's favourite
+  mark. A schema 1 catalog converts at the read boundary (every record
+  reads not-favourite) and is rewritten in the current schema at its next
+  mutation; version 0 and anything newer than this build are still refused,
+  and a read never rewrites the file.
+- `ApplicationRecord` gains `isFavorite` (display-only preference; import
+  time and identity are untouched by the change) and
+  `ApplicationLibrary.setFavorite(_:recordWithID:)`, a no-op when the mark
+  already matches.
+- Settings reorganised for the new shell: Certificates has its tab, Signing
+  Options stays under Signing, and Browse links to Files / App Store /
+  Downloads under the existing release-train gates.
+
 ### Added
 
 - **Release train** — `ZynSign/Application/ReleaseTrain.swift` (`ReleaseFeature`,

@@ -204,7 +204,7 @@ final class FileApplicationRecordStoreTests: XCTestCase {
 
         let document = try catalogJSON()
         XCTAssertEqual(document["schemaVersion"] as? Int, LibraryCatalogDocument.currentSchemaVersion)
-        XCTAssertEqual(LibraryCatalogDocument.currentSchemaVersion, 1)
+        XCTAssertEqual(LibraryCatalogDocument.currentSchemaVersion, 2)
         XCTAssertEqual(Set(document.keys), ["schemaVersion", "records"])
 
         let records = try XCTUnwrap(document["records"] as? [[String: Any]])
@@ -216,7 +216,7 @@ final class FileApplicationRecordStoreTests: XCTestCase {
                 "recordID", "bundleIdentifier", "declaredDisplayName", "shortVersion", "buildVersion",
                 "executableName", "sourceFileName", "artifactID", "artifactByteCount",
                 "fingerprintAlgorithm", "fingerprintDigest", "inspectionClassification",
-                "inspectionWarningCodes", "importedAt", "updatedAt",
+                "inspectionWarningCodes", "importedAt", "updatedAt", "isFavorite",
             ]
         )
         XCTAssertEqual(stored["recordID"] as? String, record.id.rawValue)
@@ -224,6 +224,7 @@ final class FileApplicationRecordStoreTests: XCTestCase {
         XCTAssertEqual(stored["fingerprintAlgorithm"] as? String, "sha256")
         XCTAssertEqual(stored["fingerprintDigest"] as? String, record.artifact.fingerprint.hexDigest)
         XCTAssertEqual(stored["inspectionClassification"] as? String, "valid")
+        XCTAssertEqual(stored["isFavorite"] as? Bool, false)
     }
 
     func testStoredRecordRehydratesThroughDomainValidation() throws {
@@ -232,6 +233,56 @@ final class FileApplicationRecordStoreTests: XCTestCase {
         let rehydrated = try StoredApplicationRecord(record).applicationRecord()
 
         XCTAssertEqual(rehydrated, record)
+    }
+
+    func testFavouriteMarkRoundTripsThroughTheCatalog() async throws {
+        let store = makeStore()
+        let record = LibraryFixtures.record().with(
+            isFavorite: true,
+            updatedAt: LibraryFixtures.laterDate
+        )
+
+        try await store.insert(record)
+        let fetched = try await makeStore().record(withID: record.id)
+
+        XCTAssertEqual(fetched, record)
+        XCTAssertEqual(fetched?.isFavorite, true)
+    }
+
+    /// Schema 1 carried no favourite mark. The conversion at the read
+    /// boundary is exactly that absence: every record reads as
+    /// not-favourite, and the rest of the record is untouched.
+    func testSchema1CatalogConvertsWithEveryRecordReadingAsNotFavourite() async throws {
+        let record = LibraryFixtures.record()
+        let stored: [String: Any] = [
+            "recordID": record.id.rawValue,
+            "bundleIdentifier": record.identity.bundleIdentifier.rawValue,
+            "declaredDisplayName": record.identity.declaredDisplayName ?? "",
+            "shortVersion": record.identity.shortVersionString ?? "",
+            "buildVersion": record.identity.buildVersion ?? "",
+            "executableName": record.executableName ?? "",
+            "sourceFileName": record.sourceFileName ?? "",
+            "artifactID": record.artifact.artifactID.rawValue,
+            "artifactByteCount": record.artifact.byteCount,
+            "fingerprintAlgorithm": "sha256",
+            "fingerprintDigest": record.artifact.fingerprint.hexDigest,
+            "inspectionClassification": record.inspection.classification.rawValue,
+            "inspectionWarningCodes": [String](),
+            "importedAt": record.importedAt.timeIntervalSinceReferenceDate,
+            "updatedAt": record.updatedAt.timeIntervalSinceReferenceDate,
+        ]
+        let document: [String: Any] = ["schemaVersion": 1, "records": [stored]]
+        let data = try JSONSerialization.data(withJSONObject: document, options: [.sortedKeys])
+        try FileManager.default.createDirectory(
+            at: catalogLocation.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: catalogLocation)
+
+        let fetched = try await makeStore().allRecords()
+
+        XCTAssertEqual(fetched, [record])
+        XCTAssertEqual(fetched.first?.isFavorite, false)
     }
 
     // MARK: - Damaged or foreign catalogs

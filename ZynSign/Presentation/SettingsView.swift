@@ -3,9 +3,11 @@ import UIKit
 
 /// The Settings area — ZynSign's configuration hub.
 ///
-/// Settings is where certificates, signing options, appearance, storage and
-/// diagnostics live. The list is grouped the way users expect from a device
-/// utility: identity first, then workflow preferences, then maintenance.
+/// Settings is where signing options, appearance, storage and diagnostics
+/// live, together with links to the complete areas that are not tabs
+/// (Files, App Store, Downloads) and the honest capability screens
+/// (Pairing, Analytics, Installation). Certificates and provisioning
+/// profiles have their own tabs in the shell.
 struct SettingsView: View {
 
     @Environment(\.applicationEnvironment) private var environment
@@ -16,8 +18,9 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 aboutSection
-                if ReleaseTrain.isAvailable(.certificateStudio) || ReleaseTrain.isAvailable(.smartSign) {
-                    certificatesSection
+                browseSection
+                if ReleaseTrain.isAvailable(.smartSign) {
+                    signingOptionsSection
                 }
                 signingSection
                 appearanceSection
@@ -47,22 +50,38 @@ struct SettingsView: View {
         }
     }
 
-    private var certificatesSection: some View {
+    /// The complete areas that are not tabs: Files, App Store, and
+    /// Downloads. They are reached from here so the bottom navigation stays
+    /// the five-tab foundation every other screen builds on.
+    private var browseSection: some View {
         Section {
-            if ReleaseTrain.isAvailable(.certificateStudio) {
-                NavigationLink { CertificatesView() } label: {
-                    Label("Certificates", systemImage: "signature")
+            NavigationLink { FilesView() } label: {
+                Label(ShellSection.files.title, systemImage: ShellSection.files.symbolName)
+            }
+            if ReleaseTrain.isAvailable(.appStore) {
+                NavigationLink { AppStoreView() } label: {
+                    Label(ShellSection.appStore.title, systemImage: ShellSection.appStore.symbolName)
                 }
             }
-            if ReleaseTrain.isAvailable(.smartSign) {
-                NavigationLink { SigningOptionsView() } label: {
-                    Label("Signing Options", systemImage: "slider.horizontal.3")
+            if ReleaseTrain.isAvailable(.downloads) {
+                NavigationLink { DownloadsView() } label: {
+                    Label(ShellSection.downloads.title, systemImage: ShellSection.downloads.symbolName)
                 }
+            }
+        } header: { Text("Browse") } footer: {
+            Text("Files, the App Store, and Downloads are complete areas of ZynSign, reached from here rather than the tab bar.")
+        }
+    }
+
+    /// Signing preferences. Certificates have their own tab; this is where
+    /// the options a signing run uses are configured.
+    private var signingOptionsSection: some View {
+        Section {
+            NavigationLink { SigningOptionsView() } label: {
+                Label("Signing Options", systemImage: "slider.horizontal.3")
             }
         } header: { Text("Signing") } footer: {
-            Text(ReleaseTrain.isAvailable(.smartSign)
-                 ? "Add and manage signing certificates, and configure the options used when the pipeline is composed for signing. Certificates are device-only, never leave the Keychain."
-                 : "Add and manage signing certificates. Certificates are device-only and never leave the Keychain. On-device signing arrives in a later release.")
+            Text("Configure the options used when the pipeline is composed for signing. Certificates and profiles are managed in their own tabs.")
         }
     }
 

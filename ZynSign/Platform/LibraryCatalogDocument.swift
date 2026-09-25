@@ -10,27 +10,29 @@ import Foundation
 /// record is rehydrated, so a damaged or hand-edited catalog produces a typed
 /// failure rather than a record the domain would never have constructed.
 ///
-/// **Schema version 1.** The document is a JSON object with two keys:
-/// `schemaVersion`, the integer `1`; and `records`, an array of record
+/// **Schema version 2.** The document is a JSON object with two keys:
+/// `schemaVersion`, the integer `2`; and `records`, an array of record
 /// objects. Each record object carries string identifiers for the record and
 /// its artifact, the declared identity values exactly as declared (absent
 /// values are omitted), the executable and source-file names when known, the
 /// artifact's byte count and fingerprint (algorithm name plus lowercase
 /// hexadecimal digest), the inspection classification and warning codes by
-/// their stable raw values, and the two timestamps as seconds since the
-/// reference date, stored as numbers so that they round-trip exactly.
+/// their stable raw values, the two timestamps as seconds since the
+/// reference date, stored as numbers so that they round-trip exactly, and —
+/// since version 2 — the user's favourite mark.
 ///
-/// A catalog whose version is newer than `currentSchemaVersion` is refused
-/// as unsupported rather than guessed at; a catalog whose version is unknown
-/// or whose content this build cannot interpret is refused as unreadable. In
-/// both cases the file is left untouched. When the schema next changes, the
-/// version is incremented and a conversion from the previous version is
-/// added at the read boundary; no conversion exists yet because none is
-/// needed.
+/// **Conversion.** A version 1 document is read with one conversion at this
+/// boundary: version 1 carried no favourite mark, so every record rehydrates
+/// as not-favourite. Nothing else differs, and the catalog is rewritten in
+/// the current schema at its next mutation. Version 0 never existed, and a
+/// catalog whose version is newer than `currentSchemaVersion` is refused
+/// as unsupported rather than guessed at; in both cases the file is left
+/// untouched. When the schema next changes, the version is incremented and
+/// a conversion from the previous version is added here.
 struct LibraryCatalogDocument: Codable, Equatable {
 
     /// The schema version this build reads and writes.
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     /// The schema version the document was written in.
     var schemaVersion: Int
@@ -70,6 +72,11 @@ struct StoredApplicationRecord: Codable, Equatable {
     var importedAt: Double
     var updatedAt: Double
 
+    /// The user's favourite mark. Optional because schema 1 documents carry
+    /// no such field; an absent value reads as not-favourite, and every
+    /// document written by this build records the value explicitly.
+    var isFavorite: Bool?
+
     /// Captures a domain record for storage.
     init(_ record: ApplicationRecord) {
         recordID = record.id.rawValue
@@ -88,6 +95,7 @@ struct StoredApplicationRecord: Codable, Equatable {
         inspectionWarningCodes = record.inspection.warningCodes.map { $0.rawValue }
         importedAt = record.importedAt.timeIntervalSinceReferenceDate
         updatedAt = record.updatedAt.timeIntervalSinceReferenceDate
+        isFavorite = record.isFavorite
     }
 
     /// Rehydrates the domain record, validating every stored value through
@@ -148,7 +156,8 @@ struct StoredApplicationRecord: Codable, Equatable {
                 warningCodes: warningCodes
             ),
             importedAt: Date(timeIntervalSinceReferenceDate: importedAt),
-            updatedAt: Date(timeIntervalSinceReferenceDate: updatedAt)
+            updatedAt: Date(timeIntervalSinceReferenceDate: updatedAt),
+            isFavorite: isFavorite ?? false
         )
     }
 
