@@ -499,4 +499,221 @@ final class ApplicationLibraryModelTests: XCTestCase {
         XCTAssertEqual(content.artifactStatus, "Inconsistent")
         XCTAssertFalse(content.artifactExplanation?.isEmpty ?? true)
     }
+
+    // MARK: - Search
+
+    func testSearchMatchesNameAndBundleIdentifierAndSourceFileName() {
+        let byName = LibraryEntry(
+            record: LibraryFixtures.record(identity: LibraryFixtures.identity(displayName: "Delta Mail")),
+            artifactAvailability: .available
+        )
+        let byBundleID = LibraryEntry(
+            record: LibraryFixtures.record(
+                identity: LibraryFixtures.identity(
+                    bundleIdentifier: "com.example.deltamail",
+                    displayName: "Other"
+                )
+            ),
+            artifactAvailability: .available
+        )
+        let bySourceFile = LibraryEntry(
+            record: LibraryFixtures.record(
+                identity: LibraryFixtures.identity(displayName: "Other"),
+                sourceFileName: "delta-mail-2.0.ipa"
+            ),
+            artifactAvailability: .available
+        )
+        let unrelated = LibraryEntry(
+            record: LibraryFixtures.record(identity: LibraryFixtures.identity(displayName: "Calendar")),
+            artifactAvailability: .available
+        )
+
+        let visible = ApplicationLibraryModel.displayed(
+            [byName, byBundleID, bySourceFile, unrelated],
+            matching: "delta",
+            sortedBy: .recentlyImported
+        )
+
+        XCTAssertEqual(Set(visible.map { $0.record.id }), Set([byName.record.id, byBundleID.record.id, bySourceFile.record.id]))
+    }
+
+    func testAnEmptyOrWhitespaceQueryMatchesEverything() {
+        let entries = [
+            LibraryEntry(record: LibraryFixtures.record(), artifactAvailability: .available),
+        ]
+
+        XCTAssertEqual(ApplicationLibraryModel.displayed(entries, matching: "", sortedBy: .name), entries)
+        XCTAssertEqual(ApplicationLibraryModel.displayed(entries, matching: "   ", sortedBy: .name), entries)
+    }
+
+    // MARK: - Ordering
+
+    func testRecentlyImportedPutsTheNewestRecordFirst() {
+        let older = LibraryEntry(
+            record: LibraryFixtures.record(identity: LibraryFixtures.identity(displayName: "Older")),
+            artifactAvailability: .available
+        )
+        let newer = LibraryEntry(
+            record: LibraryFixtures.record(
+                identity: LibraryFixtures.identity(displayName: "Newer"),
+                importedAt: LibraryFixtures.laterDate
+            ),
+            artifactAvailability: .available
+        )
+
+        let ordered = ApplicationLibraryModel.ordered([older, newer], by: .recentlyImported)
+
+        XCTAssertEqual(ordered.map { $0.record.displayName }, ["Newer", "Older"])
+    }
+
+    func testNameOrderSortsCaseInsensitivelyAndDeterministically() {
+        let zebra = LibraryEntry(
+            record: LibraryFixtures.record(identity: LibraryFixtures.identity(
+                bundleIdentifier: "com.example.zebra",
+                displayName: "zebra"
+            )),
+            artifactAvailability: .available
+        )
+        let alpha = LibraryEntry(
+            record: LibraryFixtures.record(identity: LibraryFixtures.identity(
+                bundleIdentifier: "com.example.alpha",
+                displayName: "Alpha"
+            )),
+            artifactAvailability: .available
+        )
+        let unnamed = LibraryEntry(
+            record: LibraryFixtures.record(identity: LibraryFixtures.identity(
+                bundleIdentifier: "zzz.example.anonymous",
+                displayName: nil
+            )),
+            artifactAvailability: .available
+        )
+
+        let ordered = ApplicationLibraryModel.ordered([zebra, unnamed, alpha], by: .name)
+
+        // Alpha, then zebra (case-insensitive), then the unnamed entry under
+        // its bundle identifier.
+        XCTAssertEqual(ordered.map { $0.record.displayName }, ["Alpha", "zebra", nil])
+    }
+
+    func testVersionOrderSortsTheWayPeopleReadVersions() {
+        let two = LibraryEntry(
+            record: LibraryFixtures.record(identity: LibraryFixtures.identity(
+                bundleIdentifier: "com.example.two",
+                displayName: "Two",
+                shortVersion: "2.0"
+            )),
+            artifactAvailability: .available
+        )
+        let ten = LibraryEntry(
+            record: LibraryFixtures.record(identity: LibraryFixtures.identity(
+                bundleIdentifier: "com.example.ten",
+                displayName: "Ten",
+                shortVersion: "10.0"
+            )),
+            artifactAvailability: .available
+        )
+
+        let ordered = ApplicationLibraryModel.ordered([two, ten], by: .version)
+
+        // Numeric reading: 10.0 above 2.0, not "10" before "2" as text.
+        XCTAssertEqual(ordered.map { $0.record.identity.shortVersionString }, ["10.0", "2.0"])
+    }
+
+    // MARK: - Favourites
+
+    func testSettingAFavouriteThroughTheModelPersistsAndRefreshes() async throws {
+        let record = LibraryFixtures.record(identity: LibraryFixtures.identity(displayName: "First"))
+        try await records.insert(record)
+        artifacts.hold(Data(count: record.artifact.byteCount), as: record.artifact.artifactID)
+        await model.load()
+
+        guard case .loaded(let entries) = model.phase, let entry = entries.first else {
+            return XCTFail("Expected a loaded phase, got \(model.phase)")
+        }
+        await model.setFavorite(true, on: entry)
+
+        let stored = try await records.record(withID: record.id)
+        XCTAssertEqual(stored?.isFavorite, true)
+        guard case .loaded(let refreshed) = model.phase, let refreshedEntry = refreshed.first else {
+            return XCTFail("Expected a re-read after the change, got \(model.phase)")
+        }
+        XCTAssertEqual(refreshedEntry.record.isFavorite, true)
+    }
+
+    // MARK: - Signing state
+
+    /// A signing journal double returning fixed records.
+    private struct SyntheticSigningHistoryStore: SigningHistoryStore {
+        var recordsToReturn: [SigningRecord] = []
+        var capacity: Int { 100 }
+        func allRecords() async throws -> [SigningRecord] { recordsToReturn }
+        func records(forPreset presetID: PresetIdentifier) async throws -> [SigningRecord] { [] }
+        func append(_ record: SigningRecord) async throws {}
+        func remove(recordWithID id: SigningRecordIdentifier) async throws {}
+        func clear() async throws {}
+        func count() async throws -> Int { recordsToReturn.count }
+    }
+
+    func testAPackageProblemOutranksTheSigningJournal() {
+        let entry = LibraryEntry(
+            record: LibraryFixtures.record(),
+            artifactAvailability: .missing
+        )
+
+        XCTAssertEqual(model.signingState(for: entry), .packageProblem)
+    }
+
+    func testTheSigningJournalMarksSignedApplications() async throws {
+        let record = LibraryFixtures.record(identity: LibraryFixtures.identity(displayName: "First"))
+        try await records.insert(record)
+        artifacts.hold(Data(count: record.artifact.byteCount), as: record.artifact.artifactID)
+        let signed = SigningRecord(
+            presetID: nil,
+            certificateFingerprint: nil,
+            sourceBundleIdentifier: record.bundleIdentifier.rawValue,
+            sourceDisplayName: record.displayName,
+            stoppingStage: "verification",
+            errorCode: nil,
+            outputFileName: "First_signed.ipa",
+            outputByteCount: 1_024,
+            startedAt: LibraryFixtures.laterDate,
+            duration: 1
+        )
+        let modelWithJournal = ApplicationLibraryModel(
+            library: library,
+            importing: importing,
+            signingHistory: SyntheticSigningHistoryStore(recordsToReturn: [signed])
+        )
+        await modelWithJournal.load()
+
+        let entry = LibraryEntry(record: record, artifactAvailability: .available)
+        XCTAssertEqual(modelWithJournal.signingState(for: entry), .signed)
+        XCTAssertEqual(model.signingState(for: entry), .notSigned)
+    }
+
+    // MARK: - Bulk removal
+
+    func testBulkRemovalRemovesEverySelectedEntry() async throws {
+        let first = LibraryFixtures.record(identity: LibraryFixtures.identity(displayName: "First"))
+        let second = LibraryFixtures.record(
+            identity: LibraryFixtures.identity(bundleIdentifier: "com.example.second", displayName: "Second"),
+            artifact: LibraryFixtures.reference(fingerprintSeed: 0x01),
+            importedAt: LibraryFixtures.laterDate
+        )
+        try await records.insert(first)
+        try await records.insert(second)
+        artifacts.hold(Data(count: first.artifact.byteCount), as: first.artifact.artifactID)
+        artifacts.hold(Data(count: second.artifact.byteCount), as: second.artifact.artifactID)
+        await model.load()
+
+        await model.removeEntries([
+            LibraryEntry(record: first, artifactAvailability: .available),
+            LibraryEntry(record: second, artifactAvailability: .available),
+        ])
+
+        let remaining = try await records.allRecords()
+        XCTAssertTrue(remaining.isEmpty)
+        XCTAssertNil(model.notice)
+    }
 }

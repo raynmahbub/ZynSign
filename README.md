@@ -42,7 +42,7 @@ Features are finished and compiled in. `ReleaseTrain.current` in [`ReleaseTrain.
 
 | Release | Switches on |
 |---|---|
-| **`v0.1.0`** ◀ current | Files · Import · Library · Bundle Explorer · Home · Settings |
+| **`v0.1.0`** ◀ current | Home Dashboard · Import · Library (grid/list, search, sort, favourites) · Bundle Explorer · Certificates · Profiles · Settings |
 | `v0.1.0-alpha.1` | Certificate Studio |
 | `v0.1.0-alpha.2` | Smart Sign (+ Signing Options, Installation screen) |
 | `v0.1.0-alpha.3` | App Store + Repository Health · Background Downloads |
@@ -62,9 +62,11 @@ The **Ships in** column is the first release that shows the feature.
 
 | Area | State · Entry point | Notes |
 |---|---|---|
-| **Import** <br/><sub>Ships in `v0.1.0`</sub> | `ipa` / `tipa` via Files, Library, Downloads (security-scoped, bounded, SHA-256) | Rejects >100k entries, depth >32, >4 MiB inspection / 512 MiB extraction. Staged in `tmp`, adopted to `Application Support/ZynSignLibrary` |
-| **Library** <br/><sub>Ships in `v0.1.0`</sub> | Durable `FileApplicationRecordStore` + `FileLibraryArtifactStore`, `isArtifactAvailable`, `BundleExplorerView` read-only, row `⋯ → Sign` | Survives relaunch, duplicate SHA-256, missing-artifact banner |
-| **Certificates** <br/><sub>Ships in `v0.1.0-alpha.1`</sub> | `Settings → Certificates` → `CertificatesView` + `CertificateDetailView` | `.p12/.pfx` 10 MiB, `ApplePKCS12Importer` → `SecureIdentityStore` (`WhenUnlockedThisDeviceOnly`, non-extractable), `ZStatusBadge` readiness, **Export public JSON** (`CertificateExportService` `tmp/ZynSign-Export/*.json` via share sheet) — private key never exported |
+| **Home Dashboard** <br/><sub>Ships in `v0.1.0`</sub> | `HomeView`: welcome header, Quick Actions (`Import IPA · Certificates · Profiles`), Recently Imported, Library statistics, first-launch onboarding | Every count read from the same use cases the tabs read; onboarding steps complete only when the store actually holds something |
+| **Import** <br/><sub>Ships in `v0.1.0`</sub> | `ipa` / `tipa` via Home, Library, Downloads (security-scoped, bounded, SHA-256) | Rejects >100k entries, depth >32, >4 MiB inspection / 512 MiB extraction. Staged in `tmp`, adopted to `Application Support/ZynSignLibrary` |
+| **Library** <br/><sub>Ships in `v0.1.0`</sub> | Durable `FileApplicationRecordStore` + `FileLibraryArtifactStore`, `isArtifactAvailable`, `BundleExplorerView` read-only, row `⋯ → Sign`; **grid/list cards** with extracted icons (`AppIconExtraction`, cached, honest monogram fallback), search by name/bundle ID, sort by recency/name/version, **favourite** + **Details** + **Delete** swipe actions, **multi-selection** bulk delete, signing-status badge from the on-device journal | Survives relaunch, duplicate SHA-256, missing-artifact badge. Catalog schema 2 (favourites); schema 1 converts on read |
+| **Certificates** <br/><sub>Ships in `v0.1.0-alpha.1`</sub> | **Certificates tab** → `CertificatesView` + `CertificateDetailView` | `.p12/.pfx` 10 MiB, `ApplePKCS12Importer` → `SecureIdentityStore` (`WhenUnlockedThisDeviceOnly`, non-extractable), `ZStatusBadge` readiness, **Export public JSON** (`CertificateExportService` `tmp/ZynSign-Export/*.json` via share sheet) — private key never exported |
+| **Profiles** <br/><sub>Ships in `v0.1.0`</sub> | **Profiles tab** (`ProfilesView`): import `.mobileprovision` (`ProvisioningProfileImporter`), list with team + expiry countdown + semantic badges, detail with bundle-identifier patterns + entitlement keys, delete | Summaries read from each profile's own declarations; original files kept beside the catalog for signing |
 | **Smart Sign** <br/><sub>Ships in `v0.1.0-alpha.2`</sub> | `Library → ⋯ → Sign` / `Detail → Sign` → `SigningView` | 9 stages: integrity → profile → discovery → extraction → nested → sealing → main → packaging → verification. Profile-derived `CodeSigningEntitlements` (CMS `CMSStructureReader` + `PropertyListProvisioningProfileParser`), **DER toggle** `0x20200` `slot 5` ↔ `0x20400` `slot 5+7` (`DEREntitlementsSerializer` `0xFADE7172`), **Live Activity** (`LiveActivityService` `ActivityKit` on 16.1+ else `ZStatusBadge`) → `Documents/Signed/*_signed.ipa` + Share |
 | **Repository browser** <br/><sub>Ships in `v0.1.0-alpha.3`</sub> | `App Store` (`AppStoreView`) AltSource feed, Featured + All, add/remove sources | **Health** `Fast` (<800 ms) / `Slow` (<3000 ms) / `Offline` (`RepositoryHealthProbe` 3 s, JSON validation, `ZStatusBadge` + `Check Health`) |
 | **Downloads** <br/><sub>Ships in `v0.1.0-alpha.3`</sub> | `Downloads` (`DownloadsView`) `https` / `itms-services` / `manifest.plist` | **BackgroundURLSession** `com.zynsign.downloads` (resumeData, 600 s, retry ×3, checksum), `Pause`/`Resume`/`Cancel`, progress, survives backgrounding (foreground on Simulator) |
@@ -85,12 +87,13 @@ The `0.1.0` build is **not App Store** — install via sideloading, TestFlight (
 
 ## Quick start
 
-1. **Import** — `Home [Import IPA]` / `Library [+]` / `Files` → pick `.ipa`/`.tipa` from Files. ZynSign stages → validates → fingerprints (SHA-256) → records. Duplicates are recognised; oversize is refused with a typed `ZynSignError`.
-2. **Library** — `Library` lists `Name · Bundle ID · Version · Package` + `isArtifactAvailable`. Row `⋯` → `Sign Application…`; `Detail → Explore Bundle` (names/kinds/sizes, no extraction, links never followed).
-3. **Certificates** — `Settings → Certificates → Import` → pick `.p12/.pfx` → password → `SecureIdentityStore`. Detail shows `Subject/Issuer/Serial/SHA-256/Valid From-Until/PublicKey/Association/Capability` + `ZStatusBadge ready/needsAttention`. `Export public JSON` shares metadata (private key never leaves).
-4. **Sign** — `Library → ⋯ → Sign` → choose identity (ready) → choose `.mobileprovision` → entitlements auto-derived (`N from profile` + 8-key preview) → `DER 0x20400` toggle as needed → `Sign Application` → `ZProgressRing` + `ZSigningStatusMachine` + Live Activity → `Documents/Signed/*_signed.ipa` `Share` (or `Open in Files`). Failure shows `Refused at <stage>:` + `category`, no container delivered.
-5. **Deliver** — `Sign → Deliver…` → enter the HTTPS address where you will host the signed IPA → ZynSign builds the `manifest.plist`, the `itms-services://…` install link, and a QR → publish both files on your host (or use MDM / Finder-Apple Configurator) → the device installs on user confirmation. ZynSign never uploads or claims an install.
-6. **App Store / Downloads / Home** — `App Store` add AltSource `https://…/apps.json` → see `Fast/Slow/Offline`; `Get` → `Downloads` (pause/resume); `Home → Refresh Everything` for one-tap maintenance. `Settings → Analytics` shows the on-device activity journal — clearable, exportable, never transmitted.
+1. **Import** — `Home [Import IPA]` / `Library [+]` → pick `.ipa`/`.tipa` from Files. ZynSign stages → validates → fingerprints (SHA-256) → records. Duplicates are recognised; oversize is refused with a typed `ZynSignError`.
+2. **Library** — the Library tab lists every application as a row or a grid card: icon, name, bundle ID, version + build, import date, signing status, favourite star. Search by name or bundle ID, sort by Recently Imported / Name / Version, swipe (or context-menu) for **Favorite · Details · Delete**, use **Select** for multi-selection. `Detail → Explore Bundle` (names/kinds/sizes, no extraction, links never followed); `Detail → Sign` when signing is composed.
+3. **Certificates** — `Certificates tab → Import` → pick `.p12/.pfx` → password → `SecureIdentityStore`. Detail shows `Subject/Issuer/Serial/SHA-256/Valid From-Until/PublicKey/Association/Capability` + `ZStatusBadge ready/needsAttention`. `Export public JSON` shares metadata (private key never leaves).
+4. **Profiles** — `Profiles tab → Import` → pick `.mobileprovision` → the summary library keeps name, team, bundle-identifier patterns, entitlement keys, and expiry (badges flag expiring-soon and expired).
+5. **Sign** — `Library → ⋯ → Sign` → choose identity (ready) → choose `.mobileprovision` → entitlements auto-derived (`N from profile` + 8-key preview) → `DER 0x20400` toggle as needed → `Sign Application` → `ZProgressRing` + `ZSigningStatusMachine` + Live Activity → `Documents/Signed/*_signed.ipa` `Share` (or `Open in Files`). Failure shows `Refused at <stage>:` + `category`, no container delivered.
+6. **Deliver** — `Sign → Deliver…` → enter the HTTPS address where you will host the signed IPA → ZynSign builds the `manifest.plist`, the `itms-services://…` install link, and a QR → publish both files on your host (or use MDM / Finder-Apple Configurator) → the device installs on user confirmation. ZynSign never uploads or claims an install.
+7. **App Store / Downloads / Home** — `Settings → Browse → App Store` add AltSource `https://…/apps.json` → see `Fast/Slow/Offline`; `Get` → `Settings → Browse → Downloads` (pause/resume); `Home → Refresh Everything` for one-tap maintenance. `Settings → Analytics` shows the on-device activity journal — clearable, exportable, never transmitted.
 
 ---
 
@@ -107,7 +110,7 @@ ZynSign/
   Application/             Use cases & ports (Import, Library, Sign, CertificateExport, RepositoryHealth, DER, BackgroundDownload, LiveActivity, MissionControl, InstallationDelivery hand-off, LocalAnalyticsJournal, Pairing/Analytics policy)
   Domain/                  Pure models (Archive, Bundle, Certificate, Provisioning, CodeDirectory 0x20001/0x20200/0x20400, Entitlements XML+DER, ResourceSealing, InstallationEvidence, etc.)
   Platform/                Apple implementations (Archive, Keychain, PKCS12, CMS, MachO, Downloads background, LiveActivity)
-  Presentation/            SwiftUI: DesignSystem (ZCard/…/ZToast), Files/Library/Home/App Store/Downloads/Settings/Certificates/SigningView + ZSigningStatusMachine
+  Presentation/            SwiftUI: DesignSystem (ZCard/…/ZToast), 5-tab shell (Home/Library/Certificates/Profiles/Settings) + Files/App Store/Downloads, ApplicationLibrary grid+list, ProfilesView, SigningView + ZSigningStatusMachine
 Tests/
   ZynSignTests/            Unit + fixture tests (domain, archive, import, library, certificates, provisioning, MachO, signing, metadata)
   Host/                    external_validation.py, verify_*.py (codesign/otool/openssl)

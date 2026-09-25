@@ -159,6 +159,25 @@ actor ApplicationLibrary {
         )
     }
 
+    // MARK: - Favourites
+
+    /// Sets whether the record carrying `id` is marked as a favourite.
+    ///
+    /// The change touches the record only — never the artifact — and keeps
+    /// the import time, so listing by recency is unaffected. Setting the
+    /// mark a record already carries does nothing, so repeated requests
+    /// cannot churn the change time. Fails with a typed error when no such
+    /// record exists.
+    func setFavorite(_ isFavorite: Bool, recordWithID id: ApplicationRecordIdentifier) async throws {
+        guard let record = try await records.record(withID: id) else {
+            throw ZynSignError.libraryRecordNotFound(
+                diagnosticDetail: "No library record carries identifier '\(id.rawValue)'."
+            )
+        }
+        guard record.isFavorite != isFavorite else { return }
+        try await records.update(record.with(isFavorite: isFavorite, updatedAt: now()))
+    }
+
     // MARK: - Removal
 
     /// Removes the record carrying `id` and the artifact it refers to.

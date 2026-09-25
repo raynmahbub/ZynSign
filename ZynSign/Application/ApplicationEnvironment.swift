@@ -62,6 +62,17 @@ struct ApplicationEnvironment {
     /// `signingPresets`.
     let provisioningProfiles: ProvisioningProfileLibrary?
 
+    /// Imports `.mobileprovision` files into the provisioning-profile
+    /// library. Presented by the Profiles tab; `nil` where the composition
+    /// root supplies no profile storage, and treated as read-only after
+    /// construction.
+    var provisioningProfileImporter: ProvisioningProfileImporter? = nil
+
+    /// Extracts application icons from the packages the library holds, for
+    /// the Home and Library cards. `nil` where no reader provider is
+    /// composed; treated as read-only after construction.
+    var appIcons: AppIconExtraction? = nil
+
     /// Records one local activity event when the journal preference allows.
     ///
     /// This is the only recording path the presentation layer uses. It

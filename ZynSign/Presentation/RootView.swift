@@ -2,13 +2,14 @@ import SwiftUI
 
 /// The root of the ZynSign interface: the tab shell the user navigates.
 ///
-/// Tabs are in the deliberate order ZynSign presents: Files → Library →
-/// Home → App Store → Downloads → Settings. Each case is a real area with
-/// its own NavigationStack; no placeholder is shown. Home is the default
-/// selected tab so a fresh install lands on the dashboard.
+/// Five tabs, in the deliberate order ZynSign presents: Home → Library →
+/// Certificates → Profiles → Settings. Each tab is a real area with its own
+/// NavigationStack; no placeholder is shown. Home is the default selected
+/// tab so a fresh install lands on the dashboard.
 ///
-/// App Store and Downloads appear only once the release train reaches the
-/// stage that ships them (`ReleaseTrain.isAvailable`).
+/// Files, App Store, and Downloads remain complete, reachable areas —
+/// Settings → Browse links to them — but the bottom navigation is these
+/// five tabs, which every later milestone builds on.
 struct RootView: View {
 
     @Environment(\.applicationEnvironment) private var environment
@@ -16,35 +17,48 @@ struct RootView: View {
 
     var body: some View {
         TabView(selection: $selected) {
-            FilesView()
-                .tabItem { Label(ShellSection.files.title, systemImage: selected == .files ? ShellSection.files.symbolName : ShellSection.files.symbolNameUnselected) }
-                .tag(ShellSection.files)
-
-            LibraryTabView()
-                .tabItem { Label(ShellSection.library.title, systemImage: selected == .library ? ShellSection.library.symbolName : ShellSection.library.symbolNameUnselected) }
-                .tag(ShellSection.library)
-
-            HomeView(onOpenSection: { selected = $0 })
-                .tabItem { Label(ShellSection.home.title, systemImage: selected == .home ? ShellSection.home.symbolName : ShellSection.home.symbolNameUnselected) }
-                .tag(ShellSection.home)
-
-            if ReleaseTrain.isAvailable(.appStore) {
-                AppStoreView()
-                    .tabItem { Label(ShellSection.appStore.title, systemImage: selected == .appStore ? ShellSection.appStore.symbolName : ShellSection.appStore.symbolNameUnselected) }
-                    .tag(ShellSection.appStore)
+            ForEach(ShellSection.primaryTabs) { section in
+                tabContent(section)
+                    .tabItem {
+                        Label(
+                            section.title,
+                            systemImage: selected == section ? section.symbolName : section.symbolNameUnselected
+                        )
+                    }
+                    .tag(section)
             }
-
-            if ReleaseTrain.isAvailable(.downloads) {
-                DownloadsView()
-                    .tabItem { Label(ShellSection.downloads.title, systemImage: selected == .downloads ? ShellSection.downloads.symbolName : ShellSection.downloads.symbolNameUnselected) }
-                    .tag(ShellSection.downloads)
-            }
-
-            SettingsView()
-                .tabItem { Label(ShellSection.settings.title, systemImage: selected == .settings ? ShellSection.settings.symbolName : ShellSection.settings.symbolNameUnselected) }
-                .tag(ShellSection.settings)
         }
         .tint(.primary)
+    }
+
+    /// The view each tab presents. Every tab owns a NavigationStack, so a
+    /// tab's push state is its own.
+    @ViewBuilder
+    private func tabContent(_ section: ShellSection) -> some View {
+        switch section {
+        case .home:
+            HomeView(onOpenSection: { selected = $0 })
+        case .library:
+            ApplicationLibraryView(
+                library: environment.library,
+                importing: environment.packageImport,
+                bundleInspection: environment.bundleInspection,
+                signingHistory: environment.signingHistory
+            )
+        case .certificates:
+            NavigationStack { CertificatesView() }
+        case .profiles:
+            ProfilesView(
+                profiles: environment.provisioningProfiles,
+                importer: environment.provisioningProfileImporter
+            )
+        case .settings:
+            SettingsView()
+        case .files, .appStore, .downloads:
+            // Secondary sections are linked from Settings → Browse; they are
+            // not tabs. Each carries its own NavigationStack where presented.
+            EmptyView()
+        }
     }
 }
 

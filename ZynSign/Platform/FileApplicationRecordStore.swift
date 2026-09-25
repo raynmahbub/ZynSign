@@ -146,11 +146,16 @@ actor FileApplicationRecordStore: ApplicationRecordStore {
                 diagnosticDetail: "The library catalog declares schema version \(envelope.schemaVersion); this build reads up to version \(LibraryCatalogDocument.currentSchemaVersion)."
             )
         }
-        guard envelope.schemaVersion == LibraryCatalogDocument.currentSchemaVersion else {
+        guard envelope.schemaVersion >= 1 else {
             throw ZynSignError.libraryCatalogUnreadable(
                 diagnosticDetail: "The library catalog declares schema version \(envelope.schemaVersion), which no build of ZynSign has written."
             )
         }
+        // Versions before the current one are converted on read, in the one
+        // way the schema history defines: a version 1 document carries no
+        // favourite marks, so its records read as not-favourite. The catalog
+        // is written back in the current schema at its next mutation; a read
+        // never rewrites the file.
 
         let document: LibraryCatalogDocument
         do {

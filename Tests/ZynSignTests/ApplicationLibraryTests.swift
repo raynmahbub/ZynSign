@@ -422,4 +422,58 @@ final class ApplicationLibraryTests: XCTestCase {
         let entriesAfter = try await library.entries()
         XCTAssertEqual(entriesAfter.first?.artifactAvailability, .available)
     }
+
+    // MARK: - Favourites
+
+    func testSettingAFavouriteMarksTheRecordAndKeepsEverythingElse() async throws {
+        let record = try await library.admit(stagedArtifact()).record
+
+        try await library.setFavorite(true, recordWithID: record.id)
+
+        let stored = try await records.record(withID: record.id)
+        XCTAssertEqual(stored?.isFavorite, true)
+        // The change touches the mark and the change time only.
+        XCTAssertEqual(stored?.importedAt, record.importedAt)
+        XCTAssertEqual(stored?.identity, record.identity)
+        XCTAssertEqual(stored?.artifact, record.artifact)
+        XCTAssertNotEqual(stored?.updatedAt, record.updatedAt)
+    }
+
+    func testClearingAFavouriteMarksTheRecordNotFavourite() async throws {
+        let record = try await library.admit(stagedArtifact()).record
+        try await library.setFavorite(true, recordWithID: record.id)
+
+        try await library.setFavorite(false, recordWithID: record.id)
+
+        let stored = try await records.record(withID: record.id)
+        XCTAssertEqual(stored?.isFavorite, false)
+    }
+
+    func testSettingTheMarkARecordAlreadyCarriesChangesNothing() async throws {
+        let record = try await library.admit(stagedArtifact()).record
+
+        try await library.setFavorite(false, recordWithID: record.id)
+
+        let stored = try await records.record(withID: record.id)
+        XCTAssertEqual(stored, record)
+    }
+
+    func testSettingAFavouriteForAnUnknownRecordFailsWithATypedError() async throws {
+        do {
+            try await library.setFavorite(true, recordWithID: ApplicationRecordIdentifier())
+            XCTFail("Expected a typed failure for a record the library does not hold.")
+        } catch let error as ZynSignError {
+            XCTAssertEqual(error.category, .storageFailure)
+        }
+    }
+
+    func testAFavouriteMarkSurvivesListingAndDoesNotAffectAvailability() async throws {
+        let record = try await library.admit(stagedArtifact()).record
+        try await library.setFavorite(true, recordWithID: record.id)
+
+        let entries = try await library.entries()
+
+        XCTAssertEqual(entries.first?.record.isFavorite, true)
+        XCTAssertEqual(entries.first?.artifactAvailability, .available)
+    }
 }

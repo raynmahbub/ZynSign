@@ -32,7 +32,7 @@ enum CompositionRoot {
         let presets = makeSigningPresetStore()
         let history = makeSigningHistoryStore()
         let profiles = makeProvisioningProfileLibrary()
-        return ApplicationEnvironment(
+        var environment = ApplicationEnvironment(
             applicationInfo: ApplicationInfo.current(bundle: .main),
             packageImport: makePackageImport(intake: intake, library: library),
             library: library,
@@ -44,6 +44,42 @@ enum CompositionRoot {
             signingPresets: presets,
             signingHistory: history,
             provisioningProfiles: profiles
+        )
+        environment.provisioningProfileImporter = makeProvisioningProfileImporter()
+        environment.appIcons = makeAppIconExtraction()
+        return environment
+    }
+
+    /// Builds the provisioning-profile importer the Profiles tab drives. It
+    /// parses profiles through the same inspection use case the signing
+    /// pipeline composes, and stores the original `.mobileprovision` files
+    /// in the same directory the profile library's catalog lives in — the
+    /// two are one library, not parallel stores.
+    static func makeProvisioningProfileImporter() -> ProvisioningProfileImporter {
+        let cmsVerifier = makeProvisioningProfileCMSVerifier()
+        return ProvisioningProfileImporter(
+            inspection: makeProvisioningProfileInspection(
+                payloadDecoder: CMSProvisioningProfilePayloadDecoder(verifier: cmsVerifier)
+            ),
+            storageDirectory: provisioningProfileCatalogLocation().deletingLastPathComponent()
+        )
+    }
+
+    /// Builds the icon extractor over the same storage convention the
+    /// library artifacts live in, caching icon bytes in the system caches
+    /// directory — a location the system may reclaim, which is exactly the
+    /// durability a derived image deserves.
+    static func makeAppIconExtraction() -> AppIconExtraction {
+        let caches = FileManager.default
+            .urls(for: .cachesDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Caches", isDirectory: true)
+        return AppIconExtraction(
+            readerProvider: DirectoryArtifactArchiveReaderProvider(
+                directory: libraryArtifactDirectory
+            ),
+            cacheDirectory: caches.appendingPathComponent("ZynSignAppIcons", isDirectory: true)
         )
     }
 

@@ -80,6 +80,14 @@ struct ApplicationRecord: Equatable, Hashable, Sendable {
     /// is updated.
     let updatedAt: Date
 
+    /// Whether the user has marked this application as a favourite.
+    ///
+    /// A user preference the library keeps with the record so it has one
+    /// durable home. It is a display concern only: it changes nothing about
+    /// admission, identity, or the artifact, and a favourite mark is never
+    /// a statement about the package itself.
+    let isFavorite: Bool
+
     /// Records a library entry from its stored parts. Used when a persisted
     /// record is rehydrated and when an existing record is revised; a new
     /// entry for an import goes through `init(admitting:reference:importedAt:id:)`.
@@ -91,7 +99,8 @@ struct ApplicationRecord: Equatable, Hashable, Sendable {
         artifact: ArtifactReference,
         inspection: InspectionSummary,
         importedAt: Date,
-        updatedAt: Date
+        updatedAt: Date,
+        isFavorite: Bool = false
     ) {
         self.id = id
         self.identity = identity
@@ -101,6 +110,7 @@ struct ApplicationRecord: Equatable, Hashable, Sendable {
         self.inspection = inspection
         self.importedAt = importedAt
         self.updatedAt = updatedAt
+        self.isFavorite = isFavorite
     }
 
     /// Creates the record for an accepted import.
@@ -162,5 +172,23 @@ struct ApplicationRecord: Equatable, Hashable, Sendable {
             return lhs.importedAt < rhs.importedAt
         }
         return lhs.id.rawValue < rhs.id.rawValue
+    }
+
+    /// Returns a copy of the record with the favourite mark set, keeping the
+    /// identifier, identity, artifact, and import time untouched. The caller
+    /// supplies the change time, because only the use case that decides a
+    /// change happened knows when it happened.
+    func with(isFavorite: Bool, updatedAt: Date) -> ApplicationRecord {
+        ApplicationRecord(
+            id: id,
+            identity: identity,
+            executableName: executableName,
+            sourceFileName: sourceFileName,
+            artifact: artifact,
+            inspection: inspection,
+            importedAt: importedAt,
+            updatedAt: updatedAt,
+            isFavorite: isFavorite
+        )
     }
 }
