@@ -12,6 +12,68 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — 0.1.0-alpha.1 · Step 5: Provisioning Profile Manager
+
+- **Profile Library rebuilt as a manager** — the Profiles tab now lists
+  every imported profile as a row or card carrying name, team name, team
+  ID, distribution type, expiration status with remaining days, device
+  count, import date, and a compatibility indicator, with a List/Grid
+  toggle, instant search (name, team, UUID, App ID, bundle patterns),
+  sort (expiration / name / recently imported / type), and filters by
+  type and expiration state. Cards mark the profile pinned by
+  "Use for Signing"; a friendly illustration, a plain-words explanation,
+  and the Import Profile button open the empty state.
+- **Richer profile summaries** — summaries now record the profile UUID,
+  team name, creation date, distribution type, device count, full App ID
+  with its explicit bundle identifier, and the embedded certificates'
+  SHA-256 fingerprints. Every new field is optional, so catalogs written
+  before this step keep decoding under schema 1; Refresh Validation
+  backfills them from the stored file.
+- **Bundle-pattern derivation fixed** — the importer now derives
+  `covers(bundleIdentifier:)` patterns from the parsed exact-or-wildcard
+  App-ID component (exact → the bundle ID, wildcard → `prefix.*`,
+  team-wide → `*`) instead of a team-prefixed guess that never matched a
+  plain bundle identifier. Legacy catalog entries are repaired by
+  Refresh Validation, which re-reads the stored `.mobileprovision`,
+  re-parses it, and updates the summary while keeping its identity and
+  import date.
+- **Profile import summary** — a successful import presents a summary
+  sheet (team, type, App ID, wildcard/explicit, devices, dates, UUID,
+  certificate count, compatibility quick look) before the library
+  refreshes; corrupted or unsupported files are refused with their typed
+  message and an "Unsupported Profile" title where the format is out of
+  scope, and oversized files are refused before they are read.
+- **Profile Details, General / Application / Distribution** — the detail
+  screen shows name, UUID, team name, team ID, creation and expiration
+  dates; App ID, bundle identifier, wildcard-vs-explicit status, and the
+  covered patterns; distribution type, device count, certificates, and
+  debug permission — inspection only, including the App Store case.
+- **Smart Compatibility Engine** — five pre-sign checks (bundle ID match,
+  team ID match, certificate available, profile expired, profile type
+  supported) each render ✅ / ⚠️ / ❌ / unsupported with an actionable
+  message, and roll up into a Compatibility Summary (Compatible / Needs
+  Attention / Not Compatible / Unsupported). The engine is pure domain
+  logic; the application layer assembles the context from `IdentityStore`.
+- **Expiration intelligence** — Healthy / Expiring Soon (≤ 30 days) /
+  Expired with remaining days and semantic badges everywhere the library
+  shows a profile.
+- **Profile Matching** — opening an app's detail screen ranks the library
+  for that app (exact over wildcard, certificate on device, team match,
+  supported type, longer validity) and suggests the best profile with its
+  reasons; the pinned "Use for Signing" profile is offered first when it
+  ranks, and "Change…" records a per-app manual override — including
+  honest display of an override that no longer suits the app — with
+  "Profile not suitable for this app" shown when nothing qualifies.
+- **Diagnostics Panel** — profile detail lists one message per finding
+  with Success / Warning / Error / Unsupported severity badges: bundle ID
+  mismatch, missing certificate, expired profile, unsupported
+  distribution type, unrecorded certificates (Refresh Validation), and
+  more.
+- **Quick actions** — View Details, Use for Signing, Copy Team ID, Copy
+  Bundle ID, Refresh Validation, and Remove on every profile, from both
+  context menus and swipe actions, plus the same actions inside the
+  detail screen.
+
 ### Added — 0.1.0-alpha.1 · Step 4: Certificate Manager
 
 - **Certificate Library** — the Certificates tab is now a real library of

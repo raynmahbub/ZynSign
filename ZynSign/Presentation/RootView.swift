@@ -129,7 +129,16 @@ struct RootView: View {
         case .profiles:
             ProfilesView(
                 profiles: environment.provisioningProfiles,
-                importer: environment.provisioningProfileImporter
+                importer: environment.provisioningProfileImporter,
+                compatibility: environment.profileCompatibility,
+                selections: environment.profileSelections,
+                recordEvent: { name, succeeded in
+                    environment.recordAnalyticsEvent(
+                        category: .intake,
+                        name: name,
+                        succeeded: succeeded
+                    )
+                }
             )
         case .settings:
             SettingsView()
