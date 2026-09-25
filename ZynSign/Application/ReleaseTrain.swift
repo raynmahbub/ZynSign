@@ -1,0 +1,203 @@
+import Foundation
+
+/// A user-visible feature that ships on the release train.
+///
+/// The code for every feature is already complete and compiled into every
+/// build. What changes from release to release is only which features the
+/// interface *exposes*. Each case names one entry point (a tab, a Settings
+/// row, a menu action) that the Presentation layer checks through
+/// `ReleaseTrain.isAvailable(_:)`.
+///
+/// Core behaviour — import, inspection, the library, the bundle explorer,
+/// Files, Home, and the honest Settings screens — is not a `ReleaseFeature`:
+/// it ships in every release, so there is nothing to gate.
+enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
+    /// Settings → Certificates: `.p12`/`.pfx` import, detail, public JSON export.
+    case certificateStudio
+    /// The nine-stage signing pipeline: `Sign Application…`, Signing Options,
+    /// the Library “Signed” segment, Settings → Installation.
+    case smartSign
+    /// The App Store tab: AltSource feeds and repository health.
+    case appStore
+    /// The Downloads tab: background downloads with pause / resume / retry.
+    case downloads
+    /// Home → Mission Control (Refresh Everything).
+    case missionControl
+    /// Signing result → Deliver… (OTA manifest, install link, QR, guides).
+    case deliveryHandoff
+    /// Settings → Analytics → Local Activity Journal, and journal recording.
+    case activityJournal
+
+    /// Features that must already be available for this one to make sense.
+    ///
+    /// A release that exposes a feature without its prerequisites would show
+    /// a dead end (for example “Sign” with no way to add a certificate), so
+    /// `ReleaseStage` validation refuses that.
+    var prerequisites: Set<ReleaseFeature> {
+        switch self {
+        case .certificateStudio: return []
+        case .smartSign: return [.certificateStudio]
+        case .appStore: return [.downloads]      // “Get” hands off to Downloads
+        case .downloads: return []
+        case .missionControl: return [.appStore] // refreshes sources
+        case .deliveryHandoff: return [.smartSign]
+        case .activityJournal: return []
+        }
+    }
+
+    /// Short human name, used by release notes tooling and diagnostics.
+    var displayName: String {
+        switch self {
+        case .certificateStudio: return "Certificate Studio"
+        case .smartSign: return "Smart Sign"
+        case .appStore: return "App Store & Repository Health"
+        case .downloads: return "Background Downloads"
+        case .missionControl: return "Mission Control"
+        case .deliveryHandoff: return "Installation Delivery Hand-off"
+        case .activityJournal: return "Local Activity Journal"
+        }
+    }
+}
+
+/// One stop on the release train described in
+/// `docs/releases/version-strategy.md` and `docs/releases/release-train.md`.
+///
+/// Stages are declared in shipping order. Each stage adds features on top of
+/// the previous one; nothing is ever taken away from users in a later stage.
+enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
+    case horizon      // 0.1.0
+    case alpha1       // 0.1.0-alpha.1
+    case alpha2       // 0.1.0-alpha.2
+    case alpha3       // 0.1.0-alpha.3
+    case beta1        // 0.9.0-beta.1
+    case beta2
+    case beta3
+    case beta4
+    case rc1          // 1.0.0-rc.1
+    case rc2
+    case rc3
+    case stable       // 1.0.0
+
+    /// The Git tag / GitHub release version, without the leading `v`.
+    var version: String {
+        switch self {
+        case .horizon: return "0.1.0"
+        case .alpha1: return "0.1.0-alpha.1"
+        case .alpha2: return "0.1.0-alpha.2"
+        case .alpha3: return "0.1.0-alpha.3"
+        case .beta1: return "0.9.0-beta.1"
+        case .beta2: return "0.9.0-beta.2"
+        case .beta3: return "0.9.0-beta.3"
+        case .beta4: return "0.9.0-beta.4"
+        case .rc1: return "1.0.0-rc.1"
+        case .rc2: return "1.0.0-rc.2"
+        case .rc3: return "1.0.0-rc.3"
+        case .stable: return "1.0.0"
+        }
+    }
+
+    /// The Git tag for this stage.
+    var tag: String { "v\(version)" }
+
+    /// `CFBundleShortVersionString` for this stage.
+    ///
+    /// Apple requires a purely numeric marketing version, so the
+    /// pre-release suffix lives only in the tag; every build still gets a
+    /// fresh `CFBundleVersion`.
+    var marketingVersion: String {
+        String(version.prefix { $0 != "-" })
+    }
+
+    /// Features this stage introduces (in addition to all earlier stages).
+    var introducedFeatures: Set<ReleaseFeature> {
+        switch self {
+        case .horizon: return []
+        case .alpha1: return [.certificateStudio]
+        case .alpha2: return [.smartSign]
+        case .alpha3: return [.appStore, .downloads]
+        case .beta1: return [.missionControl, .deliveryHandoff, .activityJournal]
+        case .beta2, .beta3, .beta4, .rc1, .rc2, .rc3, .stable: return []
+        }
+    }
+
+    /// Every feature available in this stage: its own plus all earlier ones.
+    var features: Set<ReleaseFeature> {
+        ReleaseStage.allCases
+            .filter { $0 <= self }
+            .reduce(into: Set<ReleaseFeature>()) { $0.formUnion($1.introducedFeatures) }
+    }
+
+    /// The stage that ships after this one, if any.
+    var next: ReleaseStage? {
+        let all = ReleaseStage.allCases
+        guard let index = all.firstIndex(of: self), index + 1 < all.count else { return nil }
+        return all[index + 1]
+    }
+
+    static func < (lhs: ReleaseStage, rhs: ReleaseStage) -> Bool {
+        let all = ReleaseStage.allCases
+        return all.firstIndex(of: lhs)! < all.firstIndex(of: rhs)!
+    }
+
+    /// Looks a stage up by its raw name (`alpha1`) or its version (`0.1.0-alpha.1` / `v0.1.0-alpha.1`).
+    init?(identifier: String) {
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let stage = ReleaseStage(rawValue: trimmed) { self = stage; return }
+        let version = trimmed.hasPrefix("v") ? String(trimmed.dropFirst()) : trimmed
+        guard let stage = ReleaseStage.allCases.first(where: { $0.version == version }) else { return nil }
+        self = stage
+    }
+}
+
+/// Decides which features the running build exposes.
+///
+/// **To ship the next release, change `current` (or run
+/// `python3 Scripts/release_train.py promote`) — nothing else.**
+///
+/// Debug builds expose every feature so development and UI work are never
+/// blocked. To preview exactly what a given release will look like in a
+/// Debug build, pass the launch argument `-ZynSignReleaseStage alpha1`
+/// (or any stage name / version) in the Xcode scheme.
+enum ReleaseTrain {
+
+    /// The release this build is cut for. Edited by `Scripts/release_train.py`.
+    static let current: ReleaseStage = .horizon
+
+    /// `UserDefaults` / launch-argument key for the Debug-only preview override.
+    static let previewDefaultsKey = "ZynSignReleaseStage"
+
+    /// The gate the running build uses.
+    static var gate: ReleaseGate {
+        #if DEBUG
+        if let raw = UserDefaults.standard.string(forKey: previewDefaultsKey),
+           let preview = ReleaseStage(identifier: raw) {
+            return ReleaseGate(stage: preview, exposesEverything: false)
+        }
+        return ReleaseGate(stage: current, exposesEverything: true)
+        #else
+        return ReleaseGate(stage: current, exposesEverything: false)
+        #endif
+    }
+
+    /// Whether `feature` is available to the user in this build.
+    static func isAvailable(_ feature: ReleaseFeature) -> Bool {
+        gate.isAvailable(feature)
+    }
+}
+
+/// A pure, testable answer to “is this feature on?”.
+struct ReleaseGate: Equatable, Sendable {
+    let stage: ReleaseStage
+    /// `true` in Debug builds without a preview override.
+    let exposesEverything: Bool
+
+    func isAvailable(_ feature: ReleaseFeature) -> Bool {
+        exposesEverything || stage.features.contains(feature)
+    }
+
+    /// Short description for Settings → Diagnostics.
+    var summary: String {
+        if exposesEverything { return "\(stage.tag) · Debug (all features)" }
+        return "\(stage.tag) · \(stage.features.count) of \(ReleaseFeature.allCases.count) staged features"
+    }
+}

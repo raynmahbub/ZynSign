@@ -4,9 +4,29 @@
 
 This document is the single checklist for the **private test** that gates the first public dev build. It is the professional way to ship: internal → external, with the same binary discipline.
 
+## Release train scope
+
+Each release on the [release train](release-train.md) switches on more of the
+finished app. Test the **Release configuration**, which shows exactly
+`ReleaseTrain.current`. For each release:
+
+1. Check Settings → Diagnostics → Build → **Release** shows the expected tag
+   (for example `v0.1.0 · 0 of 7 staged features`).
+2. Run the matrix rows for features visible in this release. For `v0.1.0` that
+   means Import, Library, Bundle Explorer, Files, Home, Settings, Diagnostics,
+   and the honest Pairing/Analytics screens.
+3. Confirm that features not yet released are **absent**: no App Store or
+   Downloads tab, no Certificates row, no “Sign Application…”, no Mission Control
+   card, no “Deliver…”, and no Activity Journal.
+4. Re-run the rows for previously released features as a regression check.
+
+Rows for features shipping later (Certificate, Smart Sign, Repository health,
+Downloads, Mission Control, delivery hand-off, journal) become required in the
+release that switches them on.
+
 ## Principle
 
-* **Private build = same code, same version, no public tag.** It is built from `arena/01a0d570-zynsign` at the commit you intend to publish (Horizon `58e604c` + installation delivery hand-off, local activity journal, pairing/JIT/mux ADR; market `0.1.0` build `4`), with `MARKETING_VERSION 0.1.0` `CURRENT_PROJECT_VERSION 4`, but distributed only to your trusted testers.
+* **Private build = same code, same version, no public tag.** It is built from `main` at the commit you intend to publish (Horizon `58e604c` + installation delivery hand-off, local activity journal, pairing/JIT/mux ADR; market `0.1.0` build `4`), with `MARKETING_VERSION 0.1.0` `CURRENT_PROJECT_VERSION 4`, but distributed only to your trusted testers.
 * **Public build = same commit, same binary, new tag.** After private green, you push `v0.1.0` and publish the GitHub release. The market version does not change between private and public — the build is not rebuilt to avoid binary drift.
 
 ## When to run

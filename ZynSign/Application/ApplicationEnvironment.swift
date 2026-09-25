@@ -59,7 +59,9 @@ struct ApplicationEnvironment {
         name: String,
         succeeded: Bool
     ) {
-        guard AnalyticsPolicy.isJournalEnabled else { return }
+        // Nothing is recorded before the release that ships the journal, so
+        // users never find history they could not see or clear.
+        guard ReleaseTrain.isAvailable(.activityJournal), AnalyticsPolicy.isJournalEnabled else { return }
         analyticsJournal.record(
             LocalAnalyticsEvent(category: category, name: name, succeeded: succeeded)
         )

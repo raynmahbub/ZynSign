@@ -7,7 +7,7 @@ versioned release section is written in `CHANGELOG.md` for a version that
 was not actually produced.
 
 The Xcode project currently declares marketing version `0.1.0`, build `4`:
-the first public development build — Horizon (`v0.1.0`, 2026-09-25). The market version is `0.1.0` (no `-dev` suffix in `CFBundleShortVersionString`; the `-dev` lives only in the tag/release name); `CFBundleVersion` is `3`. The build is not an App Store submission. It is first distributed **privately** (TestFlight internal + sideload IPA) and only after the private gate is green is `v0.1.0` published publicly — see [private-testing.md](private-testing.md).
+the first public development build — Horizon (`v0.1.0`, 2026-09-25). The market version is `0.1.0` (no pre-release suffix in `CFBundleShortVersionString`; suffixes live only in the tag/release name); `CFBundleVersion` is `4`. The build is not an App Store submission. It is first distributed **privately** (TestFlight internal + sideload IPA) and only after the private gate is green is `v0.1.0` published publicly — see [private-testing.md](private-testing.md).
 
 ## Release sequence
 
@@ -36,6 +36,17 @@ Stable
 Each stage below defines what its builds establish and what must hold
 before the progression advances. The counts are fixed: three Alphas,
 four Betas, three Release Candidates, then Stable.
+
+## Feature rollout
+
+The app is fully built, and its features are released gradually along this
+sequence. [release-train.md](release-train.md) says which features each tag
+switches on (0.1.0 core → alpha.1 Certificate Studio → alpha.2 Smart Sign →
+alpha.3 App Store + Downloads → beta.1 the rest, feature complete). It also
+covers how `ReleaseTrain.swift` and `Scripts/release_train.py` keep the code,
+`MARKETING_VERSION`, and the tag in step. Marketing versions stay numeric
+(`0.1.0` for the alphas, `0.9.0` for the betas, `1.0.0` for the RCs), and
+`CFBundleVersion` increases with every release.
 
 ## Stages
 

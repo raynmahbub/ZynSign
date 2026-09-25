@@ -52,19 +52,26 @@ struct ApplicationDetailView: View {
                         Label("Explore Bundle", systemImage: "folder")
                     }
                     .accessibilityHint("Lists the files and folders inside the application bundle.")
-                    NavigationLink { SigningView(entry: entry) } label: {
-                        Label("Sign Application…", systemImage: "signature")
+                    if ReleaseTrain.isAvailable(.smartSign) {
+                        NavigationLink { SigningView(entry: entry) } label: {
+                            Label("Sign Application…", systemImage: "signature")
+                        }
+                        .accessibilityHint("Sign this imported package with a certificate and provisioning profile.")
                     }
-                    .accessibilityHint("Sign this imported package with a certificate and provisioning profile.")
                 } else {
-                    Label("Signing requires the package file to be available. Re-import the application.", systemImage: "exclamationmark.triangle")
+                    Label(ReleaseTrain.isAvailable(.smartSign)
+                          ? "Signing requires the package file to be available. Re-import the application."
+                          : "Exploring requires the package file to be available. Re-import the application.",
+                          systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange).font(.footnote)
                 }
             } header: {
                 Text("Package")
             } footer: {
                 if content.canExploreBundle {
-                    Text("Exploring lists the files and folders inside the application bundle. It reads the package's own records of them and does not open, run, or change any file. Signing runs the nine-stage pipeline end to end and delivers a signed IPA to Documents/Signed.")
+                    Text(ReleaseTrain.isAvailable(.smartSign)
+                         ? "Exploring lists the files and folders inside the application bundle. It reads the package's own records of them and does not open, run, or change any file. Signing runs the nine-stage pipeline end to end and delivers a signed IPA to Documents/Signed."
+                         : "Exploring lists the files and folders inside the application bundle. It reads the package's own records of them and does not open, run, or change any file.")
                 }
             }
             Section("Library Record") {
@@ -79,7 +86,9 @@ struct ApplicationDetailView: View {
                 }
             }
             Section {
-                Text("This record states what the package declared and that it passed ZynSign's inspection when it was imported. Signing is performed on-device with the certificate and profile you supply; the delivered IPA is independently verified but not evaluated for trust or installability by ZynSign.")
+                Text(ReleaseTrain.isAvailable(.smartSign)
+                     ? "This record states what the package declared and that it passed ZynSign's inspection when it was imported. Signing is performed on-device with the certificate and profile you supply; the delivered IPA is independently verified but not evaluated for trust or installability by ZynSign."
+                     : "This record states what the package declared and that it passed ZynSign's inspection when it was imported. It is not a trust or installability claim.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

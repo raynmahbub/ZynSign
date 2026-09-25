@@ -21,13 +21,15 @@ struct LibraryTabView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Picker("", selection: $selectedSegment) {
-                    Text("Imported").tag(0)
-                    Text("Signed").tag(1)
+                if ReleaseTrain.isAvailable(.smartSign) {
+                    Picker("", selection: $selectedSegment) {
+                        Text("Imported").tag(0)
+                        Text("Signed").tag(1)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
                 }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
 
                 // The real library list is the existing ApplicationLibraryView's
                 // content, but we embed it without its own NavigationStack to
@@ -100,7 +102,9 @@ private struct LibrarySegmentContent: View {
                 ContentUnavailableView {
                     Label("No Apps", systemImage: "square.stack.3d.up")
                 } description: {
-                    Text("Import an .ipa from Files or Downloads. Accepted packages are kept across launches and listed here.")
+                    Text(ReleaseTrain.isAvailable(.downloads)
+                         ? "Import an .ipa from Files or Downloads. Accepted packages are kept across launches and listed here."
+                         : "Import an .ipa from Files or Home. Accepted packages are kept across launches and listed here.")
                 }
             } else {
                 List {
@@ -118,7 +122,7 @@ private struct LibrarySegmentContent: View {
                         .contentShape(Rectangle())
                         .onTapGesture { if isSelecting { toggle(entry) } }
                         .contextMenu {
-                            if entry.isArtifactAvailable {
+                            if entry.isArtifactAvailable && ReleaseTrain.isAvailable(.smartSign) {
                                 NavigationLink { SigningView(entry: entry) } label: {
                                     Label("Sign Application…", systemImage: "signature")
                                 }

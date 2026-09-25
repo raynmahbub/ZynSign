@@ -19,7 +19,9 @@ struct HomeView: View {
             ScrollView {
                 VStack(spacing: ZSpacing.lg) {
                     headerCard
-                    missionControlCard
+                    if ReleaseTrain.isAvailable(.missionControl) {
+                        missionControlCard
+                    }
                     quickActions
                     librarySummary
                     if importInProgress {
@@ -172,8 +174,12 @@ struct HomeView: View {
             } else if !failedLoad {
                 HStack(spacing: ZSpacing.sm) {
                     StatPill(value: "\(libraryCount)", label: "Imported")
-                    StatPill(value: "—", label: "Signed")
-                    StatPill(value: "—", label: "Sources")
+                    if ReleaseTrain.isAvailable(.smartSign) {
+                        StatPill(value: "—", label: "Signed")
+                    }
+                    if ReleaseTrain.isAvailable(.appStore) {
+                        StatPill(value: "—", label: "Sources")
+                    }
                 }
             }
         }
@@ -198,10 +204,25 @@ struct HomeView: View {
     private var tipsCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Tips", systemImage: "lightbulb").font(.headline)
-            Text("• Files tab browses the same storage the Library uses — share or move an IPA without leaving ZynSign.\n• Downloads tab accepts direct .ipa URLs and itms-services manifests.\n• App Store tab aggregates your configured sources.")
+            Text(tips.map { "• \($0)" }.joined(separator: "\n"))
                 .font(.footnote).foregroundStyle(.secondary)
         }
         .padding().zynCardBackground(cornerRadius: ZRadius.lg)
+    }
+
+    /// Tips only mention areas this release actually shows.
+    private var tips: [String] {
+        var tips = ["Files tab browses the same storage the Library uses — share or move an IPA without leaving ZynSign."]
+        if ReleaseTrain.isAvailable(.downloads) {
+            tips.append("Downloads tab accepts direct .ipa URLs and itms-services manifests.")
+        }
+        if ReleaseTrain.isAvailable(.appStore) {
+            tips.append("App Store tab aggregates your configured sources.")
+        }
+        if !ReleaseTrain.isAvailable(.downloads) && !ReleaseTrain.isAvailable(.appStore) {
+            tips.append("Open an application in Library to explore the files inside its bundle, read-only.")
+        }
+        return tips
     }
 
     private func handlePicker(_ result: Result<URL, any Error>) {
