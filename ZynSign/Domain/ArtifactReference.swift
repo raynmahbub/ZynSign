@@ -11,7 +11,7 @@
 ///
 /// None of this is a trust statement. A reference says which bytes a record
 /// belongs to; it says nothing about whether they are signed or genuine.
-struct ArtifactReference: Equatable, Hashable {
+struct ArtifactReference: Equatable, Hashable, Sendable {
 
     /// The identifier under which library storage holds the artifact.
     let artifactID: ArtifactIdentifier

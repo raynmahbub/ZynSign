@@ -48,6 +48,20 @@ struct ApplicationEnvironment {
     /// `AnalyticsPolicy` journal preference; nothing here can transmit.
     let analyticsJournal: any LocalAnalyticsRecording
 
+    /// The signing-preset store: lets users save and reuse signing
+    /// configurations. Optional so older composition paths and tests can
+    /// omit it; production paths supplied by the composition root.
+    let signingPresets: (any SigningPresetStore)?
+
+    /// The signing-history store: the on-device journal of past signing
+    /// runs. Optional for the same reason as `signingPresets`.
+    let signingHistory: (any SigningHistoryStore)?
+
+    /// The provisioning-profile library: lists summaries of imported
+    /// `.mobileprovision` files. Optional for the same reason as
+    /// `signingPresets`.
+    let provisioningProfiles: ProvisioningProfileLibrary?
+
     /// Records one local activity event when the journal preference allows.
     ///
     /// This is the only recording path the presentation layer uses. It

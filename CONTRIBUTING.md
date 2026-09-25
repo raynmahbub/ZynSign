@@ -61,7 +61,7 @@ Follow these rules while working:
 
 ## Originality and Licensing
 
-* Submit only original code you wrote. Do not paste code from FlareStore, Esign, Feather, or any other app — binary symbols are not a license to copy.
+* Submit only original code you wrote. ZynSign is built from scratch — do not paste code from any other project, whether open or closed source. Reimplementing a public capability is fine; copying a private implementation is not.
 * No AI-generated code should be committed as-is without human review; you are responsible for understanding and owning every line you contribute.
 * All contributions are licensed under the MIT License (`LICENSE`). Keep the current tip free of internal workflow files (e.g., `/.ai/`).
 

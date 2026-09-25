@@ -6,7 +6,7 @@
 /// and means a record whose artifact has gone missing is still listed — with
 /// its metadata intact and its problem visible — rather than hidden or
 /// silently repaired.
-struct LibraryEntry: Equatable, Hashable {
+struct LibraryEntry: Equatable, Hashable, Sendable {
 
     /// The persisted record.
     let record: ApplicationRecord

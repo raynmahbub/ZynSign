@@ -13,7 +13,7 @@ import Foundation
 /// owns the hashing primitive, and handed to the domain as data. The
 /// algorithm is fixed to SHA-256 for this type because that is what the
 /// domain requires for certificate identification.
-struct CertificateFingerprint: Equatable, Hashable, CustomStringConvertible {
+struct CertificateFingerprint: Equatable, Hashable, CustomStringConvertible, Codable {
 
     /// The algorithm that produced the digest. Fixed to SHA-256 for this
     /// type; recorded explicitly so that the representation stays

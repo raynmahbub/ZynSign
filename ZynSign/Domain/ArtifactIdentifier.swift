@@ -12,7 +12,7 @@ import Foundation
 /// package information. A fresh identifier is minted when a package is
 /// imported; persistence layers reuse the stored identifier when rehydrating
 /// a known artifact instead of minting another.
-struct ArtifactIdentifier: Equatable, Hashable, CustomStringConvertible {
+struct ArtifactIdentifier: Equatable, Hashable, CustomStringConvertible, Sendable {
 
     /// The underlying uniqueness value.
     let uuid: UUID
