@@ -60,7 +60,7 @@ struct AdvancedSettingsSection: View {
                 subtitle: "Where ZynSign is staging right now."
             ) {
                 Text(
-                    ZynSignStorageLayout.importStagingDirectory(preferences: settings.preferences).path
+                    CompositionRoot.importStagingDirectory(preferences: settings.preferences).path
                 )
                     .font(.caption2.monospaced())
                     .foregroundStyle(.secondary)
@@ -147,7 +147,7 @@ struct AdvancedSettingsSection: View {
         AdvancedSettingsSection()
     }
     .environment(\.settingsCenter, SettingsCenterModel(
-        store: FilePreferencesStore(location: ZynSignStorageLayout.preferencesDocument()),
+        store: FilePreferencesStore(location: CompositionRoot.preferencesDocumentLocation()),
         environment: CompositionRoot.makeApplicationEnvironment()
     ))
 }

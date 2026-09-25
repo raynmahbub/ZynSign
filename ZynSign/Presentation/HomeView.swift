@@ -26,7 +26,6 @@ struct HomeView: View {
 
     @Environment(\.applicationEnvironment) private var environment
     @Environment(\.importPresentation) private var importPresentation
-    @Environment(\.settingsCenter) private var settings
     @StateObject private var missionControl = MissionControlService()
     @State private var entries: [LibraryEntry] = []
     @State private var certificateCount: Int?
@@ -34,13 +33,14 @@ struct HomeView: View {
     @State private var failedLoad = false
     @State private var hasReadLibrary = false
     @State private var settledImportCount = 0
-
     /// Whether first-launch onboarding has been completed.
     ///
     /// This lives in the preferences store rather than in `UserDefaults`, so
     /// that Settings → General can show it again and there is exactly one
     /// record of it. It is the one preference that records something the user
     /// did rather than something the user wants.
+    @Environment(\.settingsCenter) private var settings
+
     private var onboardingCompleted: Bool {
         settings.preferences.general.onboardingCompleted
     }
@@ -79,7 +79,11 @@ struct HomeView: View {
             }
             .refreshable { await reload() }
             .navigationDestination(for: LibraryEntry.self) { entry in
-                ApplicationDetailView(entry: entry, bundleInspection: environment.bundleInspection)
+                ApplicationDetailView(
+                    entry: entry,
+                    bundleInspection: environment.bundleInspection,
+                    detailsInspection: environment.applicationDetailsInspection
+                )
             }
         }
     }
@@ -245,11 +249,6 @@ struct HomeView: View {
         return true
     }
 
-    /// Records that onboarding is finished, through the preferences store.
-    private func completeOnboarding() {
-        settings.update { $0.general.onboardingCompleted = true }
-    }
-
     private var onboardingCard: some View {
         VStack(alignment: .leading, spacing: ZSpacing.sm) {
             HStack(alignment: .top) {
@@ -372,6 +371,16 @@ struct HomeView: View {
         if !entries.isEmpty && (certificateCount ?? 0) > 0 && (profileCount ?? 0) > 0 {
             completeOnboarding()
         }
+    }
+
+    /// Records that the user has finished with first-launch onboarding.
+    ///
+    /// The record is a preference, so Settings → General can show the card
+    /// again, and so there is exactly one place that says whether the user has
+    /// seen it.
+    private func completeOnboarding() {
+        guard !onboardingCompleted else { return }
+        settings.update { $0.general.onboardingCompleted = true }
     }
 
     // MARK: - Import

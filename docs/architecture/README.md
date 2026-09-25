@@ -46,7 +46,10 @@ the entry table rather than extracting, why it introduces no second reader or
 store, how bundle-relative paths keep navigation inside the bundle, how links
 and unsupported entries are treated, and why labels describe without
 establishing signing or trust — is recorded in Section 9 of
-[architecture.md](architecture.md).
+[architecture.md](architecture.md). Opening a file is a later, explicit
+preview: a bounded read of that entry only, still through the same archive
+boundary, with no extraction and no claim that a signature or profile is
+valid. That boundary is recorded in [ipa-explorer.md](ipa-explorer.md).
 
 The certificate and signing-identity foundation has also been added: a
 platform-independent certificate metadata model, validity evaluation that
@@ -165,7 +168,11 @@ interface consumes it yet. Library records are kept across launches and are list
 Applications area. Certificate parsing and identity modeling exist as domain
 foundation; application signing, verification, and packaging exist below the
 interface (see [application-signing-pipeline.md](application-signing-pipeline.md)),
-and installation is not implemented. No other workflow behaviour is
+and installation is not implemented. The signing engine that executes a
+complete run — isolated working copy, validation gate, inner-first nested
+order, independent verification, delivery only after verification — now sits
+above that pipeline (see [signing-engine-execution.md](signing-engine-execution.md)),
+and the Signing screen drives it. No other workflow behaviour is
 implemented, and no behaviour may be inferred from these documents.
 
 ## Index
@@ -213,10 +220,18 @@ implemented, and no behaviour may be inferred from these documents.
   end-to-end signing workflow, deterministic packaging, safe extraction,
   independent verification, and installation-capability assessment, with
   the composition facts that bound what the pipeline can sign.
+- [signing-engine-execution.md](signing-engine-execution.md) — the signing
+  engine that executes one complete run behind a single entry point: the
+  stage vocabulary and its weights, the isolated working copy that is the
+  only writable directory, the pre-signing validation gate, inner-first
+  nested order, the two independent verifications, packaging outside the
+  delivery location, and the recovery facts a refused run reports.
 - [external-validation.md](external-validation.md) — ZS-031 external
   validation: the export test, the Apple-tooling harness and its CI job, what
   each check establishes and does not, the evidence discipline, and the
   known-divergence register from the first hosted runs.
+- [ipa-explorer.md](ipa-explorer.md) — the read-only IPA explorer: entry-table
+  tree, bounded previews, and what a Mach-O or profile page does not establish.
 - [macho-signing-design-review.md](macho-signing-design-review.md) — historical
   design proposal and prerequisites; the integration document records the
   implemented scope and evidence.

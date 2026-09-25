@@ -19,8 +19,8 @@ struct SigningPreferencesSection: View {
         identifier: .signing,
         title: "Signing",
         symbolName: "signature",
-        summary: "Default identity, profile, export location, and compatibility analysis.",
-        footer: "These are the starting points for your next signing session. The signing screen always lets you choose something else for that session."
+        summary: "Default identity, profile, and compatibility analysis.",
+        footer: "These are the starting points for your next signing session. The signing screen always lets you choose something else for that session. Signed packages are written inside ZynSign's own container and delivered from the signing screen itself."
     )
 
     var body: some View {
@@ -28,7 +28,6 @@ struct SigningPreferencesSection: View {
             identitySection
             profileSection
             sessionSection
-            exportSection
             analysisSection
         }
         .listStyle(.insetGrouped)
@@ -136,27 +135,6 @@ struct SigningPreferencesSection: View {
         }
     }
 
-    // MARK: - Export
-
-    private var exportSection: some View {
-        Section {
-            ZSettingsPickerRow(
-                title: "Default Export Location",
-                symbol: "folder",
-                subtitle: "Where a signed package is written.",
-                selection: settings.binding(\.signing.defaultExportLocation)
-            ) {
-                ForEach(ExportLocation.allCases, id: \.self) { location in
-                    Text(location.displayName).tag(location)
-                }
-            }
-        } header: {
-            Text("Export")
-        } footer: {
-            Text("Signed packages are written inside ZynSign's own container. Nothing is uploaded, and ZynSign never learns whether a package left the device.")
-        }
-    }
-
     // MARK: - Compatibility analysis
 
     private var analysisSection: some View {
@@ -189,7 +167,7 @@ struct SigningPreferencesSection: View {
         SigningPreferencesSection()
     }
     .environment(\.settingsCenter, SettingsCenterModel(
-        store: FilePreferencesStore(location: ZynSignStorageLayout.preferencesDocument()),
+        store: FilePreferencesStore(location: CompositionRoot.preferencesDocumentLocation()),
         environment: CompositionRoot.makeApplicationEnvironment()
     ))
 }

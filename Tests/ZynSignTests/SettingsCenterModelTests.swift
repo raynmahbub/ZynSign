@@ -8,12 +8,12 @@ final class SettingsCenterModelTests: XCTestCase {
 
     private var root: URL!
     private var model: SettingsCenterModel!
-    private var locations: StorageLocations!
+    private var layout: StorageLayout!
 
     override func setUp() async throws {
         try await super.setUp()
         root = try SettingsFixtures.makeTemporaryDirectory()
-        locations = SettingsFixtures.makeStorageLocations(root: root)
+        layout = SettingsFixtures.makeStorageLayout(root: root)
         model = SettingsFixtures.makeSettingsModel(root: root)
     }
 
@@ -21,7 +21,7 @@ final class SettingsCenterModelTests: XCTestCase {
         model = nil
         if let root { try? FileManager.default.removeItem(at: root) }
         root = nil
-        locations = nil
+        layout = nil
         try await super.tearDown()
     }
 
@@ -55,7 +55,6 @@ final class SettingsCenterModelTests: XCTestCase {
         let model = SettingsCenterModel(
             store: store,
             environment: SettingsFixtures.makeEnvironment(root: root, preferences: SettingsFixtures.makePreferencesStore(root: root)),
-            storage: SettingsFixtures.makeStorageService(root: root),
             diagnosticLog: SettingsFixtures.makeDiagnosticLog(root: root)
         )
         XCTAssertEqual(store.saveCount, 0)
@@ -70,7 +69,6 @@ final class SettingsCenterModelTests: XCTestCase {
         let model = SettingsCenterModel(
             store: failing,
             environment: SettingsFixtures.makeEnvironment(root: root, preferences: SettingsFixtures.makePreferencesStore(root: root)),
-            storage: SettingsFixtures.makeStorageService(root: root),
             diagnosticLog: SettingsFixtures.makeDiagnosticLog(root: root)
         )
 
@@ -117,98 +115,126 @@ final class SettingsCenterModelTests: XCTestCase {
 
     // MARK: - Storage
 
-    func testStorageIsMeasuredWhenAsked() async {
-        try? SettingsFixtures.write(
+    func testStorageIsMeasuredWhenAsked() async throws {
+        try SettingsFixtures.write(
             Data(repeating: 0x41, count: 4_096),
-            to: locations.signedArtifacts.appendingPathComponent("Signed.ipa")
+            to: layout.exportedArtifacts.appendingPathComponent("Signed.ipa")
         )
 
         await model.refreshStorageUsage()
 
-        XCTAssertNotNil(model.storageReport)
-        XCTAssertGreaterThan(model.storageReport!.bytes(for: .signedArtifacts), 0)
-        XCTAssertEqual(model.storageReport!.total, model.storageReport!.usage.values.reduce(0, +))
-    }
-
-    func testTheLargestFilesAreListedForReview() async {
-        try? SettingsFixtures.write(
-            Data(repeating: 0x41, count: 4_096),
-            to: locations.signedArtifacts.appendingPathComponent("Small.ipa")
+        let footprint = try XCTUnwrap(model.storageFootprint)
+        XCTAssertGreaterThan(footprint.usage(of: .exportedArtifacts).byteCount, 0)
+        XCTAssertEqual(
+            footprint.totalByteCount,
+            footprint.usages.reduce(0) { $0 + $1.byteCount },
+            "The total is the sum of the rows."
         )
-        try? SettingsFixtures.write(
-            Data(repeating: 0x42, count: 655_360),
-            to: locations.signedArtifacts.appendingPathComponent("Large.ipa")
-        )
-
-        await model.refreshLargestFiles()
-
-        XCTAssertEqual(model.largestFiles.first?.name, "Large.ipa")
     }
 
-    func testRemovingAFileFromTheReviewListRemovesOnlyThatFile() async throws {
-        let removed = locations.signedArtifacts.appendingPathComponent("One.ipa")
-        let kept = locations.signedArtifacts.appendingPathComponent("Two.ipa")
-        try SettingsFixtures.write(Data(repeating: 0x41, count: 4_096), to: removed)
-        try SettingsFixtures.write(Data(repeating: 0x42, count: 4_096), to: kept)
-        await model.refreshLargestFiles()
-        let description = try XCTUnwrap(model.largestFiles.first { $0.url == removed })
+    func testEveryCategoryIsReportedEvenWhenItIsEmpty() async {
+        await model.refreshStorageUsage()
 
-        await model.removeStoredFile(description)
-
-        XCTAssertFalse(FileManager.default.fileExists(atPath: removed.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: kept.path))
-        XCTAssertFalse(model.largestFiles.contains { $0.url == removed })
+        let footprint = try? XCTUnwrap(model.storageFootprint)
+        for category in StorageCategory.allCases {
+            XCTAssertNotNil(footprint?.usage(of: category), "\(category.displayName) is always reported.")
+        }
     }
 
-    func testClearingTemporaryFilesReportsWhatItRemoved() async {
-        try? SettingsFixtures.write(
+    func testClearingTemporaryFilesReportsWhatItRemoved() async throws {
+        try SettingsFixtures.write(
             Data(repeating: 0x41, count: 4_096),
-            to: locations.temporary.appendingPathComponent("zynsign-staging-1")
+            to: layout.temporary[0].appendingPathComponent("zynsign-staging-1")
+        )
+        // The cleanup is age-based: a file from this instant may belong to an
+        // operation running right now, so it is counted as skipped rather than
+        // removed. Either way the screen is told what happened.
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-2 * 3_600)],
+            ofItemAtPath: layout.temporary[0].appendingPathComponent("zynsign-staging-1").path
         )
 
         await model.clearTemporaryFiles()
 
-        // The sentence is built from the count and the reclaimed size, and
-        // names neither the file nor where it was.
         XCTAssertTrue(
-            model.maintenanceMessage?.hasPrefix("Removed 1 temporary file and reclaimed") == true,
+            model.maintenanceMessage?.hasPrefix("Removed 1 temporary file") == true,
             model.maintenanceMessage ?? "no message"
         )
-    }
-
-    func testClearingCacheReportsWhatItRemoved() async {
-        try? SettingsFixtures.write(
-            Data(repeating: 0x41, count: 4_096),
-            to: locations.caches.appendingPathComponent("ZynSignAppIcons/icon.png")
-        )
-
-        await model.clearCache()
-
-        XCTAssertTrue(model.maintenanceMessage?.hasPrefix("Removed 1 cached item and reclaimed") == true)
-    }
-
-    func testRemovingOldExportsHonoursTheRetentionPreference() async throws {
-        let old = locations.signedArtifacts.appendingPathComponent("Old.ipa")
-        let recent = locations.signedArtifacts.appendingPathComponent("Recent.ipa")
-        try SettingsFixtures.write(Data(repeating: 0x41, count: 4_096), to: old)
-        try SettingsFixtures.write(Data(repeating: 0x42, count: 4_096), to: recent)
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date().addingTimeInterval(-40 * 86_400)],
-            ofItemAtPath: old.path
-        )
-        model.update { $0.storage.exportRetentionDays = 30 }
-
-        await model.removeOldExports()
-
-        XCTAssertTrue(model.maintenanceMessage?.hasPrefix("Removed 1 signed package and reclaimed") == true)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: old.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: recent.path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: layout.temporary[0].appendingPathComponent("zynsign-staging-1").path
+        ))
     }
 
     func testAMaintenanceActionWithNothingToDoSaysSo() async {
         await model.clearTemporaryFiles()
 
-        XCTAssertEqual(model.maintenanceMessage, "Nothing to remove — no temporary files were left.")
+        XCTAssertEqual(model.maintenanceMessage, "Nothing needed to be removed.")
+    }
+
+    func testRemovingSignedArtifactsRemovesTheArtifactsAndKeepsTheImports() async throws {
+        let export = layout.exportedArtifacts.appendingPathComponent("Signed.ipa")
+        let imported = layout.importedApplications.appendingPathComponent("Imported.ipa")
+        try SettingsFixtures.write(Data(repeating: 0x41, count: 4_096), to: export)
+        try SettingsFixtures.write(Data(repeating: 0x42, count: 4_096), to: imported)
+        try await SettingsFixtures.makeExportRecordStore(root: root)
+            .write(SettingsFixtures.makeExportRecord(fileName: "Signed.ipa", byteCount: 4_096))
+
+        await model.removeOldExports()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: export.path))
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: imported.path),
+            "Imported applications are the library and are never removed here."
+        )
+    }
+
+    func testRemovingOldHistoryRecordsKeepsTheMostRecentRecords() async throws {
+        // The policy always keeps the most recent records whatever their age,
+        // so the journal has to hold more than that minimum before an old
+        // record becomes a candidate at all.
+        let store = FileSigningHistoryStore(journalLocation: layout.history, capacity: 100)
+        let oldestNames = (0..<5).map { "Old \($0)" }
+        for index in 0..<25 {
+            try await store.append(SigningRecord(
+                presetID: nil,
+                certificateFingerprint: nil,
+                sourceBundleIdentifier: "com.zynsign.test",
+                sourceDisplayName: "Old \(index)",
+                stoppingStage: nil,
+                errorCode: nil,
+                outputFileName: "Old\(index).ipa",
+                outputByteCount: nil,
+                startedAt: Date().addingTimeInterval(-40 * 86_400),
+                duration: 1,
+                result: .succeeded
+            ))
+        }
+        let recent = SigningRecord(
+            presetID: nil,
+            certificateFingerprint: nil,
+            sourceBundleIdentifier: "com.zynsign.test",
+            sourceDisplayName: "Recent",
+            stoppingStage: nil,
+            errorCode: nil,
+            outputFileName: "Recent.ipa",
+            outputByteCount: nil,
+            startedAt: Date(),
+            duration: 1,
+            result: .succeeded
+        )
+        try await store.append(recent)
+
+        await model.removeOldHistoryRecords()
+
+        let remaining = (try? await store.allRecords()) ?? []
+        XCTAssertEqual(remaining.count, StorageCleanupPolicy.minimumRetainedHistoryRecords)
+        XCTAssertEqual(remaining.first?.id, recent.id, "The most recent record is always kept.")
+        for name in oldestNames {
+            XCTAssertFalse(
+                remaining.contains { $0.sourceDisplayName == name },
+                "\(name) is older than the retention interval and is not one of the minimum kept."
+            )
+        }
     }
 
     func testRebuildingTheLibraryIndexRemovesNothingARecordRefersTo() async {
@@ -226,28 +252,30 @@ final class SettingsCenterModelTests: XCTestCase {
     func testTheWorkspaceIsOnlyTidiedAtLaunchWhenThePolicyAllowsIt() async {
         try? SettingsFixtures.write(
             Data(repeating: 0x41, count: 4_096),
-            to: locations.temporary.appendingPathComponent("zynsign-staging-1")
+            to: layout.temporary[0].appendingPathComponent("zynsign-staging-1")
         )
 
         // The shipped policy is "when ZynSign quits", so nothing is tidied at
         // launch.
         await model.cleanTemporaryWorkspaceIfPolicyAllows()
         XCTAssertTrue(
-            FileManager.default.fileExists(atPath: locations.temporary.appendingPathComponent("zynsign-staging-1").path)
+            FileManager.default.fileExists(
+                atPath: layout.temporary[0].appendingPathComponent("zynsign-staging-1").path
+            )
         )
 
         model.update { $0.advanced.temporaryCleanupPolicy = .onLaunch }
         await model.cleanTemporaryWorkspaceIfPolicyAllows()
 
         XCTAssertFalse(
-            FileManager.default.fileExists(atPath: locations.temporary.appendingPathComponent("zynsign-staging-1").path)
+            FileManager.default.fileExists(atPath: layout.temporary[0].appendingPathComponent("zynsign-staging-1").path)
         )
     }
 
     func testTheWorkspaceIsNeverTidiedWhenTheUserTurnedCleanupOff() async {
         try? SettingsFixtures.write(
             Data(repeating: 0x41, count: 4_096),
-            to: locations.temporary.appendingPathComponent("zynsign-staging-1")
+            to: layout.temporary[0].appendingPathComponent("zynsign-staging-1")
         )
         model.update { $0.storage.automaticTemporaryCleanup = false }
         model.update { $0.advanced.temporaryCleanupPolicy = .onLaunch }
@@ -255,7 +283,7 @@ final class SettingsCenterModelTests: XCTestCase {
         await model.cleanTemporaryWorkspaceIfPolicyAllows()
 
         XCTAssertTrue(
-            FileManager.default.fileExists(atPath: locations.temporary.appendingPathComponent("zynsign-staging-1").path)
+            FileManager.default.fileExists(atPath: layout.temporary[0].appendingPathComponent("zynsign-staging-1").path)
         )
     }
 

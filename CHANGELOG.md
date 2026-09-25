@@ -42,10 +42,10 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   own action.
 - **Signing Preferences** — preferred signing identity (named by its public
   certificate fingerprint), preferred provisioning profile (named by the name
-  the profile declares), remember previous selections, default export
-  location, and automatic compatibility analysis. Every value is a *starting
-  point*: the signing screen presents it and the user may choose something
-  else for that session. Nothing here holds signing material.
+  the profile declares), remember previous selections, and automatic
+  compatibility analysis. Every value is a *starting point*: the signing
+  screen presents it and the user may choose something else for that session.
+  Nothing here holds signing material.
 - **Security Center** — Face ID / Touch ID protection where the device offers
   it (and a plain statement where it does not), authentication before
   sensitive actions with the list of those actions, secure session timeout
@@ -61,19 +61,20 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   backgrounded with protection on or when the session lapses. A preference to
   lock on a device that cannot authenticate is not enforced, and the Security
   Center says so instead of showing a switch that does nothing.
-- **Storage Manager** — a dashboard that reports allocated bytes per category
-  (Imported Apps, Signed Artifacts, Temporary Files, Cache, History, Records)
-  with a total that is the sum of the rows rather than an estimate, the
-  largest files ZynSign holds, and four actions — clear temporary files, clear
-  cache, remove old exports, review large files — each behind a confirmation
-  and each reporting what it removed and how much it reclaimed. The temporary
-  and caches directories are shared with the system, so measurement and
-  removal are restricted to entries ZynSign itself created, and exported
-  reports are preserved. No action on this page can remove an imported
-  application.
-- **Diagnostics Preferences** — automatic health analysis, keep diagnostic
-  history, detailed technical logs (opt-in, off by default), developer
-  diagnostics, a readable technical log, and export diagnostic report. The
+- **Storage Manager** — a dashboard over the application's own storage use
+  case, reporting allocated bytes per category (Imported Apps, Signed
+  Artifacts, Temporary Files, History) with a total that is the sum of the
+  rows rather than an estimate, and three actions — clear temporary files,
+  remove signed artifacts, remove old history records — each behind a
+  confirmation and each reporting what it removed and how much it reclaimed.
+  Cleanup is age-based for temporary data, so an operation running right now
+  is never a candidate, and it counts what it skipped rather than staying
+  quiet about it. No action on this page can reach an imported application:
+  removing one is a Library action, one application at a time.
+- **Diagnostics Preferences** — keep diagnostic history, detailed technical
+  logs (opt-in, off by default), developer diagnostics that change what the
+  page shows rather than what ZynSign does, a readable technical log, and
+  export diagnostic report. The
   report is counts, versions, and preference flags: no bundle identifier, no
   file name, no path, no certificate detail, no key material. It is written to
   a file the user shares themselves; nothing in ZynSign sends it anywhere.
@@ -89,8 +90,8 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   reachable; the section says exactly that instead of listing switches that do
   nothing.
 - **Recovery** — reset preferences (keeping the record of finished
-  onboarding), clear cache, clean temporary workspace, and rebuild library
-  index, each asking first and reporting what it did. Reset Library is the one
+  onboarding), clean temporary workspace, and rebuild library index, each
+  asking first and reporting what it did. Reset Library is the one
   destructive reset in the application: it is labelled as such, it names
   exactly what will be deleted, and it asks twice — once with a confirmation
   and once through authentication when the user asked for authentication
@@ -107,26 +108,244 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   animation preference is honoured on top of Reduce Motion, and the lock
   overlay is announced as modal.
 
-### Changed
 
-- Onboarding completion moved from `UserDefaults` into the preferences
-  document, so Settings → General can show the welcome card again and there is
-  exactly one record of it. It is the one preference that records something
-  the user did rather than something the user wants.
-- `RootView` owns the settings model and the lock and applies the
-  application-wide consequences of the preferences in one place: colour
-  scheme, contrast, animation, landing tab, background locking, inactivity,
-  and the lock overlay. A change in Settings takes effect everywhere at once.
-- `SigningView` is preference-aware: the preferred identity is the starting
-  point, remembered selections are stored by reference only (a public
-  fingerprint and the name a profile declares), the compatibility assessment
-  runs automatically when the user asked for it, strict verification asks for
-  confirmation before acting on a result that carries any finding (it never
-  refuses), and signing asks for authentication when the user asked for that.
-- `ZynSignStorageLayout` is the single definition of every location ZynSign
-  uses, including the staging directory the working-directory preference
-  names, which the composition root and the Advanced settings row now read
-  from one place.
+### Added — 0.1.0-alpha.1 · Step 8: IPA Explorer & Bundle Browser
+
+- **Read-only IPA explorer** — `Explore IPA` opens a native tree of the
+  package already in the library: `Payload/<App>.app`, folders, frameworks,
+  extensions, and files, with type labels and declared sizes. Expanding a
+  folder does not read the files inside it. A large folder shows one page
+  and a control for the next. iPad uses a split view; iPhone uses a stack.
+- **Search and resources** — filename, extension, and immediate folder-name
+  search, with the match highlighted and the display capped while the total
+  stays accurate. A resource browser lists images, JSON, XML, localization
+  folders, and launch assets from the same entry table.
+- **Bounded previews** — opening a file reads that entry only, through the
+  existing archive boundary, and closes the reader afterward. Text, JSON,
+  XML, property lists, and images can be shown. A larger image is refused
+  and not read. A symbolic link is listed and not followed. Nothing in the
+  explorer modifies, extracts, signs, or runs the package.
+- **Mach-O, framework, and extension pages** — a Mach-O page is a header
+  prefix: architecture, file type, load-command count, encryption-command
+  status, and signature-command presence. It is not a hex dump and not a
+  verdict. Framework and extension pages show the name, version when the
+  information file yields it, the executable, and a path back into the tree.
+  Extension entitlements are the embedded profile's declared keys, not a
+  device list and not a verification.
+- **Statistics and actions** — the card counts files, frameworks, extensions,
+  executables, images, and the declared bundle size. The only actions are
+  View Details, Reveal in Tree, Copy Path, and Copy Filename. Copy copies
+  the package-relative path, not a sandbox URL.
+
+### Added — 0.1.0-alpha.1 · Step 7: Signing Engine Execution
+
+- **One execution engine** — `SigningEngineCoordinator` runs a complete
+  signing attempt behind a single call and answers with a structured result:
+  every stage's outcome, the run's summary metrics, both verification reports,
+  the working copy's facts, or the stage that refused with a typed reason and
+  the recovery facts. Stages are named once, in `SigningEngineStage`, and the
+  coordinator, the progress tracker, the diagnostics, and the interface all
+  use that one vocabulary.
+- **The original package is never signed** — every write happens inside an
+  isolated `SigningWorkingCopy` under the configured root. The original is
+  fingerprinted (SHA-256) when the copy is made and re-measured when the copy
+  is discarded, so "original unchanged" is a measurement. Discarding reports
+  the items and bytes reclaimed, and the source container is only ever read
+  through the ordinary read-only archive boundary.
+- **Validation gate before signing** — `SigningEngineBundleValidator` checks
+  the payload layout, the information file, the declared executable, the
+  required files, every location nested discovery found (each with a readable
+  information file and a recorded executable), and the supported layout —
+  including refusing inputs that already carry a signature under the run's
+  policy. A failed check stops the run at Validating with nothing written.
+- **Inner-first nested signing** — Frameworks, then dynamic libraries, then
+  extensions, then nested applications, then the host application, each stage
+  reported separately and skipped-with-reason when a bundle carries none of
+  that kind. The underlying plan keeps a child finalized before its container;
+  the host executable is sealed and signed last, with the seal referencing
+  every nested binary by digest.
+- **Independent verification, twice** — `SigningEngineVerifier` re-reads the
+  signed working copy and re-derives the CodeDirectory facts, the page hashes,
+  the special slots (seal in slot 3, canonical entitlements in slot 5), the
+  embedded entitlements, and the CMS signature under the certificate resolved
+  at verification time, plus bundle consistency and provisioning
+  compatibility; `VerifySignedApplication` then re-reads the *written
+  container* through the archive boundary. Neither shares state with signing,
+  and neither claims trust or installability.
+- **Delivery only after verification** — the IPA is packaged in the pipeline's
+  deterministic `Payload/` form into a scratch path inside the working copy,
+  verified there, and moved to the delivery location only after it passed. A
+  failed run leaves an artifact already at that location untouched and reports
+  that it existed; a verification failure removes nothing but the working
+  copy.
+- **Progress that is a fact, not a spinner** — `SigningEngineProgressTracker`
+  keeps one record per stage (state, item counts, latest detail) and a
+  fraction whose weights sum to `1`. An estimate is offered only after enough
+  of the run has happened (10% and 0.4 s) for a projection to mean something.
+  The tracker is I/O-free and clock-free — callers pass elapsed time in — so
+  the behaviour is testable without waiting.
+- **Failure recovery** — a refusal returns the stage, a bounded detail, a
+  category, a user message, and the recovery facts (original unchanged,
+  working copy discarded, output removed, output pre-existed), with retry
+  offered only for input faults where a second attempt cannot help.
+  Cancellation propagates as `CancellationError` after the working copy is
+  discarded; a partially signed bundle is never left where it could look
+  complete.
+- **One signing screen** — `SigningView` drives the engine end to end: stage
+  rows with live counts, the fraction ring, the estimate when it exists,
+  stage-scoped failure diagnostics, and the export actions — **Export IPA**
+  (share sheet), **Open Details** (`SigningDetailsView`: stage table,
+  verification checks, recovery facts), **Verify Again** (re-runs container
+  verification, never deletes), and **Return to Library** — with semantic
+  fonts, VoiceOver stage summaries, and Dark Mode tokens.
+- `SigningEngineCoordinatorTests`: end-to-end delivery with every stage's
+  outcome and both verification reports, nested-framework runs, refusal of an
+  already-signed input before signing, refusal of a bundle with no information
+  file, an artifact already at the delivery location surviving a failed run,
+  the working copy being discarded on success and on failure, monotonic
+  progress with a complete final snapshot, and verifying a delivered container
+  again — including after it is tampered with.
+
+### Added — 0.1.0-alpha.1 · Step 5: Provisioning Profile Manager
+
+- **Profile Library rebuilt as a manager** — the Profiles tab now lists
+  every imported profile as a row or card carrying name, team name, team
+  ID, distribution type, expiration status with remaining days, device
+  count, import date, and a compatibility indicator, with a List/Grid
+  toggle, instant search (name, team, UUID, App ID, bundle patterns),
+  sort (expiration / name / recently imported / type), and filters by
+  type and expiration state. Cards mark the profile pinned by
+  "Use for Signing"; a friendly illustration, a plain-words explanation,
+  and the Import Profile button open the empty state.
+- **Richer profile summaries** — summaries now record the profile UUID,
+  team name, creation date, distribution type, device count, full App ID
+  with its explicit bundle identifier, and the embedded certificates'
+  SHA-256 fingerprints. Every new field is optional, so catalogs written
+  before this step keep decoding under schema 1; Refresh Validation
+  backfills them from the stored file.
+- **Bundle-pattern derivation fixed** — the importer now derives
+  `covers(bundleIdentifier:)` patterns from the parsed exact-or-wildcard
+  App-ID component (exact → the bundle ID, wildcard → `prefix.*`,
+  team-wide → `*`) instead of a team-prefixed guess that never matched a
+  plain bundle identifier. Legacy catalog entries are repaired by
+  Refresh Validation, which re-reads the stored `.mobileprovision`,
+  re-parses it, and updates the summary while keeping its identity and
+  import date.
+- **Profile import summary** — a successful import presents a summary
+  sheet (team, type, App ID, wildcard/explicit, devices, dates, UUID,
+  certificate count, compatibility quick look) before the library
+  refreshes; corrupted or unsupported files are refused with their typed
+  message and an "Unsupported Profile" title where the format is out of
+  scope, and oversized files are refused before they are read.
+- **Profile Details, General / Application / Distribution** — the detail
+  screen shows name, UUID, team name, team ID, creation and expiration
+  dates; App ID, bundle identifier, wildcard-vs-explicit status, and the
+  covered patterns; distribution type, device count, certificates, and
+  debug permission — inspection only, including the App Store case.
+- **Smart Compatibility Engine** — five pre-sign checks (bundle ID match,
+  team ID match, certificate available, profile expired, profile type
+  supported) each render ✅ / ⚠️ / ❌ / unsupported with an actionable
+  message, and roll up into a Compatibility Summary (Compatible / Needs
+  Attention / Not Compatible / Unsupported). The engine is pure domain
+  logic; the application layer assembles the context from `IdentityStore`.
+- **Expiration intelligence** — Healthy / Expiring Soon (≤ 30 days) /
+  Expired with remaining days and semantic badges everywhere the library
+  shows a profile.
+- **Profile Matching** — opening an app's detail screen ranks the library
+  for that app (exact over wildcard, certificate on device, team match,
+  supported type, longer validity) and suggests the best profile with its
+  reasons; the pinned "Use for Signing" profile is offered first when it
+  ranks, and "Change…" records a per-app manual override — including
+  honest display of an override that no longer suits the app — with
+  "Profile not suitable for this app" shown when nothing qualifies.
+- **Diagnostics Panel** — profile detail lists one message per finding
+  with Success / Warning / Error / Unsupported severity badges: bundle ID
+  mismatch, missing certificate, expired profile, unsupported
+  distribution type, unrecorded certificates (Refresh Validation), and
+  more.
+- **Quick actions** — View Details, Use for Signing, Copy Team ID, Copy
+  Bundle ID, Refresh Validation, and Remove on every profile, from both
+  context menus and swipe actions, plus the same actions inside the
+  detail screen.
+
+### Added — 0.1.0-alpha.1 · Step 4: Certificate Manager
+
+- **Certificate Library** — the Certificates tab is now a real library of
+  signing identities. Each identity shows as a professional card (list row
+  or grid card, with a persisted list/grid toggle): the certificate name
+  (or the user's local display label), team name, Team ID, certificate
+  type (Development / Distribution / Other), expiration status, import
+  date, and key availability. The list is searchable while typing by name,
+  team, issuer, or fingerprint, sortable by name, team, expiration, or
+  import date, and filterable by expiration state, certificate type, and
+  team — with an explicit "nothing matches" state and one-tap filter
+  clearing.
+- **Expiration intelligence** — every identity is classified at read time
+  against an explicit instant: Healthy, Expiring Soon (within a 30-day
+  threshold, inclusive of the boundary), Expired, or Not Yet Valid. The
+  classification is pure domain logic (`CertificateExpirationAssessment`),
+  carries the whole-day remaining count (negative when expired), and is the
+  source of the coloured indicators on cards, rows, and the details screen.
+- **Import signing identity** — the `.p12` / `.pfx` import flow is
+  unchanged in its security model: select the file, enter the password,
+  the container is validated, and the identity is registered through the
+  secure store. The password travels once to the importer and is never
+  stored, logged, or shown again; a failed import keeps the password sheet
+  open with the typed reason, and a successful one closes into a success
+  summary naming the imported identity, its team, type, expiration, and
+  key state. The import date is recorded in the identity's local notes.
+- **Certificate details** — a dedicated details page per identity, in the
+  order a developer reads it: Identity (common name, organization, team
+  name, Team ID, display label), Certificate (issuer, serial, algorithm
+  with key size and curve, signature algorithm, SHA-256 fingerprint,
+  self-signed, import date), Validity (created, expires, remaining days,
+  status), and Key Status (availability, association, capability, usable
+  for signing). The screen reads the identity live from the model by
+  fingerprint, so a change made anywhere is reflected without the screen
+  going stale — and a removal takes it to an honest "no longer available"
+  state.
+- **Team and type extraction** — the certificate's own subject declares its
+  team: the ten-character Team ID from the organizational unit (falling
+  back to a trailing `(TEAMID)` group in the common name) and the team name
+  from the organization attribute. A bare common name declares no team;
+  nothing is invented. The certificate type is read from the common-name
+  prefix Apple's tooling uses ("Apple Development: …", "Apple
+  Distribution: …", and the legacy names); an unrecognised name is "Other",
+  not an error.
+- **Default identity** — the user marks one identity as the default for
+  future signing; the library names it in its own header, badges it on
+  the card and the details page, and the mark is persisted locally by
+  fingerprint. Removing a default's identity clears the mark, and a mark
+  that names no registered identity is cleared on load rather than kept as
+  a ghost.
+- **Quick actions everywhere** — view details, set or clear the default,
+  rename the display label (local only — the certificate is never
+  changed), copy the Team ID, and remove the registration. They are
+  available from swipe actions, long-press context menus, and the details
+  page, with toasts confirming each outcome.
+- **Local notes, stored safely** — display labels, import dates, and the
+  default mark live in a new local annotation store
+  (`FileIdentityAnnotationsStore`), keyed by the certificate's public
+  SHA-256 fingerprint and holding nothing but those display values: no
+  passwords, no key references, no keychain accounts. The catalog is
+  versioned, written atomically, and fails closed on damage — an
+  overlong label, an invalid fingerprint key, or an unsupported schema is
+  reported as unreadable and left in place, never reset. Labels are bounded
+  (120 characters) at the boundary; a longer label is refused, not
+  truncated.
+- **Removal joins the port** — `IdentityStore` now answers one more
+  question: how to forget a registration. Removing a registration never
+  deletes the borrowed key, which remains owned by its provisioning
+  component; the Certificates screen no longer needs to know which store
+  implementation it holds.
+- **Empty state** — with no identities the screen shows a short,
+  friendly, non-technical invitation and a single Import Certificate
+  button, instead of a technical explanation.
+- **UX** — smooth list/grid and filter/sort transitions, search while
+  typing, swipe and context-menu actions, Dynamic Type through semantic
+  fonts, VoiceOver labels that carry the state in words (colour only
+  reinforces), dark mode throughout, and an adaptive grid that gives the
+  iPad the same content in a wider layout.
 
 ### Added — 0.1.0-alpha.1 · Step 2: Production-Grade IPA Import
 

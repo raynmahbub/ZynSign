@@ -25,10 +25,7 @@ final class SettingsCenterModel: ObservableObject {
     @Published private(set) var isMeasuringStorage = false
 
     /// The most recent storage measurement.
-    @Published private(set) var storageReport: StorageUsageReport?
-
-    /// The largest files ZynSign holds, for "review large files".
-    @Published private(set) var largestFiles: [StoredFileDescription] = []
+    @Published private(set) var storageFootprint: StorageFootprint?
 
     /// Whether a maintenance action is running.
     @Published private(set) var isPerformingMaintenance = false
@@ -45,8 +42,10 @@ final class SettingsCenterModel: ObservableObject {
     /// The application dependencies maintenance actions act on.
     let environment: ApplicationEnvironment
 
-    /// Measures and tidies storage.
-    let storage: StorageUsageService
+    /// Measures what ZynSign holds, and runs the cleanups the storage screen
+    /// may offer. It is the application's own storage use case, and it can
+    /// never reach an imported application: no code path in it can.
+    var storage: StorageManagement { environment.storageManagement }
 
     /// The opt-in technical log.
     let diagnosticLog: DiagnosticLog
@@ -54,14 +53,13 @@ final class SettingsCenterModel: ObservableObject {
     init(
         store: any PreferencesStore,
         environment: ApplicationEnvironment,
-        storage: StorageUsageService? = nil,
         diagnosticLog: DiagnosticLog? = nil
     ) {
         self.store = store
         self.environment = environment
         self.preferences = store.snapshot
-        self.storage = storage ?? StorageUsageService()
-        self.diagnosticLog = diagnosticLog ?? DiagnosticLog()
+        self.diagnosticLog = diagnosticLog
+            ?? DiagnosticLog(location: CompositionRoot.diagnosticsLogLocation())
         syncSideEffects(from: store.snapshot)
     }
 
@@ -127,49 +125,45 @@ final class SettingsCenterModel: ObservableObject {
     // MARK: - Storage
 
     /// Measures what ZynSign holds.
+    ///
+    /// The measurement is the application's own footprint: read from the
+    /// storage that holds the bytes, never estimated, so a reported number can
+    /// always be traced back to a location.
     func refreshStorageUsage() async {
         isMeasuringStorage = true
         defer { isMeasuringStorage = false }
-        storageReport = await storage.report()
+        storageFootprint = try? await storage.footprint()
     }
 
-    /// Lists the largest files ZynSign holds.
-    func refreshLargestFiles(limit: Int = 20) async {
-        largestFiles = await storage.largestFiles(limit: limit)
-    }
-
-    /// Removes ZynSign's scratch files from the temporary directory.
+    /// Removes the working copies and staging files finished or interrupted
+    /// operations left behind.
+    ///
+    /// Only entries older than the retention interval are removed, and only
+    /// entries whose names ZynSign recognises as its own work, so cleanup can
+    /// never race an operation in flight and never touches another
+    /// application's files.
     func clearTemporaryFiles() async {
         await performMaintenance(.storage, detail: "storage.temporary.cleared") {
-            await self.storage.clearTemporaryFiles().message
+            try await self.storage.cleanup(.temporaryFiles).summary
         }
     }
 
-    /// Removes the cached application icons.
-    func clearCache() async {
-        await performMaintenance(.storage, detail: "storage.cache.cleared") {
-            await self.storage.clearCache().message
-        }
-    }
-
-    /// Removes signed packages older than the retention window.
+    /// Removes the exported artifacts ZynSign produced, together with the
+    /// records that describe them. The applications they were signed from are
+    /// not touched — that is what the Export Center owns, and it is why this
+    /// action cannot reach the library.
     func removeOldExports() async {
-        let days = preferences.storage.exportRetentionDays
         await performMaintenance(.storage, detail: "storage.exports.pruned") {
-            await self.storage.removeExports(olderThanDays: days).message
+            try await self.storage.cleanup(.exportedArtifacts).summary
         }
-        await refreshStorageUsage()
     }
 
-    /// Removes one file from "review large files".
-    func removeStoredFile(_ file: StoredFileDescription) async {
-        guard await storage.removeFile(at: file.url) else {
-            maintenanceMessage = "That file could not be removed."
-            return
+    /// Removes signing-history records older than the retention interval,
+    /// keeping the most recent records whatever their age.
+    func removeOldHistoryRecords() async {
+        await performMaintenance(.storage, detail: "storage.history.pruned") {
+            try await self.storage.cleanup(.oldHistoryRecords).summary
         }
-        recordDiagnostic(category: .storage, detail: "storage.file.removed")
-        await refreshLargestFiles()
-        await refreshStorageUsage()
     }
 
     /// Re-reads the library and clears artifacts no record refers to.
@@ -211,7 +205,7 @@ final class SettingsCenterModel: ObservableObject {
         guard preferences.storage.automaticTemporaryCleanup else { return }
         switch preferences.advanced.temporaryCleanupPolicy {
         case .onLaunch:
-            _ = await storage.clearTemporaryFiles()
+            _ = try? await storage.cleanup(.temporaryFiles)
             recordDiagnostic(category: .storage, detail: "storage.temporary.cleared.onLaunch")
         case .onExit, .manual:
             break
@@ -257,7 +251,7 @@ final class SettingsCenterModel: ObservableObject {
             maintenanceMessage = "The diagnostic report could not be created."
             return nil
         }
-        let directory = ZynSignStorageLayout.exportDirectory()
+        let directory = CompositionRoot.diagnosticReportDirectory()
         let url = directory.appendingPathComponent("zynsign-diagnostic-report.json", isDirectory: false)
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -272,7 +266,9 @@ final class SettingsCenterModel: ObservableObject {
 
     /// Assembles the report from counts and facts, never from contents.
     private func makeDiagnosticReport() async -> DiagnosticReport {
-        let measured = storageReport ?? await storage.report()
+        let measured = storageFootprint
+            ?? (try? await storage.footprint())
+            ?? StorageFootprint.empty
         return DiagnosticReport.make(
             applicationInfo: environment.applicationInfo,
             releaseSummary: "ZynSign \(environment.applicationInfo.marketingVersion) (\(environment.applicationInfo.buildVersion))",
@@ -301,16 +297,25 @@ final class SettingsCenterModel: ObservableObject {
     // MARK: - Maintenance
 
     /// Runs one maintenance action, reporting its outcome.
+    ///
+    /// A cleanup that could not be carried out is reported as a sentence the
+    /// user can act on, never as a silent success: the interface says what
+    /// happened or says that it could not find out.
     private func performMaintenance(
         _ category: DiagnosticLogEntry.Category,
         detail: String,
-        operation: @escaping @MainActor () async -> String
+        operation: @escaping @MainActor () async throws -> String
     ) async {
         isPerformingMaintenance = true
         defer { isPerformingMaintenance = false }
-        let message = await operation()
-        maintenanceMessage = message
-        recordDiagnostic(category: category, detail: detail)
+        do {
+            maintenanceMessage = try await operation()
+            recordDiagnostic(category: category, detail: detail)
+        } catch {
+            maintenanceMessage = (error as? ZynSignError)?.userMessage
+                ?? "That action could not be completed."
+        }
+        await refreshStorageUsage()
     }
 }
 
@@ -321,7 +326,7 @@ private struct SettingsCenterKey: EnvironmentKey {
     /// preview, or a test — still has something to read. The shell installs
     /// the shared instance, which is the one the user's changes reach.
     static let defaultValue = SettingsCenterModel(
-        store: FilePreferencesStore(location: ZynSignStorageLayout.preferencesDocument()),
+        store: FilePreferencesStore(location: CompositionRoot.preferencesDocumentLocation()),
         environment: CompositionRoot.makeApplicationEnvironment()
     )
 }

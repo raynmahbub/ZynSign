@@ -244,35 +244,9 @@ struct SigningPreferences: Equatable, Sendable, Codable {
     /// as the starting point for the next.
     var rememberSelections: Bool = true
 
-    /// Where a signed package is written.
-    var defaultExportLocation: ExportLocation = .documentsSigned
-
     /// Whether ZynSign runs its pre-sign compatibility assessment
     /// automatically when a signing screen opens.
     var automaticCompatibilityAnalysis: Bool = true
-}
-
-/// Where a signed package is written.
-enum ExportLocation: String, CaseIterable, Hashable, Sendable, Codable {
-    /// `Documents/Signed` inside the application container.
-    case documentsSigned
-    /// Ask where to put it each time.
-    case askEveryTime
-
-    var displayName: String {
-        switch self {
-        case .documentsSigned: return "Documents/Signed"
-        case .askEveryTime: return "Ask each time"
-        }
-    }
-
-    /// The location, when it is a fixed one.
-    var fixedLocationDescription: String? {
-        switch self {
-        case .documentsSigned: return "Documents/Signed"
-        case .askEveryTime: return nil
-        }
-    }
 }
 
 // MARK: - Security
@@ -360,10 +334,6 @@ struct StoragePreferences: Equatable, Sendable, Codable {
     /// Whether ZynSign clears its temporary workspace itself when the
     /// cleanup policy says so, rather than waiting to be asked.
     var automaticTemporaryCleanup: Bool = true
-
-    /// How old a signed export must be before "Remove old exports" would
-    /// take it. Measured in days.
-    var exportRetentionDays: Int = 30
 }
 
 // MARK: - Diagnostics
@@ -374,10 +344,6 @@ struct StoragePreferences: Equatable, Sendable, Codable {
 /// group controls stays on the device: there is no sender, no endpoint, and
 /// no sync anywhere in ZynSign.
 struct DiagnosticsPreferences: Equatable, Sendable, Codable {
-
-    /// Whether ZynSign runs its health analysis automatically rather than
-    /// only when asked.
-    var automaticHealthAnalysis: Bool = true
 
     /// Whether diagnostic history is kept between launches.
     var keepDiagnosticHistory: Bool = true

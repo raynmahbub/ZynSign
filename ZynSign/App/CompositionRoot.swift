@@ -25,36 +25,89 @@ enum CompositionRoot {
     /// the same cryptographic machinery that the tests cover.
     static func makeApplicationEnvironment() -> ApplicationEnvironment {
         // The preferences are read before anything else is built, because the
-        // working-directory choice decides where staging happens.
+        // working-directory choice decides where staging happens and the
+        // storage screen measures what the choice covers.
         let preferences = makePreferencesStore()
-        let intake = SecurityScopedArtifactIntake(directory: importStagingDirectory(preferences: preferences))
-        let library = makeApplicationLibrary(intake: intake)
-        let packageImport = makePackageImport(intake: intake, library: library)
+        let biometricAuthenticator = makeBiometricAuthenticator()
+        let intake = SecurityScopedArtifactIntake(
+            directory: importStagingDirectory(preferences: preferences.snapshot)
+        )
+        let diagnosticHistory = makeSigningDiagnosticsHistoryStore()
+        let library = makeApplicationLibrary(intake: intake, diagnosticHistory: diagnosticHistory)
         let identityStore = makeIdentityStore()
+        let diagnostics = makeSigningDiagnostics(
+            library: library, intake: intake, identities: identityStore,
+            history: diagnosticHistory
+        )
+        let packageImport = makePackageImport(intake: intake, library: library, diagnostics: diagnostics)
         let pkcs12Importer = makePKCS12Importer(identityStore: identityStore)
         let pipeline = makeSignApplicationPipeline(identityStore: identityStore)
+        let signingEngine = makeSigningEngine(identityStore: identityStore, pipeline: pipeline)
         let presets = makeSigningPresetStore()
         let history = makeSigningHistoryStore()
         let profiles = makeProvisioningProfileLibrary()
+        let exports = makeExportCenter()
+        let storage = makeStorageManagement(
+            exports: exports,
+            history: history,
+            preferences: preferences.snapshot
+        )
         var environment = ApplicationEnvironment(
             applicationInfo: ApplicationInfo.current(bundle: .main),
             packageImport: packageImport,
             packageImportQueue: PackageImportQueue(importing: packageImport),
             library: library,
             bundleInspection: makeBundleContentsInspection(intake: intake, library: library),
+            applicationDetailsInspection: makeApplicationDetailsInspection(intake: intake, library: library),
+            bundleEntryInspection: makeBundleEntryInspection(intake: intake, library: library),
             identityStore: identityStore,
             pkcs12Importer: pkcs12Importer,
             signingPipeline: pipeline,
+            signingEngine: signingEngine,
             analyticsJournal: makeAnalyticsJournal(),
             signingPresets: presets,
             signingHistory: history,
+            provisioningProfiles: profiles,
+            exportCenter: exports,
+            signingOperations: makeSigningOperationCenter(
+                pipeline: pipeline,
+                exports: exports,
+                history: history
+            ),
+            storageManagement: storage,
             preferencesStore: preferences,
-            biometricAuthenticator: makeBiometricAuthenticator(),
-            provisioningProfiles: profiles
+            biometricAuthenticator: biometricAuthenticator
         )
         environment.provisioningProfileImporter = makeProvisioningProfileImporter()
+        environment.profileCompatibility = ProfileCompatibilityUseCase(identityStore: identityStore)
+        environment.profileSelections = UserDefaultsProfileSelectionStore()
         environment.appIcons = makeAppIconExtraction()
+        environment.signingDiagnostics = diagnostics
+        environment.identityAnnotations = makeIdentityAnnotationsStore()
         return environment
+    }
+
+    /// Builds the file-backed local annotation store the Certificates area
+    /// drives: display labels, import dates, and the default identity. The
+    /// catalog holds public certificate fingerprints and user-chosen labels
+    /// only — no key material, no passwords — and lives next to the other
+    /// local workspaces under Application Support.
+    static func makeIdentityAnnotationsStore() -> any IdentityAnnotationsStore {
+        FileIdentityAnnotationsStore(catalogLocation: identityAnnotationsCatalogLocation())
+    }
+
+    /// The on-disk location of the identity annotation catalog. Lives under
+    /// Application Support so it is not part of any iCloud or iTunes
+    /// backup, in the same directory as the other local workspaces.
+    static func identityAnnotationsCatalogLocation() -> URL {
+        let applicationSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return applicationSupport
+            .appendingPathComponent("ZynSignLibrary", isDirectory: true)
+            .appendingPathComponent("IdentityAnnotations.json", isDirectory: false)
     }
 
     /// Builds the provisioning-profile importer the Profiles tab drives. It
@@ -77,11 +130,16 @@ enum CompositionRoot {
     /// directory — a location the system may reclaim, which is exactly the
     /// durability a derived image deserves.
     static func makeAppIconExtraction() -> AppIconExtraction {
-        AppIconExtraction(
+        let caches = FileManager.default
+            .urls(for: .cachesDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Caches", isDirectory: true)
+        return AppIconExtraction(
             readerProvider: DirectoryArtifactArchiveReaderProvider(
                 directory: libraryArtifactDirectory
             ),
-            cacheDirectory: ZynSignStorageLayout.iconCacheDirectory()
+            cacheDirectory: caches.appendingPathComponent("ZynSignAppIcons", isDirectory: true)
         )
     }
 
@@ -106,41 +164,151 @@ enum CompositionRoot {
         FileProvisioningProfileLibrary(catalogLocation: provisioningProfileCatalogLocation())
     }
 
-    /// Builds the preferences store for this launch.
-    ///
-    /// The store reads its document during construction — one small file —
-    /// so a preference is a property access rather than a read, and an
-    /// unreadable document becomes shipped defaults rather than a failure.
-    /// Values an earlier version kept in `UserDefaults` are migrated the
-    /// first time there is no document to read.
-    static func makePreferencesStore() -> any PreferencesStore {
-        FilePreferencesStore(location: ZynSignStorageLayout.preferencesDocument())
-    }
-
-    /// Selects the authentication mechanism for this target.
-    static func makeBiometricAuthenticator() -> any BiometricAuthenticating {
-        #if os(iOS)
-        return LocalAuthenticationBiometricAuthenticator()
-        #else
-        return UnavailableBiometricAuthenticator()
-        #endif
-    }
-
     /// The on-disk location of the signing preset catalog. Lives under
     /// Application Support so it is not part of any iCloud or iTunes
     /// backup.
     static func signingPresetCatalogLocation() -> URL {
-        ZynSignStorageLayout.signingPresetsCatalog()
+        let applicationSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return applicationSupport
+            .appendingPathComponent("ZynSignLibrary", isDirectory: true)
+            .appendingPathComponent("SigningPresets.json", isDirectory: false)
     }
 
     /// The on-disk location of the signing history journal.
     static func signingHistoryJournalLocation() -> URL {
-        ZynSignStorageLayout.signingHistoryJournal()
+        let applicationSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return applicationSupport
+            .appendingPathComponent("ZynSignLibrary", isDirectory: true)
+            .appendingPathComponent("SigningHistory.json", isDirectory: false)
+    }
+
+    /// The on-disk location of the export catalog. It lives beside the
+    /// signing history, in Application Support, because it is likewise a
+    /// record of what ZynSign did rather than a file the user works with.
+    static func exportCatalogLocation() -> URL {
+        libraryRootDirectory.appendingPathComponent("Exports.json", isDirectory: false)
+    }
+
+    /// The directory exported artifacts are kept in: the application's own
+    /// Documents folder, so a signed container is visible in the Files app
+    /// and can be moved out by hand. Nothing else writes here.
+    static func exportArtifactDirectory() -> URL {
+        documentsDirectory.appendingPathComponent("Signed", isDirectory: true)
+    }
+
+    /// The root every signing operation's working directory is created under.
+    /// The system may reclaim the temporary directory, which is exactly the
+    /// durability a working copy deserves.
+    static func signingWorkspaceRoot() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZynSignWork", isDirectory: true)
+    }
+
+    /// Every directory whose contents are temporary: package staging for
+    /// import, and the working copies signing operations are made from.
+    /// Cleanup and storage reporting both read this list, so the two can
+    /// never disagree about what "temporary" covers.
+    static func temporaryDirectories(preferences: ZynSignPreferences = ZynSignPreferences.shippedDefault) -> [URL] {
+        [
+            importStagingDirectory(preferences: preferences),
+            signingWorkspaceRoot()
+        ]
+    }
+
+    /// The user's Documents folder, where exported artifacts live.
+    static var documentsDirectory: URL {
+        FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Documents", isDirectory: true)
+    }
+
+    /// Builds the Export Center over the file-backed export catalog and the
+    /// signed-output directory. The two are bound here and nowhere else: the
+    /// catalog records names, the directory holds bytes, and this factory is
+    /// what makes them describe the same artifacts.
+    static func makeExportCenter() -> ExportCenter {
+        ExportCenter(
+            records: FileExportRecordStore(catalogLocation: exportCatalogLocation()),
+            artifacts: FileExportArtifactStore(exportsDirectory: exportArtifactDirectory())
+        )
+    }
+
+    /// Builds the independent verifier over the same digest, archive-reader,
+    /// and signature-inspection mechanisms the rest of the application uses,
+    /// with the CMS-backed profile decoder so an embedded profile's container
+    /// signature is actually evaluated rather than skipped.
+    static func makeVerifyExportedArtifact(
+        digest: any MessageDigest = makeMessageDigest()
+    ) -> VerifyExportedArtifact {
+        VerifyExportedArtifact(
+            digest: digest,
+            profileDecoder: CMSProvisioningProfilePayloadDecoder(verifier: makeProvisioningProfileCMSVerifier())
+        )
+    }
+
+    /// Builds the signing operation runner: the pipeline, the Export Center,
+    /// the signing journal, the independent verifier, the per-operation
+    /// workspace, and the volume's free-space figure, composed so one call
+    /// signs an application and records everything that happened.
+    static func makeSigningOperationCenter(
+        pipeline: SignApplicationPipeline,
+        exports: ExportCenter,
+        history: any SigningHistoryStore,
+        verification: VerifyExportedArtifact = makeVerifyExportedArtifact()
+    ) -> SigningOperationCenter {
+        SigningOperationCenter(
+            pipeline: pipeline,
+            exports: exports,
+            history: history,
+            verification: verification,
+            workspaces: FileSigningWorkspace(root: signingWorkspaceRoot()),
+            capacity: FileVolumeStorageCapacity(location: documentsDirectory)
+        )
+    }
+
+    /// Builds the storage use case over the measured locations and the ports
+    /// that own each kind of storage. Imported applications are reported but
+    /// never removed by anything composed here.
+    static func makeStorageManagement(
+        exports: ExportCenter,
+        history: any SigningHistoryStore,
+        preferences: ZynSignPreferences = ZynSignPreferences.shippedDefault
+    ) -> StorageManagement {
+        StorageManagement(
+            reporting: FileStorageFootprint(
+                importedApplicationsDirectory: libraryArtifactDirectory,
+                exportedArtifactsDirectory: exportArtifactDirectory(),
+                temporaryDirectories: temporaryDirectories(preferences: preferences),
+                historyFiles: [signingHistoryJournalLocation(), exportCatalogLocation()]
+            ),
+            temporaryData: FileTemporaryStorage(
+                directories: temporaryDirectories(preferences: preferences)
+            ),
+            exports: exports,
+            history: history
+        )
     }
 
     /// The on-disk location of the provisioning profile library catalog.
     static func provisioningProfileCatalogLocation() -> URL {
-        ZynSignStorageLayout.provisioningProfilesCatalog()
+        let applicationSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return applicationSupport
+            .appendingPathComponent("ZynSignLibrary", isDirectory: true)
+            .appendingPathComponent("ProvisioningProfiles.json", isDirectory: false)
     }
 
     /// Selects the local activity journal implementation: the file-backed
@@ -245,7 +413,8 @@ enum CompositionRoot {
     static func makePackageImport(
         intake: SecurityScopedArtifactIntake,
         library: ApplicationLibrary,
-        limits: ArchiveLimits = .default
+        limits: ArchiveLimits = .default,
+        diagnostics: SigningDiagnosticsService? = nil
     ) -> IPAPackageImport {
         let readerProvider = DirectoryArtifactArchiveReaderProvider(
             directories: [libraryArtifactDirectory, intake.directory],
@@ -256,7 +425,8 @@ enum CompositionRoot {
             intake: intake,
             readerProvider: readerProvider,
             library: library,
-            limits: limits
+            limits: limits,
+            diagnostics: diagnostics
         )
     }
 
@@ -474,14 +644,34 @@ enum CompositionRoot {
         #endif
     }
 
+    /// Builds the on-demand entry preview the IPA explorer uses when the user
+    /// opens a file. It shares the library artifact directory and the default
+    /// resource policy with structure inspection. Preview reads are bounded
+    /// and read-only; this factory wires no writer.
+    static func makeBundleEntryInspection(
+        intake: SecurityScopedArtifactIntake,
+        library: ApplicationLibrary,
+        limits: ArchiveLimits = .default
+    ) -> IPABundleEntryInspection {
+        IPABundleEntryInspection(
+            library: library,
+            readerProvider: DirectoryArtifactArchiveReaderProvider(
+                directory: libraryArtifactDirectory,
+                fileExtension: intake.fileExtension,
+                limits: limits
+            ),
+            limits: limits
+        )
+    }
+
     /// Builds the bundle contents inspection use case over the given library,
     /// selecting the concrete archive implementation.
     ///
     /// The explorer describes applications the library holds, so its archive
     /// boundary reads library storage only, under the same file-extension
     /// convention and the same resource policy as import. It is the same
-    /// reader implementation import uses, chosen here and nowhere below;
-    /// inspection reads a package's entry table and never writes.
+    /// reader implementation import uses, chosen here and nowhere below.
+    /// Structure listing reads a package's entry table and never writes.
     static func makeBundleContentsInspection(
         intake: SecurityScopedArtifactIntake,
         library: ApplicationLibrary,
@@ -494,6 +684,40 @@ enum CompositionRoot {
                 fileExtension: intake.fileExtension,
                 limits: limits
             )
+        )
+    }
+
+    /// Builds the comprehensive, read-only inspection used by App Details.
+    ///
+    /// Metadata reads keep the ordinary 4 MiB policy. The archive reader is
+    /// configured to permit a separate, explicit 32 MiB ceiling for a
+    /// best-effort Mach-O signature-structure summary; larger executables are
+    /// not loaded and are reported as not inspected. This is structural
+    /// parsing only, not cryptographic verification.
+    static func makeApplicationDetailsInspection(
+        intake: SecurityScopedArtifactIntake,
+        library: ApplicationLibrary,
+        limits: ArchiveLimits = .default,
+        maximumExecutableReadBytes: Int = 32 * 1_024 * 1_024
+    ) -> IPAApplicationDetailsInspection {
+        let readerLimits = ArchiveLimits(
+            maximumEntryCount: limits.maximumEntryCount,
+            maximumEntryNameLength: limits.maximumEntryNameLength,
+            maximumPathDepth: limits.maximumPathDepth,
+            maximumEntryBytes: limits.maximumEntryBytes,
+            maximumTotalUncompressedBytes: limits.maximumTotalUncompressedBytes,
+            maximumCompressionRatio: limits.maximumCompressionRatio,
+            maximumInspectionReadBytes: max(limits.maximumInspectionReadBytes, maximumExecutableReadBytes)
+        )
+        return IPAApplicationDetailsInspection(
+            library: library,
+            readerProvider: DirectoryArtifactArchiveReaderProvider(
+                directory: libraryArtifactDirectory,
+                fileExtension: intake.fileExtension,
+                limits: readerLimits
+            ),
+            limits: limits,
+            maximumExecutableReadBytes: maximumExecutableReadBytes
         )
     }
 
@@ -584,6 +808,40 @@ enum CompositionRoot {
         VerifySignedApplication(digest: digest, limits: limits)
     }
 
+    /// Builds the signing engine over the pipeline the environment exposes.
+    ///
+    /// The engine's validator reads the source container through the ordinary
+    /// archive boundary; its working-copy verifier re-reads the signed bundle
+    /// and its container verifier reopens the written container. All three
+    /// are composed over the same reader, digest, and limits the rest of the
+    /// application uses, so no signing path has a private implementation of
+    /// reading, hashing, or verification.
+    static func makeSigningEngine(
+        identityStore: any IdentityStore,
+        pipeline: SignApplicationPipeline,
+        digest: any MessageDigest = makeMessageDigest(),
+        signatureVerifier: any CryptographicSignatureVerifier = makeCryptographicSignatureVerifier(),
+        limits: ArchiveLimits = .default,
+        workingDirectoryRoot: URL? = nil
+    ) -> SigningEngineCoordinator {
+        SigningEngineCoordinator(
+            pipeline: pipeline,
+            validator: SigningEngineBundleValidator(
+                makeReader: { ZipArchiveReader(location: $0, limits: limits) },
+                limits: limits
+            ),
+            workingCopyVerifier: SigningEngineVerifier(
+                identities: identityStore,
+                digest: digest,
+                cryptographicVerifier: signatureVerifier,
+                maximumBinaryBytes: limits.maximumEntryBytes
+            ),
+            containerVerifier: makeVerifySignedApplication(digest: digest, limits: limits),
+            digest: digest,
+            workingDirectoryRoot: workingDirectoryRoot
+        )
+    }
+
     /// Builds the end-to-end application signing pipeline over the given
     /// identity store.
     ///
@@ -621,14 +879,48 @@ enum CompositionRoot {
     /// application-owned artifact storage fed from the intake's staging
     /// directory for the bytes behind them. Nothing is created on disk at
     /// composition time; both stores create their directories on first use.
-    private static func makeApplicationLibrary(intake: SecurityScopedArtifactIntake) -> ApplicationLibrary {
+    private static func makeApplicationLibrary(
+        intake: SecurityScopedArtifactIntake,
+        diagnosticHistory: any SigningDiagnosticsHistoryStore
+    ) -> ApplicationLibrary {
         ApplicationLibrary(
             records: FileApplicationRecordStore(catalogLocation: libraryCatalogLocation),
             artifacts: FileLibraryArtifactStore(
                 stagingDirectory: intake.directory,
                 libraryDirectory: libraryArtifactDirectory,
                 fileExtension: intake.fileExtension
-            )
+            ),
+            diagnosticHistory: diagnosticHistory
+        )
+    }
+
+    static func makeSigningDiagnosticsHistoryStore() -> any SigningDiagnosticsHistoryStore {
+        FileSigningDiagnosticsHistoryStore(
+            location: libraryRootDirectory.appendingPathComponent("SigningDiagnostics.json")
+        )
+    }
+
+    /// One read-only analyzer for import, app details and the signing screen.
+    /// The same profile validator, Keychain metadata port, archive reader and
+    /// Mach-O admission rule are used by the pipeline; no second policy or
+    /// filesystem location is invented by a view.
+    static func makeSigningDiagnostics(
+        library: ApplicationLibrary,
+        intake: SecurityScopedArtifactIntake,
+        identities: any IdentityStore,
+        history: any SigningDiagnosticsHistoryStore
+    ) -> SigningDiagnosticsService {
+        SigningDiagnosticsService(
+            library: library,
+            readerProvider: DirectoryArtifactArchiveReaderProvider(
+                directory: libraryArtifactDirectory,
+                fileExtension: intake.fileExtension
+            ),
+            identities: identities,
+            profilePipeline: makeProvisioningProfilePipeline(identityStore: identities),
+            policy: makeProvisioningPolicyValidation(identityStore: identities),
+            digest: makeMessageDigest(),
+            historyStore: history
         )
     }
 
@@ -638,10 +930,64 @@ enum CompositionRoot {
     ///
     /// Which directory that is comes from the user's working-directory
     /// preference: the system temporary directory by default, or a durable
-    /// workspace under Application Support. The choice is read here, once,
-    /// because the intake owns the staging location for the whole launch.
-    private static func importStagingDirectory(preferences: any PreferencesStore) -> URL {
-        ZynSignStorageLayout.importStagingDirectory(preferences: preferences.snapshot)
+    /// workspace under Application Support. The choice is read once, because
+    /// the intake owns the staging location for the whole launch — and the
+    /// storage screen is given the same list, so what it measures is what the
+    /// choice actually covers.
+    static func importStagingDirectory(preferences: ZynSignPreferences) -> URL {
+        switch preferences.advanced.workingDirectoryBehavior {
+        case .temporary:
+            return FileManager.default.temporaryDirectory
+                .appendingPathComponent("ZynSignImports", isDirectory: true)
+        case .applicationSupport:
+            return libraryRootDirectory
+                .appendingPathComponent("Workspace", isDirectory: true)
+        }
+    }
+
+    /// The preferences store the whole application reads and writes through.
+    ///
+    /// One store per launch: the Settings Control Center writes through it,
+    /// the shell reads it to apply appearance and locking, and the intake
+    /// reads it once to learn where staging happens.
+    static func makePreferencesStore() -> any PreferencesStore {
+        FilePreferencesStore(
+            location: preferencesDocumentLocation(),
+            legacyDefaults: .standard
+        )
+    }
+
+    /// The on-disk location of the preferences document. It lives beside the
+    /// other library records because it is configuration about ZynSign's own
+    /// behaviour rather than a file the user works with, and because a
+    /// preferences document that cannot be read must not be able to stop the
+    /// application launching.
+    static func preferencesDocumentLocation() -> URL {
+        libraryRootDirectory.appendingPathComponent("Preferences.json", isDirectory: false)
+    }
+
+    /// The on-disk location of the opt-in technical log. Same directory, same
+    /// reasoning: it is a record of what ZynSign did, kept on the device.
+    static func diagnosticsLogLocation() -> URL {
+        libraryRootDirectory.appendingPathComponent("Diagnostics.json", isDirectory: false)
+    }
+
+    /// The directory a diagnostic report is written to before the user shares
+    /// it. The user's Documents folder, because a report the user is asked to
+    /// share should be somewhere they can see.
+    static func diagnosticReportDirectory() -> URL {
+        documentsDirectory.appendingPathComponent("Diagnostics", isDirectory: true)
+    }
+
+    /// Builds the biometric authenticator the Security Center and the lock
+    /// use. The platform implementation owns LocalAuthentication; this is the
+    /// only place it is chosen.
+    static func makeBiometricAuthenticator() -> any BiometricAuthenticating {
+        #if os(iOS) && !targetEnvironment(simulator)
+        return LocalAuthenticationBiometricAuthenticator()
+        #else
+        return UnavailableBiometricAuthenticator()
+        #endif
     }
 
     /// The root of durable library storage, inside the application
@@ -649,16 +995,21 @@ enum CompositionRoot {
     /// does not purge, private to the application, and covered by the
     /// container's default file protection.
     private static var libraryRootDirectory: URL {
-        ZynSignStorageLayout.libraryRoot()
+        let applicationSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return applicationSupport.appendingPathComponent("ZynSignLibrary", isDirectory: true)
     }
 
     /// The catalog file holding every library record.
     private static var libraryCatalogLocation: URL {
-        ZynSignStorageLayout.libraryCatalog()
+        libraryRootDirectory.appendingPathComponent("catalog.json", isDirectory: false)
     }
 
     /// The directory adopted artifacts are kept in, named by identifier.
     private static var libraryArtifactDirectory: URL {
-        ZynSignStorageLayout.artifactsDirectory()
+        libraryRootDirectory.appendingPathComponent("Artifacts", isDirectory: true)
     }
 }

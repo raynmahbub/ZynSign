@@ -48,7 +48,7 @@ struct SettingsView: View {
             }
             .accessibilityElement(children: .combine)
         } footer: {
-            Text("Every setting is saved as you change it. Nothing here waits for a confirmation, and nothing here is a preference you cannot undo.")
+            Text("Every preference is saved as you change it. Nothing here waits for a confirmation — except the one reset in Recovery that deletes imported applications, which says what it will delete and asks twice.")
         }
     }
 
@@ -177,21 +177,32 @@ struct SettingsView: View {
 
 // MARK: - Sub-screens
 
+/// Only controls that the signing screen really passes to the pipeline may
+/// appear here. Settings has no global signing configuration to silently
+/// promise a bundle-ID rewrite or plug-in removal the pipeline cannot do.
 struct SigningOptionsView: View {
-    @AppStorage("zynsign.signing.bundleIdPrefix") private var bundlePrefix = ""
-    @AppStorage("zynsign.signing.stripPlugins") private var stripPlugins = false
+    private let emitDEREntitlements: Binding<Bool>?
+
+    init(emitDEREntitlements: Binding<Bool>? = nil) {
+        self.emitDEREntitlements = emitDEREntitlements
+    }
+
     var body: some View {
         Form {
-            Section("Bundle Identifier") {
-                TextField("Optional prefix (e.g. com.example)", text: $bundlePrefix)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                Text("Applied when the provisioning profile's App ID scope covers the identifier. No wildcard is inferred.").font(.caption).foregroundStyle(.secondary)
+            Section("Entitlement encoding") {
+                if let emitDEREntitlements {
+                    Toggle("Request DER entitlements (unsupported)", isOn: emitDEREntitlements)
+                    Text("This build embeds XML only. Requesting DER will be diagnosed as unsupported and block signing; the signer does not yet write slot 7. For an iOS 15+ target requiring DER, use a signer with verified DER support.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                } else {
+                    Text("This build embeds XML entitlements only. DER output is not supported. Open an app in the Library to review its local signing diagnostics.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
             }
-            Section("Advanced") {
-                Toggle("Strip plug-ins before signing", isOn: $stripPlugins)
-                Text("Removes unsupported nested code rather than refusing the package. Disabled by default — the pipeline fails closed.").font(.caption).foregroundStyle(.secondary)
+            Section("Supported today") {
+                Text("The current pipeline only signs supported unsigned Mach-O layouts. It cannot replace existing signatures, change bundle identifiers, or strip nested code. Pre-sign diagnostics checks those limits before signing.")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
-            Section { Text("Options are applied by the pipeline's nested-signing and metadata stages in fixed order and are verified independently. Nothing is persisted until device validation is complete.").font(.footnote).foregroundStyle(.secondary) }
         }
         .navigationTitle("Signing Options").navigationBarTitleDisplayMode(.inline)
     }
@@ -412,7 +423,7 @@ private struct ActivityShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
-private struct AppIconSettingsView: View {
+struct AppIconSettingsView: View {
     var body: some View {
         List {
             Section { Label("Default icon — more variants will appear with future releases.", systemImage: "app.badge").foregroundStyle(.secondary) }

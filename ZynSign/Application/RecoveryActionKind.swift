@@ -16,11 +16,9 @@ enum RecoveryActionKind: String, CaseIterable, Sendable, Identifiable {
     /// Every setting returns to its shipped default.
     case preferences
 
-    /// Derived data the system may reclaim at any time.
+    /// Derived data the system may reclaim at any time: working copies,
+    /// staging files, and leftovers from interrupted operations.
     case workspace
-
-    /// Cached icons, re-derived when a library card next needs one.
-    case cache
 
     /// The library's own records, re-read from disk.
     case libraryIndex
@@ -45,8 +43,6 @@ enum RecoveryActionKind: String, CaseIterable, Sendable, Identifiable {
             return "Every setting returns to its shipped default. Your library, certificates, profiles, and the record of finished onboarding are untouched."
         case .workspace:
             return "Staged imports and working copies are removed. Exported reports are kept, and imported applications are never touched."
-        case .cache:
-            return "Cached application icons are removed and re-created the next time ZynSign shows a library card."
         case .libraryIndex:
             return "ZynSign re-reads its library and removes artifacts no record refers to. No imported application is removed by this."
         case .library:
@@ -67,7 +63,7 @@ extension SensitiveAction {
     static func forRecovery(_ kind: RecoveryActionKind) -> SensitiveAction? {
         switch kind {
         case .preferences: return nil
-        case .cache, .workspace, .libraryIndex: return .clearStorage
+        case .workspace, .libraryIndex: return .clearStorage
         case .library: return .resetLibrary
         }
     }

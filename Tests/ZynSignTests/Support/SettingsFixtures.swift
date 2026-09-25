@@ -39,39 +39,72 @@ enum SettingsFixtures {
         FilePreferencesStore(location: preferencesLocation(root: root), legacyDefaults: nil)
     }
 
-    /// A storage layout inside `root`, mirroring the real one.
-    static func makeStorageLocations(root: URL) -> StorageLocations {
+    /// The storage layout inside `root`, mirroring the real one: the four
+    /// categories the storage screen reports on, each in its own place.
+    static func makeStorageLayout(root: URL) -> StorageLayout {
         let library = root.appendingPathComponent("Library", isDirectory: true)
         let temporary = root.appendingPathComponent("Temporary", isDirectory: true)
-        let caches = root.appendingPathComponent("Caches", isDirectory: true)
         let documents = root.appendingPathComponent("Documents", isDirectory: true)
-        return StorageLocations(
-            libraryArtifacts: library.appendingPathComponent("Artifacts", isDirectory: true),
-            signedArtifacts: documents.appendingPathComponent("Signed", isDirectory: true),
-            temporary: temporary,
-            caches: caches,
-            libraryMetadata: library,
-            export: temporary.appendingPathComponent("ZynSign-Export", isDirectory: true),
-            signingHistoryJournal: library.appendingPathComponent("SigningHistory.json", isDirectory: false),
-            analyticsJournal: root.appendingPathComponent("Analytics", isDirectory: true)
-                .appendingPathComponent("events.jsonl", isDirectory: false),
-            diagnosticsLog: library.appendingPathComponent("Diagnostics.json", isDirectory: false),
-            libraryCatalog: library.appendingPathComponent("catalog.json", isDirectory: false),
-            signingPresetsCatalog: library.appendingPathComponent("SigningPresets.json", isDirectory: false),
-            provisioningProfilesCatalog: library.appendingPathComponent("ProvisioningProfiles.json", isDirectory: false),
-            preferencesDocument: preferencesLocation(root: root)
+        return StorageLayout(
+            importedApplications: library.appendingPathComponent("Artifacts", isDirectory: true),
+            exportedArtifacts: documents.appendingPathComponent("Signed", isDirectory: true),
+            temporary: [temporary],
+            history: library.appendingPathComponent("SigningHistory.json", isDirectory: false),
+            exportCatalog: library.appendingPathComponent("ExportCatalog.json", isDirectory: false),
+            diagnosticsLog: library.appendingPathComponent("Diagnostics.json", isDirectory: false)
         )
     }
 
-    /// A storage service over the synthetic locations inside `root`.
-    static func makeStorageService(root: URL) -> StorageUsageService {
-        StorageUsageService(locations: makeStorageLocations(root: root))
+    /// The storage use case over the synthetic locations inside `root`,
+    /// measured from real files: what a footprint reports is what the
+    /// application would report.
+    static func makeStorageManagement(root: URL) -> StorageManagement {
+        let layout = makeStorageLayout(root: root)
+        return StorageManagement(
+            reporting: FileStorageFootprint(
+                importedApplicationsDirectory: layout.importedApplications,
+                exportedArtifactsDirectory: layout.exportedArtifacts,
+                temporaryDirectories: layout.temporary,
+                historyFiles: [layout.history]
+            ),
+            temporaryData: FileTemporaryStorage(directories: layout.temporary),
+            exports: ExportCenter(
+                records: FileExportRecordStore(catalogLocation: layout.exportCatalog),
+                artifacts: FileExportArtifactStore(exportsDirectory: layout.exportedArtifacts)
+            ),
+            history: FileSigningHistoryStore(
+                journalLocation: layout.history,
+                capacity: 20
+            )
+        )
+    }
+
+    /// The export catalog inside `root`, for a test that needs to record an
+    /// export before storage can be asked to remove it.
+    static func makeExportRecordStore(root: URL) -> FileExportRecordStore {
+        FileExportRecordStore(catalogLocation: makeStorageLayout(root: root).exportCatalog)
+    }
+
+    /// An export record for a file already sitting in export storage.
+    static func makeExportRecord(fileName: String, byteCount: Int, createdAt: Date = Date()) -> ExportRecord {
+        ExportRecord(
+            sourceRecordIdentifier: nil,
+            sourceArtifactIdentifier: nil,
+            applicationName: "Test Application",
+            bundleIdentifier: "com.zynsign.test",
+            shortVersion: "1.0",
+            buildVersion: "1",
+            fileName: fileName,
+            byteCount: byteCount,
+            fingerprint: nil,
+            createdAt: createdAt
+        )
     }
 
     /// A technical log inside `root`.
     static func makeDiagnosticLog(root: URL) -> DiagnosticLog {
         DiagnosticLog(
-            location: makeStorageLocations(root: root).diagnosticsLog,
+            location: makeStorageLayout(root: root).diagnosticsLog,
             maximumBytes: 64 * 1024
         )
     }
@@ -116,6 +149,7 @@ enum SettingsFixtures {
             analyticsJournal: InMemoryLocalAnalyticsJournal(),
             signingPresets: nil,
             signingHistory: nil,
+            storageManagement: makeStorageManagement(root: root),
             preferencesStore: preferences,
             biometricAuthenticator: FakeBiometricAuthenticator(),
             provisioningProfiles: nil
@@ -129,10 +163,23 @@ enum SettingsFixtures {
         return SettingsCenterModel(
             store: preferences,
             environment: makeEnvironment(root: root, preferences: preferences),
-            storage: makeStorageService(root: root),
             diagnosticLog: makeDiagnosticLog(root: root)
         )
     }
+}
+
+/// Where ZynSign's storage lives inside a synthetic root.
+///
+/// The four categories are the four the user can act on, plus the technical
+/// log's own location, so a fixture that needs to place a file places it in
+/// the category that file belongs to.
+struct StorageLayout {
+    let importedApplications: URL
+    let exportedArtifacts: URL
+    let temporary: [URL]
+    let history: URL
+    let exportCatalog: URL
+    let diagnosticsLog: URL
 }
 
 /// A biometric authenticator that answers whatever the test decides and

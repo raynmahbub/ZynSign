@@ -63,14 +63,8 @@ struct RecoverySettingsSection: View {
                 action: { pendingReset = .preferences }
             )
             ZSettingsButtonRow(
-                title: "Clear Cache",
-                subtitle: "Remove cached application icons.",
-                symbol: "trash",
-                action: { pendingReset = .cache }
-            )
-            ZSettingsButtonRow(
                 title: "Clean Temporary Workspace",
-                subtitle: "Remove staged imports and working copies.",
+                subtitle: "Remove working copies and leftovers from interrupted operations.",
                 symbol: "clock.arrow.circlepath",
                 action: { pendingReset = .workspace }
             )
@@ -125,8 +119,6 @@ struct RecoverySettingsSection: View {
         switch kind {
         case .preferences:
             settings.resetPreferences()
-        case .cache:
-            await settings.clearCache()
         case .workspace:
             await settings.clearTemporaryFiles()
         case .libraryIndex:
@@ -142,7 +134,6 @@ private extension RecoveryActionKind {
     var title: String {
         switch self {
         case .preferences: return "Reset Preferences?"
-        case .cache: return "Clear Cache?"
         case .workspace: return "Clean Temporary Workspace?"
         case .libraryIndex: return "Rebuild Library Index?"
         case .library: return "Reset Library?"
@@ -152,7 +143,6 @@ private extension RecoveryActionKind {
     var confirmTitle: String {
         switch self {
         case .preferences: return "Reset"
-        case .cache: return "Clear"
         case .workspace: return "Clean"
         case .libraryIndex: return "Rebuild"
         case .library: return "Reset"
@@ -166,7 +156,7 @@ private extension RecoveryActionKind {
         RecoverySettingsSection()
     }
     .environment(\.settingsCenter, SettingsCenterModel(
-        store: FilePreferencesStore(location: ZynSignStorageLayout.preferencesDocument()),
+        store: FilePreferencesStore(location: CompositionRoot.preferencesDocumentLocation()),
         environment: CompositionRoot.makeApplicationEnvironment()
     ))
     .environment(\.appLock, AppLockController(

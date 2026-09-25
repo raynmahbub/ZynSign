@@ -424,6 +424,17 @@ It also has tests for bundle inspection and the bundle explorer:
   notable entries, headers, locations, item counts, and the note on
   entries that could not be listed; and entry-detail content including the
   statements of what the explorer does not do with each kind.
+- the IPA explorer: file classification, including unknown files remaining
+  listed; statistics from the entry table; search rank, highlight, the
+  immediate-parent rule, and the display cap; tree visibility, pagination,
+  and reveal; quick actions that do not edit and a package-relative copy
+  path; a Mach-O prefix for encryption, signature presence, truncation, and
+  a fat slice past the prefix; entry previews for text, JSON, and property
+  lists; an oversized image refused without a content read; a symbolic link
+  not followed; a foreign read error not copied into the preview; framework
+  and extension pages; and a CMS-wrapped profile shown as declared, not
+  verified. ZIP prefix reads, stored and deflated, live with the archive
+  reader tests.
 
 It also has tests for certificate inspection:
 

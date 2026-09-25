@@ -14,6 +14,8 @@ struct DiagnosticsPreferencesSection: View {
 
     @Environment(\.settingsCenter) private var settings
     @State private var entryCount: Int?
+    /// The technical log's entries, read for the developer rows and the count.
+    @State private var entries: [DiagnosticLogEntry] = []
     @State private var isConfirmingLogClear = false
     @State private var shareItem: SettingsShareItem?
 
@@ -21,7 +23,7 @@ struct DiagnosticsPreferencesSection: View {
         identifier: .diagnostics,
         title: "Diagnostics",
         symbolName: "stethoscope",
-        summary: "Health analysis, history, technical logs, and reports.",
+        summary: "Diagnostic history, technical logs, and reports.",
         footer: "Diagnostics describe ZynSign's own behaviour. They are redacted, on-device, and never transmitted."
     )
 
@@ -48,16 +50,10 @@ struct DiagnosticsPreferencesSection: View {
         }
     }
 
-    // MARK: - Analysis
+    // MARK: - History
 
     private var analysisSection: some View {
         Section {
-            ZSettingsToggleRow(
-                title: "Automatic Health Analysis",
-                subtitle: "Assess the library, identities, and profiles without being asked.",
-                symbol: "heart.text.square",
-                isOn: settings.binding(\.diagnostics.automaticHealthAnalysis)
-            )
             ZSettingsToggleRow(
                 title: "Keep Diagnostic History",
                 subtitle: "Retain what was recorded between launches.",
@@ -65,9 +61,9 @@ struct DiagnosticsPreferencesSection: View {
                 isOn: settings.binding(\.diagnostics.keepDiagnosticHistory)
             )
         } header: {
-            Text("Analysis")
+            Text("History")
         } footer: {
-            Text("With history off, nothing new is recorded and what is already there is left alone — a cleared log stays cleared.")
+            Text("With history off, nothing new is recorded and what is already there is left alone — a cleared log stays cleared. Whether the signing screen assesses a configuration before you sign is a Signing preference, because that is the screen it acts on.")
         }
     }
 
@@ -98,11 +94,47 @@ struct DiagnosticsPreferencesSection: View {
                 symbol: "hammer",
                 isOn: settings.binding(\.diagnostics.developerDiagnostics)
             )
+            if settings.preferences.diagnostics.developerDiagnostics {
+                ForEach(DiagnosticLogEntry.Category.allCases, id: \.self) { category in
+                    ZSettingsValueRow(
+                        title: category.displayName,
+                        symbol: "number",
+                        subtitle: nil
+                    ) {
+                        Text("\(developerCounts[category] ?? 0)")
+                            .font(.subheadline.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                ZSettingsValueRow(
+                    title: "Log schema",
+                    symbol: "doc.badge.gearshape",
+                    subtitle: "The version this build writes the technical log in."
+                ) {
+                    Text("\(DiagnosticLog.currentSchemaVersion)")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                ZSettingsValueRow(
+                    title: "Report schema",
+                    symbol: "doc.badge.gearshape",
+                    subtitle: "The version this build writes a diagnostic report in."
+                ) {
+                    Text("\(DiagnosticReport.schemaVersion)")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
         } header: {
             Text("Developer")
         } footer: {
-            Text("For reading a report next to the screen that produced it. Nothing here changes what ZynSign does; it changes what it shows.")
+            Text("For reading a report next to the screen that produced it. Nothing here changes what ZynSign does; it changes what this page shows — the counts below appear only while it is on.")
         }
+    }
+
+    /// How many log entries each category holds, for the developer rows.
+    private var developerCounts: [DiagnosticLogEntry.Category: Int] {
+        Dictionary(grouping: entries, by: \.category).mapValues(\.count)
     }
 
     // MARK: - Log
@@ -164,7 +196,8 @@ struct DiagnosticsPreferencesSection: View {
     // MARK: - Actions
 
     private func reload() async {
-        entryCount = await settings.diagnosticEntryCount()
+        entries = await settings.diagnosticEntries()
+        entryCount = entries.count
     }
 
     private func clearLog() async {
@@ -241,7 +274,7 @@ private struct SettingsShareSheet: UIViewControllerRepresentable {
         DiagnosticsPreferencesSection()
     }
     .environment(\.settingsCenter, SettingsCenterModel(
-        store: FilePreferencesStore(location: ZynSignStorageLayout.preferencesDocument()),
+        store: FilePreferencesStore(location: CompositionRoot.preferencesDocumentLocation()),
         environment: CompositionRoot.makeApplicationEnvironment()
     ))
 }

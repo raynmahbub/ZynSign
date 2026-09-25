@@ -18,7 +18,6 @@ final class ZynSignPreferencesTests: XCTestCase {
         XCTAssertNil(preferences.signing.preferredIdentityFingerprint)
         XCTAssertNil(preferences.signing.preferredProfileName)
         XCTAssertTrue(preferences.signing.rememberSelections)
-        XCTAssertEqual(preferences.signing.defaultExportLocation, .documentsSigned)
         XCTAssertTrue(preferences.signing.automaticCompatibilityAnalysis)
 
         XCTAssertFalse(preferences.security.biometricLockEnabled)
@@ -28,9 +27,7 @@ final class ZynSignPreferencesTests: XCTestCase {
         XCTAssertEqual(preferences.security.sessionTimeout, .oneMinute)
 
         XCTAssertTrue(preferences.storage.automaticTemporaryCleanup)
-        XCTAssertEqual(preferences.storage.exportRetentionDays, 30)
 
-        XCTAssertTrue(preferences.diagnostics.automaticHealthAnalysis)
         XCTAssertTrue(preferences.diagnostics.keepDiagnosticHistory)
         XCTAssertFalse(preferences.diagnostics.detailedTechnicalLogs)
         XCTAssertFalse(preferences.diagnostics.developerDiagnostics)
@@ -75,7 +72,6 @@ final class ZynSignPreferencesTests: XCTestCase {
         preferences.signing.preferredIdentityFingerprint = "AABBCCDD"
         preferences.signing.preferredProfileName = "ZynSign Development"
         preferences.signing.rememberSelections = false
-        preferences.signing.defaultExportLocation = .askEveryTime
         preferences.signing.automaticCompatibilityAnalysis = false
         preferences.security.biometricLockEnabled = true
         preferences.security.requireAuthenticationForSensitiveActions = false
@@ -83,8 +79,6 @@ final class ZynSignPreferencesTests: XCTestCase {
         preferences.security.sessionTimeout = .immediately
         preferences.security.sensitiveDataVisibility = .visible
         preferences.storage.automaticTemporaryCleanup = false
-        preferences.storage.exportRetentionDays = 7
-        preferences.diagnostics.automaticHealthAnalysis = false
         preferences.diagnostics.keepDiagnosticHistory = false
         preferences.diagnostics.detailedTechnicalLogs = true
         preferences.diagnostics.developerDiagnostics = true
@@ -187,11 +181,6 @@ final class ZynSignPreferencesTests: XCTestCase {
         XCTAssertFalse(SensitiveDataVisibility.hidden.showsValues)
         XCTAssertTrue(SensitiveDataVisibility.masked.showsValues)
         XCTAssertTrue(SensitiveDataVisibility.visible.showsValues)
-    }
-
-    func testOnlyAFixedExportLocationNamesOne() {
-        XCTAssertNotNil(ExportLocation.documentsSigned.fixedLocationDescription)
-        XCTAssertNil(ExportLocation.askEveryTime.fixedLocationDescription)
     }
 
     func testOneThemeIsStored() {

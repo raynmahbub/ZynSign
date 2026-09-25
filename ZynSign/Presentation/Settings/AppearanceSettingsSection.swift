@@ -138,7 +138,7 @@ struct AppearanceSettingsSection: View {
         AppearanceSettingsSection()
     }
     .environment(\.settingsCenter, SettingsCenterModel(
-        store: FilePreferencesStore(location: ZynSignStorageLayout.preferencesDocument()),
+        store: FilePreferencesStore(location: CompositionRoot.preferencesDocumentLocation()),
         environment: CompositionRoot.makeApplicationEnvironment()
     ))
 }

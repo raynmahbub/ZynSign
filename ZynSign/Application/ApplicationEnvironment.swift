@@ -36,8 +36,17 @@ struct ApplicationEnvironment {
     let library: ApplicationLibrary
 
     /// The bundle contents inspection use case: describes, read-only, the
-    /// structure of a library application's bundle for the explorer.
+    /// structure of a library application's bundle for the explorer. It reads
+    /// the entry table and no file bytes.
     let bundleInspection: IPABundleContentsInspection
+
+    /// The comprehensive, bounded inspection use case for the App Details
+    /// metadata, archive summary, nested-code summary, and diagnostics.
+    let applicationDetailsInspection: IPAApplicationDetailsInspection
+
+    /// On-demand preview of one entry. Used only when the user opens a file,
+    /// framework, or extension. It never writes the package.
+    let bundleEntryInspection: IPABundleEntryInspection
 
     /// The signing-identity store. The certificate list and signing capability
     /// are resolved through this port; private-key bytes never leave Platform.
@@ -51,6 +60,13 @@ struct ApplicationEnvironment {
     /// user explicitly signs an imported package with a chosen identity and
     /// provisioning profile.
     let signingPipeline: SignApplicationPipeline
+
+    /// The signing engine: the coordinator that executes one complete signing
+    /// run — isolated working copy, pre-signing bundle validation, inner-first
+    /// nested signing, application signing, independent verification, and
+    /// packaging — behind one entry point and one progress stream. The
+    /// Signing screen drives this and nothing below it directly.
+    let signingEngine: SigningEngineCoordinator
 
     /// The local activity journal: on-device-only analytics the Settings
     /// → Analytics screen reads. Recording goes through
@@ -67,19 +83,28 @@ struct ApplicationEnvironment {
     /// runs. Optional for the same reason as `signingPresets`.
     let signingHistory: (any SigningHistoryStore)?
 
-    /// The user's preferences, loaded once at launch and written whole. The
-    /// Settings Control Center edits them; the composition root reads the
-    /// working-directory and cleanup choices when it builds the workspace.
-    let preferencesStore: any PreferencesStore
-
-    /// How this device authenticates its owner. The Security Center reports
-    /// what it can offer; `AppLockController` is the only thing that asks.
-    let biometricAuthenticator: any BiometricAuthenticating
-
     /// The provisioning-profile library: lists summaries of imported
     /// `.mobileprovision` files. Optional for the same reason as
     /// `signingPresets`.
     let provisioningProfiles: ProvisioningProfileLibrary?
+
+    /// The Export Center: the signed artifacts ZynSign produced, each with the
+    /// current availability of the file behind it. It owns naming, recording,
+    /// verification results, and the removal of exported artifacts — and it
+    /// cannot reach the library's own artifacts, which is why deleting signed
+    /// output can never delete the application it came from.
+    let exportCenter: ExportCenter
+
+    /// The signing operation runner: the one path that signs an application
+    /// and delivers the result to the Export Center. It records the run's
+    /// timeline, its failure when it fails, and its artifact when it
+    /// succeeds, so the signing history is written by the operation that
+    /// happened rather than assembled by an interface.
+    let signingOperations: SigningOperationCenter
+
+    /// The storage use case: what ZynSign is using, and the cleanups the
+    /// storage screen may run. It never removes an imported application.
+    let storageManagement: StorageManagement
 
     /// Imports `.mobileprovision` files into the provisioning-profile
     /// library. Presented by the Profiles tab; `nil` where the composition
@@ -87,10 +112,39 @@ struct ApplicationEnvironment {
     /// construction.
     var provisioningProfileImporter: ProvisioningProfileImporter? = nil
 
+    /// The Smart Compatibility Engine and Profile Matching use case: the
+    /// pre-sign checks, the Compatibility Summary, and the automatic
+    /// profile suggestion for an app. Optional so older composition paths
+    /// and tests can omit it; production paths supply it.
+    var profileCompatibility: ProfileCompatibilityUseCase? = nil
+
+    /// The profile-selection store behind "Use for Signing" and the
+    /// per-app manual override. Optional for the same reason.
+    var profileSelections: (any ProfileSelectionStore)? = nil
+
     /// Extracts application icons from the packages the library holds, for
     /// the Home and Library cards. `nil` where no reader provider is
     /// composed; treated as read-only after construction.
     var appIcons: AppIconExtraction? = nil
+
+    /// Shared read-only analyzer for import, per-app health and signing.
+    /// Profile/entitlement evidence stays in memory; only redacted issue
+    /// codes enter its bounded on-device journal.
+    var signingDiagnostics: SigningDiagnosticsService? = nil
+
+    /// The local-only annotation store behind the Certificates area.
+    var identityAnnotations: (any IdentityAnnotationsStore)? = nil
+
+    /// The user's preferences: one document, loaded once at launch and
+    /// written whole whenever a setting changes. The Settings Control Center
+    /// reads and writes through this port, and the shell reads it once to
+    /// decide where ZynSign stages its work.
+    let preferencesStore: any PreferencesStore
+
+    /// The boundary through which ZynSign asks the user to authenticate. The
+    /// platform implementation owns LocalAuthentication and nothing else
+    /// does; the application learns only whether an attempt succeeded.
+    let biometricAuthenticator: any BiometricAuthenticating
 
     /// Records one local activity event when the journal preference allows.
     ///

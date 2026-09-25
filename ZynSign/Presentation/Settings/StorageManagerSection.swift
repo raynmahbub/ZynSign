@@ -1,28 +1,28 @@
 import SwiftUI
 
-/// Storage Manager — what ZynSign is keeping, and what it will take away.
+/// Storage — what ZynSign is keeping, and what it will take away.
 ///
-/// The dashboard reports allocated space per category and a total that is the
-/// sum of those rows, so a number can always be traced to a location. The
-/// actions remove exactly what they name and nothing else: shared directories
-/// are restricted to entries ZynSign itself created, and every destructive
-/// action asks first.
+/// The usage table reports allocated space per category and a total that is
+/// the sum of those rows, so a number can always be traced to a location. The
+/// actions remove exactly what they name and nothing else, and every
+/// destructive action asks first.
 ///
 /// The one thing this page will not do is remove an imported application.
-/// Imported packages are the library, and the library has its own screen.
+/// Imported packages are the library, and the library has its own screen:
+/// the storage use case this page acts on has no code path that can reach one.
 struct StorageManagerSection: View {
 
     @Environment(\.settingsCenter) private var settings
     @State private var isConfirmingTemporaryClear = false
-    @State private var isConfirmingCacheClear = false
     @State private var isConfirmingExportPrune = false
+    @State private var isConfirmingHistoryPrune = false
 
     static let descriptor = SettingsSectionDescriptor(
         identifier: .storage,
         title: "Storage",
         symbolName: "internaldrive",
         summary: "What ZynSign keeps, and how to clear it.",
-        footer: "Everything here is inside ZynSign's own container. Clearing cache or temporary files never removes an imported application."
+        footer: "Everything here is inside ZynSign's own container. Clearing temporary files, signed artifacts, or old history records never removes an imported application."
     )
 
     var body: some View {
@@ -41,19 +41,19 @@ struct StorageManagerSection: View {
             Button("Cancel", role: .cancel) {}
             Button("Clear", role: .destructive) { Task { await settings.clearTemporaryFiles() } }
         } message: {
-            Text("Staged imports and working copies are removed. Exported reports and certificate backups are kept. Imported applications are never touched.")
+            Text("Working copies, staging files, and leftovers from interrupted operations are removed. Only entries older than the retention interval are taken, and only ones ZynSign recognises as its own work. Signed artifacts and imported applications are kept.")
         }
-        .alert("Clear Cache?", isPresented: $isConfirmingCacheClear) {
-            Button("Cancel", role: .cancel) {}
-            Button("Clear", role: .destructive) { Task { await settings.clearCache() } }
-        } message: {
-            Text("Cached application icons are removed and re-created the next time ZynSign shows a library card. Nothing else is affected.")
-        }
-        .alert("Remove Old Exports?", isPresented: $isConfirmingExportPrune) {
+        .alert("Remove Signed Artifacts?", isPresented: $isConfirmingExportPrune) {
             Button("Cancel", role: .cancel) {}
             Button("Remove", role: .destructive) { Task { await settings.removeOldExports() } }
         } message: {
-            Text("Signed packages older than \(settings.preferences.storage.exportRetentionDays) days are permanently deleted from Documents/Signed. This cannot be undone.")
+            Text("Every signed package ZynSign produced is deleted, together with the export records that describe it. The applications they were signed from are untouched. This cannot be undone.")
+        }
+        .alert("Remove Old History Records?", isPresented: $isConfirmingHistoryPrune) {
+            Button("Cancel", role: .cancel) {}
+            Button("Remove", role: .destructive) { Task { await settings.removeOldHistoryRecords() } }
+        } message: {
+            Text("Signing-history records older than the retention interval are deleted, oldest first. The most recent records are kept whatever their age. This cannot be undone.")
         }
     }
 
@@ -61,7 +61,7 @@ struct StorageManagerSection: View {
 
     private var usageSection: some View {
         Section {
-            if settings.isMeasuringStorage && settings.storageReport == nil {
+            if settings.isMeasuringStorage && settings.storageFootprint == nil {
                 ZSkeleton(rows: 3)
             } else {
                 ZSettingsValueRow(
@@ -69,35 +69,64 @@ struct StorageManagerSection: View {
                     symbol: "internaldrive.fill",
                     subtitle: "Everything ZynSign holds, across every category."
                 ) {
-                    Text(settings.storageReport.map { ByteCountFormatter.string(fromByteCount: $0.total, countStyle: .file) } ?? "—")
+                    Text(formatted(bytes: settings.storageFootprint?.totalByteCount))
                         .font(.headline)
                 }
-                ForEach(StorageCategory.allCases, id: \.self) { category in
-                    let report = settings.storageReport
+                ForEach(StorageCategory.allCases) { category in
+                    let usage = settings.storageFootprint?.usage(of: category)
                     ZSettingsValueRow(
-                        title: category.title,
-                        symbol: category.systemImage,
+                        title: category.displayName,
+                        symbol: symbol(for: category),
                         subtitle: category.explanation
                     ) {
                         VStack(alignment: .trailing, spacing: 4) {
-                            Text(report.map { ByteCountFormatter.string(fromByteCount: $0.bytes(for: category), countStyle: .file) } ?? "—")
+                            Text(formatted(bytes: usage?.byteCount))
                                 .font(.subheadline)
-                            ZStorageUsageBar(fraction: report?.fraction(for: category) ?? 0)
-                                .frame(width: 72)
+                            ZStorageUsageBar(
+                                fraction: fraction(of: usage?.byteCount, in: settings.storageFootprint?.totalByteCount)
+                            )
+                            .frame(width: 72)
+                            Text(countLabel(for: usage))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                         }
                     }
-                }
-                if let measuredAt = settings.storageReport?.measuredAt {
-                    Text("Measured \(measuredAt.formatted(date: .omitted, time: .standard))")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
                 }
             }
         } header: {
             Text("Usage")
         } footer: {
-            Text("Space is measured as the files allocate it, so the total is the sum of the rows rather than an estimate. Cache is derived data: the system may reclaim it at any time.")
+            Text("Space is measured as the files allocate it, so the total is the sum of the rows rather than an estimate. Imported Apps is measured but never offered for cleanup here — removing an imported application is a Library action, one application at a time.")
         }
+    }
+
+    /// The symbol for one category.
+    private func symbol(for category: StorageCategory) -> String {
+        switch category {
+        case .importedApplications: return "app.badge"
+        case .exportedArtifacts: return "shippingbox.fill"
+        case .temporaryFiles: return "clock.arrow.circlepath"
+        case .history: return "list.bullet.rectangle.portrait"
+        }
+    }
+
+    /// How many items a category holds, in words.
+    private func countLabel(for usage: StorageCategoryUsage?) -> String {
+        guard let usage else { return "—" }
+        let count = usage.itemCount
+        return "\(count) \(count == 1 ? "item" : "items")"
+    }
+
+    /// A category's share of the total, as a fraction in 0…1.
+    private func fraction(of bytes: Int?, in total: Int?) -> Double {
+        guard let bytes, let total, total > 0 else { return 0 }
+        return min(1, Double(bytes) / Double(total))
+    }
+
+    /// A byte count, formatted the way the rest of the system formats it.
+    private func formatted(bytes: Int?) -> String {
+        guard let bytes else { return "—" }
+        return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
 
     // MARK: - Actions
@@ -106,31 +135,22 @@ struct StorageManagerSection: View {
         Section {
             ZSettingsButtonRow(
                 title: "Clear Temporary Files",
-                subtitle: "Remove staged imports and working copies.",
+                subtitle: "Remove working copies and leftovers from finished or interrupted operations.",
                 symbol: "trash",
                 action: { isConfirmingTemporaryClear = true }
             )
             ZSettingsButtonRow(
-                title: "Clear Cache",
-                subtitle: "Remove cached application icons.",
-                symbol: "trash",
-                action: { isConfirmingCacheClear = true }
-            )
-            ZSettingsButtonRow(
-                title: "Remove Old Exports",
-                subtitle: "Delete signed packages older than \(settings.preferences.storage.exportRetentionDays) days.",
-                symbol: "clock.arrow.circlepath",
+                title: "Remove Signed Artifacts",
+                subtitle: "Delete every package ZynSign signed, and the export records that describe it.",
+                symbol: "shippingbox",
                 action: { isConfirmingExportPrune = true }
             )
-            NavigationLink {
-                StorageLargeFilesView()
-            } label: {
-                ZSettingsLabel(
-                    title: "Review Large Files",
-                    subtitle: "See the largest files ZynSign holds and remove any of them.",
-                    symbol: "externaldrive.fill.badge.questionmark"
-                )
-            }
+            ZSettingsButtonRow(
+                title: "Remove Old History Records",
+                subtitle: "Delete signing-history records older than the retention interval, always keeping the most recent.",
+                symbol: "list.bullet.rectangle.portrait",
+                action: { isConfirmingHistoryPrune = true }
+            )
             if settings.isPerformingMaintenance {
                 HStack(spacing: ZSpacing.xs) {
                     ProgressView()
@@ -144,7 +164,7 @@ struct StorageManagerSection: View {
         } header: {
             Text("Actions")
         } footer: {
-            Text("Every action here asks first, and reports what it removed and how much it reclaimed. None of them can remove an imported application.")
+            Text("Every action asks first, and reports what it removed and how much it reclaimed. None of them can remove an imported application.")
         }
     }
 
@@ -158,21 +178,10 @@ struct StorageManagerSection: View {
                 symbol: "wand.and.stars",
                 isOn: settings.binding(\.storage.automaticTemporaryCleanup)
             )
-            Stepper(
-                value: settings.binding(\.storage.exportRetentionDays),
-                in: 1...365,
-                step: 1
-            ) {
-                ZSettingsLabel(
-                    title: "Export Retention",
-                    subtitle: "How old a signed package must be before \"Remove Old Exports\" takes it.",
-                    symbol: "calendar"
-                )
-            }
         } header: {
             Text("Preferences")
         } footer: {
-            Text("Automatic cleanup follows the temporary-file policy in Advanced. Exported reports are never removed automatically.")
+            Text("Automatic cleanup follows the temporary-file policy in Advanced, which decides whether ZynSign tidies its own scratch files when it quits or when it launches. When it is off, the actions above are the only way anything is removed — which is why each one asks first.")
         }
     }
 
@@ -183,7 +192,6 @@ struct StorageManagerSection: View {
             LabeledContent("Imported apps", value: "Application Support/ZynSignLibrary/Artifacts")
             LabeledContent("Signed packages", value: "Documents/Signed")
             LabeledContent("Scratch files", value: "System temporary")
-            LabeledContent("Cache", value: "Library/Caches")
             LabeledContent("Records", value: "Application Support/ZynSignLibrary")
         } header: {
             Text("Where things live")
@@ -193,87 +201,12 @@ struct StorageManagerSection: View {
     }
 }
 
-/// The largest files ZynSign holds.
-///
-/// Listing them is the point: a user who wants space back should be able to
-/// see what is actually large rather than guess from a total. Removing a file
-/// here removes that file and nothing else, and asks first.
-private struct StorageLargeFilesView: View {
-
-    @Environment(\.settingsCenter) private var settings
-    @State private var pendingRemoval: StoredFileDescription?
-
-    var body: some View {
-        List {
-            if settings.largestFiles.isEmpty {
-                ContentUnavailableView {
-                    Label("No Large Files", systemImage: "externaldrive.fill.badge.questionmark")
-                } description: {
-                    Text("Nothing ZynSign keeps is large enough to list. Measure storage again from the Storage screen to refresh this list.")
-                }
-            } else {
-                Section {
-                    ForEach(settings.largestFiles) { file in
-                        HStack(spacing: ZSpacing.sm) {
-                            Image(systemName: file.category.systemImage)
-                                .foregroundStyle(.secondary)
-                                .frame(width: 26)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(file.name).lineLimit(1)
-                                Text("\(file.category.title) · \(file.formattedDate)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text(file.formattedByteCount)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                pendingRemoval = file
-                            } label: {
-                                Label("Remove", systemImage: "trash")
-                            }
-                        }
-                    }
-                } header: {
-                    Text("\(settings.largestFiles.count) largest")
-                } footer: {
-                    Text("Removing a file here removes that file. Imported applications are listed as \"Imported Apps\" — removing one is the same as removing it from the library.")
-                }
-            }
-        }
-        .listStyle(.insetGrouped)
-        .navigationTitle("Large Files")
-        .navigationBarTitleDisplayMode(.inline)
-        .task { await settings.refreshLargestFiles() }
-        .alert(
-            "Remove this file?",
-            isPresented: Binding(
-                get: { pendingRemoval != nil },
-                set: { if !$0 { pendingRemoval = nil } }
-            )
-        ) {
-            Button("Cancel", role: .cancel) { pendingRemoval = nil }
-            Button("Remove", role: .destructive) {
-                if let file = pendingRemoval {
-                    Task { await settings.removeStoredFile(file) }
-                }
-                pendingRemoval = nil
-            }
-        } message: {
-            Text("\(pendingRemoval?.name ?? "") is \(pendingRemoval?.formattedByteCount ?? ""). It will be permanently deleted. This cannot be undone.")
-        }
-    }
-}
-
 #Preview {
     NavigationStack {
         StorageManagerSection()
     }
     .environment(\.settingsCenter, SettingsCenterModel(
-        store: FilePreferencesStore(location: ZynSignStorageLayout.preferencesDocument()),
+        store: FilePreferencesStore(location: CompositionRoot.preferencesDocumentLocation()),
         environment: CompositionRoot.makeApplicationEnvironment()
     ))
 }

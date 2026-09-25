@@ -90,7 +90,10 @@ actor DiagnosticLog {
     /// The entries as last read or written, once loaded.
     private var loadedEntries: [DiagnosticLogEntry]?
 
-    init(location: URL = ZynSignStorageLayout.diagnosticsLog(), maximumBytes: Int = DiagnosticLog.defaultMaximumBytes) {
+    /// The log is created with the location it lives at, chosen by the
+    /// composition root: a store that cannot say where it writes is a store
+    /// that writes somewhere nobody chose.
+    init(location: URL, maximumBytes: Int = DiagnosticLog.defaultMaximumBytes) {
         self.location = location
         self.maximumBytes = max(1, maximumBytes)
     }
@@ -225,8 +228,6 @@ struct DiagnosticReport: Equatable, Sendable, Codable {
         var hideSensitiveInformationWhenLocked: Bool
         var sessionTimeout: String
         var automaticTemporaryCleanup: Bool
-        var exportRetentionDays: Int
-        var automaticHealthAnalysis: Bool
         var keepDiagnosticHistory: Bool
         var detailedTechnicalLogs: Bool
         var developerDiagnostics: Bool
@@ -249,7 +250,7 @@ struct DiagnosticReport: Equatable, Sendable, Codable {
     static func make(
         applicationInfo: ApplicationInfo,
         releaseSummary: String,
-        storage: StorageUsageReport,
+        storage: StorageFootprint,
         library: DiagnosticLibraryCounts,
         preferences: ZynSignPreferences,
         technicalLog: [DiagnosticLogEntry],
@@ -267,7 +268,11 @@ struct DiagnosticReport: Equatable, Sendable, Codable {
             platform: PlatformSection(
                 systemVersion: ProcessInfo.processInfo.operatingSystemVersionString
             ),
-            storage: Dictionary(uniqueKeysWithValues: StorageCategory.allCases.map { ($0.title, storage.bytes(for: $0)) }),
+            storage: Dictionary(
+                uniqueKeysWithValues: StorageCategory.allCases.map {
+                    ($0.displayName, storage.usage(of: $0).byteCount)
+                }
+            ),
             library: library,
             preferences: PreferencesSection(
                 changedGroupCount: preferences.changedGroupCount,
@@ -276,8 +281,6 @@ struct DiagnosticReport: Equatable, Sendable, Codable {
                 hideSensitiveInformationWhenLocked: preferences.security.hideSensitiveInformationWhenLocked,
                 sessionTimeout: preferences.security.sessionTimeout.rawValue,
                 automaticTemporaryCleanup: preferences.storage.automaticTemporaryCleanup,
-                exportRetentionDays: preferences.storage.exportRetentionDays,
-                automaticHealthAnalysis: preferences.diagnostics.automaticHealthAnalysis,
                 keepDiagnosticHistory: preferences.diagnostics.keepDiagnosticHistory,
                 detailedTechnicalLogs: preferences.diagnostics.detailedTechnicalLogs,
                 developerDiagnostics: preferences.diagnostics.developerDiagnostics,
