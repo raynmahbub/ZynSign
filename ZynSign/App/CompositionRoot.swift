@@ -24,7 +24,10 @@ enum CompositionRoot {
     /// Library signing screens act on the same Keychain registrations and
     /// the same cryptographic machinery that the tests cover.
     static func makeApplicationEnvironment() -> ApplicationEnvironment {
-        let intake = SecurityScopedArtifactIntake(directory: importStagingDirectory)
+        // The preferences are read before anything else is built, because the
+        // working-directory choice decides where staging happens.
+        let preferences = makePreferencesStore()
+        let intake = SecurityScopedArtifactIntake(directory: importStagingDirectory(preferences: preferences))
         let library = makeApplicationLibrary(intake: intake)
         let packageImport = makePackageImport(intake: intake, library: library)
         let identityStore = makeIdentityStore()
@@ -45,6 +48,8 @@ enum CompositionRoot {
             analyticsJournal: makeAnalyticsJournal(),
             signingPresets: presets,
             signingHistory: history,
+            preferencesStore: preferences,
+            biometricAuthenticator: makeBiometricAuthenticator(),
             provisioningProfiles: profiles
         )
         environment.provisioningProfileImporter = makeProvisioningProfileImporter()
@@ -72,16 +77,11 @@ enum CompositionRoot {
     /// directory — a location the system may reclaim, which is exactly the
     /// durability a derived image deserves.
     static func makeAppIconExtraction() -> AppIconExtraction {
-        let caches = FileManager.default
-            .urls(for: .cachesDirectory, in: .userDomainMask)
-            .first
-            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-                .appendingPathComponent("Library/Caches", isDirectory: true)
-        return AppIconExtraction(
+        AppIconExtraction(
             readerProvider: DirectoryArtifactArchiveReaderProvider(
                 directory: libraryArtifactDirectory
             ),
-            cacheDirectory: caches.appendingPathComponent("ZynSignAppIcons", isDirectory: true)
+            cacheDirectory: ZynSignStorageLayout.iconCacheDirectory()
         )
     }
 
@@ -106,42 +106,41 @@ enum CompositionRoot {
         FileProvisioningProfileLibrary(catalogLocation: provisioningProfileCatalogLocation())
     }
 
+    /// Builds the preferences store for this launch.
+    ///
+    /// The store reads its document during construction — one small file —
+    /// so a preference is a property access rather than a read, and an
+    /// unreadable document becomes shipped defaults rather than a failure.
+    /// Values an earlier version kept in `UserDefaults` are migrated the
+    /// first time there is no document to read.
+    static func makePreferencesStore() -> any PreferencesStore {
+        FilePreferencesStore(location: ZynSignStorageLayout.preferencesDocument())
+    }
+
+    /// Selects the authentication mechanism for this target.
+    static func makeBiometricAuthenticator() -> any BiometricAuthenticating {
+        #if os(iOS)
+        return LocalAuthenticationBiometricAuthenticator()
+        #else
+        return UnavailableBiometricAuthenticator()
+        #endif
+    }
+
     /// The on-disk location of the signing preset catalog. Lives under
     /// Application Support so it is not part of any iCloud or iTunes
     /// backup.
     static func signingPresetCatalogLocation() -> URL {
-        let applicationSupport = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first
-            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-                .appendingPathComponent("Library/Application Support", isDirectory: true)
-        return applicationSupport
-            .appendingPathComponent("ZynSignLibrary", isDirectory: true)
-            .appendingPathComponent("SigningPresets.json", isDirectory: false)
+        ZynSignStorageLayout.signingPresetsCatalog()
     }
 
     /// The on-disk location of the signing history journal.
     static func signingHistoryJournalLocation() -> URL {
-        let applicationSupport = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first
-            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-                .appendingPathComponent("Library/Application Support", isDirectory: true)
-        return applicationSupport
-            .appendingPathComponent("ZynSignLibrary", isDirectory: true)
-            .appendingPathComponent("SigningHistory.json", isDirectory: false)
+        ZynSignStorageLayout.signingHistoryJournal()
     }
 
     /// The on-disk location of the provisioning profile library catalog.
     static func provisioningProfileCatalogLocation() -> URL {
-        let applicationSupport = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first
-            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-                .appendingPathComponent("Library/Application Support", isDirectory: true)
-        return applicationSupport
-            .appendingPathComponent("ZynSignLibrary", isDirectory: true)
-            .appendingPathComponent("ProvisioningProfiles.json", isDirectory: false)
+        ZynSignStorageLayout.provisioningProfilesCatalog()
     }
 
     /// Selects the local activity journal implementation: the file-backed
@@ -636,9 +635,13 @@ enum CompositionRoot {
     /// The application-owned temporary directory user-selected packages are
     /// staged into. The directory is created on first use by the intake;
     /// nothing is created at composition time.
-    private static var importStagingDirectory: URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("ZynSignImports", isDirectory: true)
+    ///
+    /// Which directory that is comes from the user's working-directory
+    /// preference: the system temporary directory by default, or a durable
+    /// workspace under Application Support. The choice is read here, once,
+    /// because the intake owns the staging location for the whole launch.
+    private static func importStagingDirectory(preferences: any PreferencesStore) -> URL {
+        ZynSignStorageLayout.importStagingDirectory(preferences: preferences.snapshot)
     }
 
     /// The root of durable library storage, inside the application
@@ -646,21 +649,16 @@ enum CompositionRoot {
     /// does not purge, private to the application, and covered by the
     /// container's default file protection.
     private static var libraryRootDirectory: URL {
-        let applicationSupport = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first
-            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-                .appendingPathComponent("Library/Application Support", isDirectory: true)
-        return applicationSupport.appendingPathComponent("ZynSignLibrary", isDirectory: true)
+        ZynSignStorageLayout.libraryRoot()
     }
 
     /// The catalog file holding every library record.
     private static var libraryCatalogLocation: URL {
-        libraryRootDirectory.appendingPathComponent("catalog.json", isDirectory: false)
+        ZynSignStorageLayout.libraryCatalog()
     }
 
     /// The directory adopted artifacts are kept in, named by identifier.
     private static var libraryArtifactDirectory: URL {
-        libraryRootDirectory.appendingPathComponent("Artifacts", isDirectory: true)
+        ZynSignStorageLayout.artifactsDirectory()
     }
 }

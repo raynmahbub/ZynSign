@@ -26,6 +26,7 @@ struct HomeView: View {
 
     @Environment(\.applicationEnvironment) private var environment
     @Environment(\.importPresentation) private var importPresentation
+    @Environment(\.settingsCenter) private var settings
     @StateObject private var missionControl = MissionControlService()
     @State private var entries: [LibraryEntry] = []
     @State private var certificateCount: Int?
@@ -33,7 +34,16 @@ struct HomeView: View {
     @State private var failedLoad = false
     @State private var hasReadLibrary = false
     @State private var settledImportCount = 0
-    @AppStorage("zynsign.onboarding.completed") private var onboardingCompleted = false
+
+    /// Whether first-launch onboarding has been completed.
+    ///
+    /// This lives in the preferences store rather than in `UserDefaults`, so
+    /// that Settings → General can show it again and there is exactly one
+    /// record of it. It is the one preference that records something the user
+    /// did rather than something the user wants.
+    private var onboardingCompleted: Bool {
+        settings.preferences.general.onboardingCompleted
+    }
 
     var body: some View {
         NavigationStack {
@@ -235,6 +245,11 @@ struct HomeView: View {
         return true
     }
 
+    /// Records that onboarding is finished, through the preferences store.
+    private func completeOnboarding() {
+        settings.update { $0.general.onboardingCompleted = true }
+    }
+
     private var onboardingCard: some View {
         VStack(alignment: .leading, spacing: ZSpacing.sm) {
             HStack(alignment: .top) {
@@ -248,7 +263,7 @@ struct HomeView: View {
                 }
                 Spacer()
                 Button {
-                    onboardingCompleted = true
+                    completeOnboarding()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
@@ -355,7 +370,7 @@ struct HomeView: View {
         certificateCount = (try? environment.identityStore.listIdentities().count) ?? nil
         profileCount = try? await environment.provisioningProfiles?.count()
         if !entries.isEmpty && (certificateCount ?? 0) > 0 && (profileCount ?? 0) > 0 {
-            onboardingCompleted = true
+            completeOnboarding()
         }
     }
 

@@ -67,6 +67,15 @@ struct ApplicationEnvironment {
     /// runs. Optional for the same reason as `signingPresets`.
     let signingHistory: (any SigningHistoryStore)?
 
+    /// The user's preferences, loaded once at launch and written whole. The
+    /// Settings Control Center edits them; the composition root reads the
+    /// working-directory and cleanup choices when it builds the workspace.
+    let preferencesStore: any PreferencesStore
+
+    /// How this device authenticates its owner. The Security Center reports
+    /// what it can offer; `AppLockController` is the only thing that asks.
+    let biometricAuthenticator: any BiometricAuthenticating
+
     /// The provisioning-profile library: lists summaries of imported
     /// `.mobileprovision` files. Optional for the same reason as
     /// `signingPresets`.

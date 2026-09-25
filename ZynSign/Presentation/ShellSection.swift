@@ -95,3 +95,22 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
         }
     }
 }
+
+// MARK: - Landing tab
+
+extension LandingTab {
+
+    /// The shell section a landing-tab preference names.
+    ///
+    /// The mapping lives here rather than in the preference so a change to the
+    /// shell's tabs does not change what a stored preference means.
+    var shellSection: ShellSection {
+        switch self {
+        case .home: return .home
+        case .library: return .library
+        case .certificates: return .certificates
+        case .profiles: return .profiles
+        case .settings: return .settings
+        }
+    }
+}

@@ -25,6 +25,13 @@ struct SigningView: View {
     @State private var showErrorToast = false
     @State private var emitDEREntitlements = false
     @StateObject private var liveActivity = LiveActivityService()
+    @Environment(\.settingsCenter) private var settings
+    @Environment(\.appLock) private var appLock
+    @State private var healthScore: SigningHealthScore?
+    @State private var isAssessing = false
+    @State private var isConfirmingStrictSign = false
+    @State private var isSigningConfirmed = false
+    @State private var profileSummaries: [ProvisioningProfileSummary] = []
 
     private var selectedIdentity: SigningIdentity? {
         guard let id = selectedIdentityID else { return nil }
@@ -38,6 +45,7 @@ struct SigningView: View {
             identitySection
             profileSection
             entitlementsSection
+            compatibilitySection
             actionSection
             signingStatusSection
             if let result = signingResult { resultSection(result) }
@@ -54,6 +62,14 @@ struct SigningView: View {
         .fileImporter(isPresented: $showProfileImporter, allowedContentTypes: [.data, .item], allowsMultipleSelection: false) { result in handleProfilePicker(result) }
         .sheet(item: $shareItem) { item in ShareSheet(url: item.url) }
         .alert("Signing Failed", isPresented: Binding(get: { signingError != nil }, set: { if !$0 { signingError = nil } })) { Button("OK", role: .cancel) { signingError = nil } } message: { Text(signingError ?? "") }
+        .alert("Sign anyway?", isPresented: $isConfirmingStrictSign) {
+            Button("Cancel", role: .cancel) { isSigningConfirmed = false }
+            Button("Sign") { Task { await sign() } }
+        } message: {
+            Text("Verification strictness is set to Strict and the compatibility assessment reported \(healthScore?.findings.count ?? 0) finding\(healthScore?.findings.count == 1 ? "" : "s"). ZynSign will not refuse — it wants you to confirm.")
+        }
+        .onChange(of: selectedIdentityID) { _, _ in Task { await analyzeIfAutomatic() } }
+        .onChange(of: profileData) { _, _ in Task { await analyzeIfAutomatic() } }
         .zToast(isPresented: $showSuccessToast, message: "Signed — ready in Documents/Signed", style: .success)
         .zToast(isPresented: $showErrorToast, message: signingError ?? "Refused — working copy discarded", style: .error, duration: .seconds(4))
         .zBottomSheet(isPresented: $showSigningOptions) {
@@ -269,7 +285,14 @@ struct SigningView: View {
         do {
             identities = try env.identityStore.listIdentities()
             identitiesError = nil
-            if selectedIdentityID == nil, let first = identities.first(where: { $0.isUsableForSigning }) ?? identities.first { selectedIdentityID = first.id }
+            profileSummaries = (try? await env.provisioningProfiles?.allProfiles()) ?? []
+            // The preferred identity from Settings → Signing is the starting
+            // point; anything the user picks here overrides it for this run.
+            if selectedIdentityID == nil {
+                selectedIdentityID = preferredIdentityID
+                    ?? identities.first(where: { $0.isUsableForSigning })?.id
+                    ?? identities.first?.id
+            }
         } catch let e as ZynSignError { identitiesError = e.userMessage } catch { identitiesError = "Secure identity storage could not be accessed." }
     }
 
@@ -290,11 +313,115 @@ struct SigningView: View {
         }
     }
 
+    /// The identity the user's signing preferences name, when it is one of
+    /// the identities this device can actually use.
+    private var preferredIdentityID: SigningIdentityIdentifier? {
+        guard let fingerprint = settings.preferences.signing.preferredIdentityFingerprint else { return nil }
+        return identities.first { $0.fingerprint.hexDigest == fingerprint }?.id
+    }
+
+    /// Records what was signed with as the starting point for next time.
+    ///
+    /// Only the references are stored — the certificate's public fingerprint
+    /// and the name the profile declares — never key material, and only when
+    /// the user asked for selections to be remembered.
+    private func rememberSelections() {
+        guard settings.preferences.signing.rememberSelections else { return }
+        settings.update { preferences in
+            if let identity = selectedIdentity {
+                preferences.signing.preferredIdentityFingerprint = identity.fingerprint.hexDigest
+            }
+            if let name = profileData.flatMap({ Self.declaredProfileName(from: $0) }) {
+                preferences.signing.preferredProfileName = name
+            }
+        }
+    }
+
+    private var compatibilitySection: some View {
+        Section {
+            if !settings.preferences.signing.automaticCompatibilityAnalysis {
+                Text("Automatic compatibility analysis is off. Turn it on in Settings → Signing to see this before you sign.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Run Analysis Now") { Task { await analyzeCompatibility() } }
+            } else if isAssessing {
+                ZSkeleton(rows: 1)
+            } else if let score = healthScore {
+                HStack(spacing: ZSpacing.xs) {
+                    ZStatusBadge(score.band.headline, systemImage: "stethoscope", kind: kind(for: score.band))
+                    ZStatusBadge("\(score.score)/100", systemImage: "number", kind: .neutral)
+                    Spacer()
+                }
+                ForEach(score.findings, id: \.id) { finding in
+                    Label(finding.title, systemImage: finding.isRisk ? "exclamationmark.circle" : "checkmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(finding.isRisk ? .orange : .secondary)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 32, bottom: 4, trailing: 16))
+                }
+            } else {
+                Button("Run Compatibility Analysis") { Task { await analyzeCompatibility() } }
+            }
+        } header: { Text("Compatibility") } footer: {
+            Text("A read-only assessment of the identity, profile, and application you have chosen. It predicts what the pipeline will say; it never blocks signing.")
+        }
+    }
+
+    private func kind(for band: SigningHealthScore.Band) -> ZStatusBadge.Kind {
+        switch band {
+        case .excellent, .good: return .success
+        case .fair: return .warning
+        case .poor, .risky: return .error
+        }
+    }
+
+    /// Runs the assessment over the current selection.
+    private func analyzeCompatibility() async {
+        guard let identity = selectedIdentity else { healthScore = nil; return }
+        isAssessing = true
+        defer { isAssessing = false }
+        let assessment = SigningHealthAssessment(
+            certificate: identity.certificate,
+            keyAvailability: identity.keyAvailability,
+            isKeyNonExportable: identity.isKeyNonExportable,
+            profile: profileSummaryForSelection(),
+            bundleIdentifier: entry.record.bundleIdentifier.rawValue
+        )
+        healthScore = await assessment.assess()
+    }
+
+    /// Runs the assessment when the user's preference says to.
+    private func analyzeIfAutomatic() async {
+        guard settings.preferences.signing.automaticCompatibilityAnalysis else { return }
+        await analyzeCompatibility()
+    }
+
+    /// The profile in the library the chosen file corresponds to, when ZynSign
+    /// holds it. Without a matching entry the assessment simply has less to
+    /// reason about, and says so.
+    private func profileSummaryForSelection() -> ProvisioningProfileSummary? {
+        guard let data = profileData, let name = Self.declaredProfileName(from: data) else { return nil }
+        return profileSummaries.first { $0.name == name }
+    }
+
     private func sign() async {
         guard let identityID = selectedIdentityID, let profile = profileData else { signingError = "Select an identity and a provisioning profile."; return }
         guard entry.isArtifactAvailable else { signingError = "The package file is not available."; return }
         let sourceURL = env.artifactFileURL(for: entry.record.artifact.artifactID)
         guard FileManager.default.fileExists(atPath: sourceURL.path) else { signingError = "The package file could not be found in ZynSign's storage."; return }
+        // Authentication is asked for only when the user asked for it; a locked
+        // ZynSign is unlocked by this same attempt.
+        let authorization = await appLock.authorize(.sign)
+        guard authorization.isAuthenticated else { signingError = authorization.message; return }
+        // Strict verification asks before acting on a result that carries any
+        // finding. It never refuses: confirming signs exactly as usual.
+        if settings.preferences.advanced.verificationStrictness == .strict,
+           !isSigningConfirmed,
+           let score = healthScore,
+           !score.findings.isEmpty {
+            isSigningConfirmed = true
+            isConfirmingStrictSign = true
+            return
+        }
+        isSigningConfirmed = false
         isSigning = true; signingResult = nil; signingError = nil; outputURL = nil
         await liveActivity.start(stage: "Signing", detail: "Integrity → Profile → Discovery…")
         let entitlements: CodeSigningEntitlements
@@ -321,6 +448,7 @@ struct SigningView: View {
             if result.status == .signed {
                 outputURL = result.outputURL ?? output
                 await liveActivity.end(success: true)
+                rememberSelections()
                 env.recordAnalyticsEvent(category: .signing, name: "sign.succeeded", succeeded: true)
             } else if let failure = result.failure {
                 signingError = "\(failure.stage.rawValue): \(failure.detail)"
@@ -346,6 +474,24 @@ private struct ShareSheet: UIViewControllerRepresentable {
 }
 
 extension SigningView {
+    /// The name a provisioning profile declares about itself.
+    ///
+    /// Read from the profile's own payload, the same way the entitlements are
+    /// read: nothing is sent anywhere and nothing is written. Used to match a
+    /// chosen file against the profile library, and to remember a selection by
+    /// the name the profile declares rather than by a file name.
+    fileprivate static func declaredProfileName(from data: Data) -> String? {
+        let payload: Data
+        if let cms = try? CMSStructureReader.read(data), let content = cms.encapsulatedContent { payload = content }
+        else if let r = data.range(of: Data("<?xml".utf8)) { payload = data.subdata(in: r.lowerBound..<data.endIndex) }
+        else if let r = data.range(of: Data("bplist00".utf8)) { payload = data.subdata(in: r.lowerBound..<data.endIndex) }
+        else { return nil }
+        guard let plist = try? PropertyListSerialization.propertyList(from: payload, options: [], format: nil),
+              let dictionary = plist as? [String: Any],
+              let name = dictionary["Name"] as? String else { return nil }
+        return name
+    }
+
     fileprivate static func entitlements(fromProvisioningProfile data: Data) throws -> CodeSigningEntitlements {
         let payload: Data
         if let cms = try? CMSStructureReader.read(data), let content = cms.encapsulatedContent { payload = content }
