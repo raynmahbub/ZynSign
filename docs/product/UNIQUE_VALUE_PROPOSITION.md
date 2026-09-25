@@ -4,9 +4,9 @@
 
 ## Positioning
 
-Current tools each have clear strengths: **AltStore** is trusted but depends on a companion computer for its classic workflow, **Feather** is praised for its clean on-device signing and certificate support, **ESign** is powerful but can feel overwhelming, and **FlareStore** offers a convenient browser-based ecosystem with certificates and repository tools.
+Sideloading on iOS has a long history of half-finished tools — apps that handle one half of the workflow, then dump raw error codes at the user when the harder half breaks. The space has settled into a familiar pattern: a certificate import, a manual signing dance, opaque failure messages, and a separate place to manage the IPA afterwards.
 
-**ZynSign’s opportunity is to combine the best parts while introducing a distinct identity.**
+**ZynSign’s opportunity is to compress that whole experience into something that feels native to the platform.**
 
 ### Unique Value Proposition
 
@@ -145,15 +145,11 @@ That means **faster feature development and fewer regressions** — `0.1.0-dev` 
 
 ## The ZynSign Identity
 
-If someone asks, *“Why should I use ZynSign instead of Feather, FlareStore, or AltStore?”* the answer shouldn’t be “because it has one extra feature.” It should be:
+If someone asks, *“Why ZynSign?”* the answer shouldn’t be “because it has one extra feature.” It should be:
 
-> **“Because it’s the easiest way to manage your entire sideloading setup.”**
+> **“Because it’s the easiest way to manage your entire sideloading setup — from import, to certificate management, to signing, to delivery — without leaving the device or fighting the UI.”**
 
-* **AltStore** helped make sideloading accessible with Apple ID signing and app refresh workflows.
-* **Feather** proved that a clean on-device signing experience with certificate management is highly valued.
-* **FlareStore** showed the convenience of browser-based signing and an integrated ecosystem.
-
-**ZynSign’s identity is to bring those strengths together while making certificate management, troubleshooting, and everyday maintenance feel as intuitive as using a first-party iOS app.**
+**ZynSign’s identity is to make certificate management, troubleshooting, and everyday maintenance feel as intuitive as using a first-party iOS app.** The whole flow lives inside the sandbox: nothing is uploaded, nothing is sent off-device, and the app is built end-to-end as one cohesive product with a single design language (ZDL v1.0) and a single architecture (ZAS v1.0).
 
 ---
 

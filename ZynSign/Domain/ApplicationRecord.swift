@@ -22,7 +22,7 @@ import Foundation
 /// Records are values. Every change produces a new value with the same
 /// identifier; the persistence boundary decides whether a value replaces an
 /// existing record or creates a new one, keyed on `id` alone.
-struct ApplicationRecord: Equatable, Hashable {
+struct ApplicationRecord: Equatable, Hashable, Sendable {
 
     /// What inspection concluded about the package when it was imported.
     ///
@@ -30,7 +30,7 @@ struct ApplicationRecord: Equatable, Hashable {
     /// kept; finding details are diagnostics, not library data, and are not
     /// persisted. For a record created through the admitting initialiser the
     /// classification is always `valid`, because nothing else is admitted.
-    struct InspectionSummary: Equatable, Hashable {
+    struct InspectionSummary: Equatable, Hashable, Sendable {
 
         /// The classification inspection assigned.
         let classification: ValidationClassification

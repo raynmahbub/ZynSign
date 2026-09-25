@@ -92,9 +92,8 @@ extension View {
 
 // MARK: - Haptics (lightweight, no singleton)
 
-/// ZynSign’s haptics — mirrors `HapticManager` from the FlareStore symbol
-/// list but as a stateless helper that never retains state. Call from any
-/// view via `ZHaptics.tap()` or `.sensoryFeedback` on iOS 17+.
+/// ZynSign’s haptics — a stateless helper that never retains state.
+/// Call from any view via `ZHaptics.tap()` or `.sensoryFeedback` on iOS 17+.
 enum ZHaptics {
     static func tap() {
 #if os(iOS)

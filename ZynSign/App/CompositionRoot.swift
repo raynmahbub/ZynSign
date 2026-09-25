@@ -29,6 +29,9 @@ enum CompositionRoot {
         let identityStore = makeIdentityStore()
         let pkcs12Importer = makePKCS12Importer(identityStore: identityStore)
         let pipeline = makeSignApplicationPipeline(identityStore: identityStore)
+        let presets = makeSigningPresetStore()
+        let history = makeSigningHistoryStore()
+        let profiles = makeProvisioningProfileLibrary()
         return ApplicationEnvironment(
             applicationInfo: ApplicationInfo.current(bundle: .main),
             packageImport: makePackageImport(intake: intake, library: library),
@@ -37,8 +40,70 @@ enum CompositionRoot {
             identityStore: identityStore,
             pkcs12Importer: pkcs12Importer,
             signingPipeline: pipeline,
-            analyticsJournal: makeAnalyticsJournal()
+            analyticsJournal: makeAnalyticsJournal(),
+            signingPresets: presets,
+            signingHistory: history,
+            provisioningProfiles: profiles
         )
+    }
+
+    /// Builds the file-backed signing preset store, lazily created at the
+    /// canonical Application Support location.
+    static func makeSigningPresetStore() -> any SigningPresetStore {
+        FileSigningPresetStore(catalogLocation: signingPresetCatalogLocation())
+    }
+
+    /// Builds the file-backed signing history store, lazily created at the
+    /// canonical Application Support location.
+    static func makeSigningHistoryStore() -> any SigningHistoryStore {
+        FileSigningHistoryStore(
+            journalLocation: signingHistoryJournalLocation(),
+            capacity: AnalyticsPolicy.journalCapacity
+        )
+    }
+
+    /// Builds the file-backed provisioning profile library, lazily created
+    /// at the canonical Application Support location.
+    static func makeProvisioningProfileLibrary() -> ProvisioningProfileLibrary {
+        FileProvisioningProfileLibrary(catalogLocation: provisioningProfileCatalogLocation())
+    }
+
+    /// The on-disk location of the signing preset catalog. Lives under
+    /// Application Support so it is not part of any iCloud or iTunes
+    /// backup.
+    static func signingPresetCatalogLocation() -> URL {
+        let applicationSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return applicationSupport
+            .appendingPathComponent("ZynSignLibrary", isDirectory: true)
+            .appendingPathComponent("SigningPresets.json", isDirectory: false)
+    }
+
+    /// The on-disk location of the signing history journal.
+    static func signingHistoryJournalLocation() -> URL {
+        let applicationSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return applicationSupport
+            .appendingPathComponent("ZynSignLibrary", isDirectory: true)
+            .appendingPathComponent("SigningHistory.json", isDirectory: false)
+    }
+
+    /// The on-disk location of the provisioning profile library catalog.
+    static func provisioningProfileCatalogLocation() -> URL {
+        let applicationSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return applicationSupport
+            .appendingPathComponent("ZynSignLibrary", isDirectory: true)
+            .appendingPathComponent("ProvisioningProfiles.json", isDirectory: false)
     }
 
     /// Selects the local activity journal implementation: the file-backed

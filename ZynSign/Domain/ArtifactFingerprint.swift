@@ -12,7 +12,7 @@
 /// owns file access and the hashing primitive, and is handed to the domain as
 /// data. The algorithm is recorded alongside the digest so that a stored
 /// fingerprint stays interpretable if the algorithm is ever changed.
-struct ArtifactFingerprint: Equatable, Hashable, CustomStringConvertible {
+struct ArtifactFingerprint: Equatable, Hashable, CustomStringConvertible, Sendable {
 
     /// The digest algorithms ZynSign records.
     enum Algorithm: String, CaseIterable, Hashable {

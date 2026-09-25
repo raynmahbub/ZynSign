@@ -28,6 +28,26 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
     /// Settings → Analytics → Local Activity Journal, and journal recording.
     case activityJournal
 
+    /// Alpha 2: Library power features — favorites, recently imported,
+    /// collections, advanced search, filters, bulk selection, quick actions.
+    case libraryPowerFeatures
+
+    /// Alpha 3: Identity management — provisioning profile manager,
+    /// expiration warnings, compatibility diagnostics.
+    case provisioningProfileManager
+
+    /// Beta 1: Professional signing — signing presets, signing queue,
+    /// advanced signing options, verification summary.
+    case signingPresets
+
+    /// Beta 3: Productivity — batch signing and signing history.
+    case batchSigning
+
+    /// v1.0.0 distinguishing feature: pre-sign compatibility assessment
+    /// that predicts whether a (identity, profile, bundle) combination
+    /// will succeed before the pipeline runs.
+    case signingHealthScore
+
     /// Features that must already be available for this one to make sense.
     ///
     /// A release that exposes a feature without its prerequisites would show
@@ -42,6 +62,11 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .missionControl: return [.appStore] // refreshes sources
         case .deliveryHandoff: return [.smartSign]
         case .activityJournal: return []
+        case .libraryPowerFeatures: return []
+        case .provisioningProfileManager: return [.smartSign]
+        case .signingPresets: return [.smartSign, .certificateStudio]
+        case .batchSigning: return [.signingPresets]
+        case .signingHealthScore: return [.smartSign, .signingPresets]
         }
     }
 
@@ -55,6 +80,11 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .missionControl: return "Mission Control"
         case .deliveryHandoff: return "Installation Delivery Hand-off"
         case .activityJournal: return "Local Activity Journal"
+        case .libraryPowerFeatures: return "Library Power Features"
+        case .provisioningProfileManager: return "Provisioning Profile Manager"
+        case .signingPresets: return "Signing Presets"
+        case .batchSigning: return "Batch Signing"
+        case .signingHealthScore: return "Signing Health Score"
         }
     }
 }
@@ -112,11 +142,15 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
     var introducedFeatures: Set<ReleaseFeature> {
         switch self {
         case .horizon: return []
-        case .alpha1: return [.certificateStudio]
-        case .alpha2: return [.smartSign]
+        case .alpha1: return [.certificateStudio, .libraryPowerFeatures]
+        case .alpha2: return [.smartSign, .provisioningProfileManager]
         case .alpha3: return [.appStore, .downloads]
-        case .beta1: return [.missionControl, .deliveryHandoff, .activityJournal]
-        case .beta2, .beta3, .beta4, .rc1, .rc2, .rc3, .stable: return []
+        case .beta1: return [.missionControl, .deliveryHandoff, .activityJournal, .signingPresets]
+        case .beta2: return []
+        case .beta3: return [.batchSigning]
+        case .beta4: return []
+        case .rc1, .rc2, .rc3: return []
+        case .stable: return [.signingHealthScore]
         }
     }
 

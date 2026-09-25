@@ -21,7 +21,7 @@ enum StoredArtifactObservation: Equatable, Hashable {
 /// missing or inconsistent stays in the library with its metadata intact, so
 /// the problem can be shown and diagnosed; nothing is silently recreated, and
 /// the artifact is never reported as available.
-enum ArtifactAvailability: Equatable, Hashable {
+enum ArtifactAvailability: Equatable, Hashable, Sendable {
 
     /// The artifact is held and its size matches the record.
     case available

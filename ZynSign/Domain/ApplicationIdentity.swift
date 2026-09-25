@@ -14,7 +14,7 @@
 /// A constructible `ApplicationIdentity` means only that the declared values
 /// satisfied ZynSign's syntactic rules. It is not evidence that the bundle
 /// exists, is loadable, or is signed.
-struct ApplicationIdentity: Equatable, Hashable {
+struct ApplicationIdentity: Equatable, Hashable, Sendable {
 
     /// The bundle's declared identifier.
     let bundleIdentifier: BundleIdentifier

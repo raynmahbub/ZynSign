@@ -7,7 +7,7 @@
 /// are ZynSign's own acceptance rules for identity values; they make no claim
 /// about what any platform accepts or rejects, and they are not evidence that
 /// a bundle is genuine, loadable, or signed.
-struct BundleIdentifier: Equatable, Hashable, CustomStringConvertible {
+struct BundleIdentifier: Equatable, Hashable, CustomStringConvertible, Sendable {
 
     /// Upper bound for accepted identifiers. A conservative guard against
     /// pathological input, not a platform limit.
