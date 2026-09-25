@@ -33,6 +33,8 @@ enum CompositionRoot {
         let presets = makeSigningPresetStore()
         let history = makeSigningHistoryStore()
         let profiles = makeProvisioningProfileLibrary()
+        let exports = makeExportCenter()
+        let storage = makeStorageManagement(exports: exports, history: history)
         var environment = ApplicationEnvironment(
             applicationInfo: ApplicationInfo.current(bundle: .main),
             packageImport: packageImport,
@@ -45,7 +47,14 @@ enum CompositionRoot {
             analyticsJournal: makeAnalyticsJournal(),
             signingPresets: presets,
             signingHistory: history,
-            provisioningProfiles: profiles
+            provisioningProfiles: profiles,
+            exportCenter: exports,
+            signingOperations: makeSigningOperationCenter(
+                pipeline: pipeline,
+                exports: exports,
+                history: history
+            ),
+            storageManagement: storage
         )
         environment.provisioningProfileImporter = makeProvisioningProfileImporter()
         environment.appIcons = makeAppIconExtraction()
@@ -130,6 +139,109 @@ enum CompositionRoot {
         return applicationSupport
             .appendingPathComponent("ZynSignLibrary", isDirectory: true)
             .appendingPathComponent("SigningHistory.json", isDirectory: false)
+    }
+
+    /// The on-disk location of the export catalog. It lives beside the
+    /// signing history, in Application Support, because it is likewise a
+    /// record of what ZynSign did rather than a file the user works with.
+    static func exportCatalogLocation() -> URL {
+        libraryRootDirectory.appendingPathComponent("Exports.json", isDirectory: false)
+    }
+
+    /// The directory exported artifacts are kept in: the application's own
+    /// Documents folder, so a signed container is visible in the Files app
+    /// and can be moved out by hand. Nothing else writes here.
+    static func exportArtifactDirectory() -> URL {
+        documentsDirectory.appendingPathComponent("Signed", isDirectory: true)
+    }
+
+    /// The root every signing operation's working directory is created under.
+    /// The system may reclaim the temporary directory, which is exactly the
+    /// durability a working copy deserves.
+    static func signingWorkspaceRoot() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZynSignWork", isDirectory: true)
+    }
+
+    /// Every directory whose contents are temporary: package staging for
+    /// import, and the working copies signing operations are made from.
+    /// Cleanup and storage reporting both read this list, so the two can
+    /// never disagree about what "temporary" covers.
+    static func temporaryDirectories() -> [URL] {
+        [importStagingDirectory, signingWorkspaceRoot()]
+    }
+
+    /// The user's Documents folder, where exported artifacts live.
+    static var documentsDirectory: URL {
+        FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Documents", isDirectory: true)
+    }
+
+    /// Builds the Export Center over the file-backed export catalog and the
+    /// signed-output directory. The two are bound here and nowhere else: the
+    /// catalog records names, the directory holds bytes, and this factory is
+    /// what makes them describe the same artifacts.
+    static func makeExportCenter() -> ExportCenter {
+        ExportCenter(
+            records: FileExportRecordStore(catalogLocation: exportCatalogLocation()),
+            artifacts: FileExportArtifactStore(exportsDirectory: exportArtifactDirectory())
+        )
+    }
+
+    /// Builds the independent verifier over the same digest, archive-reader,
+    /// and signature-inspection mechanisms the rest of the application uses,
+    /// with the CMS-backed profile decoder so an embedded profile's container
+    /// signature is actually evaluated rather than skipped.
+    static func makeVerifyExportedArtifact(
+        digest: any MessageDigest = makeMessageDigest()
+    ) -> VerifyExportedArtifact {
+        VerifyExportedArtifact(
+            digest: digest,
+            profileDecoder: CMSProvisioningProfilePayloadDecoder(verifier: makeProvisioningProfileCMSVerifier())
+        )
+    }
+
+    /// Builds the signing operation runner: the pipeline, the Export Center,
+    /// the signing journal, the independent verifier, the per-operation
+    /// workspace, and the volume's free-space figure, composed so one call
+    /// signs an application and records everything that happened.
+    static func makeSigningOperationCenter(
+        pipeline: SignApplicationPipeline,
+        exports: ExportCenter,
+        history: any SigningHistoryStore,
+        verification: VerifyExportedArtifact = makeVerifyExportedArtifact()
+    ) -> SigningOperationCenter {
+        SigningOperationCenter(
+            pipeline: pipeline,
+            exports: exports,
+            history: history,
+            verification: verification,
+            workspaces: FileSigningWorkspace(root: signingWorkspaceRoot()),
+            capacity: FileVolumeStorageCapacity(location: documentsDirectory)
+        )
+    }
+
+    /// Builds the storage use case over the measured locations and the ports
+    /// that own each kind of storage. Imported applications are reported but
+    /// never removed by anything composed here.
+    static func makeStorageManagement(
+        exports: ExportCenter,
+        history: any SigningHistoryStore
+    ) -> StorageManagement {
+        StorageManagement(
+            reporting: FileStorageFootprint(
+                importedApplicationsDirectory: libraryArtifactDirectory,
+                exportedArtifactsDirectory: exportArtifactDirectory(),
+                temporaryDirectories: temporaryDirectories(),
+                historyFiles: [signingHistoryJournalLocation(), exportCatalogLocation()]
+            ),
+            temporaryData: FileTemporaryStorage(directories: temporaryDirectories()),
+            exports: exports,
+            history: history
+        )
     }
 
     /// The on-disk location of the provisioning profile library catalog.

@@ -125,6 +125,29 @@ struct ApplicationSigningFailure: Error, Equatable {
     let category: DiagnosticCategory
 }
 
+/// One report a signing run makes about a stage while it runs.
+///
+/// Reports are advisory: they exist so a caller can show the run's actual
+/// stage-by-stage progress and record a truthful timeline. Nothing about the
+/// run depends on them — an absent observer, or one that does nothing, changes
+/// no result.
+enum ApplicationSigningStageEvent: Equatable, Sendable {
+
+    /// The stage began its work.
+    case began(ApplicationSigningStage)
+
+    /// The stage completed.
+    case finished(ApplicationSigningStage)
+
+    /// The stage refused the run or failed. `detail` is the stage's own
+    /// fixed-language explanation and carries no secrets.
+    case failed(ApplicationSigningStage, detail: String)
+}
+
+/// Receives one run's stage reports. Called synchronously on the run's task,
+/// in the order the stages happen.
+typealias ApplicationSigningStageObserver = @Sendable (ApplicationSigningStageEvent) -> Void
+
 /// Whether one signing run produced a signed container.
 enum ApplicationSigningStatus: String, Equatable {
 
@@ -313,59 +336,91 @@ struct SignApplicationPipeline {
 
     /// Signs one application container.
     ///
+    /// - Parameters:
+    ///   - request: The run's inputs.
+    ///   - workingDirectoryRoot: The directory the run's working copy is
+    ///     created under, when the caller wants the run's temporary state in
+    ///     a place of its own — one directory per operation, so two runs can
+    ///     never write into each other's files. `nil` uses the root the
+    ///     pipeline was composed with.
+    ///   - observer: An optional receiver for the run's stage reports, so a
+    ///     caller can show what is happening and record a truthful timeline.
+    ///     Reporting never changes the run.
     /// - Returns: The run's outcome: a delivered container with every
     ///   stage's evidence, or the refusing stage with a typed reason.
     /// - Throws: `CancellationError` when the run is cancelled. Every other
     ///   failure is a returned result, never a thrown error.
-    func sign(_ request: SignApplicationRequest) async throws -> SignApplicationResult {
+    func sign(
+        _ request: SignApplicationRequest,
+        workingDirectoryRoot: URL? = nil,
+        observe observer: ApplicationSigningStageObserver? = nil
+    ) async throws -> SignApplicationResult {
         try Task.checkCancellation()
-        let workingRoot = try makeWorkingDirectory()
+        let workingRoot = try makeWorkingDirectory(under: workingDirectoryRoot)
         defer { try? FileManager.default.removeItem(at: workingRoot) }
         do {
-            let integrity = try runIntegrity(request: request)
+            let integrity = try await observing(.integrity, observer) {
+                try runIntegrity(request: request)
+            }
             try Task.checkCancellation()
-            let profile = try runProfile(request: request, metadata: integrity.metadata)
+            let profile = try await observing(.profile, observer) {
+                try runProfile(request: request, metadata: integrity.metadata)
+            }
             try Task.checkCancellation()
-            let plan = try runDiscovery(request: request, integrity: integrity)
+            let plan = try await observing(.discovery, observer) {
+                try runDiscovery(request: request, integrity: integrity)
+            }
             try Task.checkCancellation()
-            let extraction = try await runExtraction(
-                request: request,
-                integrity: integrity,
-                workingRoot: workingRoot
-            )
+            let extraction = try await observing(.extraction, observer) {
+                try await runExtraction(
+                    request: request,
+                    integrity: integrity,
+                    workingRoot: workingRoot
+                )
+            }
             try Task.checkCancellation()
-            let nested = try runNestedSigning(
-                request: request,
-                plan: plan,
-                bundleDirectory: extraction.bundleDirectory
-            )
+            let nested = try await observing(.nestedSigning, observer) {
+                try runNestedSigning(
+                    request: request,
+                    plan: plan,
+                    bundleDirectory: extraction.bundleDirectory
+                )
+            }
             try Task.checkCancellation()
-            let sealing = try runSealing(
-                plan: plan,
-                nested: nested,
-                integrity: integrity,
-                bundleDirectory: extraction.bundleDirectory
-            )
+            let sealing = try await observing(.resourceSealing, observer) {
+                try runSealing(
+                    plan: plan,
+                    nested: nested,
+                    integrity: integrity,
+                    bundleDirectory: extraction.bundleDirectory
+                )
+            }
             try Task.checkCancellation()
-            let main = try runMainExecutable(
-                request: request,
-                integrity: integrity,
-                sealed: sealing.seal,
-                bundleDirectory: extraction.bundleDirectory
-            )
+            let main = try await observing(.mainExecutable, observer) {
+                try runMainExecutable(
+                    request: request,
+                    integrity: integrity,
+                    sealed: sealing.seal,
+                    bundleDirectory: extraction.bundleDirectory
+                )
+            }
             try Task.checkCancellation()
-            let packaging = try await runPackaging(
-                request: request,
-                integrity: integrity,
-                bundleDirectory: extraction.bundleDirectory
-            )
+            let packaging = try await observing(.packaging, observer) {
+                try await runPackaging(
+                    request: request,
+                    integrity: integrity,
+                    bundleDirectory: extraction.bundleDirectory
+                )
+            }
             try Task.checkCancellation()
-            let verification = try await runVerification(
-                request: request,
-                integrity: integrity,
-                plan: plan,
-                sealed: sealing.seal
-            )
+            let verification = try await observing(.verification, observer) {
+                try await runVerification(
+                    request: request,
+                    integrity: integrity,
+                    plan: plan,
+                    sealed: sealing.seal
+                )
+            }
             return SignApplicationResult(
                 status: .signed,
                 outputURL: request.outputURL,
@@ -390,10 +445,46 @@ struct SignApplicationPipeline {
         }
     }
 
+    // MARK: - Stage reporting
+
+    /// Runs one stage's work, reporting it to the observer as it begins,
+    /// finishes, or fails.
+    ///
+    /// Reporting is advisory and cannot alter the run: the observer is called
+    /// for its side effect only, its return value is discarded, and no
+    /// failure it might produce is propagated — a caller that throws from the
+    /// observer would otherwise be able to fail a signing run from a progress
+    /// callback.
+    private func observing<T>(
+        _ stage: ApplicationSigningStage,
+        _ observer: ApplicationSigningStageObserver?,
+        _ body: () async throws -> T
+    ) async throws -> T {
+        observer?(.began(stage))
+        do {
+            let value = try await body()
+            observer?(.finished(stage))
+            return value
+        } catch {
+            observer?(.failed(stage, detail: Self.observerDetail(for: error)))
+            throw error
+        }
+    }
+
+    /// The detail reported with a failed stage: the failure's own fixed
+    /// language when it carries any, and a neutral sentence otherwise.
+    private static func observerDetail(for error: any Error) -> String {
+        if let failure = error as? ApplicationSigningFailure { return failure.detail }
+        if let nested = error as? NestedSigningFailure { return nested.detail }
+        if let zynsignError = error as? ZynSignError { return zynsignError.userMessage }
+        if error is CancellationError { return "The operation was cancelled." }
+        return "The stage did not complete."
+    }
+
     // MARK: - Working directories
 
-    private func makeWorkingDirectory() throws -> URL {
-        let root = (workingDirectoryRoot ?? FileManager.default.temporaryDirectory)
+    private func makeWorkingDirectory(under requestedRoot: URL?) throws -> URL {
+        let root = (requestedRoot ?? workingDirectoryRoot ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("zynsign-signing-\(UUID().uuidString)", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
