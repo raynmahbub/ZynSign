@@ -81,6 +81,147 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   progress with a complete final snapshot, and verifying a delivered container
   again — including after it is tampered with.
 
+### Added — 0.1.0-alpha.1 · Step 5: Provisioning Profile Manager
+
+- **Profile Library rebuilt as a manager** — the Profiles tab now lists
+  every imported profile as a row or card carrying name, team name, team
+  ID, distribution type, expiration status with remaining days, device
+  count, import date, and a compatibility indicator, with a List/Grid
+  toggle, instant search (name, team, UUID, App ID, bundle patterns),
+  sort (expiration / name / recently imported / type), and filters by
+  type and expiration state. Cards mark the profile pinned by
+  "Use for Signing"; a friendly illustration, a plain-words explanation,
+  and the Import Profile button open the empty state.
+- **Richer profile summaries** — summaries now record the profile UUID,
+  team name, creation date, distribution type, device count, full App ID
+  with its explicit bundle identifier, and the embedded certificates'
+  SHA-256 fingerprints. Every new field is optional, so catalogs written
+  before this step keep decoding under schema 1; Refresh Validation
+  backfills them from the stored file.
+- **Bundle-pattern derivation fixed** — the importer now derives
+  `covers(bundleIdentifier:)` patterns from the parsed exact-or-wildcard
+  App-ID component (exact → the bundle ID, wildcard → `prefix.*`,
+  team-wide → `*`) instead of a team-prefixed guess that never matched a
+  plain bundle identifier. Legacy catalog entries are repaired by
+  Refresh Validation, which re-reads the stored `.mobileprovision`,
+  re-parses it, and updates the summary while keeping its identity and
+  import date.
+- **Profile import summary** — a successful import presents a summary
+  sheet (team, type, App ID, wildcard/explicit, devices, dates, UUID,
+  certificate count, compatibility quick look) before the library
+  refreshes; corrupted or unsupported files are refused with their typed
+  message and an "Unsupported Profile" title where the format is out of
+  scope, and oversized files are refused before they are read.
+- **Profile Details, General / Application / Distribution** — the detail
+  screen shows name, UUID, team name, team ID, creation and expiration
+  dates; App ID, bundle identifier, wildcard-vs-explicit status, and the
+  covered patterns; distribution type, device count, certificates, and
+  debug permission — inspection only, including the App Store case.
+- **Smart Compatibility Engine** — five pre-sign checks (bundle ID match,
+  team ID match, certificate available, profile expired, profile type
+  supported) each render ✅ / ⚠️ / ❌ / unsupported with an actionable
+  message, and roll up into a Compatibility Summary (Compatible / Needs
+  Attention / Not Compatible / Unsupported). The engine is pure domain
+  logic; the application layer assembles the context from `IdentityStore`.
+- **Expiration intelligence** — Healthy / Expiring Soon (≤ 30 days) /
+  Expired with remaining days and semantic badges everywhere the library
+  shows a profile.
+- **Profile Matching** — opening an app's detail screen ranks the library
+  for that app (exact over wildcard, certificate on device, team match,
+  supported type, longer validity) and suggests the best profile with its
+  reasons; the pinned "Use for Signing" profile is offered first when it
+  ranks, and "Change…" records a per-app manual override — including
+  honest display of an override that no longer suits the app — with
+  "Profile not suitable for this app" shown when nothing qualifies.
+- **Diagnostics Panel** — profile detail lists one message per finding
+  with Success / Warning / Error / Unsupported severity badges: bundle ID
+  mismatch, missing certificate, expired profile, unsupported
+  distribution type, unrecorded certificates (Refresh Validation), and
+  more.
+- **Quick actions** — View Details, Use for Signing, Copy Team ID, Copy
+  Bundle ID, Refresh Validation, and Remove on every profile, from both
+  context menus and swipe actions, plus the same actions inside the
+  detail screen.
+
+### Added — 0.1.0-alpha.1 · Step 4: Certificate Manager
+
+- **Certificate Library** — the Certificates tab is now a real library of
+  signing identities. Each identity shows as a professional card (list row
+  or grid card, with a persisted list/grid toggle): the certificate name
+  (or the user's local display label), team name, Team ID, certificate
+  type (Development / Distribution / Other), expiration status, import
+  date, and key availability. The list is searchable while typing by name,
+  team, issuer, or fingerprint, sortable by name, team, expiration, or
+  import date, and filterable by expiration state, certificate type, and
+  team — with an explicit "nothing matches" state and one-tap filter
+  clearing.
+- **Expiration intelligence** — every identity is classified at read time
+  against an explicit instant: Healthy, Expiring Soon (within a 30-day
+  threshold, inclusive of the boundary), Expired, or Not Yet Valid. The
+  classification is pure domain logic (`CertificateExpirationAssessment`),
+  carries the whole-day remaining count (negative when expired), and is the
+  source of the coloured indicators on cards, rows, and the details screen.
+- **Import signing identity** — the `.p12` / `.pfx` import flow is
+  unchanged in its security model: select the file, enter the password,
+  the container is validated, and the identity is registered through the
+  secure store. The password travels once to the importer and is never
+  stored, logged, or shown again; a failed import keeps the password sheet
+  open with the typed reason, and a successful one closes into a success
+  summary naming the imported identity, its team, type, expiration, and
+  key state. The import date is recorded in the identity's local notes.
+- **Certificate details** — a dedicated details page per identity, in the
+  order a developer reads it: Identity (common name, organization, team
+  name, Team ID, display label), Certificate (issuer, serial, algorithm
+  with key size and curve, signature algorithm, SHA-256 fingerprint,
+  self-signed, import date), Validity (created, expires, remaining days,
+  status), and Key Status (availability, association, capability, usable
+  for signing). The screen reads the identity live from the model by
+  fingerprint, so a change made anywhere is reflected without the screen
+  going stale — and a removal takes it to an honest "no longer available"
+  state.
+- **Team and type extraction** — the certificate's own subject declares its
+  team: the ten-character Team ID from the organizational unit (falling
+  back to a trailing `(TEAMID)` group in the common name) and the team name
+  from the organization attribute. A bare common name declares no team;
+  nothing is invented. The certificate type is read from the common-name
+  prefix Apple's tooling uses ("Apple Development: …", "Apple
+  Distribution: …", and the legacy names); an unrecognised name is "Other",
+  not an error.
+- **Default identity** — the user marks one identity as the default for
+  future signing; the library names it in its own header, badges it on
+  the card and the details page, and the mark is persisted locally by
+  fingerprint. Removing a default's identity clears the mark, and a mark
+  that names no registered identity is cleared on load rather than kept as
+  a ghost.
+- **Quick actions everywhere** — view details, set or clear the default,
+  rename the display label (local only — the certificate is never
+  changed), copy the Team ID, and remove the registration. They are
+  available from swipe actions, long-press context menus, and the details
+  page, with toasts confirming each outcome.
+- **Local notes, stored safely** — display labels, import dates, and the
+  default mark live in a new local annotation store
+  (`FileIdentityAnnotationsStore`), keyed by the certificate's public
+  SHA-256 fingerprint and holding nothing but those display values: no
+  passwords, no key references, no keychain accounts. The catalog is
+  versioned, written atomically, and fails closed on damage — an
+  overlong label, an invalid fingerprint key, or an unsupported schema is
+  reported as unreadable and left in place, never reset. Labels are bounded
+  (120 characters) at the boundary; a longer label is refused, not
+  truncated.
+- **Removal joins the port** — `IdentityStore` now answers one more
+  question: how to forget a registration. Removing a registration never
+  deletes the borrowed key, which remains owned by its provisioning
+  component; the Certificates screen no longer needs to know which store
+  implementation it holds.
+- **Empty state** — with no identities the screen shows a short,
+  friendly, non-technical invitation and a single Import Certificate
+  button, instead of a technical explanation.
+- **UX** — smooth list/grid and filter/sort transitions, search while
+  typing, swipe and context-menu actions, Dynamic Type through semantic
+  fonts, VoiceOver labels that carry the state in words (colour only
+  reinforces), dark mode throughout, and an adaptive grid that gives the
+  iPad the same content in a wider layout.
+
 ### Added — 0.1.0-alpha.1 · Step 2: Production-Grade IPA Import
 
 - **Import queue** — `PackageImportQueue` accepts packages from every entry

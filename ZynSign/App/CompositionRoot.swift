@@ -40,6 +40,7 @@ enum CompositionRoot {
             packageImportQueue: PackageImportQueue(importing: packageImport),
             library: library,
             bundleInspection: makeBundleContentsInspection(intake: intake, library: library),
+            applicationDetailsInspection: makeApplicationDetailsInspection(intake: intake, library: library),
             identityStore: identityStore,
             pkcs12Importer: pkcs12Importer,
             signingPipeline: pipeline,
@@ -50,8 +51,34 @@ enum CompositionRoot {
             provisioningProfiles: profiles
         )
         environment.provisioningProfileImporter = makeProvisioningProfileImporter()
+        environment.profileCompatibility = ProfileCompatibilityUseCase(identityStore: identityStore)
+        environment.profileSelections = UserDefaultsProfileSelectionStore()
         environment.appIcons = makeAppIconExtraction()
+        environment.identityAnnotations = makeIdentityAnnotationsStore()
         return environment
+    }
+
+    /// Builds the file-backed local annotation store the Certificates area
+    /// drives: display labels, import dates, and the default identity. The
+    /// catalog holds public certificate fingerprints and user-chosen labels
+    /// only — no key material, no passwords — and lives next to the other
+    /// local workspaces under Application Support.
+    static func makeIdentityAnnotationsStore() -> any IdentityAnnotationsStore {
+        FileIdentityAnnotationsStore(catalogLocation: identityAnnotationsCatalogLocation())
+    }
+
+    /// The on-disk location of the identity annotation catalog. Lives under
+    /// Application Support so it is not part of any iCloud or iTunes
+    /// backup, in the same directory as the other local workspaces.
+    static func identityAnnotationsCatalogLocation() -> URL {
+        let applicationSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return applicationSupport
+            .appendingPathComponent("ZynSignLibrary", isDirectory: true)
+            .appendingPathComponent("IdentityAnnotations.json", isDirectory: false)
     }
 
     /// Builds the provisioning-profile importer the Profiles tab drives. It
@@ -497,6 +524,40 @@ enum CompositionRoot {
                 fileExtension: intake.fileExtension,
                 limits: limits
             )
+        )
+    }
+
+    /// Builds the comprehensive, read-only inspection used by App Details.
+    ///
+    /// Metadata reads keep the ordinary 4 MiB policy. The archive reader is
+    /// configured to permit a separate, explicit 32 MiB ceiling for a
+    /// best-effort Mach-O signature-structure summary; larger executables are
+    /// not loaded and are reported as not inspected. This is structural
+    /// parsing only, not cryptographic verification.
+    static func makeApplicationDetailsInspection(
+        intake: SecurityScopedArtifactIntake,
+        library: ApplicationLibrary,
+        limits: ArchiveLimits = .default,
+        maximumExecutableReadBytes: Int = 32 * 1_024 * 1_024
+    ) -> IPAApplicationDetailsInspection {
+        let readerLimits = ArchiveLimits(
+            maximumEntryCount: limits.maximumEntryCount,
+            maximumEntryNameLength: limits.maximumEntryNameLength,
+            maximumPathDepth: limits.maximumPathDepth,
+            maximumEntryBytes: limits.maximumEntryBytes,
+            maximumTotalUncompressedBytes: limits.maximumTotalUncompressedBytes,
+            maximumCompressionRatio: limits.maximumCompressionRatio,
+            maximumInspectionReadBytes: max(limits.maximumInspectionReadBytes, maximumExecutableReadBytes)
+        )
+        return IPAApplicationDetailsInspection(
+            library: library,
+            readerProvider: DirectoryArtifactArchiveReaderProvider(
+                directory: libraryArtifactDirectory,
+                fileExtension: intake.fileExtension,
+                limits: readerLimits
+            ),
+            limits: limits,
+            maximumExecutableReadBytes: maximumExecutableReadBytes
         )
     }
 

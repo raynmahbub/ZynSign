@@ -121,6 +121,10 @@ struct PropertyListProvisioningProfileParser: ProvisioningProfileParser {
             root[ProvisioningProfileKeys.teamIdentifier],
             field: ProvisioningProfileKeys.teamIdentifier
         )
+        let teamName = try optionalString(
+            root[ProvisioningProfileKeys.teamName],
+            field: ProvisioningProfileKeys.teamName
+        )
         let platforms = try optionalNonEmptyStringArray(
             root[ProvisioningProfileKeys.platform],
             field: ProvisioningProfileKeys.platform
@@ -185,6 +189,7 @@ struct PropertyListProvisioningProfileParser: ProvisioningProfileParser {
             applicationIdentifier: applicationIdentifier,
             applicationIdentifierPrefixes: prefixes,
             teamIdentifiers: teamIdentifiers,
+            teamName: teamName,
             entitlementTeamIdentifier: entitlementTeamIdentifier,
             entitlements: entitlements,
             provisionedDevices: provisionedDevices,
@@ -474,6 +479,7 @@ enum ProvisioningProfileKeys {
     static let applicationIdentifier = "ApplicationIdentifier"
     static let applicationIdentifierPrefix = "ApplicationIdentifierPrefix"
     static let teamIdentifier = "TeamIdentifier"
+    static let teamName = "TeamName"
     static let entitlements = "Entitlements"
     static let provisionedDevices = "ProvisionedDevices"
     static let developerCertificates = "DeveloperCertificates"

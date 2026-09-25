@@ -39,6 +39,10 @@ struct ApplicationEnvironment {
     /// structure of a library application's bundle for the explorer.
     let bundleInspection: IPABundleContentsInspection
 
+    /// The comprehensive, bounded inspection use case for the App Details
+    /// metadata, archive summary, nested-code summary, and diagnostics.
+    let applicationDetailsInspection: IPAApplicationDetailsInspection
+
     /// The signing-identity store. The certificate list and signing capability
     /// are resolved through this port; private-key bytes never leave Platform.
     let identityStore: any IdentityStore
@@ -85,10 +89,28 @@ struct ApplicationEnvironment {
     /// construction.
     var provisioningProfileImporter: ProvisioningProfileImporter? = nil
 
+    /// The Smart Compatibility Engine and Profile Matching use case: the
+    /// pre-sign checks, the Compatibility Summary, and the automatic
+    /// profile suggestion for an app. Optional so older composition paths
+    /// and tests can omit it; production paths supply it.
+    var profileCompatibility: ProfileCompatibilityUseCase? = nil
+
+    /// The profile-selection store behind "Use for Signing" and the
+    /// per-app manual override. Optional for the same reason.
+    var profileSelections: (any ProfileSelectionStore)? = nil
+
     /// Extracts application icons from the packages the library holds, for
     /// the Home and Library cards. `nil` where no reader provider is
     /// composed; treated as read-only after construction.
     var appIcons: AppIconExtraction? = nil
+
+    /// The local-only annotation store behind the Certificates area: display
+    /// labels, import dates, and the default signing identity. `nil` where
+    /// the composition root supplies no annotation storage; the Certificates
+    /// area then lists identities without local notes and treats default and
+    /// rename as unavailable. Production paths are supplied by the
+    /// composition root.
+    var identityAnnotations: (any IdentityAnnotationsStore)? = nil
 
     /// Records one local activity event when the journal preference allows.
     ///
