@@ -39,6 +39,10 @@ struct ApplicationEnvironment {
     /// structure of a library application's bundle for the explorer.
     let bundleInspection: IPABundleContentsInspection
 
+    /// The comprehensive, bounded inspection use case for the App Details
+    /// metadata, archive summary, nested-code summary, and diagnostics.
+    let applicationDetailsInspection: IPAApplicationDetailsInspection
+
     /// The signing-identity store. The certificate list and signing capability
     /// are resolved through this port; private-key bytes never leave Platform.
     let identityStore: any IdentityStore
@@ -92,6 +96,14 @@ struct ApplicationEnvironment {
     /// the Home and Library cards. `nil` where no reader provider is
     /// composed; treated as read-only after construction.
     var appIcons: AppIconExtraction? = nil
+
+    /// The local-only annotation store behind the Certificates area: display
+    /// labels, import dates, and the default signing identity. `nil` where
+    /// the composition root supplies no annotation storage; the Certificates
+    /// area then lists identities without local notes and treats default and
+    /// rename as unavailable. Production paths are supplied by the
+    /// composition root.
+    var identityAnnotations: (any IdentityAnnotationsStore)? = nil
 
     /// Records one local activity event when the journal preference allows.
     ///

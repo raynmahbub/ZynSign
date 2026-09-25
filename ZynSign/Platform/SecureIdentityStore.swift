@@ -65,7 +65,9 @@ final class SecureIdentityStore: IdentityStore, CustomStringConvertible, CustomD
     }
 
     /// Forgets only the registration. Borrowed keys remain owned by their
-    /// provisioning component. Previously issued capabilities recheck membership.
+    /// provisioning component. Previously issued capabilities recheck
+    /// membership. A missing registration is a structured no-op: removing
+    /// what is already forgotten is safe.
     func removeRegistration(_ id: SigningIdentityIdentifier) throws {
         try sanitized { try registry.remove(id) }
     }

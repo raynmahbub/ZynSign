@@ -10,7 +10,7 @@ extension ProfileDiagnosticSeverity {
         case .success: return .success
         case .warning: return .warning
         case .error: return .error
-        case .unsupported: return .neutral
+        case .unsupported: return .unsupported
         }
     }
 }
@@ -22,7 +22,7 @@ extension ProfileCompatibilityOutcome {
         case .ready: return .success
         case .attention: return .warning
         case .blocked: return .error
-        case .unsupported: return .neutral
+        case .unsupported: return .unsupported
         case .unknown: return .neutral
         }
     }
