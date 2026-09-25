@@ -45,6 +45,55 @@ extension ZynSignError {
         )
     }
 
+    /// The selected file is empty. An empty file cannot be an application
+    /// package, and refusing it before anything is copied keeps the failure
+    /// cheap and its explanation exact.
+    static func importSourceEmpty(
+        diagnosticDetail: String? = nil,
+        underlyingError: (any Error)? = nil
+    ) -> ZynSignError {
+        ZynSignError(
+            category: .invalidInput,
+            userMessage: "The selected file is empty, so it cannot be an application package.",
+            diagnosticDetail: diagnosticDetail,
+            underlyingError: underlyingError
+        )
+    }
+
+    /// The selected file begins with bytes that no ZIP container begins with.
+    ///
+    /// This is a cheap integrity check, not a verdict on the content: a file
+    /// that passes it is still untrusted and is decided by the archive and
+    /// metadata examinations. It exists so the common mistake — a plain file
+    /// that was renamed to `.ipa` — is refused before it is copied, with an
+    /// explanation that names what was actually observed.
+    static func importContainerUnrecognised(
+        diagnosticDetail: String? = nil,
+        underlyingError: (any Error)? = nil
+    ) -> ZynSignError {
+        ZynSignError(
+            category: .invalidInput,
+            userMessage: "The selected file is not a package archive, so it cannot be an application package.",
+            diagnosticDetail: diagnosticDetail,
+            underlyingError: underlyingError
+        )
+    }
+
+    /// The selected file is larger than ZynSign will copy. The check runs
+    /// before anything is written, so an oversized selection costs the user
+    /// nothing but the refusal — and never fills the device.
+    static func importSourceTooLarge(
+        diagnosticDetail: String? = nil,
+        underlyingError: (any Error)? = nil
+    ) -> ZynSignError {
+        ZynSignError(
+            category: .unsupportedInput,
+            userMessage: "The selected package is larger than ZynSign can import.",
+            diagnosticDetail: diagnosticDetail,
+            underlyingError: underlyingError
+        )
+    }
+
     /// The selected file could not be reached — it disappeared, or the file
     /// provider could not produce it. The failure is on the provider side; it
     /// says nothing about the file's content.

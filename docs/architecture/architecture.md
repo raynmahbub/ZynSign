@@ -22,7 +22,8 @@ user-driven `.ipa` selection through the system document picker, one
 security-scoped, bounded-chunk staging of the selected document into
 application-owned temporary storage addressed by the artifact identifier,
 examination of the staged archive by the existing inspection use cases, and
-an Import area that renders the outcome through an explicit phase machine.
+an Import area that renders what the import queue is doing — a later step
+replaces the single-package phase machine with that queue.
 The fifth adds application persistence: a durable, value-typed library
 record for each accepted import, a versioned catalog file that holds those
 records, application-owned artifact storage that adopts the staged archive,
@@ -1438,6 +1439,45 @@ is ever there to be cleared. Nothing staged survives implicitly.
 concurrent imports into shared staging space, storage-pressure handling, and
 crash-recovery semantics beyond the clear-at-next-launch behaviour recorded
 above.
+
+### Import Queue and Duplicate Decision
+
+**Accepted:** importing runs one package at a time, in the order the user
+asked, through a single main-actor queue (`PackageImportQueue`) that every
+entry point feeds — the file picker, a share-sheet or open-in hand-off from
+another application, a drop, and a package selected inside ZynSign's own file
+browser. Serializing is deliberate: the intake is not internally
+synchronized, staging and admission both move large files, and the user is
+never asked two duplicate questions at once. A job is a value the interface
+can render — its file *name*, origin, stage, progress, and outcome — and the
+URL it came from never leaves the queue, is never persisted, and is dropped
+when the job is removed. The queue owns no bytes: a settled job's archive has
+been moved into library storage or discarded by the import, so clearing the
+list can never delete anything the library holds.
+
+**Accepted:** the duplicate comparison runs before anything is committed,
+against the *staged copy*, and the user's answer is part of the import rather
+than a detour from it. The comparison reports evidence — bundle identifier,
+declared version, build, and content fingerprint — and the report offers
+`Keep Both`, `Replace Existing`, and `Cancel Import`. Nothing is stored while
+the question stands, so cancelling it discards the staged copy and leaves the
+library, and the user's file, untouched. Replacing stores the new entry
+first and removes the entries it matched afterwards, so a failure part way
+through leaves the library holding more than the user asked for rather than
+less; entries that could not be removed are reported rather than hidden. A
+difference in declared version or build is treated as information, not a
+collision, and does not raise the question at all.
+
+**Accepted:** pre-import validation happens before the copy, and the selected
+document is never written to. The intake describes the selection — name,
+size, kind, and whether its leading bytes are a ZIP signature — and the
+policy refuses a document that is missing, a directory, empty, beyond the
+4 GiB ceiling, or observed to begin with something other than an archive
+signature. An unobservable signature is not a refusal: the archive boundary
+decides about the copied bytes instead. Nothing above the intake port has the
+means to write to the selected document, which is what makes "the original is
+never modified" a property of the boundary rather than a promise each caller
+keeps.
 
 ## 9. Archive and IPA Handling
 

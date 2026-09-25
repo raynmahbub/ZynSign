@@ -26,6 +26,7 @@ enum CompositionRoot {
     static func makeApplicationEnvironment() -> ApplicationEnvironment {
         let intake = SecurityScopedArtifactIntake(directory: importStagingDirectory)
         let library = makeApplicationLibrary(intake: intake)
+        let packageImport = makePackageImport(intake: intake, library: library)
         let identityStore = makeIdentityStore()
         let pkcs12Importer = makePKCS12Importer(identityStore: identityStore)
         let pipeline = makeSignApplicationPipeline(identityStore: identityStore)
@@ -34,7 +35,8 @@ enum CompositionRoot {
         let profiles = makeProvisioningProfileLibrary()
         var environment = ApplicationEnvironment(
             applicationInfo: ApplicationInfo.current(bundle: .main),
-            packageImport: makePackageImport(intake: intake, library: library),
+            packageImport: packageImport,
+            packageImportQueue: PackageImportQueue(importing: packageImport),
             library: library,
             bundleInspection: makeBundleContentsInspection(intake: intake, library: library),
             identityStore: identityStore,

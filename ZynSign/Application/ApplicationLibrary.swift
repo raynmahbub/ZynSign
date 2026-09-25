@@ -83,7 +83,17 @@ actor ApplicationLibrary {
     /// archive is left for its owner — the import flow — to discard; if an
     /// adopted artifact had to be removed again, the identifier is simply no
     /// longer held anywhere, and discarding it is a no-op.
-    func admit(_ artifact: IPAArtifact) async throws -> LibraryAdmission {
+    ///
+    /// `policy` decides what happens when the library already holds
+    /// byte-identical content. The default recognises it and takes nothing.
+    /// The permissive policy records the import anyway, which is what the
+    /// user asked for when they chose to keep both or to replace an entry:
+    /// in that case the second copy *is* the point, and it is adopted under
+    /// its own identifier.
+    func admit(
+        _ artifact: IPAArtifact,
+        policy: AdmissionPolicy = .strict
+    ) async throws -> LibraryAdmission {
         try Task.checkCancellation()
 
         guard artifact.permitsLaterStages, let metadata = artifact.metadata else {
@@ -99,7 +109,8 @@ actor ApplicationLibrary {
             candidate: reference,
             identity: metadata.identity,
             against: existing,
-            holding: { availability(of: $0).isAvailable }
+            holding: { availability(of: $0).isAvailable },
+            allowingDuplicateContent: policy.allowsDuplicateContent
         ) {
         case .identical(let existingRecord):
             return .alreadyRecorded(existing: existingRecord)
@@ -127,6 +138,38 @@ actor ApplicationLibrary {
             }
             return .recorded(record, relation: relation)
         }
+    }
+
+    // MARK: - Duplicate detection
+
+    /// Compares an examined, still-staged artifact against the records the
+    /// library holds, without committing anything.
+    ///
+    /// The comparison is made against the *staged copy*: its size and content
+    /// fingerprint are measured now, and the records are compared with that
+    /// reference. Measuring reads the staged archive once; admission reads it
+    /// once more, which is deliberate. The two readings cannot disagree —
+    /// nothing writes to a staged archive between the comparison and the
+    /// admission — and keeping the comparison read-only is what lets the user
+    /// be asked before anything is adopted.
+    ///
+    /// Fails with a typed error when the archive cannot be described, because
+    /// a comparison that could not be made must not be reported as "no
+    /// duplicate".
+    func duplicateReport(for artifact: IPAArtifact) async throws -> DuplicateReport {
+        guard artifact.permitsLaterStages, let metadata = artifact.metadata else {
+            throw ZynSignError.unrecordableArtifact(
+                diagnosticDetail: "Artifact '\(artifact.id.rawValue)' was compared with the library without passing inspection."
+            )
+        }
+        let reference = try artifacts.describeStagedArtifact(artifact.id)
+        let existing = try await records.allRecords()
+        return DuplicateDetection.report(
+            identity: metadata.identity,
+            reference: reference,
+            against: existing,
+            holding: { availability(of: $0).isAvailable }
+        )
     }
 
     // MARK: - Reading

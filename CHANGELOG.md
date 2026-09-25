@@ -12,6 +12,80 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — 0.1.0-alpha.1 · Step 2: Production-Grade IPA Import
+
+- **Import queue** — `PackageImportQueue` accepts packages from every entry
+  point and runs them one at a time in the order the user asked, because
+  staging, adoption, and the duplicate question all want the machine to
+  itself. Each job carries its own state (waiting / running / waiting for a
+  decision / settled), its own progress, and its own way out: cancel the one
+  that is running, retry the one that failed or was cancelled, remove the
+  ones that are finished. Progress reports are applied monotonically, so a
+  late report can never make an import appear to undo work.
+- **One import experience** — `ImportQueueView` is the single import area:
+  the file picker, the queue, per-job progress, the duplicate question, and
+  a batch summary that counts what happened (added / already held / refused /
+  failed / cancelled, and the sizes measured) without claiming anything about
+  a package. The shell owns it (`RootView`), and Home, the Library, Files, a
+  share-sheet hand-off, and a drag-and-drop all open the same one through
+  `EnvironmentValues.importPresentation`.
+- **Share Sheet and open-in import** — a package shared or opened into
+  ZynSign from another application is routed to the queue and continues
+  straight into the import flow. ZynSign is also registered as a viewer for
+  provisioning profiles and identities; those documents keep their own flows
+  and are never pushed at the package queue.
+- **Drag and drop** — dropping one or more `.ipa` files onto the import area
+  queues them; pull-to-refresh on the same list opens the picker.
+- **Duplicate detection with a three-way decision** — the comparison runs
+  against the *staged copy* before anything is committed and reports the
+  evidence (bundle identifier, declared version, build, content fingerprint)
+  rather than a verdict. `Keep Both`, `Replace Existing`, and `Cancel Import`
+  each do exactly what they say: keeping both stores a further entry and
+  leaves every existing record alone; replacing stores the new entry *first*
+  and only then removes the entries it matched, so a failure leaves the
+  library holding more than asked rather than less — and reports the entries
+  it could not remove; cancelling stores nothing and discards the staged
+  copy. Version and build differences are information, not collisions, so the
+  question is asked only where there is something to decide.
+- **Pre-import validation before anything is copied** — the selected document
+  is described first (name, size, kind, and whether its leading bytes are an
+  archive signature) and refused there and then if it is empty, a directory,
+  larger than the 4 GiB ceiling, or does not begin like a package archive;
+  every refusal is a typed, user-readable reason. The archive and metadata
+  examinations still decide validity, about the copied bytes.
+- **The selected file is only ever read** — staging copies in bounded chunks
+  inside a file-coordination access with a direct-read fallback, acquires and
+  releases the security scope per operation, and never opens the source for
+  writing, moves it, renames it, or deletes it. A failed or cancelled staging
+  removes the partial copy and nothing else.
+- **Failure vocabulary** — `ImportFailure` composes title, message, and
+  recovery for every way an import can end, with retry offered only where a
+  second attempt can plausibly end differently (storage and internal
+  failures, cancellations) and never for a refusal or a recognised
+  duplicate. `ImportSettlement` and `ImportSummary` carry those outcomes to
+  the interface, and `ImportQueueRendering` is the single place they become
+  sentences.
+- `PackageImportQueueTests` (ordering, progress, cancelling, retrying,
+  duplicate answers, removal, summary), `DuplicateImportTests` (the real
+  pipeline: recognition, keeping both, replacing, kept neighbours, failed
+  removal), `ImportQueueRenderingTests` (the wording), `ImportPreflightTests`
+  (every acceptance and refusal, including the ones preflight must not
+  make), and new `SecurityScopedArtifactIntakeTests` coverage for describing
+  a document and for progress reporting.
+
+### Changed
+
+- The single-package import path now runs through the queue:
+  `IPAPackageImport` gained a pre-import validation stage and the duplicate
+  decision seam, `ApplicationLibrary` gained `duplicateReport(for:)` and an
+  admission policy that can hold two copies of the same bytes on purpose, and
+  `ApplicationLibraryModel` observes the shared queue instead of driving its
+  own import model. `PackageImportModel` and `PackageImportView` are removed;
+  the Library, Home, and Files screens route their import actions through the
+  shell's import area and no longer present pickers of their own.
+- Import analytics are recorded once per settled job by the shell
+  (`import.accepted` / `import.rejected`), whatever entry point started it.
+
 ### Added — 0.1.0-alpha.1 · Step 1: Home Dashboard & App Library
 
 - **Home Dashboard** — the screen users land on: a welcome header with a

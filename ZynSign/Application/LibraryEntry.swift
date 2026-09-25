@@ -61,6 +61,24 @@ struct PackageImportResult: Equatable, Hashable {
     /// package was rejected.
     let admission: LibraryAdmission?
 
+    /// What comparing the package with the library found, and what was
+    /// decided about it, or `nil` when the comparison was not asked for or
+    /// found nothing related.
+    let duplicate: DuplicateOutcome?
+
+    /// Records the outcome of one import. The duplicate outcome defaults to
+    /// absent, so an import that never asked the question — every caller in
+    /// the single-package path — reports no duplicate machinery at all.
+    init(
+        artifact: IPAArtifact,
+        admission: LibraryAdmission?,
+        duplicate: DuplicateOutcome? = nil
+    ) {
+        self.artifact = artifact
+        self.admission = admission
+        self.duplicate = duplicate
+    }
+
     /// Whether inspection accepted the package.
     var isAccepted: Bool {
         artifact.permitsLaterStages

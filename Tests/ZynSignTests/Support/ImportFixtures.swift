@@ -159,6 +159,23 @@ final class SyntheticIntake: ArtifactIntake {
         diagnosticDetail: "synthetic intake failure"
     )
 
+    /// What `describeDocument(at:)` reports. The defaults describe what a
+    /// deliberate selection of a package looks like: a regular file whose
+    /// leading bytes are an archive signature, as large as the content that
+    /// staging will place.
+    var describedKind: ImportSourceDescription.Kind = .regularFile
+    var describedByteCount: Int?
+    var describedBeginsWithArchiveSignature: Bool? = true
+
+    /// Thrown by `describeDocument(at:)` instead of returning a description,
+    /// for exercising the pre-import refusal path.
+    var describeError: (any Error)?
+
+    /// The progress a completed staging reports, in order, before the copy
+    /// finishes. Empty by default: nothing is reported unless a test asks for
+    /// it, so existing expectations about staging are unchanged.
+    var progressReports: [ImportProgress] = []
+
     /// The artifact store sharing this intake's staging area, if any.
     var artifactStore: SyntheticLibraryArtifactStore?
 
@@ -185,11 +202,28 @@ final class SyntheticIntake: ArtifactIntake {
         lock.withLock { discardedIDs }
     }
 
-    func stageDocument(at source: URL, as artifact: ArtifactIdentifier) throws {
+    func describeDocument(at source: URL) throws -> ImportSourceDescription {
+        if let describeError {
+            throw describeError
+        }
+        return ImportSourceDescription(
+            fileName: source.lastPathComponent,
+            byteCount: describedByteCount ?? nextStagedContent.count,
+            kind: describedKind,
+            beginsWithArchiveSignature: describedBeginsWithArchiveSignature
+        )
+    }
+
+    func stageDocument(
+        at source: URL,
+        as artifact: ArtifactIdentifier,
+        reporting progress: (any ImportProgressReporting)?
+    ) throws {
         lock.withLock { attemptedIDs.append(artifact) }
 
         switch behaviour {
         case .stages:
+            reportProgress(progress)
             completeStaging(of: artifact)
 
         case .fails:
@@ -201,7 +235,18 @@ final class SyntheticIntake: ArtifactIntake {
 
         case .waitsUntilCancelledThenSucceeds:
             waitUntilCancelled()
+            reportProgress(progress)
             completeStaging(of: artifact)
+        }
+    }
+
+    /// Delivers the configured reports in the order they were set, so a test
+    /// can present the queue with out-of-order or regressing reports without
+    /// needing a real copy whose timing it cannot control.
+    private func reportProgress(_ progress: (any ImportProgressReporting)?) {
+        guard let progress else { return }
+        for report in progressReports {
+            progress.report(report)
         }
     }
 
@@ -221,6 +266,114 @@ final class SyntheticIntake: ArtifactIntake {
     private func waitUntilCancelled() {
         while !Task.isCancelled {
             Thread.sleep(forTimeInterval: 0.005)
+        }
+    }
+}
+
+// MARK: - Importing double
+
+/// A `PackageImporting` double the queue can drive without a filesystem.
+///
+/// The queue's own behaviour — one job at a time, progress that never moves
+/// backwards, cancellation at every window, retries only where they are
+/// honest, and the duplicate question — is what these tests are about, so the
+/// import capability underneath it is reduced to prepared outcomes. Nothing
+/// here opens a file, reads an archive, or touches a store.
+final class SyntheticImporting: PackageImporting, @unchecked Sendable {
+
+    /// What one import does.
+    enum Behaviour {
+
+        /// Returns the prepared result.
+        case succeeds(PackageImportResult)
+
+        /// Reports the prepared progress values, in order, then returns the
+        /// prepared result. The values may be made deliberately out of order
+        /// or regressing; the queue, not the import, is responsible for what
+        /// the interface ends up showing.
+        case reportsProgress([ImportProgress], PackageImportResult)
+
+        /// Throws the prepared error.
+        case fails(any Error)
+
+        /// Runs until the surrounding task is cancelled, then throws the
+        /// cancellation — the window while an import is genuinely in flight.
+        case waitsUntilCancelled
+
+        /// Asks the caller's duplicate provider and records the answer.
+        /// `cancel` throws the cancellation the real import throws, so the
+        /// question's three answers behave exactly as they do in production.
+        case asksForDecision(DuplicateReport, then: PackageImportResult)
+    }
+
+    private let lock = NSLock()
+    private var queuedBehaviours: [Behaviour] = []
+    private var startedSourceURLs: [URL] = []
+    private var recordedAnswers: [DuplicateResolution] = []
+
+    /// What an import does when no behaviour was queued. Failing loudly is
+    /// better than a default success a test did not ask for.
+    var defaultBehaviour: Behaviour = .fails(
+        ZynSignError.selectedFileUnavailable(diagnosticDetail: "no synthetic import behaviour was queued")
+    )
+
+    /// The URLs imports were started for, in the order they started.
+    var startedSources: [URL] {
+        lock.withLock { startedSourceURLs }
+    }
+
+    /// The answers given to duplicate questions, in the order they were
+    /// answered.
+    var duplicateAnswers: [DuplicateResolution] {
+        lock.withLock { recordedAnswers }
+    }
+
+    func enqueue(_ behaviour: Behaviour) {
+        lock.withLock { queuedBehaviours.append(behaviour) }
+    }
+
+    func enqueue(contentsOf behaviours: [Behaviour]) {
+        lock.withLock { queuedBehaviours.append(contentsOf: behaviours) }
+    }
+
+    func importArtifact(
+        from source: URL,
+        reporting progress: (any ImportProgressReporting)?,
+        resolvingDuplicatesWith duplicateDecision: DuplicateDecisionProvider?
+    ) async throws -> PackageImportResult {
+        let behaviour = lock.withLock { () -> Behaviour in
+            startedSourceURLs.append(source)
+            return queuedBehaviours.isEmpty ? defaultBehaviour : queuedBehaviours.removeFirst()
+        }
+
+        switch behaviour {
+        case .succeeds(let result):
+            return result
+
+        case .reportsProgress(let reports, let result):
+            for report in reports {
+                progress?.report(report)
+            }
+            return result
+
+        case .fails(let error):
+            throw error
+
+        case .waitsUntilCancelled:
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000)
+            }
+            throw CancellationError()
+
+        case .asksForDecision(let report, let result):
+            let answer = await duplicateDecision?(report) ?? .cancel
+            lock.withLock { recordedAnswers.append(answer) }
+            if answer == .cancel {
+                throw ZynSignError.importCancelled(
+                    diagnosticDetail: "Synthetic cancellation at the duplicate question."
+                )
+            }
+            return result
         }
     }
 }

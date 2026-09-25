@@ -13,6 +13,11 @@ import Foundation
 /// - **Selection triage.** The selected location must exist and must be a
 ///   regular file. The file-type policy was applied before staging; this
 ///   check is about what the provider actually produced, not about names.
+/// - **Description.** The selected document is examined — reachable, a
+///   regular file rather than a directory, its size, and whether it begins
+///   the way a ZIP container begins — without copying any of it, so the
+///   pre-import checks can refuse a selection before ZynSign spends storage
+///   on it. The description is an observation, never a verdict.
 /// - **Staging.** The document is copied in bounded chunks — the whole file
 ///   is never held in memory — into a unique application-owned location
 ///   named only by the artifact's identifier. The identifier is a freshly
@@ -20,10 +25,21 @@ import Foundation
 ///   unpredictable, and carries nothing the package could influence; no
 ///   part of a selected document's name or content reaches the file system
 ///   through this type.
+/// - **Progress.** Each copied chunk is reported through the caller's
+///   receiver with the byte count moved so far. Reporting is advisory: it
+///   never changes what is written, and a receiver that drops reports
+///   changes nothing but what the interface shows.
 /// - **Cleanup.** A failed or cancelled staging removes the partial copy on
 ///   its way out. Before the first staging of a process, files left by a
 ///   previous process are cleared, so nothing large is left in temporary
 ///   storage indefinitely.
+///
+/// **The selected document is read, never written.** This type opens the
+/// source for reading, copies through it, and closes it; it never opens the
+/// source for writing, moves it, renames it, changes its attributes, or
+/// deletes it. Staging a document twice — or a hundred times — leaves it
+/// byte-identical, with its name and timestamps untouched, whatever the
+/// outcome of the imports.
 ///
 /// Staging is transient by design. An accepted package is moved out of the
 /// staging directory by the library's artifact store when the library adopts
@@ -72,7 +88,48 @@ final class SecurityScopedArtifactIntake: ArtifactIntake {
 
     // MARK: - ArtifactIntake
 
-    func stageDocument(at source: URL, as artifact: ArtifactIdentifier) throws {
+    func describeDocument(at source: URL) throws -> ImportSourceDescription {
+        if Task.isCancelled {
+            throw ZynSignError.importCancelled()
+        }
+
+        let scopeAcquired = source.startAccessingSecurityScopedResource()
+        defer {
+            if scopeAcquired {
+                source.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        try verifySelectedDocument(source)
+
+        var kind = ImportSourceDescription.Kind.unknown
+        var byteCount: Int?
+        if let values = try? source.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .fileSizeKey]) {
+            if values.isDirectory == true {
+                kind = .directory
+            } else if values.isRegularFile == true {
+                kind = .regularFile
+            }
+            byteCount = values.fileSize
+        }
+        if byteCount == nil, let attributes = try? FileManager.default.attributesOfItem(atPath: source.path),
+           let size = attributes[.size] as? NSNumber {
+            byteCount = size.intValue
+        }
+
+        return ImportSourceDescription(
+            fileName: source.lastPathComponent,
+            byteCount: byteCount,
+            kind: kind,
+            beginsWithArchiveSignature: archiveSignatureMarker(at: source)
+        )
+    }
+
+    func stageDocument(
+        at source: URL,
+        as artifact: ArtifactIdentifier,
+        reporting progress: (any ImportProgressReporting)?
+    ) throws {
         if Task.isCancelled {
             throw ZynSignError.importCancelled()
         }
@@ -93,7 +150,12 @@ final class SecurityScopedArtifactIntake: ArtifactIntake {
         try verifySelectedDocument(source)
         try prepareDirectory()
         do {
-            try streamCopy(from: source, to: destination)
+            try streamCopy(
+                from: source,
+                to: destination,
+                totalByteCount: byteCount(of: source),
+                reporting: progress
+            )
         } catch {
             // Nothing partial survives a failed or cancelled staging.
             try? FileManager.default.removeItem(at: destination)
@@ -178,7 +240,12 @@ final class SecurityScopedArtifactIntake: ArtifactIntake {
     /// is a coordinated URL (Files providers, iCloud). For plain temp URLs
     /// produced by `fileImporter`, coordination is a no-op and the direct
     /// `FileHandle` path is used.
-    private func streamCopy(from source: URL, to destination: URL) throws {
+    private func streamCopy(
+        from source: URL,
+        to destination: URL,
+        totalByteCount: Int?,
+        reporting progress: (any ImportProgressReporting)?
+    ) throws {
         guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
             throw ZynSignError.importTemporaryStorageFailure(
                 diagnosticDetail: "The staged archive could not be created."
@@ -197,7 +264,12 @@ final class SecurityScopedArtifactIntake: ArtifactIntake {
         coordinator.coordinate(readingItemAt: source, options: [], error: &coordinationError) { coordinatedURL in
             didCoordinate = true
             do {
-                try self.chunkedCopy(from: coordinatedURL, to: destination)
+                try self.chunkedCopy(
+                    from: coordinatedURL,
+                    to: destination,
+                    totalByteCount: totalByteCount,
+                    reporting: progress
+                )
             } catch {
                 stagedError = error
             }
@@ -229,11 +301,27 @@ final class SecurityScopedArtifactIntake: ArtifactIntake {
         }
         // Direct path — for fileImporter temp copies and any provider where
         // coordination did not already succeed.
-        try chunkedCopy(from: source, to: destination)
+        try chunkedCopy(
+            from: source,
+            to: destination,
+            totalByteCount: totalByteCount,
+            reporting: progress
+        )
     }
 
     /// The bounded chunked copy used both inside and outside coordination.
-    private func chunkedCopy(from source: URL, to destination: URL) throws {
+    ///
+    /// Reports one progress observation per chunk, with the byte count moved
+    /// so far. The total is reported as reported by the platform and never
+    /// guessed: when it is unknown the copy reports an indeterminate stage
+    /// instead of inventing a fraction. Reporting is the only thing the
+    /// progress receiver can influence here.
+    private func chunkedCopy(
+        from source: URL,
+        to destination: URL,
+        totalByteCount: Int?,
+        reporting progress: (any ImportProgressReporting)?
+    ) throws {
         let reader: FileHandle
         do {
             reader = try FileHandle(forReadingFrom: source)
@@ -250,6 +338,10 @@ final class SecurityScopedArtifactIntake: ArtifactIntake {
         }
         defer { try? writer.close() }
 
+        let total = max(0, totalByteCount ?? 0)
+        var written = 0
+        progress?.report(ImportProgress(stage: .copying, completedUnitCount: 0, totalUnitCount: total))
+
         do {
             while true {
                 if Task.isCancelled {
@@ -258,6 +350,10 @@ final class SecurityScopedArtifactIntake: ArtifactIntake {
                 guard let chunk = try reader.read(upToCount: copyChunkSize) else { break }
                 if chunk.isEmpty { break }
                 try writer.write(contentsOf: chunk)
+                written += chunk.count
+                progress?.report(
+                    ImportProgress(stage: .copying, completedUnitCount: written, totalUnitCount: total)
+                )
             }
         } catch let zynSignError as ZynSignError {
             throw zynSignError
@@ -306,6 +402,60 @@ final class SecurityScopedArtifactIntake: ArtifactIntake {
             }
         }
         return ZynSignError.importCopyFailure(underlyingError: error)
+    }
+
+    // MARK: - Description helpers
+
+    /// The document's size in bytes, when the platform reports one.
+    ///
+    /// Advisory: it is used for the copy's progress denominator and nothing
+    /// else, so an unreadable size produces an indeterminate report rather
+    /// than a refusal. The copy itself is the authority on how many bytes
+    /// there are.
+    private func byteCount(of source: URL) -> Int? {
+        if let values = try? source.resourceValues(forKeys: [.fileSizeKey]), let size = values.fileSize {
+            return size
+        }
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: source.path),
+           let size = attributes[.size] as? NSNumber {
+            return size.intValue
+        }
+        return nil
+    }
+
+    /// Whether the document's first bytes are one of the signatures a ZIP
+    /// container can begin with, or `nil` when they could not be read.
+    ///
+    /// Unknown is a deliberate, distinct answer: some Files providers vend
+    /// their content only inside a coordinated read, and a document that
+    /// could not be looked at here is not a document that failed a check.
+    /// The pre-import policy refuses only an observation of *wrong* bytes.
+    private func archiveSignatureMarker(at source: URL) -> Bool? {
+        if let marker = try? readLeadingBytes(of: source) {
+            return marker
+        }
+        var coordinatedMarker: Bool?
+        var coordinationError: NSError?
+        NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: source, options: [], error: &coordinationError) { url in
+            coordinatedMarker = try? self.readLeadingBytes(of: url)
+        }
+        return coordinatedMarker
+    }
+
+    /// Reads the first four bytes and decides whether they begin a ZIP
+    /// container. A document shorter than four bytes cannot, and is reported
+    /// as such rather than treated as unreadable.
+    private func readLeadingBytes(of url: URL) throws -> Bool {
+        let reader = try FileHandle(forReadingFrom: url)
+        defer { try? reader.close() }
+        guard let head = try reader.read(upToCount: 4), head.count == 4 else { return false }
+        let bytes = [UInt8](head)
+        guard bytes[0] == 0x50, bytes[1] == 0x4B else { return false }
+        // "PK\x03\x04" a local file header, "PK\x05\x06" an empty archive,
+        // "PK\x07\x08" a spanned-archive marker.
+        return (bytes[2] == 0x03 && bytes[3] == 0x04)
+            || (bytes[2] == 0x05 && bytes[3] == 0x06)
+            || (bytes[2] == 0x07 && bytes[3] == 0x08)
     }
 
     // MARK: - Leftover lifecycle

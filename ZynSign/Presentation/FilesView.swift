@@ -11,6 +11,8 @@ import UIKit
 /// and navigate into subdirectories. No cloud browser, no desktop helper.
 struct FilesView: View {
 
+    @Environment(\.applicationEnvironment) private var environment
+    @Environment(\.importPresentation) private var importPresentation
     @StateObject private var model: FilesViewModel
     @State private var searchText = ""
     @State private var isShowingImporter = false
@@ -71,7 +73,7 @@ struct FilesView: View {
             .refreshable { model.reload() }
             .fileImporter(isPresented: $isShowingImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
                 switch result {
-                case .success(let urls): model.importFiles(urls: urls)
+                case .success(let urls): importFiles(urls)
                 case .failure: break
                 }
             }
@@ -97,6 +99,26 @@ struct FilesView: View {
         .onAppear { model.reload() }
         .onChange(of: model.sort) { _, _ in model.reload() }
         .onChange(of: model.ascending) { _, _ in model.reload() }
+    }
+
+    /// Brings a selection into ZynSign.
+    ///
+    /// Application packages are not files like any other: they are what the
+    /// library is for, so they take the import path — the package is
+    /// validated, inspected, and admitted by the same pipeline every other
+    /// entry point uses, and the import area reports what happened. Everything
+    /// else is copied into the folder the user is browsing, which is what this
+    /// screen has always done.
+    private func importFiles(_ urls: [URL]) {
+        let packages = urls.filter { $0.isFileURL && IPAFileFormat.accepts($0) }
+        let others = urls.filter { !packages.contains($0) }
+        if !packages.isEmpty {
+            environment.packageImportQueue.enqueue(packages, origin: .documentPicker)
+            importPresentation.present()
+        }
+        if !others.isEmpty {
+            model.importFiles(urls: others)
+        }
     }
 
     private var fileList: some View {

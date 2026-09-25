@@ -213,4 +213,114 @@ final class SecurityScopedArtifactIntakeTests: XCTestCase {
 
         XCTAssertTrue(ImportFixtures.fileNames(in: stagingDirectory).isEmpty)
     }
+
+    // MARK: - Describing
+
+    func testDescribingADocumentObservesItWithoutCopyingIt() throws {
+        let intake = makeIntake()
+        let source = writeSource()
+
+        let description = try intake.describeDocument(at: source)
+
+        XCTAssertEqual(description.fileName, "Example.ipa")
+        XCTAssertEqual(description.byteCount, FileManager.default.attributesOfItem(atPath: source.path)[.size] as? Int)
+        XCTAssertEqual(description.kind, .regularFile)
+        XCTAssertEqual(description.beginsWithArchiveSignature, true)
+        // Describing is an observation: nothing was staged, and the selected
+        // document is still where it was.
+        XCTAssertTrue(ImportFixtures.fileNames(in: stagingDirectory).isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
+    }
+
+    func testAnEmptyDocumentIsDescribedAsEmptyAndNotAsAnArchive() throws {
+        let intake = makeIntake()
+        let empty = ImportFixtures.writeFile(named: "Empty.ipa", content: Data(), in: workDirectory)
+
+        let description = try intake.describeDocument(at: empty)
+
+        XCTAssertEqual(description.byteCount, 0)
+        XCTAssertEqual(description.beginsWithArchiveSignature, false)
+    }
+
+    func testADocumentThatDoesNotBeginWithAnArchiveSignatureIsObservedAsSuch() throws {
+        let intake = makeIntake()
+        let text = ImportFixtures.writeFile(
+            named: "Notes.ipa",
+            content: Data("this is not an archive".utf8),
+            in: workDirectory
+        )
+
+        let description = try intake.describeDocument(at: text)
+
+        XCTAssertEqual(description.beginsWithArchiveSignature, false)
+    }
+
+    func testDescribingAMissingDocumentIsRefused() throws {
+        let intake = makeIntake()
+        let missing = workDirectory.appendingPathComponent("Gone.ipa")
+
+        XCTAssertThrowsError(try intake.describeDocument(at: missing)) { error in
+            guard let zynSignError = error as? ZynSignError else {
+                return XCTFail("Expected a typed error, got \(error)")
+            }
+            XCTAssertEqual(zynSignError.category, .storageFailure)
+        }
+        XCTAssertTrue(ImportFixtures.fileNames(in: stagingDirectory).isEmpty)
+    }
+
+    // MARK: - Progress
+
+    func testStagingReportsTheBytesItHasCopied() throws {
+        let container = Data(ZipFixtureBuilder.archive(ZipFixtureBuilder.validPackage()))
+        let source = ImportFixtures.writeFile(named: "Example.ipa", content: container, in: workDirectory)
+        let intake = makeIntake(copyChunkSize: 8)
+        let recorder = RecordingProgress()
+        let artifact = IPAArtifact()
+
+        try intake.stageDocument(at: source, as: artifact.id, reporting: recorder)
+
+        let reports = recorder.reports
+        XCTAssertFalse(reports.isEmpty)
+        XCTAssertTrue(reports.allSatisfy { $0.stage == .copying })
+        let last = try XCTUnwrap(reports.last)
+        XCTAssertEqual(last.totalUnitCount, container.count)
+        XCTAssertEqual(last.completedUnitCount, container.count)
+
+        // The reports describe the same copy the staging performed: what is
+        // staged is the whole source, byte for byte.
+        let stagedURL = stagingDirectory
+            .appendingPathComponent(artifact.id.rawValue)
+            .appendingPathExtension("ipa")
+        XCTAssertEqual(FileManager.default.contents(atPath: stagedURL.path), container)
+    }
+
+    func testStagingNeverChangesTheSelectedDocument() throws {
+        let container = Data(ZipFixtureBuilder.archive(ZipFixtureBuilder.validPackage()))
+        let source = ImportFixtures.writeFile(named: "Example.ipa", content: container, in: workDirectory)
+        let before = try FileManager.default.attributesOfItem(atPath: source.path)
+        let intake = makeIntake(copyChunkSize: 4)
+
+        try intake.stageDocument(at: source, as: IPAArtifact().id)
+        intake.discardStagedDocument(for: IPAArtifact().id)
+
+        XCTAssertEqual(FileManager.default.contents(atPath: source.path), container)
+        let after = try FileManager.default.attributesOfItem(atPath: source.path)
+        XCTAssertEqual(before[.size] as? Int, after[.size] as? Int)
+        XCTAssertEqual(before[.modificationDate] as? Date, after[.modificationDate] as? Date)
+    }
+}
+
+/// Collects progress reports so a test can assert what the copy reported.
+private final class RecordingProgress: ImportProgressReporting, @unchecked Sendable {
+
+    private let lock = NSLock()
+    private var values: [ImportProgress] = []
+
+    var reports: [ImportProgress] {
+        lock.withLock { values }
+    }
+
+    func report(_ progress: ImportProgress) {
+        lock.withLock { values.append(progress) }
+    }
 }

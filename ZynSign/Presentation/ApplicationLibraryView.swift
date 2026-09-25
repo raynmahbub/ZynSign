@@ -3,11 +3,12 @@ import SwiftUI
 /// The Applications area of the shell: ZynSign's application library.
 ///
 /// The screen presents the persisted records of accepted imports and offers
-/// the everyday library operations: importing another package through the
-/// existing document-import workflow, opening an application's detail
-/// screen (and from there the read-only bundle explorer), marking favourites,
-/// and deleting entries together with the package files behind them — one at
-/// a time or in a selection.
+/// the everyday library operations: opening an application's detail screen
+/// (and from there the read-only bundle explorer), marking favourites, and
+/// deleting entries together with the package files behind them — one at a
+/// time or in a selection. Its import action opens the shell's import area,
+/// and its model follows the shared import queue, so a package imported from
+/// anywhere in the application appears here without any manual refreshing.
 ///
 /// The list can be shown as rows or as a grid of cards, filtered by name or
 /// bundle identifier, and ordered by recency, name, or declared version.
@@ -17,9 +18,7 @@ import SwiftUI
 struct ApplicationLibraryView: View {
 
     @StateObject private var model: ApplicationLibraryModel
-    @StateObject private var importing: PackageImportModel
-    @Environment(\.applicationEnvironment) private var environment
-    @State private var isShowingImporter = false
+    @Environment(\.importPresentation) private var importPresentation
     @State private var entryPendingRemoval: LibraryEntry?
     @State private var selectionPendingRemoval: [LibraryEntry] = []
     @State private var entryPendingDetails: LibraryEntry?
@@ -28,24 +27,22 @@ struct ApplicationLibraryView: View {
     @AppStorage("zynsign.library.showsGrid") private var showsGrid = false
     private let bundleInspection: IPABundleContentsInspection
 
-    /// Creates the screen over the library, import, and bundle inspection
-    /// use cases the composition root supplied. The import presentation
-    /// model is the same phase machine the Import area uses; the library
-    /// model observes its outcomes, so a successful import refreshes the
-    /// list. The inspection use case is handed on to the detail screen,
-    /// which offers the bundle explorer. The signing journal is read-only;
-    /// `nil` simply means cards never show a signed state.
+    /// Creates the screen over the library, import queue, and bundle
+    /// inspection use cases the composition root supplied. The queue is the
+    /// application's single import path: the library model observes it, so a
+    /// package that reaches the library from any entry point refreshes this
+    /// list. The inspection use case is handed on to the detail screen, which
+    /// offers the bundle explorer. The signing journal is read-only; `nil`
+    /// simply means cards never show a signed state.
     init(
         library: ApplicationLibrary,
-        importing: IPAPackageImport,
+        queue: PackageImportQueue,
         bundleInspection: IPABundleContentsInspection,
         signingHistory: (any SigningHistoryStore)? = nil
     ) {
-        let importModel = PackageImportModel(importing: importing)
-        _importing = StateObject(wrappedValue: importModel)
         _model = StateObject(wrappedValue: ApplicationLibraryModel(
             library: library,
-            importing: importModel,
+            queue: queue,
             signingHistory: signingHistory
         ))
         self.bundleInspection = bundleInspection
@@ -77,32 +74,7 @@ struct ApplicationLibraryView: View {
                 .disabled(model.isRemovingSelection)
         }
         .task { await model.load() }
-        .onChange(of: importing.phase) { _, phase in
-            switch phase {
-            case .succeeded:
-                environment.recordAnalyticsEvent(category: .intake, name: "import.accepted", succeeded: true)
-                exitSelectionMode()
-            case .failed:
-                environment.recordAnalyticsEvent(category: .intake, name: "import.rejected", succeeded: false)
-            case .idle, .importing, .cancelled:
-                break
-            }
-        }
-        .safeAreaInset(edge: .bottom) { importStatus }
-        .fileImporter(
-            isPresented: $isShowingImporter,
-            allowedContentTypes: ImportablePackage.contentTypes,
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                if let url = urls.first {
-                    model.handlePickerResult(.success(url))
-                }
-            case .failure(let error):
-                model.handlePickerResult(.failure(error))
-            }
-        }
+        .safeAreaInset(edge: .bottom) { selectionBar }
         .alert(
             model.notice?.title ?? "",
             isPresented: noticeBinding,
@@ -181,9 +153,10 @@ struct ApplicationLibraryView: View {
             Text("Applications you import appear here. Importing reads a package's structure and the information its application declares, and keeps the package in ZynSign's library. Import does not sign or install anything.")
         } actions: {
             Button("Import Package…") {
-                isShowingImporter = true
+                importPresentation.present()
             }
             .buttonStyle(.borderedProminent)
+            .disabled(!importPresentation.isAvailable)
         }
     }
 
@@ -407,11 +380,11 @@ struct ApplicationLibraryView: View {
                 sortMenu
                 layoutToggle
                 Button {
-                    isShowingImporter = true
+                    importPresentation.present()
                 } label: {
                     Label("Import Package…", systemImage: "plus")
                 }
-                .disabled(importing.phase == .importing)
+                .disabled(!importPresentation.isAvailable)
             }
         }
     }
@@ -469,30 +442,6 @@ struct ApplicationLibraryView: View {
         }
     }
 
-    // MARK: - Import progress
-
-    /// The import progress bar shown while the document the user picked is
-    /// being read. A terminal import outcome is announced through the
-    /// notice alert, so the bar only covers the running phase.
-    @ViewBuilder
-    private var importStatus: some View {
-        if importing.phase == .importing {
-            HStack(spacing: 12) {
-                ProgressView()
-                Text("Reading package…")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button("Cancel", role: .cancel) {
-                    model.cancelImport()
-                }
-            }
-            .padding()
-            .background(.bar)
-        } else {
-            selectionBar
-        }
-    }
 }
 
 // MARK: - Row
@@ -854,7 +803,7 @@ private enum PreviewFixtures {
 #Preview("Empty Library") {
     ApplicationLibraryView(
         library: previewEnvironment.library,
-        importing: previewEnvironment.packageImport,
+        queue: previewEnvironment.packageImportQueue,
         bundleInspection: previewEnvironment.bundleInspection
     )
 }

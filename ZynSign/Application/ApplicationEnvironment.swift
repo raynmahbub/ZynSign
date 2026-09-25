@@ -18,8 +18,18 @@ struct ApplicationEnvironment {
     /// Facts about the running application, shown by the shell.
     let applicationInfo: ApplicationInfo
 
-    /// The package-import use case, coordinated by the Import area.
+    /// The package-import use case: one package, imported once. It is
+    /// composed once and handed to the import queue, which is the only path
+    /// the interface imports through; a caller that needs the capability
+    /// without scheduling — a test, or a future single-shot import — reaches
+    /// it here rather than constructing a second pipeline.
     let packageImport: IPAPackageImport
+
+    /// The import queue: the entry point every screen, share-sheet hand-off,
+    /// and drop lands on. It owns scheduling, per-job progress and
+    /// cancellation, retries, the duplicate question, and the batch summary,
+    /// and it runs imports through `packageImport`.
+    let packageImportQueue: PackageImportQueue
 
     /// The library use case: lists, admits, and removes the application
     /// records behind the Applications area.

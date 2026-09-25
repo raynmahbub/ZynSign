@@ -5,12 +5,13 @@ import XCTest
 /// mappings the library screen renders.
 ///
 /// The model is exercised with the real library use case over in-memory
-/// stores and the real import presentation model over synthetic ports, so
-/// the phases it renders are the phases the application layer actually
-/// produces: loading into loaded, empty, or failed; import settlement
-/// refreshing the library; and removal passing through an observable
-/// in-flight state back to loaded or empty, always re-reading persistence
-/// rather than editing the list in place.
+/// stores, and the real import queue over the real import use case with
+/// synthetic ports beneath it, so the phases it renders are the phases the
+/// application layer actually produces: loading into loaded, empty, or
+/// failed; a settled import refreshing the library and announcing itself;
+/// and removal passing through an observable in-flight state back to loaded
+/// or empty, always re-reading persistence rather than editing the list in
+/// place.
 @MainActor
 final class ApplicationLibraryModelTests: XCTestCase {
 
@@ -18,7 +19,7 @@ final class ApplicationLibraryModelTests: XCTestCase {
     private var artifacts: SyntheticLibraryArtifactStore!
     private var library: ApplicationLibrary!
     private var intake: SyntheticIntake!
-    private var importing: PackageImportModel!
+    private var queue: PackageImportQueue!
     private var model: ApplicationLibraryModel!
 
     override func setUp() {
@@ -33,13 +34,13 @@ final class ApplicationLibraryModelTests: XCTestCase {
         )
         intake = SyntheticIntake()
         intake.artifactStore = artifacts
-        importing = PackageImportModel(importing: makePackageImport())
-        model = ApplicationLibraryModel(library: library, importing: importing)
+        queue = PackageImportQueue(importing: makePackageImport(), now: { [clock] in clock.now() })
+        model = ApplicationLibraryModel(library: library, queue: queue)
     }
 
     override func tearDown() {
         model = nil
-        importing = nil
+        queue = nil
         intake = nil
         library = nil
         artifacts = nil
@@ -57,31 +58,27 @@ final class ApplicationLibraryModelTests: XCTestCase {
         )
     }
 
-    /// Rebuilds the import presentation model and the screen model over a
-    /// different reader, for tests that need a specific container outcome.
+    /// Rebuilds the import queue and the screen model over a different
+    /// reader, for tests that need a specific container outcome.
     private func makeModels(reader: SyntheticArchiveReader) {
-        importing = PackageImportModel(importing: IPAPackageImport(
+        queue = PackageImportQueue(importing: IPAPackageImport(
             intake: intake,
             readerProvider: SyntheticArchiveReaderProvider.providing(reader),
             library: library
         ))
-        model = ApplicationLibraryModel(library: library, importing: importing)
+        model = ApplicationLibraryModel(library: library, queue: queue)
     }
 
-    /// Spins the main actor until the import phase leaves `importing`,
-    /// bounded so a model that never settles fails the test instead of
-    /// hanging it.
-    private func awaitSettledImport() async -> PackageImportModel.Phase {
-        var spins = 0
-        while case .importing = importing.phase {
-            spins += 1
-            if spins > 10_000 {
-                XCTFail("The import phase never settled.")
-                break
-            }
-            await Task.yield()
-        }
-        return importing.phase
+    /// Enqueues a package the way any entry point does, and returns the
+    /// settlement once the import has finished. The model observes the same
+    /// queue, so what it announces is what the queue settled.
+    private func importPackage(
+        from source: URL = ImportFixtures.sourceURL(),
+        origin: ImportOrigin = .documentPicker
+    ) async -> ImportSettlement? {
+        queue.enqueue(source, origin: origin)
+        await awaitCondition("The import never settled.") { !self.queue.isBusy }
+        return queue.jobs.last?.settlement
     }
 
     /// Spins the main actor until `condition` holds, bounded so a condition
@@ -186,14 +183,15 @@ final class ApplicationLibraryModelTests: XCTestCase {
         XCTAssertEqual(model.phase, .empty)
 
         intake.nextStagedContent = Data("first imported package".utf8)
-        importing.beginImport(from: ImportFixtures.sourceURL())
-        let phase = await awaitSettledImport()
+        let settlement = await importPackage()
 
-        guard case .succeeded(let summary) = phase else {
-            return XCTFail("Expected a succeeded import, got \(phase)")
+        guard let settlement else {
+            return XCTFail("Expected a settled import.")
         }
-        XCTAssertEqual(summary.libraryMessage, "The package was added to ZynSign's library.")
-        XCTAssertEqual(model.notice?.message, "The package was added to ZynSign's library.")
+        XCTAssertEqual(settlement.kind, .imported)
+        XCTAssertEqual(model.notice?.title, "Import Complete")
+        XCTAssertEqual(model.notice?.message, ImportQueueRendering.message(for: settlement))
+        XCTAssertEqual(model.notice?.message, "Added to the library.")
 
         await awaitCondition("The library never refreshed after the import.") {
             if case .loaded = self.model.phase { return true }
@@ -209,16 +207,21 @@ final class ApplicationLibraryModelTests: XCTestCase {
         XCTAssertEqual(stored?.count, 1)
     }
 
-    func testAPickerCancellationIsAnOrdinaryOutcomeAndNotAFailure() async {
+    func testACancelledImportSaysNothingAndChangesNothing() async {
         await model.load()
         XCTAssertEqual(model.phase, .empty)
 
-        struct PickerFailure: Error {}
-        model.handlePickerResult(.failure(PickerFailure()))
+        intake.behaviour = .waitsUntilCancelledThenFails
+        queue.enqueue(ImportFixtures.sourceURL(), origin: .documentPicker)
+        await awaitCondition("The import never started.") { self.queue.isBusy }
+        queue.cancel(queue.jobs[0].id)
+        await awaitCondition("The import never settled.") { !self.queue.isBusy }
 
-        XCTAssertEqual(importing.phase, .cancelled)
-        XCTAssertEqual(model.phase, .empty)
+        XCTAssertEqual(queue.jobs[0].settlement?.kind, .cancelled)
+        // A cancellation is the user withdrawing the request: no
+        // announcement, and the library exactly as it was.
         XCTAssertNil(model.notice)
+        XCTAssertEqual(model.phase, .empty)
     }
 
     func testARejectedImportIsSurfacedAndChangesNothingInTheLibrary() async {
@@ -226,14 +229,15 @@ final class ApplicationLibraryModelTests: XCTestCase {
         await model.load()
         XCTAssertEqual(model.phase, .empty)
 
-        importing.beginImport(from: ImportFixtures.sourceURL())
-        let phase = await awaitSettledImport()
+        let settlement = await importPackage()
 
-        guard case .failed(let message) = phase else {
-            return XCTFail("Expected a failed import, got \(phase)")
+        guard let settlement else {
+            return XCTFail("Expected a settled import.")
         }
-        XCTAssertEqual(message, "No application was found inside the package.")
-        XCTAssertEqual(model.notice?.message, message)
+        XCTAssertEqual(settlement.kind, .rejected)
+        XCTAssertEqual(settlement.failure?.message, "No application was found inside the package.")
+        XCTAssertEqual(model.notice?.title, "Import Failed")
+        XCTAssertEqual(model.notice?.message, "No application was found inside the package.")
         XCTAssertEqual(model.phase, .empty)
 
         let stored = try? await records.allRecords()
@@ -245,14 +249,14 @@ final class ApplicationLibraryModelTests: XCTestCase {
         XCTAssertEqual(model.phase, .empty)
 
         intake.behaviour = .fails
-        importing.beginImport(from: ImportFixtures.sourceURL())
-        let phase = await awaitSettledImport()
+        let settlement = await importPackage()
 
-        guard case .failed(let message) = phase else {
-            return XCTFail("Expected a failed import, got \(phase)")
+        guard let settlement else {
+            return XCTFail("Expected a settled import.")
         }
-        XCTAssertEqual(message, "The selected file could not be reached.")
-        XCTAssertEqual(model.notice?.message, message)
+        XCTAssertEqual(settlement.kind, .failed)
+        XCTAssertEqual(settlement.failure?.message, "The selected file could not be reached.")
+        XCTAssertEqual(model.notice?.message, "The selected file could not be reached.")
         XCTAssertEqual(model.phase, .empty)
     }
 
@@ -682,7 +686,7 @@ final class ApplicationLibraryModelTests: XCTestCase {
         )
         let modelWithJournal = ApplicationLibraryModel(
             library: library,
-            importing: importing,
+            queue: queue,
             signingHistory: SyntheticSigningHistoryStore(recordsToReturn: [signed])
         )
         await modelWithJournal.load()
