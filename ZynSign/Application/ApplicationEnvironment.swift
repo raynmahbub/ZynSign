@@ -87,6 +87,14 @@ struct ApplicationEnvironment {
     /// composed; treated as read-only after construction.
     var appIcons: AppIconExtraction? = nil
 
+    /// The local-only annotation store behind the Certificates area: display
+    /// labels, import dates, and the default signing identity. `nil` where
+    /// the composition root supplies no annotation storage; the Certificates
+    /// area then lists identities without local notes and treats default and
+    /// rename as unavailable. Production paths are supplied by the
+    /// composition root.
+    var identityAnnotations: (any IdentityAnnotationsStore)? = nil
+
     /// Records one local activity event when the journal preference allows.
     ///
     /// This is the only recording path the presentation layer uses. It

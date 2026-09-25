@@ -67,3 +67,38 @@ extension ZynSignError {
         identity((error as? ZynSignError)?.identityFailure ?? .unexpectedSecurityFailure)
     }
 }
+
+extension ZynSignError {
+
+    // MARK: - Identity annotation workspace
+
+    /// The local annotation catalog's own storage could not be prepared,
+    /// read, or written. The catalog holds display labels and import dates
+    /// only; this failure says nothing about any identity or key.
+    static func identityAnnotationsStorageFailure(
+        diagnosticDetail: String? = nil,
+        underlyingError: (any Error)? = nil
+    ) -> ZynSignError {
+        ZynSignError(
+            category: .storageFailure,
+            userMessage: "ZynSign could not access its certificate notes.",
+            diagnosticDetail: diagnosticDetail,
+            underlyingError: underlyingError
+        )
+    }
+
+    /// The local annotation catalog exists but cannot be interpreted: it is
+    /// not a catalog, it is damaged, or it records a value this build cannot
+    /// represent. The catalog is left in place for diagnosis.
+    static func identityAnnotationsUnreadable(
+        diagnosticDetail: String? = nil,
+        underlyingError: (any Error)? = nil
+    ) -> ZynSignError {
+        ZynSignError(
+            category: .storageFailure,
+            userMessage: "ZynSign's certificate notes could not be read.",
+            diagnosticDetail: diagnosticDetail,
+            underlyingError: underlyingError
+        )
+    }
+}

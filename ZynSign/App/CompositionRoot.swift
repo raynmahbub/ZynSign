@@ -50,7 +50,31 @@ enum CompositionRoot {
         )
         environment.provisioningProfileImporter = makeProvisioningProfileImporter()
         environment.appIcons = makeAppIconExtraction()
+        environment.identityAnnotations = makeIdentityAnnotationsStore()
         return environment
+    }
+
+    /// Builds the file-backed local annotation store the Certificates area
+    /// drives: display labels, import dates, and the default identity. The
+    /// catalog holds public certificate fingerprints and user-chosen labels
+    /// only — no key material, no passwords — and lives next to the other
+    /// local workspaces under Application Support.
+    static func makeIdentityAnnotationsStore() -> any IdentityAnnotationsStore {
+        FileIdentityAnnotationsStore(catalogLocation: identityAnnotationsCatalogLocation())
+    }
+
+    /// The on-disk location of the identity annotation catalog. Lives under
+    /// Application Support so it is not part of any iCloud or iTunes
+    /// backup, in the same directory as the other local workspaces.
+    static func identityAnnotationsCatalogLocation() -> URL {
+        let applicationSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return applicationSupport
+            .appendingPathComponent("ZynSignLibrary", isDirectory: true)
+            .appendingPathComponent("IdentityAnnotations.json", isDirectory: false)
     }
 
     /// Builds the provisioning-profile importer the Profiles tab drives. It

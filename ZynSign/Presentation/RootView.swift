@@ -119,7 +119,13 @@ struct RootView: View {
                 signingHistory: environment.signingHistory
             )
         case .certificates:
-            NavigationStack { CertificatesView() }
+            NavigationStack {
+                CertificateManagerView(
+                    store: environment.identityStore,
+                    annotations: environment.identityAnnotations,
+                    importer: environment.pkcs12Importer
+                )
+            }
         case .profiles:
             ProfilesView(
                 profiles: environment.provisioningProfiles,
