@@ -1,7 +1,7 @@
 # Private test build — manual only, not a public release.
 #
 # Purpose: build the same commit you intend to publish as v0.1.0
-# (market 0.1.0, build 3) and upload the IPA as a *private* workflow
+# (market 0.1.0, build 4) and upload the IPA as a *private* workflow
 # artifact (retention 7 days) or prepare it for TestFlight internal.
 # Nothing in this workflow creates a tag or a GitHub release.
 #

@@ -138,9 +138,9 @@ ZynSign is built in small, explicitly scoped increments:
 - **One branch per task** (`arena/<id>-zynsign`) until reviewed.
 - **No speculative code** — no docs about non-existent functionality (or labelled `planned`).
 - **Verifiable** — build / test / explicit “no check applies”.
-- **Human-controlled Git** — commits/pushes/tags/releases by the developer; this branch is `arena/01a0d4c7-zynsign` → `origin/arena/01a0d4c7-zynsign`.
+- **Human-controlled Git** — commits/pushes/tags/releases by the developer; this branch is `arena/01a0d570-zynsign` → `origin/arena/01a0d570-zynsign`.
 
-Current branch: `arena/01a0d4c7-zynsign` `4ea142a` `0.1.0 Horizon + honest 8-10` (force-pushed, tags `v0.1.0` → `4ea142a`).
+Current branch: `arena/01a0d570-zynsign` — `0.1.0` Horizon + delivery hand-off, local activity journal, pairing/JIT/mux ADR (market `0.1.0`, build `4`; public tag `v0.1.0` after the private matrix is green).
 
 ```sh
 git clone https://github.com/raynmahbub/ZynSign.git
