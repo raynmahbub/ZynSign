@@ -69,6 +69,9 @@ Next actions, in order:
 git branch release/1.0.0-rc3 <freeze-commit> && git push origin release/1.0.0-rc3
 #    (GitHub → Settings → Branches: require 'Release gate', 'Build and test',
 #     'Repository hygiene'; block force pushes; no direct pushes)
+#    Prerequisite: hosted Actions must be able to start jobs again (billing
+#    — see docs/testing/final-validation-rc3.md, "Hosted CI record") before
+#    the required checks can go green.
 
 # 1. Internal development builds (private-test-build.yml / ad-hoc IPA)
 #    then promote one stage at a time:

@@ -81,5 +81,9 @@ All 11 sign-off items are complete at their named evidence levels.
 **RC 3 is approved** as the release-lock milestone, and `1.0.0-rc.1` is
 verified as the build definition to cut from the freeze commit. Publishing
 remains gated on: (1) the `release-gate` CI job green on the
-release-lock branch, and (2) the private device matrix all green — the
-private binary and the public release are the same binary, no rebuild.
+release-lock branch — hosted Actions currently cannot schedule jobs
+(billing state, recorded in
+[final-validation-rc3.md](../testing/final-validation-rc3.md), *Hosted CI
+record*), so this gate is known-red/absent until that is restored — and
+(2) the private device matrix all green — the private binary and the
+public release are the same binary, no rebuild.

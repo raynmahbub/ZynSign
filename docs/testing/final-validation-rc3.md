@@ -76,8 +76,7 @@ The Xcode build and the XCTest suites were **not** executed in this
 environment (no toolchain). Their required evidence is hosted CI: the
 `Build and test (Xcode)` job builds the application and runs the full
 unit-test target on an iPhone simulator, and the `Release gate` job refuses
-to go green without it. The RC 3 branch push runs the full workflow; the
-run record is appended below when it completes.
+to go green without it.
 
 ## Hosted CI record
 
@@ -85,7 +84,23 @@ run record is appended below when it completes.
 |---|---|---|
 | `35992989870` (2026-09-24, `main`) | build-and-test | First green hosted run of the full unit-test target on iPhone simulator (see [testing README](../testing/README.md)) |
 | `36010725148`, `36011553668` | external-validation | Apple-tooling judgment of ZynSign-signed exports (findings above) |
-| RC 3 branch run | hygiene · build-and-test · external-validation · **release-gate** | The release gate aggregates the required checks; recorded when complete |
+| RC 3 branch (2026-09-26) | — | **No workflow run was created.** Hosted Actions cannot currently start jobs on this repository: the most recent runs (`36135021237` etc., 2026-09-25) carry the annotation *“The job was not started because recent account payments have failed or your spending limit needs to be increased.”* |
+
+Consequences, stated plainly:
+
+- The last **executed** hosted build/test evidence is run `35992989870`
+  (2026-09-24) — full suite green on the iPhone simulator. No hosted
+  XCTest run has executed *since* the RC 3 change set — which consists
+  only of documentation, release metadata, and the CI gate itself
+  (no production code changed, so the suite result cannot differ).
+- The `release-gate` job is defined and required, but it cannot go green
+  until repository Actions can start jobs again (billing restored in
+  *Settings → Billing & plans*). **Publishing is blocked until the
+  release-lock branch shows green checks** — the gate being red or absent
+  is a failed required check, and there is no bypass.
+- When Actions runs again, push the release-lock branch; hygiene,
+  build-and-test, external-validation, and release-gate must all complete
+  before any tag.
 
 ## Conclusion
 
