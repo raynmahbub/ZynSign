@@ -14,6 +14,29 @@ enum CMSObjectIdentifiers {
     static let attributeSigningTime = "1.2.840.113549.1.9.5"
 }
 
+/// Which subset of CMS the structure reader accepts.
+///
+/// The provisioning-profile subset is the default and is unchanged by the
+/// existence of the other mode. The code-signature mode exists because a Mach-O
+/// code signature's CMS message legitimately carries two shapes the profile
+/// subset refuses: Apple's code-directory hash attribute carries one value per
+/// CodeDirectory, and a signer may carry unsigned attributes such as a
+/// timestamp token. Both are outside what the signature covers or what ZynSign
+/// interprets, so the code-signature mode skips them — counting unsigned
+/// attributes — while every modeled attribute keeps its strict rules.
+enum CMSStructureReadingMode: Equatable {
+
+    /// The provisioning-profile subset: every signed attribute carries exactly
+    /// one value, and unsigned attributes are refused.
+    case provisioningProfile
+
+    /// Detached Mach-O code-signature messages: unmodeled signed attributes
+    /// may carry several values, and unsigned attributes are skipped and
+    /// counted. The message digest, content type, and signing time must still
+    /// be single-valued to be read.
+    case codeSignature
+}
+
 /// One CMS message as read by ZynSign's bounded structure reader.
 ///
 /// This is a structural description, not a verdict. Nothing here says the
@@ -84,6 +107,11 @@ struct CMSStructureSignedAttributes: Equatable {
 
     /// The content-type attribute's value, when present.
     let contentType: String?
+
+    /// The signing-time attribute's value, when present, single-valued, and a
+    /// well-formed UTCTime or GeneralizedTime. A time the signer declared by its
+    /// own clock; it is not a trusted timestamp.
+    var signingTime: Date? = nil
 }
 
 /// One signer as read from the message.
@@ -109,6 +137,11 @@ struct CMSStructureSignerInfo: Equatable {
 
     /// The signed attributes, when the signer carried them.
     let signedAttributes: CMSStructureSignedAttributes?
+
+    /// How many unsigned attributes the signer carried. Always zero in the
+    /// provisioning-profile mode, which refuses them; counted, never
+    /// interpreted, in the code-signature mode.
+    var unsignedAttributeCount: Int = 0
 }
 
 /// A bounded reader for the CMS SignedData subset a provisioning profile uses.
@@ -133,6 +166,11 @@ struct CMSStructureSignerInfo: Equatable {
 /// The walk is deliberately conservative: a shape outside the subset below is
 /// refused rather than approximated, because a CMS message ZynSign only partly
 /// understands must not produce a verification conclusion.
+///
+/// `read(_:mode:)` with `.codeSignature` widens exactly two rules for detached
+/// Mach-O code-signature messages — several values on an unmodeled signed
+/// attribute, and counted unsigned attributes — and nothing else. `read(_:)`
+/// is the provisioning-profile subset, unchanged.
 enum CMSStructureReader {
 
     /// The deepest constructed value the reader will enter. ZynSign policy, not
@@ -161,8 +199,17 @@ enum CMSStructureReader {
     ///   unsupported, or beyond a resource bound. A successful return is a
     ///   structural description only.
     static func read(_ data: Data) throws -> CMSStructure {
+        try read(data, mode: .provisioningProfile)
+    }
+
+    /// Reads one CMS message under an explicit reading mode.
+    ///
+    /// `read(_:)` is this method in the provisioning-profile mode. The
+    /// code-signature mode is for detached Mach-O code-signature messages; see
+    /// `CMSStructureReadingMode`.
+    static func read(_ data: Data, mode: CMSStructureReadingMode) throws -> CMSStructure {
         do {
-            return try readStructure(data)
+            return try readStructure(data, mode: mode)
         } catch let error as CMSStructureError {
             throw error.asZynSignError
         } catch {
@@ -173,7 +220,7 @@ enum CMSStructureReader {
         }
     }
 
-    private static func readStructure(_ data: Data) throws -> CMSStructure {
+    private static func readStructure(_ data: Data, mode: CMSStructureReadingMode) throws -> CMSStructure {
         if data.isEmpty {
             throw CMSStructureError.empty
         }
@@ -309,7 +356,7 @@ enum CMSStructureReader {
                     throw CMSStructureError.invalid("The message declares signer information twice.")
                 }
                 let signersTLV = try signedData.readTLV()
-                signerInfos = try readSignerInfos(signersTLV, enteredFrom: signedData, bytes: bytes)
+                signerInfos = try readSignerInfos(signersTLV, enteredFrom: signedData, bytes: bytes, mode: mode)
             default:
                 throw CMSStructureError.invalid("SignedData contains an unexpected field.")
             }
@@ -337,7 +384,8 @@ enum CMSStructureReader {
     private static func readSignerInfos(
         _ tlv: TLV,
         enteredFrom reader: Reader,
-        bytes: [UInt8]
+        bytes: [UInt8],
+        mode: CMSStructureReadingMode
     ) throws -> [CMSStructureSignerInfo] {
         var collection = try reader.enter(tlv)
         var infos: [CMSStructureSignerInfo] = []
@@ -349,7 +397,7 @@ enum CMSStructureReader {
             guard infos.count < maximumSignerCount else {
                 throw CMSStructureError.resourceLimit("The message declares too many signers.")
             }
-            infos.append(try signerInfo(infoTLV, enteredFrom: collection, bytes: bytes))
+            infos.append(try signerInfo(infoTLV, enteredFrom: collection, bytes: bytes, mode: mode))
         }
         return infos
     }
@@ -357,7 +405,8 @@ enum CMSStructureReader {
     private static func signerInfo(
         _ tlv: TLV,
         enteredFrom reader: Reader,
-        bytes: [UInt8]
+        bytes: [UInt8],
+        mode: CMSStructureReadingMode
     ) throws -> CMSStructureSignerInfo {
         var body = try reader.enter(tlv)
 
@@ -420,7 +469,7 @@ enum CMSStructureReader {
         var signedAttributes: CMSStructureSignedAttributes?
         if !body.isExhausted, try body.peekTag() == Tag.context0 {
             let attributesTLV = try body.readTLV()
-            signedAttributes = try readSignedAttributes(attributesTLV, enteredFrom: body, bytes: bytes)
+            signedAttributes = try readSignedAttributes(attributesTLV, enteredFrom: body, bytes: bytes, mode: mode)
         }
 
         let signatureAlgorithmTLV = try body.readTLV()
@@ -438,11 +487,31 @@ enum CMSStructureReader {
         }
         let signature = Data(bytes[signatureTLV.content])
 
+        var unsignedAttributeCount = 0
         if !body.isExhausted {
             // Unsigned attributes are not covered by the signature, are not
             // part of a provisioning profile, and are refused rather than
-            // silently dropped.
-            throw CMSStructureError.unsupported("The signer carries attributes outside the signed set.")
+            // silently dropped in that mode. A code signature may carry them —
+            // a timestamp token is the common case — so the code-signature mode
+            // counts them without entering or interpreting their values.
+            guard mode == .codeSignature, try body.peekTag() == Tag.context1 else {
+                throw CMSStructureError.unsupported("The signer carries attributes outside the signed set.")
+            }
+            let unsignedTLV = try body.readTLV()
+            var unsigned = try body.enter(unsignedTLV)
+            while !unsigned.isExhausted {
+                let attributeTLV = try unsigned.readTLV()
+                guard attributeTLV.tag == Tag.sequence else {
+                    throw CMSStructureError.invalid("An unsigned attribute is not a sequence.")
+                }
+                unsignedAttributeCount += 1
+                guard unsignedAttributeCount <= maximumSignedAttributeCount else {
+                    throw CMSStructureError.resourceLimit("The signer carries too many unsigned attributes.")
+                }
+            }
+            guard body.isExhausted else {
+                throw CMSStructureError.invalid("The signer carries values after its unsigned attributes.")
+            }
         }
 
         return CMSStructureSignerInfo(
@@ -452,19 +521,22 @@ enum CMSStructureReader {
             digestAlgorithm: digestAlgorithm,
             signatureAlgorithm: signatureAlgorithm,
             signature: signature,
-            signedAttributes: signedAttributes
+            signedAttributes: signedAttributes,
+            unsignedAttributeCount: unsignedAttributeCount
         )
     }
 
     private static func readSignedAttributes(
         _ tlv: TLV,
         enteredFrom reader: Reader,
-        bytes: [UInt8]
+        bytes: [UInt8],
+        mode: CMSStructureReadingMode
     ) throws -> CMSStructureSignedAttributes {
         var attributes = try reader.enter(tlv)
         var identifiers: [String] = []
         var messageDigest: Data?
         var contentType: String?
+        var signingTime: Date?
         while !attributes.isExhausted {
             let attributeTLV = try attributes.readTLV()
             guard attributeTLV.tag == Tag.sequence else {
@@ -505,6 +577,13 @@ enum CMSStructureReader {
                     throw CMSStructureError.invalid("The content-type attribute is malformed or repeated.")
                 }
                 contentType = try objectIdentifier(bytes, range: valueTLV.content)
+            case CMSObjectIdentifiers.attributeSigningTime:
+                // Read only when single-valued and well formed. A malformed
+                // time is left unread, exactly as this attribute was before it
+                // was modeled, rather than refusing the message.
+                if isSingleValued, signingTime == nil {
+                    signingTime = declaredTime(bytes, tag: valueTLV.tag, range: valueTLV.content)
+                }
             default:
                 // Recorded by identifier above and otherwise left alone. An
                 // attribute ZynSign does not model is not interpreted.
@@ -523,8 +602,68 @@ enum CMSStructureReader {
             verificationMessage: Data(verificationMessage),
             attributeObjectIdentifiers: identifiers,
             messageDigest: messageDigest,
-            contentType: contentType
+            contentType: contentType,
+            signingTime: signingTime
         )
+    }
+
+    /// Reads a UTCTime (`YYMMDDHHMMSSZ`) or GeneralizedTime
+    /// (`YYYYMMDDHHMMSSZ`) value in the strict UTC form DER requires.
+    /// Anything else yields `nil`.
+    private static func declaredTime(_ bytes: [UInt8], tag: UInt8, range: Range<Int>) -> Date? {
+        let utcTimeTag: UInt8 = 0x17
+        let generalizedTimeTag: UInt8 = 0x18
+        let digitCount: Int
+        switch tag {
+        case utcTimeTag: digitCount = 12
+        case generalizedTimeTag: digitCount = 14
+        default: return nil
+        }
+        guard range.count == digitCount + 1, bytes[range.upperBound - 1] == UInt8(ascii: "Z") else {
+            return nil
+        }
+        var digits: [Int] = []
+        digits.reserveCapacity(digitCount)
+        for index in range.lowerBound..<(range.upperBound - 1) {
+            let byte = bytes[index]
+            guard byte >= UInt8(ascii: "0"), byte <= UInt8(ascii: "9") else { return nil }
+            digits.append(Int(byte - UInt8(ascii: "0")))
+        }
+        func number(_ start: Int, _ length: Int) -> Int {
+            digits[start..<(start + length)].reduce(0) { $0 * 10 + $1 }
+        }
+        var components = DateComponents()
+        let cursor: Int
+        if tag == utcTimeTag {
+            // RFC 5280: two-digit years 50–99 are 19YY, 00–49 are 20YY.
+            let year = number(0, 2)
+            components.year = year >= 50 ? 1900 + year : 2000 + year
+            cursor = 2
+        } else {
+            components.year = number(0, 4)
+            cursor = 4
+        }
+        components.month = number(cursor, 2)
+        components.day = number(cursor + 2, 2)
+        components.hour = number(cursor + 4, 2)
+        components.minute = number(cursor + 6, 2)
+        components.second = number(cursor + 8, 2)
+        guard let month = components.month, (1...12).contains(month),
+              let day = components.day, (1...31).contains(day),
+              let hour = components.hour, (0...23).contains(hour),
+              let minute = components.minute, (0...59).contains(minute),
+              let second = components.second, (0...60).contains(second) else {
+            return nil
+        }
+        var calendar = Calendar(identifier: .gregorian)
+        guard let utc = TimeZone(secondsFromGMT: 0) else { return nil }
+        calendar.timeZone = utc
+        components.timeZone = utc
+        guard let date = calendar.date(from: components),
+              calendar.dateComponents([.year, .month, .day], from: date).day == day else {
+            return nil
+        }
+        return date
     }
 
     // MARK: - Shared value readers

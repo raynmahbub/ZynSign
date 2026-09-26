@@ -190,7 +190,7 @@ struct ApplicationDetailView: View {
                         Text("Signing Status")
                             .font(.headline)
                             .accessibilityAddTraits(.isHeader)
-                        Text("Signature presence is structural only; ZynSign has not cryptographically verified this imported executable.")
+                        Text("Signature presence on this page is structural only. The Binary Inspector re-computes the signature's hashes on this device.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -206,10 +206,22 @@ struct ApplicationDetailView: View {
                 }
 
                 VStack(spacing: ZSpacing.sm) {
-                    DetailValueRow(label: "Verification", value: "Not cryptographically verified")
+                    DetailValueRow(label: "Verification", value: "Not verified on this page — open the Binary Inspector")
                     DetailValueRow(label: "Selected certificate", value: "None — choose in Sign App")
                     DetailValueRow(label: "Provisioning profile", value: "None selected")
                     DetailValueRow(label: "Compatibility", value: compatibilitySummary)
+                }
+
+                if let binaryInspection = environment.binaryInspection, entry.isArtifactAvailable {
+                    NavigationLink {
+                        BinaryInspectorView(inspection: binaryInspection, entry: entry, generator: binaryInspectorGenerator)
+                    } label: {
+                        Label("Inspect & Verify Signature", systemImage: "checkmark.shield")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityHint("Opens the Binary and Signature Inspector, which inspects every executable and re-computes its signature's hashes on this device.")
                 }
 
                 if canSign {
@@ -289,6 +301,22 @@ struct ApplicationDetailView: View {
                     .disabled(!entry.isArtifactAvailable)
                     .accessibilityHint("Shows the bundle's recorded files and folders without opening or changing them.")
 
+                    if let binaryInspection = environment.binaryInspection {
+                        NavigationLink {
+                            BinaryInspectorView(inspection: binaryInspection, entry: entry, generator: binaryInspectorGenerator)
+                        } label: {
+                            QuickActionTile(
+                                title: "Inspect Binary",
+                                subtitle: "Mach-O, signature, verification",
+                                symbol: "cpu",
+                                tint: .purple
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!entry.isArtifactAvailable)
+                        .accessibilityHint("Inspects every executable's structure and code signature, and verifies each signature on this device, read-only.")
+                    }
+
                     Button {
                         Task { await model.refresh() }
                     } label: {
@@ -309,6 +337,11 @@ struct ApplicationDetailView: View {
 
     private var canSign: Bool {
         entry.isArtifactAvailable && ReleaseTrain.isAvailable(.smartSign)
+    }
+
+    /// How exported inspection reports name the tool that produced them.
+    private var binaryInspectorGenerator: String {
+        "ZynSign \(environment.applicationInfo.marketingVersion) (\(environment.applicationInfo.buildVersion))"
     }
 
     private var signActionSubtitle: String {
