@@ -80,9 +80,11 @@ bytes. Fat slice alignment exponents above 30 and page-size exponents above 30
 are refused. These are conservative resource limits, not claims about Apple's
 published maximums. The 256 MiB input cap limits parsing work but does not make an
 already-allocated caller input cheap to acquire. Existing `ArchiveReader`
-inspection reads have a smaller independent cap (4 MiB by default): this use
-case does **not** read archive entries, enlarge that limit, or alter the
-bundle explorer's metadata-only behavior. A later, explicitly requested
+inspection reads have a smaller independent cap (4 MiB by default): this
+parser does **not** read archive entries and does not enlarge that limit.
+The IPA explorer's Mach-O panel is a separate bounded header prefix
+([ipa-explorer.md](ipa-explorer.md)); it does not call this parser and does
+not load a signature blob. A later, explicitly requested
 executable-intake/streaming boundary will be needed for large compressed IPA
 executables. No binary is executed or extracted here.
 

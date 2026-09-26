@@ -47,6 +47,7 @@ actor ApplicationLibrary {
 
     private let records: any ApplicationRecordStore
     private let artifacts: any LibraryArtifactStore
+    private let diagnosticHistory: (any SigningDiagnosticsHistoryStore)?
     private let now: @Sendable () -> Date
 
     /// Artifacts adopted by an admission whose record has not been written
@@ -60,10 +61,12 @@ actor ApplicationLibrary {
     init(
         records: any ApplicationRecordStore,
         artifacts: any LibraryArtifactStore,
+        diagnosticHistory: (any SigningDiagnosticsHistoryStore)? = nil,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.records = records
         self.artifacts = artifacts
+        self.diagnosticHistory = diagnosticHistory
         self.now = now
     }
 
@@ -265,7 +268,16 @@ actor ApplicationLibrary {
             )
         }
         try await records.delete(recordWithID: id)
-        try artifacts.removeArtifact(record.artifact.artifactID)
+        // This history contains only scan codes and the opaque record UUID,
+        // but it should not outlive a deleted library entry. Cleanup is best
+        // effort: a journal error must not resurrect a deleted record.
+        do {
+            try artifacts.removeArtifact(record.artifact.artifactID)
+        } catch {
+            try? await diagnosticHistory?.remove(for: id)
+            throw error
+        }
+        try? await diagnosticHistory?.remove(for: id)
     }
 
     // MARK: - Orphaned artifacts

@@ -79,6 +79,7 @@ actor InMemorySigningHistoryStore: SigningHistoryStore {
 
     private var stored: [SigningRecord]
     private var readError: (any Error)?
+    private var writeError: (any Error)?
 
     init(records: [SigningRecord] = []) {
         self.stored = records.sorted(by: SigningRecord.sortByRecency)
@@ -88,6 +89,12 @@ actor InMemorySigningHistoryStore: SigningHistoryStore {
 
     func failReads(with error: (any Error)?) {
         readError = error
+    }
+
+    /// Makes every change — append, remove, clear — throw `error` without
+    /// changing anything, until called again with `nil`.
+    func failWrites(with error: (any Error)?) {
+        writeError = error
     }
 
     func allRecords() async throws -> [SigningRecord] {
@@ -102,15 +109,24 @@ actor InMemorySigningHistoryStore: SigningHistoryStore {
     }
 
     func append(_ record: SigningRecord) async throws {
+        if let writeError {
+            throw writeError
+        }
         stored.insert(record, at: 0)
         stored.sort(by: SigningRecord.sortByRecency)
     }
 
     func remove(recordWithID id: SigningRecordIdentifier) async throws {
+        if let writeError {
+            throw writeError
+        }
         stored.removeAll { $0.id == id }
     }
 
     func clear() async throws {
+        if let writeError {
+            throw writeError
+        }
         stored.removeAll()
     }
 
@@ -205,7 +221,8 @@ enum LibraryOrganizationFixtures {
             outputByteCount: 2_048,
             startedAt: date,
             duration: 1,
-            sourceRecordID: record.id.rawValue,
+            result: .succeeded,
+            sourceRecordIdentifier: record.id.rawValue,
             profileExpiresAt: profileExpiresAt,
             certificateExpiresAt: certificateExpiresAt
         )
@@ -241,7 +258,8 @@ enum LibraryOrganizationFixtures {
             outputByteCount: nil,
             startedAt: date,
             duration: 1,
-            sourceRecordID: record.id.rawValue
+            result: .failed,
+            sourceRecordIdentifier: record.id.rawValue
         )
     }
 

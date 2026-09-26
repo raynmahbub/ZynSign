@@ -72,6 +72,7 @@ struct IPAPackageImport: PackageImporting {
     private let structuralInspection: IPAArchiveInspection
     private let metadataInspection: IPABundleMetadataInspection
     private let library: ApplicationLibrary
+    private let diagnostics: SigningDiagnosticsService?
 
     /// Creates the use case from the intake port, the archive boundary, and
     /// the library the composition root selected. Both inspection use cases
@@ -82,12 +83,14 @@ struct IPAPackageImport: PackageImporting {
         intake: any ArtifactIntake,
         readerProvider: any ArtifactArchiveReaderProvider,
         library: ApplicationLibrary,
-        limits: ArchiveLimits = .default
+        limits: ArchiveLimits = .default,
+        diagnostics: SigningDiagnosticsService? = nil
     ) {
         self.intake = intake
         self.structuralInspection = IPAArchiveInspection(readerProvider: readerProvider, limits: limits)
         self.metadataInspection = IPABundleMetadataInspection(readerProvider: readerProvider, limits: limits)
         self.library = library
+        self.diagnostics = diagnostics
     }
 
     /// Imports a package without progress and without a duplicate dialog: the
@@ -257,6 +260,15 @@ struct IPAPackageImport: PackageImporting {
         }
 
         progress?.report(ImportProgress(stage: .finished))
+        if case .recorded(let record, _) = admission, let diagnostics {
+            // Admission is complete; scan the adopted copy at utility
+            // priority without making import wait for Mach-O/CMS inspection.
+            // The dashboard also scans on opening if this task is suspended.
+            let recordID = record.id
+            Task.detached(priority: .utility) {
+                _ = try? await diagnostics.analyze(recordWithID: recordID)
+            }
+        }
         return PackageImportResult(artifact: examined, admission: admission, duplicate: duplicate)
     }
 

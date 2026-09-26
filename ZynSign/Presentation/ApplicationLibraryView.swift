@@ -40,21 +40,23 @@ struct ApplicationLibraryView: View {
     @ScaledMetric(relativeTo: .body) private var gridMinimumWidth: CGFloat = 108
 
     private let bundleInspection: IPABundleContentsInspection
+    private let detailsInspection: IPAApplicationDetailsInspection
     private let features = LibraryFeatureAvailability.current
 
     /// Creates the screen over the use cases the composition root supplied.
     ///
     /// The queue is the application's single import path: the library model
     /// observes it, so a package that reaches the library from any entry
-    /// point refreshes this list. The inspection use case is handed on to
-    /// the detail screen, which offers the bundle explorer. Everything after
-    /// it is optional: the signing journal (read-only; `nil` means no entry
+    /// point refreshes this list. Bundle browsing and the complete App
+    /// Details report are handed on to each detail screen. Everything after
+    /// them is optional: the signing journal (read-only; `nil` means no entry
     /// shows as signed), the organizer (collections and usage), the
     /// provenance source (declared developer and team), and the exporter.
     init(
         library: ApplicationLibrary,
         queue: PackageImportQueue,
         bundleInspection: IPABundleContentsInspection,
+        detailsInspection: IPAApplicationDetailsInspection,
         signingHistory: (any SigningHistoryStore)? = nil,
         organizer: LibraryOrganizer? = nil,
         provenance: ApplicationProvenanceExtraction? = nil,
@@ -69,6 +71,7 @@ struct ApplicationLibraryView: View {
             exporter: exporter
         ))
         self.bundleInspection = bundleInspection
+        self.detailsInspection = detailsInspection
     }
 
     var body: some View {
@@ -564,6 +567,7 @@ struct ApplicationLibraryView: View {
                 model: model,
                 recordID: id,
                 bundleInspection: bundleInspection,
+                detailsInspection: detailsInspection,
                 features: features,
                 onSign: { path.append(.sign(id)) },
                 onMove: { presentCollectionPicker(for: [id]) },
@@ -1406,7 +1410,8 @@ private enum PreviewFixtures {
     ApplicationLibraryView(
         library: previewEnvironment.library,
         queue: previewEnvironment.packageImportQueue,
-        bundleInspection: previewEnvironment.bundleInspection
+        bundleInspection: previewEnvironment.bundleInspection,
+        detailsInspection: previewEnvironment.applicationDetailsInspection
     )
 }
 

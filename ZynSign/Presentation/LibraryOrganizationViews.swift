@@ -517,6 +517,7 @@ struct LibraryDetailDestination: View {
     @ObservedObject var model: ApplicationLibraryModel
     let recordID: ApplicationRecordIdentifier
     let bundleInspection: IPABundleContentsInspection
+    let detailsInspection: IPAApplicationDetailsInspection
     let features: LibraryFeatureAvailability
     let onSign: () -> Void
     let onMove: () -> Void
@@ -524,7 +525,11 @@ struct LibraryDetailDestination: View {
 
     var body: some View {
         if let entry = model.entry(for: recordID) {
-            ApplicationDetailView(entry: entry, bundleInspection: bundleInspection)
+            ApplicationDetailView(
+                entry: entry,
+                bundleInspection: bundleInspection,
+                detailsInspection: detailsInspection
+            )
                 .toolbar {
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         favoriteButton(entry)

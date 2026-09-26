@@ -104,7 +104,7 @@ struct LibrarySigningFacts: Hashable, Sendable {
                 profileExpiresAt: entry.profileExpiresAt,
                 certificateExpiresAt: entry.certificateExpiresAt
             )
-            if let raw = entry.sourceRecordID, let recordID = ApplicationRecordIdentifier(rawValue: raw) {
+            if let recordID = entry.sourceRecordID {
                 if let existing = byRecord[recordID], existing.lastSignedAt >= fact.lastSignedAt {
                     continue
                 }

@@ -136,7 +136,7 @@ final class SigningRecordTests: XCTestCase {
     }
 }
 
-final class ProvisioningProfileSummaryTests: XCTestCase {
+final class SigningPresetProfileSummaryTests: XCTestCase {
 
     func testCoversExactBundleIdentifier() {
         let now = Date()

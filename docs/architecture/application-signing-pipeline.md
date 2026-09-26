@@ -12,6 +12,13 @@ constructed at the composition root, and covered by unit tests; since
 installation remains unavailable and device validation with real identities
 and profiles is the next step.
 
+The pipeline is driven by the signing engine, which owns the run around it —
+the stage vocabulary and progress, the isolated working copy, the pre-signing
+validation gate, delivery only after verification, and the recovery facts a
+refused run reports. See [signing-engine-execution.md](signing-engine-execution.md).
+The pipeline document below stays authoritative for the nine stages themselves
+and for the composition facts that bound what they can sign.
+
 ## Order and failure semantics
 
 A run proceeds through nine stages in fixed order, each running on the

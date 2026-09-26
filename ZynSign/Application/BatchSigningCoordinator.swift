@@ -139,7 +139,7 @@ actor BatchSigningCoordinator {
                     outputByteCount: byteCount,
                     startedAt: startedAt,
                     duration: duration,
-                    sourceRecordID: entry.record.id.rawValue
+                    sourceRecordIdentifier: entry.record.id.rawValue
                 )
                 try? await history.append(record)
                 step = StepResult(
@@ -164,7 +164,7 @@ actor BatchSigningCoordinator {
                     outputByteCount: nil,
                     startedAt: startedAt,
                     duration: duration,
-                    sourceRecordID: entry.record.id.rawValue
+                    sourceRecordIdentifier: entry.record.id.rawValue
                 )
                 try? await history.append(record)
                 step = StepResult(
@@ -192,7 +192,7 @@ actor BatchSigningCoordinator {
                     outputByteCount: nil,
                     startedAt: startedAt,
                     duration: duration,
-                    sourceRecordID: entry.record.id.rawValue
+                    sourceRecordIdentifier: entry.record.id.rawValue
                 )
                 try? await history.append(record)
                 step = StepResult(
