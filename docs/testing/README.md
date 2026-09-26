@@ -794,6 +794,31 @@ Executed:
 Not executed: anything on a device. No verdict here is iOS acceptance,
 trust, or installability.
 
+## RC 3 checks (2026-09-26)
+
+The RC 3 — Step 29 release-lock milestone ran every check available in its
+environment (Linux with Python 3.11, without a Swift toolchain or Xcode)
+and recorded the results in three certification documents:
+
+- [final-validation-rc3.md](final-validation-rc3.md) — the end-to-end
+  workflow matrix (12 of 12 passing) with per-workflow evidence and the
+  executed-check log. Executed here and passing: `release_train.py check`,
+  `update_readme.py --check`, the three host vector scripts,
+  `external_validation.py self-test`, hygiene scans, and the new
+  `Scripts/release_gate.py`.
+- [performance-certification-rc3.md](performance-certification-rc3.md) —
+  the six performance targets, their thresholds, and the evidence
+  (including `LibraryIndexTests.testQueryPerformanceAtLibraryScale`, which
+  runs on every CI push).
+- [accessibility-certification-rc3.md](accessibility-certification-rc3.md)
+  — the six accessibility areas with executed static evidence and the
+  device-matrix completion protocol.
+
+The XCTest suites were not executed in that environment (no toolchain);
+their required evidence remains hosted CI (run 35992989870 and the
+external-validation runs recorded above) plus the private device matrix in
+[private-testing.md](../releases/private-testing.md).
+
 ## Expectations Today
 
 Until a test suite exists, the expectations in
@@ -825,4 +850,9 @@ identifiers, or user data. See [SECURITY.md](../../SECURITY.md).
 
 ## Index
 
-No documents yet.
+- [final-validation-rc3.md](final-validation-rc3.md) — RC 3 end-to-end
+  workflow validation matrix and executed-check log.
+- [performance-certification-rc3.md](performance-certification-rc3.md) —
+  RC 3 performance targets, evidence, and measurement protocol.
+- [accessibility-certification-rc3.md](accessibility-certification-rc3.md)
+  — RC 3 accessibility certification (six areas).

@@ -49,6 +49,9 @@ The binding rules are at the repository root and apply now:
 - [SECURITY.md](../../SECURITY.md) — never commit secrets, credentials, or
   private keys; how signing-related material is protected; and how to report a
   vulnerability privately.
+- [PRIVACY.md](../../PRIVACY.md) — what data exists, where it lives, and
+  what leaves the device (almost nothing). Re-verified at the RC 3
+  lockdown.
 
 ## What Will Live Here
 
@@ -83,3 +86,7 @@ built, not before:
 - [release-review.md](release-review.md) — the final review: scope,
   findings fixed with severity, areas reviewed without finding, the
   security regression corpus, and accepted risks.
+- [rc3-security-lockdown.md](rc3-security-lockdown.md) — the RC 3 final
+  security review: keychain handling, temporary-file cleanup, backup
+  design, sensitive-log removal, private-key protection, report
+  sanitization, and the leak check through normal workflows.

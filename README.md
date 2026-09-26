@@ -92,6 +92,9 @@ The `0.1.0` build is **not App Store** — install via sideloading, TestFlight (
 
 ## Quick start
 
+The full walkthrough is [`docs/user/quick-start.md`](docs/user/quick-start.md) (with
+[FAQ](docs/user/faq.md) and [Troubleshooting](docs/user/troubleshooting.md)). In short:
+
 1. **Import** — `Home [Import IPA]` / `Library [+]` → pick `.ipa`/`.tipa` from Files. ZynSign stages → validates → fingerprints (SHA-256) → records. Duplicates are recognised; oversize is refused with a typed `ZynSignError`.
 2. **Library** — the Library tab lists every application as a row or a grid card: icon, name, bundle ID, version + build, import date, signing status, favourite star. Search by name or bundle ID, sort by Recently Imported / Name / Version, swipe (or context-menu) for **Favorite · Details · Delete**, use **Select** for multi-selection. `Detail → Explore IPA` (tree, search, and a bounded read-only preview of a file you open; no extraction, links never followed, a signature command is not a trust verdict); `Detail → Sign` when signing is composed. Where the Advanced Library is switched on: pick a scope (Favorites, Recently Imported, … or a collection) from the bar under the statistics, stack filters from the filter menu, choose one of seven orders, and select apps to **Favorite · Move · Export · Verify · Delete** them from the floating bar.
 3. **Certificates** — `Certificates tab → Import` → pick `.p12/.pfx` → password → `SecureIdentityStore`. Detail shows `Subject/Issuer/Serial/SHA-256/Valid From-Until/PublicKey/Association/Capability` + `ZStatusBadge ready/needsAttention`. `Export public JSON` shares metadata (private key never leaves).
@@ -109,6 +112,7 @@ README.md                  This file
 CHANGELOG.md               Notable changes, by release
 CONTRIBUTING.md            How work is carried out (originality clause, ADR→Feature→…→CI)
 SECURITY.md                Sensitive material + disclosure
+PRIVACY.md                 What data exists, where it lives, what leaves the device
 LICENSE                    MIT
 ZynSign/
   App/                     CompositionRoot, environment
@@ -122,12 +126,13 @@ Tests/
 docs/
   architecture/            ZAS, signing pipeline, feasibility, external validation (0x20400, single-image vs pipeline)
   product/                 UNIQUE_VALUE_PROPOSITION.md, WHAT_DOES_NOT_EXIST.md (9 wired · 3 never — the three nevers are narrower than 0.1.0's)
+  user/                    Quick Start, FAQ, Troubleshooting
   design/                  zynsign-design-language.md (ZDL v1.0)
-  security/                provisioning-profiles, signing-identities, release-review
-  releases/                version-strategy (0.1.0 Horizon), history
+  security/                provisioning-profiles, signing-identities, release-review, RC3 lockdown
+  releases/                version-strategy (0.1.0 Horizon), release train, release lock + RC/1.0.0 metadata
   development/             CI, toolchain
 .github/
-  workflows/ci.yml         Build + test (simulator) + host vector + external validation (non-gating)
+  workflows/ci.yml         Build + test (simulator) + host vector + external validation (non-gating) + release gate
 ```
 
 ---
@@ -151,7 +156,7 @@ Docs: [`docs/architecture/architecture.md`](docs/architecture/architecture.md) �
 
 ## Security
 
-Signing-adjacent material is sensitive. Read [`SECURITY.md`](SECURITY.md) before touching keys, credentials, profiles, or device data.
+Signing-adjacent material is sensitive. Read [`SECURITY.md`](SECURITY.md) before touching keys, credentials, profiles, or device data. What the app knows about you (almost nothing) is in [`PRIVACY.md`](PRIVACY.md).
 
 - Keys: `SecureIdentityStore` (`WhenUnlockedThisDeviceOnly`, `kSecAttrIsPermanent`, non-extractable, `kSecUseAuthenticationUI = fail`, duplicate `SHA-256` rejection, `association` + `capabilityState` checks per resolution).
 - Diagnostics: redacted — no key material, profile bodies, file paths, or identifiers in user messages; `debugDescription` only where permitted.
@@ -172,6 +177,8 @@ ZynSign is built in small, explicitly scoped increments:
 - **Human-controlled Git** — commits/pushes/tags/releases by the developer; work lands on `main` through reviewed `arena/<id>-zynsign` branches.
 
 Current release: `0.1.0` Horizon on the release train (market `0.1.0`, build `4`; public tag `v0.1.0` after the private matrix is green). Next: `v0.1.0-alpha.1` (Certificate Studio) via `python3 Scripts/release_train.py promote`.
+
+**Release lock (RC 3, 2026-09-26):** the implementation roadmap is complete and the codebase is feature frozen — bug/crash/performance/compatibility/docs fixes only ([docs/releases/release-lock-rc3.md](docs/releases/release-lock-rc3.md)). What remains is the planned release sequence up to `1.0.0` Stable ([docs/releases/stable-release-sequence.md](docs/releases/stable-release-sequence.md)); the CI **release gate** (`Scripts/release_gate.py`, no bypass) enforces build, tests, static analysis, the validation matrix, and the QA checklist ([docs/releases/qa-signoff-1.0.0-rc.1.md](docs/releases/qa-signoff-1.0.0-rc.1.md)).
 
 ```sh
 git clone https://github.com/raynmahbub/ZynSign.git

@@ -103,6 +103,9 @@ jobs:
             exit 0
           }
 
+      - name: Release gate — required checks, no bypass
+        run: python3 Scripts/release_gate.py --version "${{ steps.meta.outputs.version }}"
+
       - name: Ensure GitHub Release exists with notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

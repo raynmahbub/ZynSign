@@ -104,6 +104,10 @@ device communication, or file transfer requires explicit review by the developer
 before it is committed, including a read of the full diff with attention to what
 is written to disk, to logs, and to the network.
 
+The RC 3 lockdown ([`docs/security/rc3-security-lockdown.md`](docs/security/rc3-security-lockdown.md))
+is the final security review of the frozen codebase; what the app holds
+about users is described in [`PRIVACY.md`](PRIVACY.md).
+
 ## Reporting a Vulnerability
 
 Please report security issues privately. **Do not open a public issue.**

@@ -7,12 +7,17 @@ describes how that work is carried out, reviewed, and recorded.
 
 ## Project State
 
-The project is in development: an Xcode project with an iOS/iPadOS
-application target and a unit-test target, a SwiftUI shell with working
-import, inspection, and library areas, signing foundations below the
-interface, and a continuous-integration workflow definition. The
-expectations below apply to all work; where the toolchain is unavailable in
-an environment, that is stated explicitly instead of implied otherwise.
+The implementation roadmap is complete. The project is at **RC 3 — release
+lock**: an Xcode project with an iOS/iPadOS application target and a unit
+test target, the full product (import, inspection, library, certificate and
+profile centers, signing engine and queue, entitlements and binary
+inspection, store browsing and downloads, delivery hand-off, backup and
+recovery), and a release-gated CI workflow. The codebase is feature frozen
+(see *Feature Freeze* below); what remains is executing the planned release
+sequence up to `1.0.0` Stable
+(`docs/releases/stable-release-sequence.md`). The expectations below apply
+to all work; where the toolchain is unavailable in an environment, that is
+stated explicitly instead of implied otherwise.
 
 ## Focused Development Tasks
 
@@ -43,6 +48,22 @@ Follow these rules while working:
   fixing it yourself.
 - Keep branches short-lived. A branch that has drifted far from its task is a
   signal the task was scoped too broadly.
+
+## Feature Freeze (in effect since RC 3, 2026-09-26)
+
+The implementation roadmap is complete and the codebase is feature frozen
+(`docs/releases/release-lock-rc3.md`). Until the release sequence reaches
+`1.0.0` Stable, the only accepted changes are:
+
+- bug fixes, crash fixes, performance fixes, compatibility fixes, and
+  documentation corrections.
+
+Refused: new features (including small ones), architecture changes, UI
+redesigns, refactors with no defect to fix, and test weakening. Every pull
+request must declare its change class in the pull-request template; the
+CI `release-gate` job (no bypass) keeps the required checks green. Between
+the final approved RC and Stable, no code changes occur at all except
+verified release-blocker fixes.
 
 ## Testing Expectations
 

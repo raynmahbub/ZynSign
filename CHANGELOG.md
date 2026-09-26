@@ -12,6 +12,78 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — RC 3 · Step 29: Release Lock & Final Validation
+
+- **Feature freeze** — the implementation roadmap is complete and the
+  codebase is frozen (`docs/releases/release-lock-rc3.md`): bug, crash,
+  performance, compatibility, and documentation fixes only. The pull
+  request template gains a required *Change class* section, CONTRIBUTING
+  documents the freeze, and the designated release-lock branch is
+  `release/1.0.0-rc3`.
+- **Final end-to-end validation** — every core workflow validated
+  beginning-to-end with named evidence per level
+  (`docs/testing/final-validation-rc3.md`): import, library, certificate
+  import, profile import, signing wizard, signing engine, verification,
+  export, store browser, download center, installation workspace, backup
+  & restore — 12 of 12 passing.
+- **Release blocker audit** (`docs/audits/2026-09-26-rc3-release-blocker-audit.md`)
+  — issue-tracker review (none open) plus classification of every known
+  finding: 0 Critical, 2 High (fix before Stable), 3 Medium, 2 Low.
+- **Security lockdown** (`docs/security/rc3-security-lockdown.md`) — keychain
+  handling, temporary-file cleanup, backup design, sensitive-log removal,
+  private-key protection, and report sanitization re-verified against the
+  frozen code; no sensitive information can leak through normal workflows.
+- **Performance certification** (`docs/testing/performance-certification-rc3.md`)
+  and **accessibility certification**
+  (`docs/testing/accessibility-certification-rc3.md`) — targets and
+  thresholds with executed static/CI evidence (including the
+  `testQueryPerformanceAtLibraryScale` benchmark and VoiceOver / Dynamic
+  Type / Reduce Motion / High Contrast / touch-target / focus-order audit).
+- **Documentation lock** — `PRIVACY.md` at the root; Quick Start, FAQ, and
+  Troubleshooting under `docs/user/`; README and CONTRIBUTING updated to
+  match the implementation.
+- **Release metadata for `1.0.0-rc.1`** (prepared, not published) —
+  `docs/releases/release-metadata-1.0.0-rc.1.md` (version, changelog, known
+  limitations, upgrade notes, compatibility notes) and
+  `docs/releases/notes-v1.0.0-rc.1.md`.
+- **CI release gate** — `Scripts/release_gate.py` (documentation set,
+  version metadata, static hygiene, validation matrix, QA checklist — no
+  bypass) with a `release-gate` job in `ci.yml` and a blocking step in
+  `release.yml` before any publish.
+- **Build verification and QA sign-off** —
+  `docs/releases/build-verification-1.0.0-rc.1.md` (label `1.0.0-rc.1`),
+  `docs/releases/qa-signoff-1.0.0-rc.1.md` (11 of 11 signed off), and
+  `docs/releases/stable-release-sequence.md` for the path to `1.0.0`.
+
+### Added — Binary & Signature Inspector (recorded at the RC 3 documentation lock)
+
+Recorded retroactively at the documentation lock; this work landed before
+the freeze (`feat: build Binary & Signature Inspector`).
+
+- Read-only, developer-grade workspace over the executables of one
+  application bundle (`Application Detail → Binary Inspector`): a card per
+  executable — main executable first, then frameworks, libraries, and
+  extensions — filling in as structure and verification are established,
+  with search across load commands, libraries, sections, and signature.
+- Per-executable signature inspection (`BinarySignatureViews`):
+  SuperBlob slot layout, CodeDirectory fields, CMS signer summary, and an
+  on-demand sealed-resource (CodeResources) re-hash, each with an
+  independent verification verdict. Structure detail
+  (`BinaryStructureViews`, `BinaryExecutableView`) covers headers, load
+  commands, segments, sections, and linked libraries; `BinaryComparisonView`
+  compares two executables side by side.
+- Explicit export (`BinaryExportSheet`) of a credential-free inspection
+  report — the only file written, and only when the user shares it. The
+  model holds value reports, never executable bytes
+  (`BinaryInspectorModel`).
+- Bounded inspection (`IPABinaryInspection` limits: 256 MiB executable
+  reads, 128 nested targets, 16 MiB resource seals) behind the existing
+  read-only Mach-O parser; nothing here signs, changes, or exports the
+  package. Supporting suites: `ReadOnlyMachOParserTests`,
+  `CMSStructureReaderTests`, `SignatureVerificationTests`,
+  `AppleSignatureVerifierTests`, `MachOInspectionTests`,
+  `MachOCodeSignatureRegionTests`.
+
 ### Added — Alpha 3 · Step 17: Entitlements Studio
 
 - Read-only App Details workspace with capability-grouped cards, dashboard counts,

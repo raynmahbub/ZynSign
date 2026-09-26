@@ -76,6 +76,21 @@ turning those changes into a release.
 - [version-strategy.md](version-strategy.md) — the development → alpha →
   beta → release-candidate → stable progression, exit criteria, and the
   current position (Horizon `0.1.0` build `4`).
+- [stable-release-sequence.md](stable-release-sequence.md) — the release
+  sequence to execute after RC 3 (`0.1.0-dev` → Alpha → Beta → RC →
+  `1.0.0` Stable), the rules between stages, and the hand-off checklist.
+- [release-lock-rc3.md](release-lock-rc3.md) — the RC 3 feature freeze:
+  allowed change classes, enforcement, and the `release/1.0.0-rc3`
+  release-lock branch.
+- [release-metadata-1.0.0-rc.1.md](release-metadata-1.0.0-rc.1.md) —
+  prepared release assets for `1.0.0-rc.1` (version, changelog, known
+  limitations, upgrade notes, compatibility notes; not published).
+- [notes-v1.0.0-rc.1.md](notes-v1.0.0-rc.1.md) — the GitHub release body
+  for `1.0.0-rc.1` (prepared).
+- [build-verification-1.0.0-rc.1.md](build-verification-1.0.0-rc.1.md) —
+  the `1.0.0-rc.1` build definition and its verification record.
+- [qa-signoff-1.0.0-rc.1.md](qa-signoff-1.0.0-rc.1.md) — the final QA
+  sign-off (11 of 11) gating RC approval.
 - [private-testing.md](private-testing.md) — the private build channels (ad-hoc IPA / TestFlight internal), the device matrix, ExportOptions templates, and the checklist that gates `v0.1.0`.
 - [ExportOptions-private-adhoc.plist](ExportOptions-private-adhoc.plist) — `method: ad-hoc` template for DM sideload.
 - [ExportOptions-private-appstore.plist](ExportOptions-private-appstore.plist) — `method: app-store` template for TestFlight internal.

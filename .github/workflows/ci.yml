@@ -159,3 +159,22 @@ jobs:
             ${{ env.EXPORT_ROOT }}/export-xcodebuild.log
           if-no-files-found: warn
           retention-days: 30
+
+  # The release gate: required checks, no manual bypass. It stays red until
+  # hygiene and build-and-test are green (its `needs`) and its own checks
+  # pass: documentation set, version metadata, static hygiene, the
+  # end-to-end validation matrix, the release checklist, and the release
+  # metadata sections. release.yml runs the same script before publishing.
+  # external-validation is intentionally not a `needs` entry — it is
+  # measurement, not a gate (see docs/architecture/external-validation.md);
+  # its findings are tracked in docs/audits/.
+  release-gate:
+    name: Release gate
+    runs-on: ubuntu-latest
+    needs: [hygiene, build-and-test]
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Run the release gate (no bypass)
+        run: python3 Scripts/release_gate.py
