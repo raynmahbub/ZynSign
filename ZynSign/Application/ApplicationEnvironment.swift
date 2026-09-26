@@ -198,6 +198,12 @@ struct ApplicationEnvironment {
     /// construction.
     var binaryInspection: IPABinaryInspection? = nil
 
+    /// The Resource & Asset Studio inspection use case: inspects app icons,
+    /// launch assets, images, fonts, media, and localization tables in an
+    /// imported IPA bundle. `nil` where no composition supplies it; treated
+    /// as read-only after construction.
+    var resourceInspection: IPAResourceStudioInspection? = nil
+
     /// Records one local activity event when the journal preference allows.
     ///
     /// This is the only recording path the presentation layer uses. It

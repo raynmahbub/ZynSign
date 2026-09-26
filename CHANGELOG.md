@@ -12,6 +12,22 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — Alpha 3 · Step 19: Resource & Asset Studio
+
+- **Asset Dashboard**: Summary count cards for Icons, Launch Assets, Images, Fonts, Audio, Videos, and Localization Files with zero-I/O structural preview on the Application Details screen.
+- **App Icon Studio**: Discovers primary and alternate icons, multiple resolutions (@1x, @2x, @3x, 60x60, 76x76, 83.5x83.5, 1024x1024), full-screen zoom preview, copy filename, and reveal in bundle. Strictly read-only.
+- **Launch Screen Preview**: Active launch configuration detection (Storyboard, NIB, Info.plist, or Static Launch Images) with storyboard/xib details and launch image gallery.
+- **Image Gallery**: Responsive grid view, interactive pinch-to-zoom full-screen preview, format filters (PNG, JPEG, WebP, GIF, HEIC, SVG, ICNS, CAR), and image dimensions/file size badges.
+- **Font Explorer**: Discovers bundled fonts (.ttf, .otf, .ttc, .dfont) with PostScript name, family, style, file size, live in-process font registration with CoreText, size slider, and preview sentence: "The quick brown fox jumps over the lazy dog."
+- **Localization Studio**: Detects `.lproj` directories, previews `.strings` and `.stringsdict` key-value tables with instant search, and provides side-by-side language comparison.
+- **Audio Explorer**: Bundled audio player supporting MP3, WAV, M4A, AAC, CAF, AIFF, OGG, and FLAC with play/pause, scrub slider, elapsed time, duration, and channel metadata.
+- **Video Explorer**: Bundled video player for MP4, MOV, and M4V with thumbnail preview, timescale/duration extraction, resolution dimensions, and lazy playback via native VideoPlayer.
+- **Resource Search & Filters**: High-performance in-memory search index across filenames, extensions, localization keys/values, fonts, and media formats, combining with filter chips (Images, Icons, Fonts, Audio, Video, Localization, Large Files).
+- **File Inspector**: Read-only inspector panel showing Overview (filename, path, size, type), Metadata (dimensions, duration, language, resolution, format), Bundle Location, and Copy buttons.
+- **Duplicate Resource Detection**: Informational analysis detecting redundant images, duplicate fonts, identical localization tables, and same-size duplicate files across directories with total wasted space estimation.
+- **Asset Relationships**: Logically groups assets into App Icon Sets, Launch Assets, String Tables, and Font Families.
+- **Performance & Accessibility**: Lazy thumbnail loading, bounded prefix reads for dimensions and metadata headers, Dynamic Type, VoiceOver announcements, and Dark Mode support.
+
 ### Added — Alpha 3 · Step 17: Entitlements Studio
 
 - Read-only App Details workspace with capability-grouped cards, dashboard counts,
