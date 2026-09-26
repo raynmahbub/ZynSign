@@ -168,4 +168,102 @@ final class ImportQueueRenderingTests: XCTestCase {
         XCTAssertEqual(message, "The picker could not provide the selected file.")
         XCTAssertFalse(message.contains("private/path"))
     }
+
+    // MARK: - Import Hub vocabulary
+
+    func testASkipSaysNothingWasAdded() {
+        XCTAssertEqual(
+            ImportQueueRendering.message(for: .skipped()),
+            "Skipped. Nothing was added, and the file you chose was not changed."
+        )
+    }
+
+    func testTheSummaryCountsTheFourBuckets() {
+        let summary = ImportSummary(
+            settlements: [
+                ImportSettlement(kind: .imported),
+                ImportSettlement(kind: .keptBoth),
+                ImportSettlement(kind: .replaced),
+                ImportSettlement(kind: .alreadyHeld),
+                ImportSettlement(kind: .cancelled),
+                .skipped(),
+                ImportSettlement(kind: .rejected),
+                ImportSettlement(kind: .failed),
+            ],
+            scheduledCount: 8,
+            byteCount: 0
+        )
+        XCTAssertEqual(summary.count(of: .imported), 2)
+        XCTAssertEqual(summary.count(of: .replaced), 1)
+        XCTAssertEqual(summary.count(of: .skipped), 3)
+        XCTAssertEqual(summary.count(of: .failed), 2)
+        XCTAssertTrue(ImportQueueRendering.detail(for: summary).contains("1 skipped"))
+    }
+
+    func testRemainingWorkIsPhrasedAsAnEstimate() {
+        XCTAssertEqual(
+            ImportQueueRendering.remainingText(for: ImportRemainingEstimate(remainingSteps: 3, remainingBytes: 1_000, remainingSeconds: 12.2)),
+            "About 13 s left · 3 steps left"
+        )
+        XCTAssertEqual(
+            ImportQueueRendering.remainingText(for: ImportRemainingEstimate(remainingSteps: 1, remainingBytes: nil, remainingSeconds: nil)),
+            "1 step left"
+        )
+        XCTAssertNil(ImportQueueRendering.remainingText(for: ImportRemainingEstimate(remainingSteps: 0, remainingBytes: nil, remainingSeconds: nil)))
+        XCTAssertEqual(ImportQueueRendering.duration(59), "About 59 s left")
+        XCTAssertEqual(ImportQueueRendering.duration(61), "About 2 min left")
+        XCTAssertEqual(ImportQueueRendering.duration(0.2), "About 1 s left")
+    }
+
+    func testVersionsReadAsVersionAndBuild() {
+        XCTAssertEqual(ImportQueueRendering.versionText(LibraryFixtures.identity(shortVersion: "1.3", build: "45")), "1.3 (45)")
+        XCTAssertEqual(ImportQueueRendering.versionText(LibraryFixtures.identity(shortVersion: nil, build: nil)), "\u{2014}")
+    }
+
+    func testConflictHeadlinesCompareExistingWithIncoming() throws {
+        let existing = LibraryFixtures.record(identity: LibraryFixtures.identity(shortVersion: "1.2", build: "34"))
+        let incoming = LibraryFixtures.identity(shortVersion: "1.3", build: "40")
+        let report = DuplicateDetection.report(
+            identity: incoming,
+            reference: LibraryFixtures.reference(fingerprintSeed: 0x01),
+            against: [existing]
+        )
+        let conflict = try XCTUnwrap(ImportRules.conflict(for: report, incoming: incoming))
+
+        XCTAssertEqual(ImportQueueRendering.headline(for: conflict), "Newer than library (1.2 (34) → 1.3 (40))")
+        XCTAssertTrue(ImportQueueRendering.suggestionExplanation(for: conflict).contains("newer"))
+        XCTAssertEqual(ImportQueueRendering.replacementScope(for: conflict), "Replacing removes 1 existing entry after the new one is stored.")
+    }
+
+    func testArchiveOffersSayTheArchiveIsNotChanged() {
+        let one = [ImportHubFixtures.candidate("App.ipa")]
+        let many = [ImportHubFixtures.candidate("A.ipa"), ImportHubFixtures.candidate("B.ipa")]
+        XCTAssertTrue(ImportQueueRendering.archiveOffer(for: one).contains("one app package"))
+        XCTAssertTrue(ImportQueueRendering.archiveOffer(for: many).contains("2 app packages"))
+        XCTAssertTrue(ImportQueueRendering.archiveOffer(for: many).contains("not changed"))
+    }
+
+    func testAFinishedBatchIsAnnouncedInBucketOrder() {
+        let entry = ImportHistoryEntry(
+            id: ImportBatchIdentifier(),
+            startedAt: LibraryFixtures.importDate,
+            finishedAt: LibraryFixtures.laterDate,
+            origin: .documentPicker,
+            items: [
+                ImportHistoryEntry.Item(id: UUID(), fileName: "A.ipa", outcome: .imported),
+                ImportHistoryEntry.Item(id: UUID(), fileName: "B.ipa", outcome: .failed),
+                ImportHistoryEntry.Item(id: UUID(), fileName: "C.ipa", outcome: .keptBoth),
+            ]
+        )
+        XCTAssertEqual(ImportQueueRendering.announcement(for: entry), "Import finished: 2 imported, 1 failed.")
+        XCTAssertEqual(ImportQueueRendering.counts(for: entry), "2 imported · 1 failed")
+        XCTAssertEqual(ImportQueueRendering.title(for: entry), "3 files · Files")
+    }
+
+    func testTheBackgroundPromiseStaysWithinWhatTheSystemAllows() {
+        let text = ImportQueueRendering.backgroundExplanation
+        XCTAssertTrue(text.contains("while ZynSign is open"))
+        XCTAssertTrue(text.contains("short time"))
+        XCTAssertFalse(text.lowercased().contains("in the background until"))
+    }
 }

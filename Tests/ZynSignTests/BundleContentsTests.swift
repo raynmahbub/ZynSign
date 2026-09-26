@@ -229,6 +229,25 @@ final class BundleContentsTests: XCTestCase {
         XCTAssertEqual(visited, result.entryCount)
     }
 
+    func testFileFolderAndDirectDirectoryCountsIncludeImpliedFolders() throws {
+        let result = contents([
+            makeEntry(inBundle("Info.plist"), uncompressedSize: 10),
+            makeEntry(inBundle("Frameworks/Core.framework/Core"), uncompressedSize: 20),
+            makeEntry(inBundle("Frameworks/Core.framework"), kind: .directory),
+            makeEntry(inBundle("symbolic-link"), kind: .symbolicLink),
+        ])
+
+        XCTAssertEqual(result.fileCount, 2)
+        XCTAssertEqual(result.folderCount, 2)
+        XCTAssertEqual(result.otherEntryCount, 1)
+        XCTAssertEqual(result.directCounts(in: .root), BundleDirectoryCounts(files: 1, folders: 1, otherEntries: 1))
+        XCTAssertEqual(
+            result.directCounts(in: try path("Frameworks")),
+            BundleDirectoryCounts(files: 0, folders: 1, otherEntries: 0)
+        )
+        XCTAssertNil(result.directCounts(in: try path("Info.plist")))
+    }
+
     func testEntriesWithUnsafeNamesAreCountedNotListed() throws {
         let result = contents([
             makeEntry(inBundle("Info.plist")),

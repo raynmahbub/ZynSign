@@ -8,11 +8,12 @@ import Foundation
 /// domain types and structured failures, and never see a key reference,
 /// keychain item, or platform certificate object.
 ///
-/// The store answers four questions:
+/// The store answers five questions:
 /// - what identities are available,
 /// - what is the metadata of a given identity,
 /// - how to access the signing capability for an identity;
-/// - which public certificate accompanies that capability for CMS construction.
+/// - which public certificate accompanies that capability for CMS construction;
+/// - how to forget a registration the user has removed.
 ///
 /// Security boundary, **Accepted**:
 /// - Private key material is never exposed through this port. Callers
@@ -73,11 +74,32 @@ protocol IdentityStore {
 
     /// Public certificate bytes for CMS construction only; never a key locator.
     func signingCertificate(for id: SigningIdentityIdentifier) throws -> Certificate
+
+    /// Forgets the registration of `id`.
+    ///
+    /// Removing a registration is not deleting a key. The registration is
+    /// ZynSign's local record that a borrowed key exists and is associated
+    /// with a certificate; the key itself remains owned by whatever
+    /// provisioned it, and this operation must never delete it. Removing a
+    /// registration that does not exist is a structured no-op success, so a
+    /// repeated removal is safe.
+    ///
+    /// - Parameter id: The identifier of the identity whose registration is
+    ///   forgotten.
+    /// - Throws: A typed `ZynSignError` when the removal is not supported by
+    ///   the store's platform or cannot be performed.
+    func removeRegistration(_ id: SigningIdentityIdentifier) throws
 }
 
 extension IdentityStore {
     func signingCertificate(for id: SigningIdentityIdentifier) throws -> Certificate {
         throw ZynSignError.identity(.certificateUnavailable)
+    }
+
+    /// The default removal reports that the store's platform cannot perform
+    /// it, rather than pretending to have forgotten something it never held.
+    func removeRegistration(_ id: SigningIdentityIdentifier) throws {
+        throw ZynSignError.identity(.platformRestriction)
     }
 
     func metadata(for id: SigningIdentityIdentifier) throws -> SigningIdentityMetadata? {

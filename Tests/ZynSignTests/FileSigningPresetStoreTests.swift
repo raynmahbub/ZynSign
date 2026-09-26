@@ -15,6 +15,25 @@ final class FileSigningPresetStoreTests: XCTestCase {
         try? FileManager.default.removeItem(at: temporaryDirectory)
     }
 
+    func testVersionOneCatalogDecodesWithCurrentDefaults() async throws {
+        let location = temporaryDirectory.appendingPathComponent("presets.json")
+        let catalog = """
+        {"schemaVersion":1,"presets":[{"id":{"rawValue":"11111111-1111-1111-1111-111111111111"},"name":"Personal","provisioningProfileName":"My Profile","createdAt":1000,"updatedAt":1000}]}
+        """
+        try Data(catalog.utf8).write(to: location)
+        let store = FileSigningPresetStore(catalogLocation: location)
+        let presets = try await store.allPresets()
+        XCTAssertEqual(presets.count, 1)
+        XCTAssertEqual(presets[0].name, "Personal")
+        XCTAssertEqual(presets[0].kind, .custom)
+        XCTAssertEqual(presets[0].entitlementsSlot, .modern)
+        XCTAssertEqual(presets[0].verificationPreference, .always)
+        XCTAssertEqual(presets[0].usage, .empty)
+        XCTAssertEqual(presets[0].distribution.scope, .local)
+        XCTAssertNil(presets[0].distribution.schedule)
+        XCTAssertNil(presets[0].certificateFingerprint)
+    }
+
     func testEmptyStoreReturnsNoPresets() async throws {
         let store = FileSigningPresetStore(catalogLocation: temporaryDirectory.appendingPathComponent("presets.json"))
         let presets = try await store.allPresets()

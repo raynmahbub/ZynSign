@@ -280,6 +280,7 @@ final class SyntheticLibraryArtifactStore: LibraryArtifactStore, @unchecked Send
     private var describeError: (any Error)?
     private var adoptionError: (any Error)?
     private var removalError: (any Error)?
+    private var measureError: (any Error)?
 
     // MARK: Staging and storage hooks
 
@@ -311,6 +312,18 @@ final class SyntheticLibraryArtifactStore: LibraryArtifactStore, @unchecked Send
                 heldContent[id] = content.prefix(byteCount)
             }
         }
+    }
+
+    /// Replaces the held content for `id` behind the library's back,
+    /// keeping whatever size `content` has — the shape of a file whose
+    /// bytes changed without its size changing.
+    func replaceHeldContent(_ id: ArtifactIdentifier, with content: Data) {
+        lock.withLock { heldContent[id] = content }
+    }
+
+    /// Makes every subsequent measurement of held content throw `error`.
+    func failMeasuring(with error: any Error) {
+        lock.withLock { measureError = error }
     }
 
     /// Makes every subsequent describe throw `error`.
@@ -403,6 +416,18 @@ final class SyntheticLibraryArtifactStore: LibraryArtifactStore, @unchecked Send
                 return .present(byteCount: content.count)
             }
             return .absent
+        }
+    }
+
+    func measureHeldArtifact(_ artifact: ArtifactIdentifier) throws -> ArtifactReference? {
+        try lock.withLock { () throws -> ArtifactReference? in
+            if let measureError {
+                throw measureError
+            }
+            guard let content = heldContent[artifact] else {
+                return nil
+            }
+            return LibraryFixtures.reference(to: content, artifactID: artifact)
         }
     }
 

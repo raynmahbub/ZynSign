@@ -20,6 +20,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
     case files
     case appStore
     case downloads
+    case presets
 
     var id: Self { self }
 
@@ -39,6 +40,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
         case .files: return "Files"
         case .appStore: return "App Store"
         case .downloads: return "Downloads"
+        case .presets: return "Presets"
         }
     }
 
@@ -53,6 +55,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
         case .files: return "folder.fill"
         case .appStore: return "bag.fill"
         case .downloads: return "arrow.down.circle.fill"
+        case .presets: return "rectangle.stack.fill"
         }
     }
 
@@ -67,6 +70,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
         case .files: return "folder"
         case .appStore: return "bag"
         case .downloads: return "arrow.down.circle"
+        case .presets: return "rectangle.stack"
         }
     }
 
@@ -83,7 +87,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
         case .certificates:
             return "Signing identities in the Keychain — imported from .p12 containers, inspected, and never exportable with their private keys."
         case .profiles:
-            return "Imported provisioning profiles — name, team, allowed bundle identifiers, and expiry, read from each profile's own declarations."
+            return "Imported provisioning profiles — searchable, sortable, and filterable, with expiration countdowns, pre-sign compatibility checks, actionable diagnostics, and per-app suggestions."
         case .settings:
             return "Signing preferences, appearance, storage, diagnostics, and the honest capability screens."
         case .files:
@@ -92,6 +96,25 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
             return "Discover and download applications from your configured sources."
         case .downloads:
             return "Download packages from URLs, track progress, and import them into the library when finished."
+        case .presets:
+            return "Reusable signing presets — certificate and profile references, options, and live compatibility. Presets do not store secrets."
+        }
+    }
+}
+
+extension LandingTab {
+
+    /// The shell section a landing-tab preference names.
+    ///
+    /// The mapping lives here rather than in the preference so a change to the
+    /// shell's tabs does not change what a stored preference means.
+    var shellSection: ShellSection {
+        switch self {
+        case .home: return .home
+        case .library: return .library
+        case .certificates: return .certificates
+        case .profiles: return .profiles
+        case .settings: return .settings
         }
     }
 }

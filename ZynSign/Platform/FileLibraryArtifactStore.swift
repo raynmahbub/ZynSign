@@ -27,6 +27,9 @@ import Foundation
 ///   that already exists is refused rather than overwritten.
 /// - **Observing** reads file attributes only. It never creates, repairs, or
 ///   replaces a file.
+/// - **Measuring** a held artifact streams it exactly as describing streams a
+///   staged one, so verification recomputes the fingerprint import recorded
+///   with the same reader and the same digest.
 /// - **Removing** deletes the artifact's file if present.
 /// - **Enumerating** lists the library directory and reports only files
 ///   whose names are valid identifiers with the package extension; anything
@@ -71,7 +74,7 @@ final class FileLibraryArtifactStore: LibraryArtifactStore, Sendable {
                 diagnosticDetail: "No staged archive is held for artifact '\(artifact.rawValue)'."
             )
         }
-        let (byteCount, fingerprint) = try measure(source, artifact: artifact)
+        let (byteCount, fingerprint) = try measure(source, artifact: artifact, role: "staged archive")
         return ArtifactReference(artifactID: artifact, byteCount: byteCount, fingerprint: fingerprint)
     }
 
@@ -130,6 +133,15 @@ final class FileLibraryArtifactStore: LibraryArtifactStore, Sendable {
         return .present(byteCount: max(0, values.fileSize ?? 0))
     }
 
+    func measureHeldArtifact(_ artifact: ArtifactIdentifier) throws -> ArtifactReference? {
+        let location = libraryLocation(for: artifact)
+        guard Self.isRegularFile(at: location) else {
+            return nil
+        }
+        let (byteCount, fingerprint) = try measure(location, artifact: artifact, role: "library artifact")
+        return ArtifactReference(artifactID: artifact, byteCount: byteCount, fingerprint: fingerprint)
+    }
+
     func heldArtifactIdentifiers() throws -> Set<ArtifactIdentifier> {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: libraryDirectory.path, isDirectory: &isDirectory),
@@ -163,14 +175,18 @@ final class FileLibraryArtifactStore: LibraryArtifactStore, Sendable {
 
     /// Streams the file at `source`, returning its byte count and SHA-256
     /// fingerprint. Read failures are mapped onto typed errors whose
-    /// rendering carries the identifier only.
-    private func measure(_ source: URL, artifact: ArtifactIdentifier) throws -> (Int, ArtifactFingerprint) {
+    /// rendering carries the identifier and the file's role only.
+    private func measure(
+        _ source: URL,
+        artifact: ArtifactIdentifier,
+        role: String
+    ) throws -> (Int, ArtifactFingerprint) {
         let reader: FileHandle
         do {
             reader = try FileHandle(forReadingFrom: source)
         } catch {
             throw ZynSignError.libraryStorageFailure(
-                diagnosticDetail: "The staged archive for artifact '\(artifact.rawValue)' could not be opened for reading.",
+                diagnosticDetail: "The \(role) for artifact '\(artifact.rawValue)' could not be opened for reading.",
                 underlyingError: error
             )
         }
@@ -186,7 +202,7 @@ final class FileLibraryArtifactStore: LibraryArtifactStore, Sendable {
             }
         } catch {
             throw ZynSignError.libraryStorageFailure(
-                diagnosticDetail: "The staged archive for artifact '\(artifact.rawValue)' could not be read.",
+                diagnosticDetail: "The \(role) for artifact '\(artifact.rawValue)' could not be read.",
                 underlyingError: error
             )
         }
