@@ -135,6 +135,17 @@ struct ApplicationEnvironment {
     /// The local-only annotation store behind the Certificates area.
     var identityAnnotations: (any IdentityAnnotationsStore)? = nil
 
+    /// The user's preferences: one document, loaded once at launch and
+    /// written whole whenever a setting changes. The Settings Control Center
+    /// reads and writes through this port, and the shell reads it once to
+    /// decide where ZynSign stages its work.
+    let preferencesStore: any PreferencesStore
+
+    /// The boundary through which ZynSign asks the user to authenticate. The
+    /// platform implementation owns LocalAuthentication and nothing else
+    /// does; the application learns only whether an attempt succeeded.
+    let biometricAuthenticator: any BiometricAuthenticating
+
     /// Records one local activity event when the journal preference allows.
     ///
     /// This is the only recording path the presentation layer uses. It

@@ -110,7 +110,7 @@ ZynSign/
   Application/             Use cases & ports (Import, Library, Sign, CertificateExport, RepositoryHealth, DER, BackgroundDownload, LiveActivity, MissionControl, InstallationDelivery hand-off, LocalAnalyticsJournal, Pairing/Analytics policy)
   Domain/                  Pure models (Archive, Bundle, Certificate, Provisioning, CodeDirectory 0x20001/0x20200/0x20400, Entitlements XML+DER, ResourceSealing, InstallationEvidence, etc.)
   Platform/                Apple implementations (Archive, Keychain, PKCS12, CMS, MachO, Downloads background, LiveActivity)
-  Presentation/            SwiftUI: DesignSystem (ZCard/…/ZToast), 5-tab shell (Home/Library/Certificates/Profiles/Settings) + Files/App Store/Downloads, ApplicationLibrary grid+list, ProfilesView, SigningView + ZSigningStatusMachine
+  Presentation/            SwiftUI: DesignSystem (ZCard/…/ZToast), 5-tab shell (Home/Library/Certificates/Profiles/Settings) + Files/App Store/Downloads, ApplicationLibrary grid+list, ProfilesView, SigningView + ZSigningStatusMachine, Settings/ Control Center (one descriptor + one catalog entry per section)
 Tests/
   ZynSignTests/            Unit + fixture tests (domain, archive, import, library, certificates, provisioning, MachO, signing, metadata)
   Host/                    external_validation.py, verify_*.py (codesign/otool/openssl)

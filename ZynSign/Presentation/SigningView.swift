@@ -19,6 +19,8 @@ struct SigningView: View {
     let entry: LibraryEntry
     @Environment(\.applicationEnvironment) private var env
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.settingsCenter) private var settings
+    @Environment(\.appLock) private var appLock
     @StateObject private var model = SigningEngineModel()
     @State private var identities: [SigningIdentity] = []
     @State private var selectedIdentityID: SigningIdentityIdentifier?
@@ -46,6 +48,11 @@ struct SigningView: View {
     @State private var analysisError: String?
     @State private var preflightError: String?
     @State private var isPreparingToSign = false
+    /// Whether the strict-verification confirmation is showing.
+    @State private var isConfirmingStrictSign = false
+    /// Whether the user has already answered that confirmation for the
+    /// current selection, so confirming signs rather than asking again.
+    @State private var isSigningConfirmed = false
     @State private var preflightTask: Task<Void, Never>?
     @State private var profileRevision = 0
     @State private var identityRevision = 0
@@ -81,9 +88,17 @@ struct SigningView: View {
         return identities.first { $0.id == id }
     }
     private var canSign: Bool {
-        !isSigning && !isPreparingToSign && !isAnalyzing && !scanKey.isLoading && analyzedFor == scanKey &&
-        selectedIdentityID != nil && profileData != nil && entry.isArtifactAvailable &&
-        health?.entitlements != nil && health?.report.status != .blocked
+        guard !isSigning, !isPreparingToSign, !scanKey.isLoading else { return false }
+        guard selectedIdentityID != nil, profileData != nil, entry.isArtifactAvailable else { return false }
+        if settings.preferences.signing.automaticCompatibilityAnalysis {
+            // The card is the gate: signing waits for a current assessment of
+            // exactly this configuration, and refuses while one is blocked.
+            guard !isAnalyzing, analyzedFor == scanKey, let health else { return false }
+            guard health.report.status != .blocked, health.entitlements != nil else { return false }
+        }
+        // With automatic analysis off, the pre-sign analysis is the gate
+        // instead — the same checks, run when the user asks to sign.
+        return true
     }
 
     var body: some View {
@@ -107,6 +122,15 @@ struct SigningView: View {
         .task { await loadSavedProfiles() }
         .task(id: scanKey) {
             guard !scanKey.isLoading else { return }
+            guard settings.preferences.signing.automaticCompatibilityAnalysis else {
+                // The user asked not to be assessed automatically. Signing
+                // still runs its own pre-sign analysis, so nothing is left
+                // unchecked — it simply is not run until the user signs.
+                isAnalyzing = false
+                health = nil
+                analyzedFor = nil
+                return
+            }
             await analyzeHealth()
         }
         .task {
@@ -141,6 +165,12 @@ struct SigningView: View {
                 }
             }
         }
+        .alert("Sign anyway?", isPresented: $isConfirmingStrictSign) {
+            Button("Cancel", role: .cancel) { isSigningConfirmed = false }
+            Button("Sign") { startSigning() }
+        } message: {
+            Text("Verification strictness is set to Strict and the pre-sign diagnostics reported \(strictFindingCount) finding\(strictFindingCount == 1 ? "" : "s"). ZynSign will not refuse — it wants you to confirm.")
+        }
         .zToast(isPresented: $showSuccessToast, message: "Signed, verified, and delivered to Documents/Signed", style: .success)
         .zToast(isPresented: $showErrorToast, message: model.result?.failure?.userMessage ?? "Refused — nothing was delivered", style: .error, duration: .seconds(4))
         .zBottomSheet(isPresented: $showSigningOptions) {
@@ -150,6 +180,7 @@ struct SigningView: View {
             guard let new else { return }
             if new == .signed {
                 ZHaptics.success()
+                rememberSelections()
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) { successScale = 1.08 }
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.9).delay(0.18)) { successScale = 1 }
                 showSuccessToast = true
@@ -432,10 +463,17 @@ struct SigningView: View {
         if !entry.isArtifactAvailable { return "The package file is not available." }
         if selectedIdentityID == nil { return "Select a signing identity." }
         if profileData == nil { return "Choose a provisioning profile." }
-        if isAnalyzing || analyzedFor != scanKey { return "Checking this configuration before signing…" }
-        if health?.report.status == .blocked { return "Resolve the blocked checks in Signing Diagnostics before signing." }
-        if health?.entitlements == nil { return "The profile's authenticated entitlements are not available." }
-        return analysisError ?? "Resolve the requirements above to sign."
+        if settings.preferences.signing.automaticCompatibilityAnalysis {
+            if isAnalyzing || analyzedFor != scanKey { return "Checking this configuration before signing…" }
+            if health?.report.status == .blocked {
+                return "Resolve the blocked checks in Signing Diagnostics before signing."
+            }
+            if health?.entitlements == nil { return "The profile's authenticated entitlements are not available." }
+            if let analysisError { return analysisError }
+        } else if let analysisError {
+            return analysisError
+        }
+        return "Resolve the requirements above to sign."
     }
 
     // MARK: - Result
@@ -612,9 +650,12 @@ struct SigningView: View {
             if let selectedIdentityID, !identities.contains(where: { $0.id == selectedIdentityID }) {
                 self.selectedIdentityID = nil
             }
-            if selectedIdentityID == nil,
-               let first = identities.first(where: { $0.isUsableForSigning }) ?? identities.first {
-                selectedIdentityID = first.id
+            // The preferred identity from Settings → Signing is the starting
+            // point; anything the user picks here overrides it for this run.
+            if selectedIdentityID == nil {
+                selectedIdentityID = preferredIdentityID
+                    ?? identities.first(where: { $0.isUsableForSigning })?.id
+                    ?? identities.first?.id
             }
         } catch let error as ZynSignError {
             identitiesError = error.userMessage
@@ -859,6 +900,23 @@ struct SigningView: View {
             scanRevision += 1
             return
         }
+        // Authentication is asked for only when the user asked for it; a
+        // locked ZynSign is unlocked by this same attempt.
+        let authorization = await appLock.authorize(.sign)
+        guard authorization.isAuthenticated else {
+            preflightError = authorization.message
+            return
+        }
+        // Strict verification asks before acting on a result that carries any
+        // finding. It never refuses: confirming signs exactly as usual.
+        if settings.preferences.advanced.verificationStrictness == .strict,
+           !isSigningConfirmed,
+           !preflight.report.issues.isEmpty {
+            isSigningConfirmed = true
+            isConfirmingStrictSign = true
+            return
+        }
+        isSigningConfirmed = false
         ZHaptics.tap()
         liveActivity.start(stage: "Preparing", detail: "Creating an isolated working copy…")
         model.run(
@@ -870,6 +928,37 @@ struct SigningView: View {
             environment: env
         )
         mirrorProgressToLiveActivity()
+    }
+
+    /// The identity the user's signing preferences name, when it is still
+    /// available. Named by the certificate's public fingerprint — never by
+    /// anything that could reach key material.
+    private var preferredIdentityID: SigningIdentityIdentifier? {
+        guard let fingerprint = settings.preferences.signing.preferredIdentityFingerprint else { return nil }
+        return identities.first { $0.fingerprint.hexDigest == fingerprint }?.id
+    }
+
+    /// How many findings the strict-verification confirmation names.
+    private var strictFindingCount: Int {
+        health?.report.issues.count ?? 0
+    }
+
+    /// Records what was signed with as the starting point for next time.
+    ///
+    /// Only the references are stored — the certificate's public fingerprint
+    /// and the name the profile declares — never key material, and only when
+    /// the user asked for selections to be remembered.
+    private func rememberSelections() {
+        guard settings.preferences.signing.rememberSelections else { return }
+        settings.update { preferences in
+            if let identity = selectedIdentity {
+                preferences.signing.preferredIdentityFingerprint = identity.fingerprint.hexDigest
+            }
+            if let savedID = selectedSavedProfileID,
+               let profile = savedProfiles.first(where: { $0.id == savedID }) {
+                preferences.signing.preferredProfileName = profile.name
+            }
+        }
     }
 
     /// Mirrors the engine's own progress into the Live Activity while the

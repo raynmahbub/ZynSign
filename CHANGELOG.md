@@ -12,6 +12,103 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — 0.1.0-alpha.1 · Step 11: Settings, Security & Configuration Center
+
+- **Settings Control Center** — Settings is an index, not a form. Every
+  preference lives in its own section, reached from the hub, and every section
+  is a peer of every other: a section declares its own descriptor
+  (`SettingsSectionDescriptor`) and registers itself in one catalog entry
+  (`SettingsSectionCatalog`), so a later version adds, reorders, or extends a
+  section by adding a file rather than by editing a switch. The hub knows a
+  section's title and where it goes, and nothing about what is inside it.
+  Sections: General, Signing, Security, Storage, Diagnostics, Appearance,
+  Advanced, Recovery, About.
+- **One preferences model, one write path** — `ZynSignPreferences` holds seven
+  independent groups behind `FilePreferencesStore`, which loads the document
+  once at construction (so Settings opens instantly), writes it whole and
+  atomically (so an interrupted write can never leave half a preference), and
+  never fails on read: a missing or damaged document becomes shipped defaults
+  and the reason is kept for Diagnostics. Decoding is group by group, so a
+  document written by another version — or one group's shape changed by a later
+  build — costs the user the settings in that group and nothing else. The two
+  keys an earlier version kept in `UserDefaults`
+  (`zynsign.appearance.colorScheme`, `zynsign.onboarding.completed`) are
+  migrated once, written out, and removed; archive options the Archive screen
+  still reads stay where they are, so no setting has two owners.
+- **General** — default landing tab (switches tabs now and on next launch),
+  haptic feedback, animation preference (Standard / Reduced / Off, with the
+  system's Reduce Motion always winning), language readiness reported honestly
+  as English-only rather than offered as a choice, and reset onboarding as its
+  own action.
+- **Signing Preferences** — preferred signing identity (named by its public
+  certificate fingerprint), preferred provisioning profile (named by the name
+  the profile declares), remember previous selections, and automatic
+  compatibility analysis. Every value is a *starting point*: the signing
+  screen presents it and the user may choose something else for that session.
+  Nothing here holds signing material.
+- **Security Center** — Face ID / Touch ID protection where the device offers
+  it (and a plain statement where it does not), authentication before
+  sensitive actions with the list of those actions, secure session timeout
+  (immediately / 1 / 5 / 15 minutes), and sensitive-data visibility
+  (hidden / masked / visible) with a live preview. `AppLockController` owns
+  the lock and `BiometricAuthenticating` is the only boundary through which
+  ZynSign asks the system: it learns whether an attempt succeeded and nothing
+  else. Private key material is never exposed through Settings, never
+  exported, and never logged — it stays in the Keychain, marked
+  non-extractable.
+- **App lock in the shell** — a locked ZynSign shows one full-screen overlay
+  (Unlock), is unlocked by the attempt that needs it, and locks when it is
+  backgrounded with protection on or when the session lapses. A preference to
+  lock on a device that cannot authenticate is not enforced, and the Security
+  Center says so instead of showing a switch that does nothing.
+- **Storage Manager** — a dashboard over the application's own storage use
+  case, reporting allocated bytes per category (Imported Apps, Signed
+  Artifacts, Temporary Files, History) with a total that is the sum of the
+  rows rather than an estimate, and three actions — clear temporary files,
+  remove signed artifacts, remove old history records — each behind a
+  confirmation and each reporting what it removed and how much it reclaimed.
+  Cleanup is age-based for temporary data, so an operation running right now
+  is never a candidate, and it counts what it skipped rather than staying
+  quiet about it. No action on this page can reach an imported application:
+  removing one is a Library action, one application at a time.
+- **Diagnostics Preferences** — keep diagnostic history, detailed technical
+  logs (opt-in, off by default), developer diagnostics that change what the
+  page shows rather than what ZynSign does, a readable technical log, and
+  export diagnostic report. The
+  report is counts, versions, and preference flags: no bundle identifier, no
+  file name, no path, no certificate detail, no key material. It is written to
+  a file the user shares themselves; nothing in ZynSign sends it anywhere.
+- **Appearance** — System / Light / Dark applied at the root, increased
+  contrast through the environment, and Dynamic Type reported as supported
+  rather than offered as a second, competing text size. One theme ships, and
+  the identifier is stored so a later release can add themes without changing
+  anything else the user chose.
+- **Advanced** — working-directory behaviour, temporary-file cleanup policy,
+  verification strictness, and experimental feature flags. It is listed apart
+  from everyday settings and says why. `ExperimentalFeature` has no cases,
+  because a flag appears only once the feature behind it is implemented and
+  reachable; the section says exactly that instead of listing switches that do
+  nothing.
+- **Recovery** — reset preferences (keeping the record of finished
+  onboarding), clean temporary workspace, and rebuild library index, each
+  asking first and reporting what it did. Reset Library is the one
+  destructive reset in the application: it is labelled as such, it names
+  exactly what will be deleted, and it asks twice — once with a confirmation
+  and once through authentication when the user asked for authentication
+  before sensitive actions. Preferences are configuration, so resetting them
+  asks for no fingerprint.
+- **About** — version, build, the app's own mark drawn from the design
+  system, copyright, open-source licences, privacy policy, terms of use, and
+  acknowledgements, all as documents that ship with the application rather
+  than links to a server that learns you read them. Nothing on the page
+  describes how ZynSign was made.
+- **Accessibility as a first-class part of the settings system** — every row
+  carries a label and a symbol, every control is a real control with a large
+  enough target, Dynamic Type is inherited from the system everywhere, the
+  animation preference is honoured on top of Reduce Motion, and the lock
+  overlay is announced as modal.
+
+
 ### Added — 0.1.0-alpha.1 · Step 8: IPA Explorer & Bundle Browser
 
 - **Read-only IPA explorer** — `Explore IPA` opens a native tree of the

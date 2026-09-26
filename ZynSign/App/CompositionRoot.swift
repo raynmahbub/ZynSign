@@ -24,7 +24,14 @@ enum CompositionRoot {
     /// Library signing screens act on the same Keychain registrations and
     /// the same cryptographic machinery that the tests cover.
     static func makeApplicationEnvironment() -> ApplicationEnvironment {
-        let intake = SecurityScopedArtifactIntake(directory: importStagingDirectory)
+        // The preferences are read before anything else is built, because the
+        // working-directory choice decides where staging happens and the
+        // storage screen measures what the choice covers.
+        let preferences = makePreferencesStore()
+        let biometricAuthenticator = makeBiometricAuthenticator()
+        let intake = SecurityScopedArtifactIntake(
+            directory: importStagingDirectory(preferences: preferences.snapshot)
+        )
         let diagnosticHistory = makeSigningDiagnosticsHistoryStore()
         let library = makeApplicationLibrary(intake: intake, diagnosticHistory: diagnosticHistory)
         let identityStore = makeIdentityStore()
@@ -40,7 +47,11 @@ enum CompositionRoot {
         let history = makeSigningHistoryStore()
         let profiles = makeProvisioningProfileLibrary()
         let exports = makeExportCenter()
-        let storage = makeStorageManagement(exports: exports, history: history)
+        let storage = makeStorageManagement(
+            exports: exports,
+            history: history,
+            preferences: preferences.snapshot
+        )
         var environment = ApplicationEnvironment(
             applicationInfo: ApplicationInfo.current(bundle: .main),
             packageImport: packageImport,
@@ -63,7 +74,9 @@ enum CompositionRoot {
                 exports: exports,
                 history: history
             ),
-            storageManagement: storage
+            storageManagement: storage,
+            preferencesStore: preferences,
+            biometricAuthenticator: biometricAuthenticator
         )
         environment.provisioningProfileImporter = makeProvisioningProfileImporter()
         environment.profileCompatibility = ProfileCompatibilityUseCase(identityStore: identityStore)
@@ -203,8 +216,11 @@ enum CompositionRoot {
     /// import, and the working copies signing operations are made from.
     /// Cleanup and storage reporting both read this list, so the two can
     /// never disagree about what "temporary" covers.
-    static func temporaryDirectories() -> [URL] {
-        [importStagingDirectory, signingWorkspaceRoot()]
+    static func temporaryDirectories(preferences: ZynSignPreferences = ZynSignPreferences.shippedDefault) -> [URL] {
+        [
+            importStagingDirectory(preferences: preferences),
+            signingWorkspaceRoot()
+        ]
     }
 
     /// The user's Documents folder, where exported artifacts live.
@@ -265,16 +281,19 @@ enum CompositionRoot {
     /// never removed by anything composed here.
     static func makeStorageManagement(
         exports: ExportCenter,
-        history: any SigningHistoryStore
+        history: any SigningHistoryStore,
+        preferences: ZynSignPreferences = ZynSignPreferences.shippedDefault
     ) -> StorageManagement {
         StorageManagement(
             reporting: FileStorageFootprint(
                 importedApplicationsDirectory: libraryArtifactDirectory,
                 exportedArtifactsDirectory: exportArtifactDirectory(),
-                temporaryDirectories: temporaryDirectories(),
+                temporaryDirectories: temporaryDirectories(preferences: preferences),
                 historyFiles: [signingHistoryJournalLocation(), exportCatalogLocation()]
             ),
-            temporaryData: FileTemporaryStorage(directories: temporaryDirectories()),
+            temporaryData: FileTemporaryStorage(
+                directories: temporaryDirectories(preferences: preferences)
+            ),
             exports: exports,
             history: history
         )
@@ -908,9 +927,67 @@ enum CompositionRoot {
     /// The application-owned temporary directory user-selected packages are
     /// staged into. The directory is created on first use by the intake;
     /// nothing is created at composition time.
-    private static var importStagingDirectory: URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("ZynSignImports", isDirectory: true)
+    ///
+    /// Which directory that is comes from the user's working-directory
+    /// preference: the system temporary directory by default, or a durable
+    /// workspace under Application Support. The choice is read once, because
+    /// the intake owns the staging location for the whole launch — and the
+    /// storage screen is given the same list, so what it measures is what the
+    /// choice actually covers.
+    static func importStagingDirectory(preferences: ZynSignPreferences) -> URL {
+        switch preferences.advanced.workingDirectoryBehavior {
+        case .temporary:
+            return FileManager.default.temporaryDirectory
+                .appendingPathComponent("ZynSignImports", isDirectory: true)
+        case .applicationSupport:
+            return libraryRootDirectory
+                .appendingPathComponent("Workspace", isDirectory: true)
+        }
+    }
+
+    /// The preferences store the whole application reads and writes through.
+    ///
+    /// One store per launch: the Settings Control Center writes through it,
+    /// the shell reads it to apply appearance and locking, and the intake
+    /// reads it once to learn where staging happens.
+    static func makePreferencesStore() -> any PreferencesStore {
+        FilePreferencesStore(
+            location: preferencesDocumentLocation(),
+            legacyDefaults: .standard
+        )
+    }
+
+    /// The on-disk location of the preferences document. It lives beside the
+    /// other library records because it is configuration about ZynSign's own
+    /// behaviour rather than a file the user works with, and because a
+    /// preferences document that cannot be read must not be able to stop the
+    /// application launching.
+    static func preferencesDocumentLocation() -> URL {
+        libraryRootDirectory.appendingPathComponent("Preferences.json", isDirectory: false)
+    }
+
+    /// The on-disk location of the opt-in technical log. Same directory, same
+    /// reasoning: it is a record of what ZynSign did, kept on the device.
+    static func diagnosticsLogLocation() -> URL {
+        libraryRootDirectory.appendingPathComponent("Diagnostics.json", isDirectory: false)
+    }
+
+    /// The directory a diagnostic report is written to before the user shares
+    /// it. The user's Documents folder, because a report the user is asked to
+    /// share should be somewhere they can see.
+    static func diagnosticReportDirectory() -> URL {
+        documentsDirectory.appendingPathComponent("Diagnostics", isDirectory: true)
+    }
+
+    /// Builds the biometric authenticator the Security Center and the lock
+    /// use. The platform implementation owns LocalAuthentication; this is the
+    /// only place it is chosen.
+    static func makeBiometricAuthenticator() -> any BiometricAuthenticating {
+        #if os(iOS) && !targetEnvironment(simulator)
+        return LocalAuthenticationBiometricAuthenticator()
+        #else
+        return UnavailableBiometricAuthenticator()
+        #endif
     }
 
     /// The root of durable library storage, inside the application
