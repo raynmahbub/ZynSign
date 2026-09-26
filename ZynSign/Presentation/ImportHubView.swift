@@ -37,6 +37,12 @@ struct ImportHubView: View {
 
     @Environment(\.applicationEnvironment) private var environment
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.signingQueuePresentation) private var signingQueuePresentation
+
+    /// The imported applications awaiting a signing-queue configuration,
+    /// when the user asked to queue them straight from the Import Hub.
+    @State private var queueConfiguration: SigningQueueConfigurationRequest?
+    @State private var queueFailure: String?
     @State private var isShowingPicker = false
     @State private var pickerFailure: String?
     @State private var isShowingResolutionCenter = false
@@ -115,6 +121,26 @@ struct ImportHubView: View {
         }
         .sheet(item: $detailItem) { token in
             detailSheet(for: token.id)
+        }
+        .alert(
+            "Nothing to Queue",
+            isPresented: Binding(
+                get: { queueFailure != nil },
+                set: { if !$0 { queueFailure = nil } }
+            ),
+            presenting: queueFailure
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { message in
+            Text(message)
+        }
+        .sheet(item: $queueConfiguration) { request in
+            SigningQueueConfigurationView(
+                entries: request.entries,
+                origin: request.origin,
+                onOpenQueue: { signingQueuePresentation.present() },
+                onDone: { queueConfiguration = nil }
+            )
         }
         .importDropTarget()
         .onChange(of: request, initial: true) { _, newValue in
@@ -195,7 +221,10 @@ struct ImportHubView: View {
                         retryableCount: retryableCount,
                         onRetryFailed: { withAnimation(.snappy) { hub.retryAllFailed() } },
                         onOpenLibrary: onOpenLibrary,
-                        onClear: { withAnimation(.snappy) { hub.clearFinished() } }
+                        onClear: { withAnimation(.snappy) { hub.clearFinished() } },
+                        onQueueImported: importedRecords.isEmpty ? nil : {
+                            queueForSigning(importedRecords)
+                        }
                     )
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
@@ -303,8 +332,50 @@ struct ImportHubView: View {
             onRetry: { withAnimation(.snappy) { hub.retry(item.id) } },
             onRemove: { withAnimation(.snappy) { hub.remove(item.id) } },
             onShowDetails: { detailItem = ItemToken(id: item.id) },
-            onOpenRecord: { record in openRecord(record) }
+            onOpenRecord: { record in openRecord(record) },
+            onQueueForSigning: signingQueuePresentation.isAvailable
+                ? { record in queueForSigning([record]) }
+                : nil
         )
+    }
+
+    // MARK: - Signing queue
+
+    /// The records the finished imports stored, one per record, in the order
+    /// they settled — what "sign what I just imported" means. Empty where
+    /// the signing queue is not exposed.
+    private var importedRecords: [ApplicationRecord] {
+        guard signingQueuePresentation.isAvailable else { return [] }
+        var seen = Set<ApplicationRecordIdentifier>()
+        return hub.items.compactMap { item -> ApplicationRecord? in
+            guard let settlement = item.settlement, settlement.kind.isAccepted,
+                  let record = settlement.record,
+                  seen.insert(record.id).inserted else { return nil }
+            return record
+        }
+    }
+
+    /// Opens the queue configuration for `records`, resolved through the
+    /// library at the moment of asking: an application replaced or deleted
+    /// since its import settled is never queued from a stale record, and one
+    /// whose package file is missing is skipped.
+    private func queueForSigning(_ records: [ApplicationRecord]) {
+        Task {
+            var entries: [LibraryEntry] = []
+            for record in records {
+                if let entry = try? await environment.library.entry(withID: record.id),
+                   entry.isArtifactAvailable {
+                    entries.append(entry)
+                }
+            }
+            guard !entries.isEmpty else {
+                queueFailure = records.count == 1
+                    ? "\(records[0].identity.displayName ?? records[0].identity.bundleIdentifier.rawValue) is no longer in the library, or its package file is missing."
+                    : "None of the imported applications is still in the library with its package file."
+                return
+            }
+            queueConfiguration = SigningQueueConfigurationRequest(entries: entries, origin: .importHub)
+        }
     }
 
     private var previewHeader: some View {

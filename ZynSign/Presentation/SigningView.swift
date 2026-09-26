@@ -21,6 +21,9 @@ struct SigningView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.settingsCenter) private var settings
     @Environment(\.appLock) private var appLock
+    @Environment(\.signingQueuePresentation) private var signingQueuePresentation
+    @State private var showQueuedToast = false
+    @State private var isQueueing = false
     @StateObject private var model = SigningEngineModel()
     @State private var identities: [SigningIdentity] = []
     @State private var selectedIdentityID: SigningIdentityIdentifier?
@@ -172,6 +175,7 @@ struct SigningView: View {
             Text("Verification strictness is set to Strict and the pre-sign diagnostics reported \(strictFindingCount) finding\(strictFindingCount == 1 ? "" : "s"). ZynSign will not refuse — it wants you to confirm.")
         }
         .zToast(isPresented: $showSuccessToast, message: "Signed, verified, and delivered to Documents/Signed", style: .success)
+        .zToast(isPresented: $showQueuedToast, message: "Added to the signing queue", style: .info)
         .zToast(isPresented: $showErrorToast, message: model.result?.failure?.userMessage ?? "Refused — nothing was delivered", style: .error, duration: .seconds(4))
         .zBottomSheet(isPresented: $showSigningOptions) {
             NavigationStack { SigningOptionsView(emitDEREntitlements: $emitDEREntitlements).toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { showSigningOptions = false } } } }
@@ -451,10 +455,60 @@ struct SigningView: View {
             if !canSign && !isSigning {
                 Text(whyDisabled).font(.caption).foregroundStyle(.secondary)
             }
+            if signingQueuePresentation.isAvailable {
+                Button { Task { await addToQueue() } } label: {
+                    Label("Add to Signing Queue Instead", systemImage: "tray.and.arrow.down")
+                }
+                .disabled(!canSign || isQueueing)
+                .accessibilityHint("Queues this configuration and returns immediately; the queue signs in the background while you keep using ZynSign.")
+                Button { signingQueuePresentation.present() } label: {
+                    Label("Open Signing Queue", systemImage: "list.bullet.rectangle")
+                }
+                .foregroundStyle(.secondary)
+            }
         } footer: {
             Text("The engine prepares an isolated working copy, validates the bundle, signs every nested binary inner-first, seals resources, signs the main executable, verifies the result independently, and only delivers a container that verified. Any refusal ends the run and leaves nothing behind.")
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// Hands the current configuration to the signing queue instead of
+    /// running it here: the queue owns the work from this moment, and the
+    /// screen is free to be left.
+    ///
+    /// Queueing is gated exactly like signing here: the button is enabled
+    /// only when `canSign` holds — so a configuration the diagnostics block
+    /// cannot be queued either — and ZynSign's lock is consulted before the
+    /// job is accepted, because accepting it is the user's request to sign.
+    private func addToQueue() async {
+        guard canSign, !isQueueing else { return }
+        guard let identityID = selectedIdentityID, let profile = profileData, entry.isArtifactAvailable else { return }
+        isQueueing = true
+        defer { isQueueing = false }
+        let authorization = await appLock.authorize(.sign)
+        guard authorization.isAuthenticated else {
+            preflightError = authorization.message
+            return
+        }
+        let summary = ProfileEntitlementDerivation.displaySummary(fromProvisioningProfile: profile)
+        let submission = SigningJobSubmission(
+            recordID: entry.record.id,
+            artifactID: entry.record.artifact.artifactID,
+            applicationName: entry.record.displayName ?? entry.record.bundleIdentifier.rawValue,
+            bundleIdentifier: entry.record.bundleIdentifier.rawValue,
+            versionText: ApplicationLibraryRowContent(entry: entry).versionText,
+            identityID: identityID,
+            identityDisplayName: selectedIdentity?.displayName,
+            certificateFingerprint: selectedIdentity?.fingerprint,
+            profile: profile,
+            profileDisplayName: summary?.name ?? profileFileName,
+            profileTeamIdentifier: summary?.teamIdentifier,
+            emitDEREntitlements: emitDEREntitlements
+        )
+        env.signingQueue.enqueue(submission, priority: .normal, origin: .signingScreen)
+        env.recordAnalyticsEvent(category: .signing, name: "queue.job.enqueued", succeeded: true)
+        ZHaptics.tap()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { showQueuedToast = true }
     }
 
     private var whyDisabled: String {

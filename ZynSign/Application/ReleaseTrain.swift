@@ -36,8 +36,13 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
     /// expiration warnings, compatibility diagnostics.
     case provisioningProfileManager
 
-    /// Beta 1: Professional signing — signing presets, signing queue,
-    /// advanced signing options, verification summary.
+    /// Alpha 2: Professional Signing Queue — the job-based signing system:
+    /// queue dashboard, priorities, per-job controls, live stage progress,
+    /// failure recovery, persistence, and bulk queue operations.
+    case signingQueue
+
+    /// Beta 1: Professional signing — signing presets, advanced signing
+    /// options, verification summary.
     case signingPresets
 
     /// Beta 3: Productivity — batch signing and signing history.
@@ -64,6 +69,7 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .activityJournal: return []
         case .libraryPowerFeatures: return []
         case .provisioningProfileManager: return [.smartSign]
+        case .signingQueue: return [.smartSign]
         case .signingPresets: return [.smartSign, .certificateStudio]
         case .batchSigning: return [.signingPresets]
         case .signingHealthScore: return [.smartSign, .signingPresets]
@@ -82,6 +88,7 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .activityJournal: return "Local Activity Journal"
         case .libraryPowerFeatures: return "Library Power Features"
         case .provisioningProfileManager: return "Provisioning Profile Manager"
+        case .signingQueue: return "Professional Signing Queue"
         case .signingPresets: return "Signing Presets"
         case .batchSigning: return "Batch Signing"
         case .signingHealthScore: return "Signing Health Score"
@@ -143,7 +150,7 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
         switch self {
         case .horizon: return []
         case .alpha1: return [.certificateStudio, .libraryPowerFeatures]
-        case .alpha2: return [.smartSign, .provisioningProfileManager]
+        case .alpha2: return [.smartSign, .provisioningProfileManager, .signingQueue]
         case .alpha3: return [.appStore, .downloads]
         case .beta1: return [.missionControl, .deliveryHandoff, .activityJournal, .signingPresets]
         case .beta2: return []

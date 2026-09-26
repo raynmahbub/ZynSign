@@ -12,6 +12,92 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — 0.1.0-alpha.2 · Step 14: Professional Signing Queue
+
+- **Job queue manager**: `SigningQueue` turns every signing request into its
+  own job (queued → running → completed / failed / cancelled). It lives in
+  the application environment, so jobs keep running when you navigate away.
+  One job runs at a time, **High → Normal → Low**, then in the order you
+  asked. A running job is never preempted. The scheduler is written against a
+  `maximumConcurrentJobs` bound.
+- **Queue dashboard**: `SigningQueueView` shows statistics (running, waiting,
+  completed, failed) and Running / Waiting / Completed / Failed / Cancelled
+  sections. Each job card shows the app icon, name, stage, progress bar,
+  estimated remaining work, priority, and start or elapsed time.
+- **Runs as signing operations**: each job runs through
+  `SigningOperationExecutor` as one `SigningOperationCenter` operation — the
+  same path that commits to the **Export Center** and journals the
+  **signing history** — so a queued signing is isolated, exported,
+  independently verified and recorded exactly like any other, and the queue
+  never writes the journal itself.
+- **Live stage progress**: `SigningOperationCenter.run(_:observer:)` gained
+  an optional, additive observer that forwards the pipeline's progress
+  events. Jobs report Preparing → Preflight →
+  Extracting → Signing Frameworks → Signing App → Packaging → Verification at
+  real stage boundaries, and progress is weighted and monotonic. A stage
+  without countable work shows "In progress" instead of a made-up
+  percentage. Time estimates appear only once they're meaningful.
+- **Priorities and reordering**: Move Up, Move Down, Send to Top, and a
+  priority picker. These apply only to waiting jobs.
+- **Job controls**: Cancel (cooperative, shows "Cancelling…"), Retry,
+  View Details, and Remove after settling. **Pause isn't offered** because
+  the pipeline has no safe resume checkpoint.
+- **Failure recovery**: failures show the stage, a short explanation,
+  technical detail, and a Retry button. A retry is always a fresh, clean
+  signing operation with a new working directory; a failed attempt delivered
+  nothing, so there is nothing to continue from.
+  Content refusals (`invalidInput`, `unsupportedInput`, `ambiguousInput`)
+  aren't offered a retry.
+- **Isolation**: each attempt gets its own working directory and each job its
+  own log; every verified artifact is committed to Exports under the Export
+  Center's naming, which never overwrites an existing export. The source
+  container is only read.
+- **Persistence**: `FileSigningQueueStore` keeps a revisioned snapshot plus a
+  queue-owned profile copy per job. On relaunch, settled jobs come back as
+  they were and waiting jobs run again. A job that was running comes back as
+  an *interrupted* failure and is never marked completed. Orphaned profile
+  copies and earlier sessions' working directories are swept.
+- **Bulk operations**: Queue Selected (Library), Cancel All Waiting, Retry
+  All Failed, Clear Completed, and Clear Failed. Destructive actions ask for
+  confirmation.
+- **Job details**: application (name, bundle ID, version), signing
+  (certificate, fingerprint, team, profile, DER layout), execution (stage,
+  start time, duration, attempts, verification), output (run and export
+  verification, artifact, availability in Exports, size, Share), and the
+  job's own log.
+- **Notifications**: completed, failed, and queue-finished notices appear as
+  a toast and a VoiceOver announcement. Local notifications are opt-in
+  ("Notify When Jobs Finish"), and are posted only when the platform
+  supports them and you've granted permission.
+- **Entry points**: Library row (swipe or context menu), Library bulk
+  selection, Library toolbar (with active-job badge, ⌘⇧Q), Application
+  Details, Smart Sign ("Add to Signing Queue Instead"), Smart Import Hub
+  (per-row action and batch summary), and Settings. The Library tab badge
+  counts active jobs.
+- **App lock respected**: when *Require Authentication for Sensitive
+  Actions* is on, queueing asks for authentication first — once per
+  configuration sheet, exactly as Smart Sign asks before a run — and queues
+  nothing unless it succeeds, so background signing never bypasses the
+  preference.
+- **Accessibility**: VoiceOver reads each job card as one sentence and
+  offers custom actions. Layouts adapt to Dynamic Type, animations respect
+  Reduce Motion, and iPad supports keyboard shortcuts.
+- **Shared profile → entitlements derivation**
+  (`ProfileEntitlementDerivation`), so inline Smart Sign and queued jobs sign
+  with identical entitlements.
+- **Release train**: new `ReleaseFeature.signingQueue`, introduced in
+  `v0.1.0-alpha.2` and requiring `.smartSign`.
+- Docs: `docs/architecture/signing-queue.md`.
+- Tests: `SigningQueueTests`, `SigningOperationExecutorTests`,
+  `FileSigningQueueStoreTests`, `SigningQueueRenderingTests`.
+
+### Fixed
+
+- `ReleaseTrainTests.testFeatureRolloutMatchesThePlan` and the
+  feature-complete test now match the release train as it's declared.
+  Library Power Features and the Provisioning Profile Manager ship in the
+  alphas, and Batch Signing and the Signing Health Score ship after beta 1.
+
 ### Added — 0.1.0-alpha.2 · Step 13: Smart Import Hub
 
 - **One Import Hub for every entry point** — `ImportHub` (Application) replaces

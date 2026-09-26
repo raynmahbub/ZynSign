@@ -276,10 +276,21 @@ struct SigningOperationCenter {
     /// - Returns: What the operation did. A run that never started returns a
     ///   refusal; a run that failed or was cancelled returns a record and
     ///   leaves export storage untouched.
+    /// - Parameters:
+    ///   - request: The operation's inputs.
+    ///   - observer: Receives the pipeline's progress events as the run
+    ///     advances, after the operation's own timeline has recorded each
+    ///     one. Called synchronously on the run's execution context; a caller
+    ///     that renders progress marshals it to its own actor. Advisory only:
+    ///     an observer cannot influence the run. The signing queue uses this
+    ///     to report honest per-job stage progress. `nil` observes nothing.
     /// - Throws: `CancellationError` when the surrounding task was cancelled.
     ///   The operation's own record is written before the error is thrown, so
     ///   the history is complete either way.
-    func run(_ request: SigningOperationRequest) async throws -> SigningOperationOutcome {
+    func run(
+        _ request: SigningOperationRequest,
+        observer: ApplicationSigningProgressObserver? = nil
+    ) async throws -> SigningOperationOutcome {
         let startedAt = now()
         let operationIdentifier = UUID().uuidString
         let timeline = SigningTimelineBox(now: now)
@@ -335,6 +346,7 @@ struct SigningOperationCenter {
                 signingRequest,
                 observer: { event in
                     timeline.apply(event)
+                    observer?(event)
                 },
                 workingRoot: operationDirectory
             )

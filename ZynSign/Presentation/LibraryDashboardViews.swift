@@ -247,6 +247,11 @@ struct LibraryBulkActionBar: View {
     let onMove: () -> Void
     let onDelete: () -> Void
 
+    /// Queues the selection for signing, when the signing queue is exposed.
+    /// Offered from the selection menu rather than as another bar button, so
+    /// the bar's width is unchanged. `nil` offers nothing.
+    var onQueue: (() -> Void)? = nil
+
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
@@ -312,6 +317,13 @@ struct LibraryBulkActionBar: View {
             } label: {
                 Label("Deselect All", systemImage: "circle")
             }
+            if let onQueue {
+                Divider()
+                Button(action: onQueue) {
+                    Label("Queue Selected for Signing…", systemImage: "tray.and.arrow.down")
+                }
+                .disabled(!model.selectedEntries.contains { $0.isArtifactAvailable })
+            }
         } label: {
             Text("\(count) selected")
                 .font(.footnote.weight(.semibold))
@@ -322,7 +334,9 @@ struct LibraryBulkActionBar: View {
                 .contentShape(Rectangle())
         }
         .accessibilityLabel("\(count) selected")
-        .accessibilityHint("Opens Select All and Deselect All")
+        .accessibilityHint(onQueue == nil
+            ? "Opens Select All and Deselect All"
+            : "Opens Select All, Deselect All, and Queue Selected for Signing")
     }
 
     private func action(

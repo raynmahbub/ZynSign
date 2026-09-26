@@ -54,6 +54,17 @@ enum CompositionRoot {
         )
         let appIcons = makeAppIconExtraction()
         let droppedFiles = DropInboxFileReceiver(directory: importDropInboxDirectory)
+        let signingOperations = makeSigningOperationCenter(
+            pipeline: pipeline,
+            exports: exports,
+            history: history
+        )
+        let queueNotifier = makeSigningQueueNotifier()
+        let signingQueue = makeSigningQueue(
+            operations: signingOperations,
+            library: library,
+            notifier: queueNotifier
+        )
         var environment = ApplicationEnvironment(
             applicationInfo: ApplicationInfo.current(bundle: .main),
             packageImport: packageImport,
@@ -77,11 +88,8 @@ enum CompositionRoot {
             signingHistory: history,
             provisioningProfiles: profiles,
             exportCenter: exports,
-            signingOperations: makeSigningOperationCenter(
-                pipeline: pipeline,
-                exports: exports,
-                history: history
-            ),
+            signingOperations: signingOperations,
+            signingQueue: signingQueue,
             storageManagement: storage,
             preferencesStore: preferences,
             biometricAuthenticator: biometricAuthenticator
@@ -98,7 +106,69 @@ enum CompositionRoot {
         environment.applicationProvenance = makeApplicationProvenanceExtraction()
         environment.libraryExport = makeLibraryExportPreparation()
         environment.droppedFiles = droppedFiles
+        environment.queueNotifier = queueNotifier
         return environment
+    }
+
+    /// Builds the signing queue: the job orchestration every queued signing
+    /// runs through. The executor runs each job as one signing operation —
+    /// the same center that delivers to the Export Center and journals every
+    /// run — so a queued job is isolated, exported, verified, and recorded
+    /// exactly like any other signing operation. The store persists the
+    /// queue's list and its queue-owned profile copies under the library
+    /// root; the working directory root it sweeps is the root the center
+    /// creates its per-operation directories under.
+    static func makeSigningQueue(
+        operations: SigningOperationCenter,
+        library: ApplicationLibrary,
+        notifier: (any SigningQueueNotifying)? = nil
+    ) -> SigningQueue {
+        SigningQueue(
+            executor: SigningOperationExecutor(operations: operations, library: library),
+            store: makeSigningQueueStore(),
+            notifier: notifier,
+            artifactURLResolver: { artifactID in libraryArtifactFileURL(for: artifactID) }
+        )
+    }
+
+    /// Builds the file-backed signing queue store at the canonical
+    /// Application Support location, sweeping the signing workspace root
+    /// during recovery.
+    static func makeSigningQueueStore() -> any SigningQueueStore {
+        FileSigningQueueStore(
+            queueDirectory: signingQueueDirectory,
+            workingDirectoryRoot: signingWorkspaceRoot()
+        )
+    }
+
+    /// The local notifier for settled signing jobs. Composed on iOS, where
+    /// `UserNotifications` exists; elsewhere the queue posts in-app notices
+    /// only, which is the whole notifier contract.
+    static func makeSigningQueueNotifier() -> (any SigningQueueNotifying)? {
+        #if os(iOS)
+        return LocalSigningQueueNotifier()
+        #else
+        return UnavailableSigningQueueNotifier()
+        #endif
+    }
+
+    /// The durable directory holding the signing queue's snapshot and its
+    /// queue-owned profile copies, under the same library root as the
+    /// catalogs. Created on first use; nothing is created at composition
+    /// time.
+    static var signingQueueDirectory: URL {
+        libraryRootDirectory.appendingPathComponent("SigningQueue", isDirectory: true)
+    }
+
+    /// The file URL of the artifact the library holds for `id`, under the
+    /// library's own storage convention. The same convention
+    /// `ApplicationEnvironment.artifactFileURL(for:)` re-derives for the
+    /// presentation layer; the queue receives it as a resolver so it never
+    /// hard-codes a location itself.
+    static func libraryArtifactFileURL(for id: ArtifactIdentifier) -> URL {
+        libraryArtifactDirectory
+            .appendingPathComponent(id.rawValue, isDirectory: false)
+            .appendingPathExtension("ipa")
     }
 
     /// Builds the file-backed local annotation store the Certificates area

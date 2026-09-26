@@ -265,3 +265,15 @@ Apple platform.
   iOS/iPadOS as unresolved.
 - Never include secrets, credentials, private keys, provisioning profiles, real
   identifiers, or user data. See [SECURITY.md](../../SECURITY.md).
+
+## Professional Signing Queue
+
+Signing now runs as jobs. `SigningQueue` owns scheduling, priorities,
+per-job progress, cancellation, clean retries, notices, and persistence. It
+runs each job through `SigningOperationExecutor` as one
+`SigningOperationCenter` operation, so every queued signing gets its own
+workspace, log, and verification, is committed to the Export Center, and is
+recorded in the signing history like any other. Queueing is authorized
+through the app lock. After an interruption, a job that was running is restored as
+failed, never as completed. The decision record is
+[signing-queue.md](signing-queue.md).

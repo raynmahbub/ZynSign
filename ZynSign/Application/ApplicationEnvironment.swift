@@ -103,6 +103,15 @@ struct ApplicationEnvironment {
     /// happened rather than assembled by an interface.
     let signingOperations: SigningOperationCenter
 
+    /// The signing queue: the job orchestration every queued signing runs
+    /// through. It owns scheduling, priorities, per-job progress,
+    /// cancellation, retries, notices, and persistence, and it runs each job
+    /// through `signingOperations` — so a queued job is isolated, exported,
+    /// verified, and journaled exactly like any other signing operation.
+    /// Screens enqueue through it and observe it; none of them owns a
+    /// signing task of its own once a job is queued.
+    let signingQueue: SigningQueue
+
     /// The storage use case: what ZynSign is using, and the cleanups the
     /// storage screen may run. It never removes an imported application.
     let storageManagement: StorageManagement
@@ -166,6 +175,14 @@ struct ApplicationEnvironment {
     /// which they are handed to `importHub`. `nil` where drops are not
     /// supported; treated as read-only after construction.
     var droppedFiles: (any DroppedFileReceiving)? = nil
+
+    /// The local-notification boundary for settled signing jobs, held as
+    /// the port. Optional: `nil` means the queue posts in-app notices only.
+    /// The composition root installs the platform notifier, which is
+    /// observable; the Settings screen that binds the user's notification
+    /// preference reaches the concrete type through a presentation-side
+    /// cast.
+    var queueNotifier: (any SigningQueueNotifying)? = nil
 
     /// Records one local activity event when the journal preference allows.
     ///

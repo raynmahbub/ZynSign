@@ -15,6 +15,8 @@ struct ApplicationDetailView: View {
     @Environment(\.applicationEnvironment) private var environment
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.signingQueuePresentation) private var signingQueuePresentation
+    @State private var queueConfiguration: SigningQueueConfigurationRequest?
     @State private var health: SigningDiagnosticsAnalysis?
     @State private var isAnalyzingHealth = true
     @State private var healthError: String?
@@ -173,6 +175,14 @@ struct ApplicationDetailView: View {
             await model.refresh()
             await analyzeHealth(force: true)
             await loadProfileSuggestion()
+        }
+        .sheet(item: $queueConfiguration) { request in
+            SigningQueueConfigurationView(
+                entries: request.entries,
+                origin: request.origin,
+                onOpenQueue: { signingQueuePresentation.present() },
+                onDone: { queueConfiguration = nil }
+            )
         }
     }
 
@@ -370,6 +380,29 @@ struct ApplicationDetailView: View {
                     .buttonStyle(.plain)
                     .disabled(!canSign)
                     .accessibilityHint(signingUnavailableMessage)
+
+                    if signingQueuePresentation.isAvailable {
+                        Button {
+                            ZHaptics.tap()
+                            queueConfiguration = SigningQueueConfigurationRequest(
+                                entry: entry,
+                                origin: .applicationDetails
+                            )
+                        } label: {
+                            QuickActionTile(
+                                title: "Add to Queue",
+                                subtitle: canSign ? "Sign in the background" : signActionSubtitle,
+                                symbol: "tray.and.arrow.down",
+                                tint: .purple
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!canSign)
+                        .accessibilityLabel("Add to Signing Queue")
+                        .accessibilityHint(canSign
+                            ? "Queues this application to be signed in the background while you keep using ZynSign."
+                            : signingUnavailableMessage)
+                    }
 
                     Button {} label: {
                         QuickActionTile(

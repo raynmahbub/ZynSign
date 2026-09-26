@@ -141,6 +141,11 @@ enum SettingsFixtures {
             records: FileExportRecordStore(catalogLocation: layout.exportCatalog),
             artifacts: FileExportArtifactStore(exportsDirectory: layout.exportedArtifacts)
         )
+        let operations = CompositionRoot.makeSigningOperationCenter(
+            pipeline: pipeline,
+            exports: exports,
+            history: InMemorySigningHistoryStore()
+        )
         return ApplicationEnvironment(
             applicationInfo: ApplicationInfo(
                 displayName: "ZynSign",
@@ -180,10 +185,10 @@ enum SettingsFixtures {
             signingHistory: nil,
             provisioningProfiles: nil,
             exportCenter: exports,
-            signingOperations: CompositionRoot.makeSigningOperationCenter(
-                pipeline: pipeline,
-                exports: exports,
-                history: InMemorySigningHistoryStore()
+            signingOperations: operations,
+            signingQueue: SigningQueue(
+                executor: SigningOperationExecutor(operations: operations, library: library),
+                artifactURLResolver: { _ in root.appendingPathComponent("unused.ipa") }
             ),
             storageManagement: makeStorageManagement(root: root),
             preferencesStore: preferences,

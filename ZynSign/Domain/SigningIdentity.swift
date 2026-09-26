@@ -7,7 +7,7 @@ import Foundation
 /// presented as certificate information. A fresh identifier is minted when an
 /// identity is discovered or imported; persistence layers reuse the stored
 /// identifier when rehydrating a known identity instead of minting another.
-struct SigningIdentityIdentifier: Equatable, Hashable, CustomStringConvertible {
+struct SigningIdentityIdentifier: Equatable, Hashable, CustomStringConvertible, Sendable {
 
     /// The underlying uniqueness value.
     let uuid: UUID

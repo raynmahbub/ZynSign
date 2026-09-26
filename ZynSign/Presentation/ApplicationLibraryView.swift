@@ -30,6 +30,12 @@ struct ApplicationLibraryView: View {
 
     @StateObject private var model: ApplicationLibraryModel
     @Environment(\.importPresentation) private var importPresentation
+    @Environment(\.signingQueuePresentation) private var signingQueuePresentation
+    @Environment(\.applicationEnvironment) private var environment
+
+    /// The applications awaiting a signing-queue configuration, when the
+    /// user asked to queue one or several.
+    @State private var queueConfiguration: SigningQueueConfigurationRequest?
     @State private var path: [LibraryRoute] = []
     @State private var sheet: LibrarySheet? = nil
     @State private var entryPendingRemoval: LibraryEntry? = nil
@@ -163,6 +169,14 @@ struct ApplicationLibraryView: View {
         }
         .sheet(item: $sheet) { sheet in
             sheetContent(sheet)
+        }
+        .sheet(item: $queueConfiguration) { request in
+            SigningQueueConfigurationView(
+                entries: request.entries,
+                origin: request.origin,
+                onOpenQueue: { signingQueuePresentation.present() },
+                onDone: { queueConfiguration = nil }
+            )
         }
         .sheet(item: verificationBinding) { report in
             LibraryVerificationReportView(report: report)
@@ -387,6 +401,7 @@ struct ApplicationLibraryView: View {
             .contextMenu {
                 if !model.isSelecting {
                     quickActions(for: state.entry)
+                    queueContextAction(for: state.entry)
                 }
             }
             .modifier(LibraryAccessibilityQuickActions(
@@ -430,6 +445,7 @@ struct ApplicationLibraryView: View {
             .contextMenu {
                 if !model.isSelecting {
                     quickActions(for: state.entry)
+                    queueContextAction(for: state.entry)
                 }
             }
             .modifier(LibraryAccessibilityQuickActions(
@@ -477,6 +493,14 @@ struct ApplicationLibraryView: View {
                 }
                 .tint(.indigo)
             }
+            if isQueueAvailable && entry.isArtifactAvailable {
+                Button {
+                    presentQueueConfiguration(for: [entry], origin: .library)
+                } label: {
+                    Label("Queue", systemImage: "tray.and.arrow.down")
+                }
+                .tint(.purple)
+            }
             if features.powerFeatures {
                 Button {
                     Task { await model.verify([entry.record.id]) }
@@ -486,6 +510,47 @@ struct ApplicationLibraryView: View {
                 .tint(.teal)
             }
         }
+    }
+
+    // MARK: - Signing queue
+
+    /// Whether the signing queue is exposed in this build.
+    private var isQueueAvailable: Bool {
+        signingQueuePresentation.isAvailable
+    }
+
+    /// The queue action a row's context menu offers — reachable from a long
+    /// press, a secondary click, or keyboard focus on iPad — alongside the
+    /// shared quick actions.
+    @ViewBuilder
+    private func queueContextAction(for entry: LibraryEntry) -> some View {
+        if isQueueAvailable && entry.isArtifactAvailable {
+            Button {
+                presentQueueConfiguration(for: [entry], origin: .library)
+            } label: {
+                Label("Queue for Signing…", systemImage: "tray.and.arrow.down")
+            }
+        }
+    }
+
+    /// Opens the queue configuration sheet for `entries`, skipping any whose
+    /// package file is missing. Leaving selection mode first keeps the list
+    /// from acting on a selection the sheet has already taken over.
+    private func presentQueueConfiguration(for entries: [LibraryEntry], origin: SigningJobOrigin) {
+        let signable = entries.filter { $0.isArtifactAvailable }
+        guard !signable.isEmpty else { return }
+        ZHaptics.tap()
+        if model.isSelecting {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                model.setSelecting(false)
+            }
+        }
+        queueConfiguration = SigningQueueConfigurationRequest(entries: signable, origin: origin)
+    }
+
+    /// Queues the current selection with one configuration.
+    private func queueSelection() {
+        presentQueueConfiguration(for: model.selectedEntries, origin: .bulkSelection)
     }
 
     @ViewBuilder
@@ -713,11 +778,25 @@ struct ApplicationLibraryView: View {
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
             if model.isSelecting {
+                if isQueueAvailable {
+                    Button {
+                        queueSelection()
+                    } label: {
+                        Label("Queue Selected", systemImage: "tray.and.arrow.down")
+                    }
+                    .disabled(!model.selectedEntries.contains { $0.isArtifactAvailable } || model.isRemovingSelection)
+                    .accessibilityHint("Adds the selected applications to the signing queue with one configuration.")
+                }
                 Button(model.isEverythingSelected ? "Deselect All" : "Select All") {
                     toggleSelectAll()
                 }
                 .keyboardShortcut("a", modifiers: .command)
             } else {
+                if isQueueAvailable {
+                    SigningQueueToolbarButton(queue: environment.signingQueue) {
+                        signingQueuePresentation.present()
+                    }
+                }
                 if features.powerFeatures, case .loaded = model.phase {
                     filterMenu
                 }
@@ -841,7 +920,8 @@ struct ApplicationLibraryView: View {
                 model: model,
                 features: features,
                 onMove: { presentCollectionPicker(for: model.selectedIDs) },
-                onDelete: { selectionPendingRemoval = model.selectedEntries }
+                onDelete: { selectionPendingRemoval = model.selectedEntries },
+                onQueue: isQueueAvailable ? { queueSelection() } : nil
             )
             .transition(.move(edge: .bottom).combined(with: .opacity))
         } else if let progress = model.progress {
@@ -1465,4 +1545,43 @@ private enum PreviewFixtures {
     ApplicationLibraryFailureView(
         message: "ZynSign could not access its application library."
     ) {}
+}
+
+// MARK: - Signing queue toolbar button
+
+/// The Library's way into the signing queue: a toolbar button whose badge
+/// counts the jobs running or waiting, so queued work stays visible from
+/// the screen the jobs were queued on. `⌘⇧Q` opens it from a keyboard.
+struct SigningQueueToolbarButton: View {
+
+    @ObservedObject var queue: SigningQueue
+    let action: () -> Void
+
+    private var activeCount: Int {
+        queue.jobs.filter { $0.isActive }.count
+    }
+
+    var body: some View {
+        Button {
+            ZHaptics.tap()
+            action()
+        } label: {
+            Label("Signing Queue", systemImage: activeCount > 0 ? "tray.full.fill" : "tray.full")
+                .overlay(alignment: .topTrailing) {
+                    if activeCount > 0 {
+                        Text("\(activeCount)")
+                            .font(.caption2.weight(.bold))
+                            .monospacedDigit()
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4)
+                            .background(Capsule().fill(Color.accentColor))
+                            .offset(x: 8, y: -6)
+                            .accessibilityHidden(true)
+                    }
+                }
+        }
+        .keyboardShortcut("q", modifiers: [.command, .shift])
+        .accessibilityLabel("Signing Queue")
+        .accessibilityValue(activeCount == 0 ? "No active jobs" : "\(activeCount) active job\(activeCount == 1 ? "" : "s")")
+    }
 }

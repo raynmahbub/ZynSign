@@ -89,6 +89,10 @@ struct ImportItemRow: View {
     let onShowDetails: () -> Void
     let onOpenRecord: (ApplicationRecord) -> Void
 
+    /// Queues the application a finished import stored for signing, when
+    /// the signing queue is exposed; `nil` offers nothing.
+    var onQueueForSigning: ((ApplicationRecord) -> Void)? = nil
+
     @ScaledMetric(relativeTo: .body) private var iconSize: CGFloat = 44
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -155,6 +159,9 @@ struct ImportItemRow: View {
             }
             if let record = item.settlement?.record, item.settlement?.kind.isAccepted == true {
                 Button("Open in Library") { onOpenRecord(record) }
+                if let onQueueForSigning {
+                    Button("Queue for Signing") { onQueueForSigning(record) }
+                }
             }
             Button("Details", action: onShowDetails)
             if item.isFinished {
@@ -168,6 +175,11 @@ struct ImportItemRow: View {
             if let record = item.settlement?.record, item.settlement?.kind.isAccepted == true {
                 Button { onOpenRecord(record) } label: {
                     Label("Open in Library", systemImage: "square.grid.2x2")
+                }
+                if let onQueueForSigning {
+                    Button { onQueueForSigning(record) } label: {
+                        Label("Queue for Signing…", systemImage: "tray.and.arrow.down")
+                    }
                 }
             }
             if canRetry {
@@ -522,6 +534,10 @@ struct ImportSummaryCard: View {
     let onOpenLibrary: () -> Void
     let onClear: () -> Void
 
+    /// Queues every application the finished imports stored, when the
+    /// signing queue is exposed and there is something to queue.
+    var onQueueImported: (() -> Void)? = nil
+
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
@@ -560,6 +576,16 @@ struct ImportSummaryCard: View {
                 Label("Open Library", systemImage: "square.grid.2x2")
             }
             .buttonStyle(.bordered)
+        }
+        if let onQueueImported {
+            Button {
+                ZHaptics.tap()
+                onQueueImported()
+            } label: {
+                Label("Queue for Signing", systemImage: "tray.and.arrow.down")
+            }
+            .buttonStyle(.bordered)
+            .accessibilityHint("Adds the applications these imports stored to the signing queue with one configuration.")
         }
         Button("Clear Finished", action: onClear)
             .buttonStyle(.borderless)

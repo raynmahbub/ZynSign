@@ -24,6 +24,12 @@ import SwiftUI
 /// sweeps the drop inbox; whenever the scene becomes active again it lets
 /// the hub resume work the system paused in the background.
 ///
+/// The shell likewise owns the Signing Queue dashboard. Screens ask for it
+/// through `EnvironmentValues.signingQueuePresentation`; the shell presents
+/// it, shows the queue's notices as toasts and VoiceOver announcements,
+/// badges the Library tab with the jobs still in flight, and restores the
+/// persisted queue once per launch.
+///
 /// The shell is finally where the application-wide consequences of the user's
 /// preferences are applied, because they are properties of the whole
 /// interface rather than of any one screen: the colour scheme, the contrast,
@@ -49,6 +55,16 @@ struct RootView: View {
     /// The items whose outcome has already been recorded, so an import is
     /// reported exactly once however many times the item list changes.
     @State private var reportedImportItems: Set<ImportJobIdentifier> = []
+
+    @State private var isShowingSigningQueue = false
+
+    /// The signing-queue notice currently shown as a toast, if any.
+    @State private var visibleQueueNotice: SigningQueueNotice?
+    @State private var isShowingQueueToast = false
+
+    /// The number of active signing jobs shown as the Library tab's badge,
+    /// so work in flight stays visible wherever the user navigates.
+    @State private var activeSigningJobBadge = 0
 
     /// Ticks while the shell is open, so a lapsed session can be noticed.
     private let inactivityTimer = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
@@ -80,6 +96,7 @@ struct RootView: View {
                         )
                     }
                     .tag(section)
+                    .badge(section == .library ? activeSigningJobBadge : 0)
             }
         }
         .tint(.primary)
@@ -145,6 +162,45 @@ struct RootView: View {
                 onDone: { isShowingImport = false }
             )
         }
+        .environment(
+            \.signingQueuePresentation,
+            SigningQueuePresentation(
+                present: { presentSigningQueue() },
+                isAvailable: SigningQueueAvailability.isAvailable
+            )
+        )
+        .sheet(isPresented: $isShowingSigningQueue) {
+            SigningQueueView(
+                queue: environment.signingQueue,
+                onOpenLibrary: {
+                    isShowingSigningQueue = false
+                    selected = .library
+                },
+                onDone: { isShowingSigningQueue = false }
+            )
+        }
+        .onReceive(environment.signingQueue.$pendingNotices.receive(on: DispatchQueue.main)) { notices in
+            // Delivered after the change lands (a `@Published` emits before
+            // storing), so acknowledging here can never be overwritten.
+            showNextQueueNotice(from: notices)
+        }
+        .onReceive(environment.signingQueue.$jobs) { jobs in
+            activeSigningJobBadge = SigningQueueAvailability.isAvailable
+                ? jobs.filter { $0.isActive }.count
+                : 0
+        }
+        .zToast(
+            isPresented: $isShowingQueueToast,
+            message: visibleQueueNotice.map { "\($0.title) — \($0.message)" } ?? "",
+            style: visibleQueueNotice?.kind == .jobFailed ? .error : .success,
+            duration: .seconds(4)
+        )
+        .onChange(of: isShowingQueueToast) { _, isShowing in
+            // A dismissed toast makes room for the next pending notice.
+            guard !isShowing else { return }
+            visibleQueueNotice = nil
+            showNextQueueNotice(from: environment.signingQueue.pendingNotices)
+        }
         .focusedSceneValue(
             \.importCommandActions,
             ImportCommandActions(
@@ -168,6 +224,53 @@ struct RootView: View {
                 await Task.detached(priority: .utility) { droppedFiles.sweep() }.value
             }
             await environment.importHub.restoreInterruptedImports()
+            // Restore the persisted signing queue once per launch, after the
+            // temporary-workspace cleanup has finished, so no queued run
+            // starts while scratch data is being tidied. Restoration is
+            // gated with the feature: a build that does not show the queue
+            // never runs queued work behind the user's back.
+            if SigningQueueAvailability.isAvailable {
+                await environment.signingQueue.restore()
+            }
+        }
+    }
+
+    // MARK: - Signing queue
+
+    /// Opens the signing queue dashboard. When the Import Hub is up, it is
+    /// closed first and the dashboard follows once the sheet is gone —
+    /// presenting over a dismissing sheet would race.
+    private func presentSigningQueue() {
+        guard SigningQueueAvailability.isAvailable else { return }
+        if isShowingImport {
+            isShowingImport = false
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 450_000_000)
+                isShowingSigningQueue = true
+            }
+        } else {
+            isShowingSigningQueue = true
+        }
+    }
+
+    /// Shows the oldest pending queue notice: a toast (with its haptic) and
+    /// a VoiceOver announcement. The notice is acknowledged as soon as it is
+    /// on screen, so it is delivered exactly once however often the queue
+    /// publishes.
+    private func showNextQueueNotice(from notices: [SigningQueueNotice]) {
+        guard SigningQueueAvailability.isAvailable else { return }
+        guard visibleQueueNotice == nil, let next = notices.first else { return }
+        visibleQueueNotice = next
+        environment.signingQueue.acknowledgeNotice(next.id)
+        // The toast plays its own haptic on appearing; nothing is doubled.
+        AccessibilityNotification.Announcement(SigningQueueRendering.announcement(for: next)).post()
+        environment.recordAnalyticsEvent(
+            category: .signing,
+            name: next.kind == .jobFailed ? "queue.job.failed" : (next.kind == .jobCompleted ? "queue.job.completed" : "queue.finished"),
+            succeeded: next.kind != .jobFailed
+        )
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            isShowingQueueToast = true
         }
     }
 

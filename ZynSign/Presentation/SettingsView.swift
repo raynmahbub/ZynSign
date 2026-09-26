@@ -15,6 +15,7 @@ import UIKit
 struct SettingsView: View {
 
     @Environment(\.applicationEnvironment) private var environment
+    @Environment(\.signingQueuePresentation) private var signingQueuePresentation
 
     var body: some View {
         NavigationStack {
@@ -104,6 +105,12 @@ struct SettingsView: View {
                 NavigationLink { SigningOptionsView() } label: {
                     Label("Signing Options", systemImage: "slider.horizontal.3")
                 }
+            }
+            if signingQueuePresentation.isAvailable {
+                Button { signingQueuePresentation.present() } label: {
+                    Label("Signing Queue", systemImage: "tray.full")
+                }
+                .accessibilityHint("Opens the signing queue dashboard.")
             }
             NavigationLink { ArchiveSettingsView() } label: {
                 Label("Archive & Extraction", systemImage: "doc.zipper")
