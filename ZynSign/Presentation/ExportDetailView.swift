@@ -43,6 +43,9 @@ struct ExportDetailView: View {
 
     var body: some View {
         List {
+            Section {
+                ReleaseReadinessLink(recordID: record.sourceRecordIdentifier.flatMap { ApplicationRecordIdentifier(rawValue: $0) }, exportID: record.id)
+            }
             headerSection
             if !entry.isAvailable { availabilitySection }
             applicationSection

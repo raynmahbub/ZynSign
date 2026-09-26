@@ -12,6 +12,20 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — Alpha 3 · Step 20: Release Readiness Center
+
+- Local release dashboard with transparent weighted scoring, blocking/warning
+  centers, explicit unsupported checks, validation history and redacted report sharing.
+- Full validation composes signing diagnostics, Entitlements Studio, independent
+  exported-IPA inspection and binary signature verification. Output fingerprints
+  are checked before/after scanning against the export record.
+- Entry points and historical summaries in Settings, Home, Library, App Details,
+  Smart Sign and Export Details; cancellable validation and spoken completion summaries.
+- Bounded atomic history, scoring/history XCTest coverage and
+  [scope and acceptance checklist](docs/development/release-readiness.md).
+  Existing platform/resource-seal/DER limitations remain explicit; this change does
+  not declare Beta readiness or promote the release train.
+
 ### Added — Alpha 3 · Step 17: Entitlements Studio
 
 - Read-only App Details workspace with capability-grouped cards, dashboard counts,

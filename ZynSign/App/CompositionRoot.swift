@@ -117,6 +117,13 @@ enum CompositionRoot {
         environment.droppedFiles = droppedFiles
         environment.queueNotifier = queueNotifier
         environment.binaryInspection = makeBinaryInspection(intake: intake, library: library)
+        if let binary = environment.binaryInspection {
+            let historyURL = libraryRootDirectory.appendingPathComponent("ReleaseReadiness.json")
+            environment.releaseReadiness = ReleaseReadinessService(
+                diagnostics: diagnostics, exports: exports, operations: signingOperations,
+                binary: binary, history: ReleaseReadinessHistory(location: historyURL),
+                bundles: environment.bundleInspection, library: library, identities: identityStore)
+        }
         return environment
     }
 

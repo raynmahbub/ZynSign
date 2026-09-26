@@ -148,6 +148,8 @@ struct ApplicationEnvironment {
     /// codes enter its bounded on-device journal.
     var signingDiagnostics: SigningDiagnosticsService? = nil
 
+    var releaseReadiness: ReleaseReadinessService? = nil
+
     /// The local-only annotation store behind the Certificates area.
     var identityAnnotations: (any IdentityAnnotationsStore)? = nil
 
