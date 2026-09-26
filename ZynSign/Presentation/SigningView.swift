@@ -68,6 +68,13 @@ struct SigningView: View {
     @State private var identityRevision = 0
     @State private var scanRevision = 0
     @State private var successScale: CGFloat = 1
+
+    /// The Identity Center's recommended identity–profile pairing for this
+    /// application, or `nil` when no pairing qualifies or the center is
+    /// not composed. A proposal, never an action: applying it sets the
+    /// pickers, and the user's Sign tap remains the only confirmation.
+    @State private var identityRecommendation: SigningIdentityRecommendation?
+    @State private var recommendationDismissed = false
     @StateObject private var liveActivity = LiveActivityService()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -115,6 +122,7 @@ struct SigningView: View {
         List {
             appSection
             RecommendedPresetSection(entry: entry, origin: .signingScreen)
+            recommendedIdentitySection
             diagnosticsSection
             if isSigning || model.progress != nil {
                 progressSection
@@ -310,6 +318,99 @@ struct SigningView: View {
     }
 
     // MARK: - Identity, profile, entitlements
+
+    /// The Identity Center's recommended identity, shown above the picker.
+    ///
+    /// The card names the pairing the recommender proposes and the reasons
+    /// it earned the proposal — previous success with this app, team
+    /// match, profile compatibility, an available key, the user's own
+    /// default. Applying it only sets the pickers below; nothing signs
+    /// until the user taps Sign.
+    @ViewBuilder
+    private var recommendedIdentitySection: some View {
+        if let recommendation = identityRecommendation,
+           !recommendationDismissed, !isSigning,
+           ReleaseTrain.isAvailable(.identityCenter) {
+            Section {
+                VStack(alignment: .leading, spacing: ZSpacing.xs) {
+                    HStack(spacing: ZSpacing.xs) {
+                        Image(systemName: "sparkles")
+                            .foregroundStyle(.tint)
+                        Text("Recommended Identity")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Button {
+                            withAnimation { recommendationDismissed = true }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .accessibilityLabel("Dismiss the recommendation")
+                    }
+                    Text(recommendation.summary)
+                        .font(.subheadline)
+                        .lineLimit(2)
+                    ForEach(Array(recommendation.reasons.enumerated()), id: \.offset) { _, reason in
+                        Label {
+                            Text(reason.text(
+                                certificateName: recommendation.certificateName,
+                                profileName: recommendation.profileName
+                            ))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } icon: {
+                            Image(systemName: reason == .caution
+                                ? "exclamationmark.triangle" : "checkmark.circle")
+                                .font(.caption2)
+                                .foregroundStyle(reason == .caution ? .orange : .green)
+                        }
+                    }
+                    Button {
+                        applyRecommendation(recommendation)
+                    } label: {
+                        Label(
+                            "Use Recommended Identity",
+                            systemImage: "sparkles"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isSigning)
+                    .accessibilityHint("Sets the identity and profile pickers below. Signing still needs your confirmation.")
+                }
+                .accessibilityElement(children: .contain)
+            } footer: {
+                Text("Recommended from this app's bundle identifier, your teams, past signing, and profile compatibility. You always confirm the final choice.")
+            }
+        }
+    }
+
+    /// Applies the recommendation to the pickers. The user's Sign tap —
+    /// not this card — remains the confirmation that signs.
+    private func applyRecommendation(_ recommendation: SigningIdentityRecommendation) {
+        guard !isSigning else { return }
+        if identities.contains(where: { $0.id == recommendation.identityID }) {
+            selectedIdentityID = recommendation.identityID
+        }
+        if let profileID = recommendation.profileID,
+           let profile = savedProfiles.first(where: { $0.id == profileID }) {
+            chooseSavedProfile(profile)
+        }
+        ZHaptics.tap()
+        withAnimation { recommendationDismissed = true }
+    }
+
+    /// Asks the Identity Center for its recommendation. Cheap enough to
+    /// re-run whenever either list changes: one identity read, one profile
+    /// read, one journal read, and a pure scoring pass.
+    @MainActor private func updateIdentityRecommendation() async {
+        guard !isSigning, ReleaseTrain.isAvailable(.identityCenter) else { return }
+        guard let center = env.identityCenter else { return }
+        identityRecommendation = await center.recommendation(
+            forBundleIdentifier: entry.record.identity.bundleIdentifier.rawValue
+        )
+    }
 
     private var identitySection: some View {
         Section {
@@ -734,6 +835,7 @@ struct SigningView: View {
                     ?? identities.first(where: { $0.isUsableForSigning })?.id
                     ?? identities.first?.id
             }
+            await updateIdentityRecommendation()
         } catch let error as ZynSignError {
             identitiesError = error.userMessage
             identities = []
@@ -824,6 +926,7 @@ struct SigningView: View {
                     profileError = "That saved profile was removed. Choose another profile."
                 }
             }
+            await updateIdentityRecommendation()
         } catch {
             guard !Task.isCancelled, generation == savedProfileListGeneration else { return }
             savedProfiles = []
