@@ -3,78 +3,105 @@ import SwiftUI
 /// The Applications area of the shell: ZynSign's application library.
 ///
 /// The screen presents the persisted records of accepted imports and offers
-/// the everyday library operations: opening an application's detail screen
+/// the everyday library operations — opening an application's detail screen
 /// (and from there the read-only bundle explorer), marking favourites, and
-/// deleting entries together with the package files behind them — one at a
+/// deleting entries together with the package files behind them, one at a
 /// time or in a selection. Its import action opens the shell's import area,
 /// and its model follows the shared import queue, so a package imported from
 /// anywhere in the application appears here without any manual refreshing.
 ///
-/// The list can be shown as rows or as a grid of cards, filtered by name or
-/// bundle identifier, and ordered by recency, name, or declared version.
-/// Nothing here pretends to sign: the signed state a card shows is read from
-/// the on-device signing journal, and a card whose package file has drifted
-/// from its record says so.
+/// Where the release exposes the library's power features, the screen grows
+/// into a library manager for hundreds of applications: statistics that
+/// double as shortcuts; a scope bar with All Apps, the smart collections
+/// (Favorites, Recently Imported, Recently Signed, Unsigned, Expiring Soon),
+/// and the user's collections; stackable filters; seven orders, the chosen
+/// one remembered; instant search across names, identifiers, versions,
+/// declared developers and teams, and collection names, with matches
+/// highlighted; per-application quick actions as swipe actions and context
+/// menus; and a floating bar of bulk actions while applications are
+/// selected.
+///
+/// Nothing here pretends to sign or to verify signatures: the signed state
+/// is read from the on-device signing journal, Verify compares package bytes
+/// with the fingerprint recorded at import, and a card whose package file
+/// has drifted from its record says so.
 struct ApplicationLibraryView: View {
 
     @StateObject private var model: ApplicationLibraryModel
     @Environment(\.importPresentation) private var importPresentation
-    @State private var entryPendingRemoval: LibraryEntry?
+    @State private var path: [LibraryRoute] = []
+    @State private var sheet: LibrarySheet? = nil
+    @State private var entryPendingRemoval: LibraryEntry? = nil
     @State private var selectionPendingRemoval: [LibraryEntry] = []
-    @State private var entryPendingDetails: LibraryEntry?
-    @State private var isSelecting = false
-    @State private var selection: Set<ApplicationRecordIdentifier> = []
-    @AppStorage("zynsign.library.showsGrid") private var showsGrid = false
-    private let bundleInspection: IPABundleContentsInspection
+    @State private var hasAppliedStoredPreferences = false
+    @AppStorage(LibraryPreferenceKeys.showsGrid) private var showsGrid = false
+    @AppStorage(LibraryPreferenceKeys.sortOrder) private var storedSortOrder = LibrarySortMode.recentlyImported.rawValue
+    @AppStorage(LibraryPreferenceKeys.scope) private var storedScope = LibraryScope.all.storageValue
+    @ScaledMetric(relativeTo: .body) private var gridMinimumWidth: CGFloat = 108
 
-    /// Creates the screen over the library, import queue, and bundle
-    /// inspection use cases the composition root supplied. The queue is the
-    /// application's single import path: the library model observes it, so a
-    /// package that reaches the library from any entry point refreshes this
-    /// list. The inspection use case is handed on to the detail screen, which
-    /// offers the bundle explorer. The signing journal is read-only; `nil`
-    /// simply means cards never show a signed state.
+    private let bundleInspection: IPABundleContentsInspection
+    private let features = LibraryFeatureAvailability.current
+
+    /// Creates the screen over the use cases the composition root supplied.
+    ///
+    /// The queue is the application's single import path: the library model
+    /// observes it, so a package that reaches the library from any entry
+    /// point refreshes this list. The inspection use case is handed on to
+    /// the detail screen, which offers the bundle explorer. Everything after
+    /// it is optional: the signing journal (read-only; `nil` means no entry
+    /// shows as signed), the organizer (collections and usage), the
+    /// provenance source (declared developer and team), and the exporter.
     init(
         library: ApplicationLibrary,
         queue: PackageImportQueue,
         bundleInspection: IPABundleContentsInspection,
-        signingHistory: (any SigningHistoryStore)? = nil
+        signingHistory: (any SigningHistoryStore)? = nil,
+        organizer: LibraryOrganizer? = nil,
+        provenance: ApplicationProvenanceExtraction? = nil,
+        exporter: LibraryExportPreparation? = nil
     ) {
         _model = StateObject(wrappedValue: ApplicationLibraryModel(
             library: library,
             queue: queue,
-            signingHistory: signingHistory
+            signingHistory: signingHistory,
+            organizer: organizer,
+            provenance: provenance,
+            exporter: exporter
         ))
         self.bundleInspection = bundleInspection
     }
 
-    private var noticeBinding: Binding<Bool> {
-        Binding(
-            get: { model.notice != nil },
-            set: { if !$0 { model.clearNotice() } }
-        )
-    }
-
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             content
-                .navigationTitle(ShellSection.library.title)
-                .navigationDestination(for: LibraryEntry.self) { entry in
-                    ApplicationDetailView(entry: entry, bundleInspection: bundleInspection)
-                }
-                .navigationDestination(item: $entryPendingDetails) { entry in
-                    ApplicationDetailView(entry: entry, bundleInspection: bundleInspection)
+                .navigationTitle(model.scopeTitle ?? ShellSection.library.title)
+                .navigationDestination(for: LibraryRoute.self) { route in
+                    destination(for: route)
                 }
                 .searchable(
                     text: $model.searchText,
                     placement: .navigationBarDrawer(displayMode: .automatic),
-                    prompt: Text("Name or Bundle ID")
+                    prompt: Text(features.powerFeatures ? "Name, Bundle ID, Developer, Team…" : "Name or Bundle ID")
                 )
                 .toolbar { toolbarContent }
+                .safeAreaInset(edge: .bottom) { floatingBar }
                 .disabled(model.isRemovingSelection)
         }
-        .task { await model.load() }
-        .safeAreaInset(edge: .bottom) { selectionBar }
+        .task { await prepare() }
+        .onChange(of: storedScope) { _, newValue in
+            applyStoredScope(newValue)
+        }
+        .onChange(of: model.scope) { _, newValue in
+            if storedScope != newValue.storageValue {
+                storedScope = newValue.storageValue
+            }
+        }
+        .onChange(of: model.sortOrder) { _, newValue in
+            storedSortOrder = newValue.rawValue
+        }
+        .onChange(of: model.selection) { oldValue, newValue in
+            announceSelectionChange(from: oldValue, to: newValue)
+        }
         .alert(
             model.notice?.title ?? "",
             isPresented: noticeBinding,
@@ -94,9 +121,8 @@ struct ApplicationLibraryView: View {
             presenting: entryPendingRemoval
         ) { entry in
             Button("Delete Application", role: .destructive) {
-                guard let pending = entryPendingRemoval else { return }
                 entryPendingRemoval = nil
-                removeFromSelection(pending)
+                leaveScreens(for: entry.record.id)
                 Task { await model.remove(entry) }
             }
             Button("Cancel", role: .cancel) {
@@ -117,15 +143,66 @@ struct ApplicationLibraryView: View {
             Button("Delete \(entries.count) Application\(entries.count == 1 ? "" : "s")", role: .destructive) {
                 let pending = selectionPendingRemoval
                 selectionPendingRemoval = []
-                exitSelectionMode()
-                Task { await model.removeEntries(pending) }
+                model.setSelecting(false)
+                Task {
+                    await model.removeEntries(pending)
+                    LibraryAnnouncer.announce("Deleted \(ApplicationLibraryModel.applicationCount(pending.count))")
+                }
             }
             Button("Cancel", role: .cancel) {
                 selectionPendingRemoval = []
             }
         } message: { entries in
-            Text("\(entries.count) application\(entries.count == 1 ? "" : "s") and \(entries.count == 1 ? "its" : "their") package file\(entries.count == 1 ? "" : "s") will be permanently deleted from ZynSign's library. This cannot be undone.")
+            Text("\(entries.count) application\(entries.count == 1 ? "" : "s") and \(entries.count == 1 ? "its" : "their") package file\(entries.count == 1 ? "" : "s") will be permanently deleted from ZynSign's library. Collections they belong to keep their other apps. This cannot be undone.")
         }
+        .sheet(item: $sheet) { sheet in
+            sheetContent(sheet)
+        }
+        .sheet(item: verificationBinding) { report in
+            LibraryVerificationReportView(report: report)
+        }
+        .sheet(item: exportBinding) { bundle in
+            LibraryShareSheet(items: bundle.fileURLs) {
+                model.finishExport()
+            }
+            .presentationDetents([.medium, .large])
+            .ignoresSafeArea()
+        }
+        .zToast(
+            isPresented: confirmationBinding,
+            message: model.confirmation?.message ?? "",
+            style: .success
+        )
+    }
+
+    // MARK: - Bindings
+
+    private var noticeBinding: Binding<Bool> {
+        Binding(
+            get: { model.notice != nil },
+            set: { if !$0 { model.clearNotice() } }
+        )
+    }
+
+    private var confirmationBinding: Binding<Bool> {
+        Binding(
+            get: { model.confirmation != nil },
+            set: { if !$0 { model.clearConfirmation() } }
+        )
+    }
+
+    private var verificationBinding: Binding<ApplicationLibraryModel.VerificationReport?> {
+        Binding(
+            get: { model.verificationReport },
+            set: { if $0 == nil { model.clearVerificationReport() } }
+        )
+    }
+
+    private var exportBinding: Binding<LibraryExportBundle?> {
+        Binding(
+            get: { model.exportBundle },
+            set: { if $0 == nil { model.finishExport() } }
+        )
     }
 
     // MARK: - Phases
@@ -142,7 +219,11 @@ struct ApplicationLibraryView: View {
                 Task { await model.load() }
             }
         case .loaded:
-            libraryContent
+            if showsGrid {
+                libraryGrid
+            } else {
+                libraryList
+            }
         }
     }
 
@@ -160,190 +241,454 @@ struct ApplicationLibraryView: View {
         }
     }
 
-    /// The loaded library: the visible projection of the current search and
-    /// sort, with an explicit state when the search matches nothing.
-    @ViewBuilder
-    private var libraryContent: some View {
-        let entries = model.visibleEntries()
-        if entries.isEmpty && !model.searchText.isEmpty {
-            ContentUnavailableView.search(Text(model.searchText))
-        } else if entries.isEmpty {
-            ContentUnavailableView {
-                Label("No Matching Applications", systemImage: ShellSection.library.symbolName)
-            } description: {
-                Text("Every application is filtered out by the current search.")
-            }
-        } else if showsGrid {
-            libraryGrid(entries)
-        } else {
-            libraryList(entries)
-        }
-    }
+    // MARK: - List and grid
 
-    private func libraryList(_ entries: [LibraryEntry]) -> some View {
+    /// The loaded library as rows. The list is virtualised — rows are built
+    /// only as they scroll into view — and each row is an equatable value,
+    /// so a change to one entry re-renders that row alone.
+    private var libraryList: some View {
         List {
-            ForEach(entries, id: \.record.id) { entry in
-                libraryRow(for: entry)
+            if features.powerFeatures {
+                Section {
+                    header
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+            }
+            if let reason = model.emptyReason {
+                Section {
+                    emptyResults(reason)
+                }
+                .listRowBackground(Color.clear)
+            } else {
+                Section {
+                    ForEach(model.visibleIDs, id: \.self) { id in
+                        libraryRow(id)
+                    }
+                } header: {
+                    if features.powerFeatures {
+                        Text(resultSummary)
+                    }
+                }
             }
         }
         .listStyle(.insetGrouped)
         .refreshable { await model.refresh() }
     }
 
-    private func libraryGrid(_ entries: [LibraryEntry]) -> some View {
+    /// The loaded library as a lazily built grid of cards.
+    private var libraryGrid: some View {
         ScrollView {
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 108), spacing: ZSpacing.sm)],
-                spacing: ZSpacing.sm
-            ) {
-                ForEach(entries, id: \.record.id) { entry in
-                    gridCard(for: entry)
+            VStack(alignment: .leading, spacing: ZSpacing.sm) {
+                if features.powerFeatures {
+                    header
+                    Text(resultSummary)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, ZSpacing.md)
+                }
+                if let reason = model.emptyReason {
+                    emptyResults(reason)
+                        .padding(.top, ZSpacing.xl)
+                } else {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: gridMinimumWidth), spacing: ZSpacing.sm)],
+                        spacing: ZSpacing.sm
+                    ) {
+                        ForEach(model.visibleIDs, id: \.self) { id in
+                            gridCard(id)
+                        }
+                    }
+                    .padding(.horizontal, ZSpacing.sm)
                 }
             }
-            .padding(ZSpacing.sm)
+            .padding(.vertical, ZSpacing.sm)
         }
         .refreshable { await model.refresh() }
+    }
+
+    /// Statistics, scopes, and active filters, above the results.
+    private var header: some View {
+        VStack(alignment: .leading, spacing: ZSpacing.sm) {
+            LibraryStatisticsCard(
+                statistics: model.statistics,
+                showsSigning: features.signing,
+                onSelect: handleStatisticSelection
+            )
+            .padding(.horizontal, ZSpacing.md)
+            LibraryScopeBar(
+                items: scopeItems,
+                selection: model.scope,
+                onSelect: selectScope,
+                onNewCollection: model.canOrganize ? startNewCollection : nil,
+                onManage: model.canOrganize ? manageCollections : nil
+            )
+            if !model.filters.isEmpty {
+                LibraryActiveFilterBar(
+                    items: activeFilterItems,
+                    onRemove: { model.toggleFilter($0) },
+                    onClear: { model.filters = [] }
+                )
+            }
+        }
+        .padding(.vertical, ZSpacing.xs)
+    }
+
+    private var resultSummary: String {
+        let shown = model.visibleIDs.count
+        let total = model.scopeCounts[model.scope] ?? shown
+        if model.isNarrowing && shown != total {
+            return "\(shown) of \(ApplicationLibraryModel.applicationCount(total)) · \(model.sortOrder.displayName)"
+        }
+        return "\(ApplicationLibraryModel.applicationCount(shown)) · \(model.sortOrder.displayName)"
     }
 
     // MARK: - Rows and cards
 
     @ViewBuilder
-    private func libraryRow(for entry: LibraryEntry) -> some View {
-        Group {
-            if isSelecting {
-                Button {
-                    toggleSelection(entry)
-                } label: {
-                    selectionRow(entry)
-                }
-                .buttonStyle(.plain)
-            } else {
-                NavigationLink(value: entry) {
-                    ApplicationLibraryRow(entry: entry, signingState: model.signingState(for: entry))
-                }
-            }
-        }
-        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            if !isSelecting {
-                Button {
-                    Task { await model.setFavorite(!entry.record.isFavorite, on: entry) }
-                } label: {
-                    Label(
-                        entry.record.isFavorite ? "Unfavorite" : "Favorite",
-                        systemImage: entry.record.isFavorite ? "star.slash" : "star.fill"
-                    )
-                }
-                .tint(.yellow)
-            }
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if !isSelecting {
-                Button {
-                    entryPendingDetails = entry
-                } label: {
-                    Label("Details", systemImage: "info.circle")
-                }
-                .tint(.blue)
-                Button(role: .destructive) {
-                    entryPendingRemoval = entry
-                } label: {
-                    Label("Delete", systemImage: "trash")
+    private func libraryRow(_ id: ApplicationRecordIdentifier) -> some View {
+        if let state = model.rowState(for: id) {
+            let row = ApplicationLibraryRow(
+                entry: state.entry,
+                signingState: state.signingState,
+                expiry: state.expiry,
+                highlightTerms: state.highlightTerms,
+                matchContext: state.matchContext,
+                showsSigningInsights: features.signingInsights,
+                isSelected: state.isSelected
+            )
+            Group {
+                if model.isSelecting {
+                    Button {
+                        toggleSelection(id)
+                    } label: {
+                        row.equatable()
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    NavigationLink(value: LibraryRoute.details(id)) {
+                        row.equatable()
+                    }
                 }
             }
-        }
-    }
-
-    /// The row shown in selection mode: the same content with an explicit
-    /// selection mark, because a checkmark the system draws for editing a
-    /// `List` cannot be reproduced per-row without the editing machinery.
-    private func selectionRow(_ entry: LibraryEntry) -> some View {
-        HStack(spacing: ZSpacing.sm) {
-            Image(systemName: selection.contains(entry.record.id) ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(selection.contains(entry.record.id) ? Color.accentColor : Color(.tertiaryLabel))
-                .imageScale(.large)
-                .accessibilityLabel(selection.contains(entry.record.id) ? "Selected" : "Not selected")
-            ApplicationLibraryRow(entry: entry, signingState: model.signingState(for: entry))
+            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                leadingSwipeActions(state.entry)
+            }
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                trailingSwipeActions(state.entry)
+            }
+            .contextMenu {
+                if !model.isSelecting {
+                    quickActions(for: state.entry)
+                }
+            }
+            .modifier(LibraryAccessibilityQuickActions(
+                model: model,
+                entry: state.entry,
+                features: features,
+                isEnabled: !model.isSelecting,
+                onSign: { path.append(.sign(id)) },
+                onMove: { presentCollectionPicker(for: [id]) },
+                onDelete: { entryPendingRemoval = state.entry }
+            ))
         }
     }
 
     @ViewBuilder
-    private func gridCard(for entry: LibraryEntry) -> some View {
-        Group {
-            if isSelecting {
+    private func gridCard(_ id: ApplicationRecordIdentifier) -> some View {
+        if let state = model.rowState(for: id) {
+            let card = ApplicationLibraryCard(
+                entry: state.entry,
+                signingState: state.signingState,
+                isSelected: state.isSelected,
+                expiry: state.expiry,
+                highlightTerms: state.highlightTerms,
+                showsSigningInsights: features.signingInsights
+            )
+            Group {
+                if model.isSelecting {
+                    Button {
+                        toggleSelection(id)
+                    } label: {
+                        card.equatable()
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    NavigationLink(value: LibraryRoute.details(id)) {
+                        card.equatable()
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .contextMenu {
+                if !model.isSelecting {
+                    quickActions(for: state.entry)
+                }
+            }
+            .modifier(LibraryAccessibilityQuickActions(
+                model: model,
+                entry: state.entry,
+                features: features,
+                isEnabled: !model.isSelecting,
+                onSign: { path.append(.sign(id)) },
+                onMove: { presentCollectionPicker(for: [id]) },
+                onDelete: { entryPendingRemoval = state.entry }
+            ))
+        }
+    }
+
+    private func quickActions(for entry: LibraryEntry) -> some View {
+        let id = entry.record.id
+        return LibraryQuickActionItems(
+            model: model,
+            entry: entry,
+            features: features,
+            onDetails: { path.append(.details(id)) },
+            onSign: { path.append(.sign(id)) },
+            onMove: { presentCollectionPicker(for: [id]) },
+            onDelete: { entryPendingRemoval = entry }
+        )
+    }
+
+    @ViewBuilder
+    private func leadingSwipeActions(_ entry: LibraryEntry) -> some View {
+        if !model.isSelecting {
+            Button {
+                Task { await model.setFavorite(!entry.record.isFavorite, on: entry) }
+            } label: {
+                Label(
+                    entry.record.isFavorite ? "Unfavorite" : "Favorite",
+                    systemImage: entry.record.isFavorite ? "star.slash" : "star.fill"
+                )
+            }
+            .tint(.yellow)
+            if features.signingInsights && entry.isArtifactAvailable {
                 Button {
-                    toggleSelection(entry)
+                    path.append(.sign(entry.record.id))
                 } label: {
-                    ApplicationLibraryCard(
-                        entry: entry,
-                        signingState: model.signingState(for: entry),
-                        isSelected: selection.contains(entry.record.id)
-                    )
+                    Label("Sign", systemImage: "signature")
                 }
-                .buttonStyle(.plain)
-            } else {
-                NavigationLink(value: entry) {
-                    ApplicationLibraryCard(
-                        entry: entry,
-                        signingState: model.signingState(for: entry),
-                        isSelected: nil
-                    )
+                .tint(.indigo)
+            }
+            if features.powerFeatures {
+                Button {
+                    Task { await model.verify([entry.record.id]) }
+                } label: {
+                    Label("Verify", systemImage: "checkmark.shield")
                 }
-                .buttonStyle(.plain)
+                .tint(.teal)
             }
         }
-        .contextMenu {
-            if !isSelecting {
-                Button {
-                    Task { await model.setFavorite(!entry.record.isFavorite, on: entry) }
-                } label: {
-                    Label(
-                        entry.record.isFavorite ? "Unfavorite" : "Favorite",
-                        systemImage: entry.record.isFavorite ? "star.slash" : "star.fill"
-                    )
+    }
+
+    @ViewBuilder
+    private func trailingSwipeActions(_ entry: LibraryEntry) -> some View {
+        if !model.isSelecting {
+            Button(role: .destructive) {
+                entryPendingRemoval = entry
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            if features.powerFeatures {
+                if model.canOrganize {
+                    Button {
+                        presentCollectionPicker(for: [entry.record.id])
+                    } label: {
+                        Label("Move", systemImage: "folder")
+                    }
+                    .tint(.blue)
                 }
+                if model.canExport && entry.isArtifactAvailable {
+                    Button {
+                        Task { await model.export([entry.record.id]) }
+                    } label: {
+                        Label("Export", systemImage: "square.and.arrow.up")
+                    }
+                    .tint(.gray)
+                }
+            } else {
                 Button {
-                    entryPendingDetails = entry
+                    path.append(.details(entry.record.id))
                 } label: {
                     Label("Details", systemImage: "info.circle")
                 }
-                Button(role: .destructive) {
-                    entryPendingRemoval = entry
-                } label: {
-                    Label("Delete", systemImage: "trash")
+                .tint(.blue)
+            }
+        }
+    }
+
+    // MARK: - Empty results
+
+    @ViewBuilder
+    private func emptyResults(_ reason: ApplicationLibraryModel.EmptyReason) -> some View {
+        switch reason {
+        case .noResults:
+            ContentUnavailableView {
+                Label("No Search Results", systemImage: "magnifyingglass")
+            } description: {
+                Text("Try a different name, bundle ID, or filter.")
+            } actions: {
+                if model.isNarrowing {
+                    Button("Clear Search and Filters") {
+                        model.clearFiltersAndSearch()
+                    }
+                }
+            }
+        case .smartCollection(let smart):
+            ContentUnavailableView {
+                Label(smart.emptyTitle, systemImage: smart.systemImage)
+            } description: {
+                Text(smart.ruleDescription)
+            }
+        case .emptyCollection(let name):
+            ContentUnavailableView {
+                Label("“\(name)” Is Empty", systemImage: "folder")
+            } description: {
+                Text("Add apps from All Apps with Add to Collection — from an app's menu, or from a selection.")
+            } actions: {
+                Button("Choose Apps to Add") {
+                    model.scope = .all
+                    model.setSelecting(true)
                 }
             }
         }
     }
 
-    // MARK: - Selection
+    // MARK: - Destinations and sheets
 
-    private func toggleSelection(_ entry: LibraryEntry) {
-        ZHaptics.tap()
-        withAnimation(.easeInOut(duration: 0.15)) {
-            if selection.contains(entry.record.id) {
-                selection.remove(entry.record.id)
+    @ViewBuilder
+    private func destination(for route: LibraryRoute) -> some View {
+        switch route {
+        case .details(let id):
+            LibraryDetailDestination(
+                model: model,
+                recordID: id,
+                bundleInspection: bundleInspection,
+                features: features,
+                onSign: { path.append(.sign(id)) },
+                onMove: { presentCollectionPicker(for: [id]) },
+                onDelete: { entry in entryPendingRemoval = entry }
+            )
+        case .sign(let id):
+            if let entry = model.entry(for: id) {
+                SigningView(entry: entry)
             } else {
-                selection.insert(entry.record.id)
+                LibraryEntryUnavailableView()
             }
         }
     }
 
-    private func exitSelectionMode() {
-        isSelecting = false
-        selection = []
+    @ViewBuilder
+    private func sheetContent(_ sheet: LibrarySheet) -> some View {
+        switch sheet {
+        case .collectionPicker(let request):
+            LibraryCollectionPicker(model: model, request: request) {
+                if request.recordIDs.count > 1 {
+                    model.setSelecting(false)
+                }
+            }
+        case .nameCollection(let request):
+            LibraryCollectionNameSheet(model: model, mode: request.mode)
+        case .manageCollections:
+            LibraryCollectionsManager(model: model) { scope in
+                model.scope = scope
+            }
+        }
     }
 
-    /// Removes an entry from the local selection when it is being deleted,
-    /// so a confirmed removal never leaves a selected identifier the
-    /// library no longer holds.
-    private func removeFromSelection(_ entry: LibraryEntry) {
-        selection.remove(entry.record.id)
+    private func presentCollectionPicker(for ids: [ApplicationRecordIdentifier]) {
+        guard !ids.isEmpty, model.canOrganize else { return }
+        sheet = .collectionPicker(LibraryCollectionPickerRequest(recordIDs: ids, source: model.scope.collectionID))
     }
 
-    /// The entries the current selection names, in the order the screen
-    /// shows them.
-    private var selectedEntries: [LibraryEntry] {
-        model.visibleEntries().filter { selection.contains($0.record.id) }
+    private func startNewCollection() {
+        sheet = .nameCollection(LibraryCollectionNameRequest(mode: .create(adding: [], movingFrom: nil)))
+    }
+
+    private func manageCollections() {
+        sheet = .manageCollections
+    }
+
+    /// Pops any pushed screen showing `id`, before it is deleted.
+    private func leaveScreens(for id: ApplicationRecordIdentifier) {
+        path.removeAll { $0.recordID == id }
+    }
+
+    // MARK: - Scopes, filters, statistics
+
+    private var scopeItems: [LibraryScopeBar.Item] {
+        var items: [LibraryScopeBar.Item] = [
+            LibraryScopeBar.Item(
+                scope: .all,
+                title: "All Apps",
+                systemImage: "square.grid.2x2",
+                count: model.scopeCounts[.all] ?? 0
+            ),
+        ]
+        for smart in LibrarySmartCollection.allCases where features.allowsSmartCollection(smart) {
+            items.append(LibraryScopeBar.Item(
+                scope: .smart(smart),
+                title: smart.title,
+                systemImage: smart.systemImage,
+                count: model.scopeCounts[.smart(smart)] ?? 0
+            ))
+        }
+        for collection in model.userCollections {
+            items.append(LibraryScopeBar.Item(
+                scope: .collection(collection.id),
+                title: collection.name,
+                systemImage: "folder",
+                count: model.scopeCounts[.collection(collection.id)] ?? 0
+            ))
+        }
+        return items
+    }
+
+    private var activeFilterItems: [LibraryActiveFilterBar.Item] {
+        model.filters
+            .map { LibraryActiveFilterBar.Item(filter: $0, title: title(for: $0)) }
+            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
+
+    private func title(for filter: LibraryFilter) -> String {
+        switch filter {
+        case .favorites: return "Favorites"
+        case .signed: return "Signed"
+        case .unsigned: return "Unsigned"
+        case .recentlyImported: return "Recently Imported"
+        case .recentlySigned: return "Recently Signed"
+        case .expiringSoon: return "Expiring Soon"
+        case .collection(let id): return model.collection(withID: id)?.name ?? "Collection"
+        case .version(let version): return version.displayName
+        case .team(let team): return model.teams.first(where: { $0.identifier == team })?.displayName ?? team
+        }
+    }
+
+    private func selectScope(_ scope: LibraryScope) {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            model.scope = scope
+        }
+        LibraryAnnouncer.announce("\(model.scopeTitle ?? "All Apps"), \(ApplicationLibraryModel.applicationCount(model.visibleIDs.count))")
+    }
+
+    private func handleStatisticSelection(_ tile: LibraryStatisticsCard.Tile) {
+        switch tile {
+        case .total:
+            model.clearFiltersAndSearch()
+            selectScope(.all)
+        case .favorites:
+            selectScope(.smart(.favorites))
+        case .signed:
+            selectScope(.all)
+            model.filters = [.signed]
+        case .unsigned:
+            selectScope(.smart(.unsigned))
+        case .collections:
+            manageCollections()
+        case .storage:
+            model.sortOrder = .size
+            selectScope(.all)
+        }
     }
 
     // MARK: - Toolbar
@@ -352,31 +697,22 @@ struct ApplicationLibraryView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             if case .loaded = model.phase {
-                Button(isSelecting ? "Done" : "Select") {
-                    ZHaptics.tap()
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        if isSelecting {
-                            exitSelectionMode()
-                        } else {
-                            isSelecting = true
-                        }
-                    }
+                Button(model.isSelecting ? "Done" : "Select") {
+                    toggleSelectionMode()
                 }
+                .keyboardShortcut(model.isSelecting ? KeyboardShortcut.cancelAction : nil)
             }
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
-            if isSelecting {
-                Button(selection.isEmpty ? "Select All" : "Deselect All") {
-                    ZHaptics.tap()
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        if selection.isEmpty {
-                            selection = Set(model.visibleEntries().map { $0.record.id })
-                        } else {
-                            selection = []
-                        }
-                    }
+            if model.isSelecting {
+                Button(model.isEverythingSelected ? "Deselect All" : "Select All") {
+                    toggleSelectAll()
                 }
+                .keyboardShortcut("a", modifiers: .command)
             } else {
+                if features.powerFeatures, case .loaded = model.phase {
+                    filterMenu
+                }
                 sortMenu
                 layoutToggle
                 Button {
@@ -389,17 +725,88 @@ struct ApplicationLibraryView: View {
         }
     }
 
+    private var filterMenu: some View {
+        Menu {
+            Section("Status") {
+                filterToggle(.favorites, title: "Favorites", systemImage: "star")
+                if features.signing {
+                    filterToggle(.signed, title: "Signed", systemImage: "checkmark.seal")
+                    filterToggle(.unsigned, title: "Unsigned", systemImage: "circle.dashed")
+                }
+            }
+            Section("Activity") {
+                filterToggle(.recentlyImported, title: "Recently Imported", systemImage: "square.and.arrow.down")
+                if features.signing {
+                    filterToggle(.recentlySigned, title: "Recently Signed", systemImage: "signature")
+                    filterToggle(.expiringSoon, title: "Expiring Soon", systemImage: "clock.badge.exclamationmark")
+                }
+            }
+            Section("Version") {
+                filterToggle(.version(.latest), title: LibraryVersionFilter.latest.displayName, systemImage: "arrow.up.circle")
+                filterToggle(.version(.older), title: LibraryVersionFilter.older.displayName, systemImage: "clock.arrow.circlepath")
+            }
+            if !model.userCollections.isEmpty {
+                Section("Collection") {
+                    ForEach(model.userCollections) { collection in
+                        filterToggle(.collection(collection.id), title: collection.name, systemImage: "folder")
+                    }
+                }
+            }
+            if !model.teams.isEmpty {
+                Section("Team") {
+                    ForEach(model.teams) { team in
+                        filterToggle(.team(team.identifier), title: team.displayName, systemImage: "person.2")
+                    }
+                }
+            }
+            if !model.filters.isEmpty {
+                Section {
+                    Button(role: .destructive) {
+                        model.filters = []
+                    } label: {
+                        Label("Clear All Filters", systemImage: "xmark.circle")
+                    }
+                }
+            }
+        } label: {
+            Label(
+                "Filter",
+                systemImage: model.filters.isEmpty
+                    ? "line.3.horizontal.decrease.circle"
+                    : "line.3.horizontal.decrease.circle.fill"
+            )
+        }
+        .accessibilityLabel(model.filters.isEmpty ? "Filter applications" : "Filter applications, \(model.filters.count) active")
+    }
+
+    private func filterToggle(_ filter: LibraryFilter, title: String, systemImage: String) -> some View {
+        Toggle(isOn: Binding(
+            get: { model.filters.contains(filter) },
+            set: { isOn in
+                if isOn {
+                    model.filters.insert(filter)
+                } else {
+                    model.filters.remove(filter)
+                }
+            }
+        )) {
+            Label(title, systemImage: systemImage)
+        }
+        .menuActionDismissBehavior(.disabled)
+    }
+
     private var sortMenu: some View {
         Menu {
             Picker("Sort By", selection: $model.sortOrder) {
-                ForEach(ApplicationLibraryModel.SortOrder.allCases) { order in
-                    Text(order.displayName).tag(order)
+                ForEach(features.sortModes) { mode in
+                    Label(mode.displayName, systemImage: mode.systemImage)
+                        .tag(mode)
                 }
             }
         } label: {
             Label("Sort", systemImage: "arrow.up.arrow.down")
         }
-        .accessibilityLabel("Sort applications")
+        .accessibilityLabel("Sort applications, currently \(model.sortOrder.displayName)")
     }
 
     private var layoutToggle: some View {
@@ -417,31 +824,138 @@ struct ApplicationLibraryView: View {
         .accessibilityLabel(showsGrid ? "Switch to list view" : "Switch to grid view")
     }
 
-    // MARK: - Selection action bar
+    // MARK: - Floating bar
 
     @ViewBuilder
-    private var selectionBar: some View {
-        if isSelecting {
-            HStack(spacing: ZSpacing.md) {
-                Text("\(selection.count) selected")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                Spacer()
-                Button {
-                    selectionPendingRemoval = selectedEntries
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
-                .disabled(selection.isEmpty || model.isRemovingSelection)
-                .tint(.red)
-            }
-            .padding(.horizontal)
-            .padding(.vertical, ZSpacing.xs)
-            .background(.bar)
+    private var floatingBar: some View {
+        if model.isSelecting && !model.selection.isEmpty {
+            LibraryBulkActionBar(
+                model: model,
+                features: features,
+                onMove: { presentCollectionPicker(for: model.selectedIDs) },
+                onDelete: { selectionPendingRemoval = model.selectedEntries }
+            )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        } else if let progress = model.progress {
+            LibraryProgressCapsule(progress: progress)
+                .transition(.opacity)
         }
     }
 
+    // MARK: - Selection
+
+    private func toggleSelectionMode() {
+        ZHaptics.tap()
+        let selecting = !model.isSelecting
+        withAnimation(.easeInOut(duration: 0.15)) {
+            model.setSelecting(selecting)
+        }
+        LibraryAnnouncer.announce(selecting ? "Selection mode. Choose apps to act on." : "Selection mode ended")
+    }
+
+    private func toggleSelection(_ id: ApplicationRecordIdentifier) {
+        ZHaptics.tap()
+        withAnimation(.easeInOut(duration: 0.15)) {
+            model.toggleSelection(id)
+        }
+    }
+
+    private func toggleSelectAll() {
+        ZHaptics.tap()
+        withAnimation(.easeInOut(duration: 0.15)) {
+            if model.isEverythingSelected {
+                model.deselectAll()
+            } else {
+                model.selectAll()
+            }
+        }
+    }
+
+    /// Tells VoiceOver how many applications are selected whenever the
+    /// selection changes, since the floating bar changes silently.
+    private func announceSelectionChange(
+        from oldValue: Set<ApplicationRecordIdentifier>,
+        to newValue: Set<ApplicationRecordIdentifier>
+    ) {
+        guard model.isSelecting, oldValue != newValue else { return }
+        if newValue.isEmpty {
+            LibraryAnnouncer.announce("No apps selected")
+        } else if model.isEverythingSelected && newValue.count > 1 {
+            LibraryAnnouncer.announce("All \(newValue.count) apps selected")
+        } else {
+            LibraryAnnouncer.announce("\(newValue.count) selected")
+        }
+    }
+
+    // MARK: - Preferences
+
+    /// Applies the remembered order and scope once, then loads.
+    private func prepare() async {
+        if !hasAppliedStoredPreferences {
+            hasAppliedStoredPreferences = true
+            let stored = LibrarySortMode(rawValue: storedSortOrder) ?? .recentlyImported
+            model.sortOrder = features.allowsSortMode(stored) ? stored : .recentlyImported
+            applyStoredScope(storedScope)
+        }
+        await model.load()
+    }
+
+    /// Applies a remembered or handed-over scope — Home opens the library on
+    /// Favorites this way. A scope this release does not expose falls back
+    /// to everything.
+    private func applyStoredScope(_ value: String) {
+        let requested = LibraryScope(storageValue: value) ?? .all
+        let scope = features.allowsScope(requested) ? requested : .all
+        if model.scope != scope {
+            model.scope = scope
+        }
+    }
+}
+
+// MARK: - VoiceOver quick actions
+
+/// The quick actions as VoiceOver custom actions, so every action a swipe
+/// or a long press offers is also reachable with the rotor. Only actions
+/// the application can actually take are offered.
+private struct LibraryAccessibilityQuickActions: ViewModifier {
+
+    @ObservedObject var model: ApplicationLibraryModel
+    let entry: LibraryEntry
+    let features: LibraryFeatureAvailability
+    let isEnabled: Bool
+    let onSign: () -> Void
+    let onMove: () -> Void
+    let onDelete: () -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.accessibilityActions {
+                Button(entry.record.isFavorite ? "Unfavorite" : "Favorite") {
+                    Task { await model.setFavorite(!entry.record.isFavorite, on: entry) }
+                }
+                if features.signingInsights && entry.isArtifactAvailable {
+                    Button("Sign", action: onSign)
+                }
+                if features.powerFeatures {
+                    Button("Verify Package") {
+                        Task { await model.verify([entry.record.id]) }
+                    }
+                    if model.canExport && entry.isArtifactAvailable {
+                        Button("Export") {
+                            Task { await model.export([entry.record.id]) }
+                        }
+                    }
+                    if model.canOrganize {
+                        Button(model.scope.collectionID == nil ? "Add to Collection" : "Move to Collection", action: onMove)
+                    }
+                }
+                Button("Delete", action: onDelete)
+            }
+        } else {
+            content
+        }
+    }
 }
 
 // MARK: - Row
@@ -449,15 +963,33 @@ struct ApplicationLibraryView: View {
 /// One library entry in the list: the application's icon, its declared name,
 /// identifier, declared versions, the date it was imported, and the state
 /// badges its card carries. Favorite and artifact state are shown inline —
-/// words first, never styling alone.
-struct ApplicationLibraryRow: View {
+/// words first, never styling alone. While searching, the matching text is
+/// highlighted, and a match the visible text does not show (a developer, a
+/// team, a collection) is explained on its own line.
+///
+/// The row is an equatable value: SwiftUI skips re-rendering it unless one
+/// of its inputs changed.
+struct ApplicationLibraryRow: View, Equatable {
 
     let entry: LibraryEntry
     var signingState: ApplicationLibraryModel.SigningState = .notSigned
+    var expiry: LibraryExpiryStatus = .unknown
+    var highlightTerms: [String] = []
+    var matchContext: String? = nil
+    var showsSigningInsights = false
+
+    /// `nil` outside selection mode; otherwise whether the entry is selected.
+    var isSelected: Bool? = nil
 
     var body: some View {
         let content = ApplicationLibraryRowContent(entry: entry)
         HStack(spacing: ZSpacing.sm) {
+            if let isSelected {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? Color.accentColor : Color(.tertiaryLabel))
+                    .imageScale(.large)
+                    .frame(minWidth: 28)
+            }
             ApplicationIconView(
                 artifactID: entry.record.artifact.artifactID,
                 displayName: content.name,
@@ -465,25 +997,25 @@ struct ApplicationLibraryRow: View {
             )
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: ZSpacing.xxs) {
-                    Text(content.name)
+                    LibraryHighlighter.text(content.name, terms: highlightTerms)
                         .font(.body)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     if entry.record.isFavorite {
                         Image(systemName: "star.fill")
-                            .font(.caption)
+                            .font(.caption2)
                             .foregroundStyle(.yellow)
-                            .accessibilityLabel("Favorite")
+                            .accessibilityHidden(true)
                     }
                 }
-                Text(content.bundleIdentifier)
+                LibraryHighlighter.text(content.bundleIdentifier, terms: highlightTerms)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 HStack(spacing: ZSpacing.xs) {
                     if let versionText = content.versionText {
-                        Text(versionText)
+                        LibraryHighlighter.text(versionText, terms: highlightTerms)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -492,19 +1024,33 @@ struct ApplicationLibraryRow: View {
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
-                signingBadge
+                if let matchContext {
+                    LibraryHighlighter.text(matchContext, terms: highlightTerms)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                HStack(spacing: ZSpacing.xs) {
+                    signingBadge(content)
+                    if showsSigningInsights {
+                        expiryBadge
+                    }
+                }
             }
             Spacer(minLength: 0)
         }
         .padding(.vertical, 2)
+        .contentShape(Rectangle())
         // The row is read as one element: name, identifier, versions, import
         // date, badges — so nothing depends on visual styling alone.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription(content))
+        .accessibilityAddTraits(isSelected == true ? .isSelected : [])
+        .accessibilityHint(isSelected == nil ? "" : "Double-tap to change the selection")
     }
 
     @ViewBuilder
-    private var signingBadge: some View {
+    private func signingBadge(_ content: ApplicationLibraryRowContent) -> some View {
         switch signingState {
         case .signed:
             ZStatusBadge("Signed", systemImage: "checkmark.seal.fill", kind: .success)
@@ -512,6 +1058,18 @@ struct ApplicationLibraryRow: View {
             ZStatusBadge("Not Signed", systemImage: "circle.dashed", kind: .neutral)
         case .packageProblem:
             ZStatusBadge(content.availabilityText ?? "Package Problem", systemImage: "exclamationmark.triangle.fill", kind: .warning)
+        }
+    }
+
+    @ViewBuilder
+    private var expiryBadge: some View {
+        switch expiry {
+        case .expiringSoon(let date):
+            ZStatusBadge("Expires \(date.formatted(.relative(presentation: .named)))", systemImage: "clock.badge.exclamationmark", kind: .warning)
+        case .expired:
+            ZStatusBadge("Signing Expired", systemImage: "xmark.circle.fill", kind: .error)
+        case .unknown, .valid:
+            EmptyView()
         }
     }
 
@@ -530,7 +1088,25 @@ struct ApplicationLibraryRow: View {
         case .notSigned: parts.append("Not signed")
         case .packageProblem: parts.append(content.availabilityText ?? "Package problem")
         }
+        if showsSigningInsights, let expiryText = Self.expiryDescription(expiry) {
+            parts.append(expiryText)
+        }
+        if let matchContext {
+            parts.append(matchContext)
+        }
         return parts.joined(separator: ", ")
+    }
+
+    /// The spoken form of an expiry badge, or `nil` when there is no badge.
+    static func expiryDescription(_ expiry: LibraryExpiryStatus) -> String? {
+        switch expiry {
+        case .expiringSoon(let date):
+            return "Signing expires \(date.formatted(.relative(presentation: .named)))"
+        case .expired(let date):
+            return "Signing expired \(date.formatted(date: .abbreviated, time: .omitted))"
+        case .unknown, .valid:
+            return nil
+        }
     }
 }
 
@@ -539,14 +1115,19 @@ struct ApplicationLibraryRow: View {
 /// One library entry as a grid card: the application's icon, its declared
 /// name and version, the import date, the signing state, and a favourite
 /// indicator. In selection mode the card carries an explicit selection
-/// mark instead of opening the detail screen.
-struct ApplicationLibraryCard: View {
+/// mark instead of opening the detail screen. Like the row, the card is an
+/// equatable value.
+struct ApplicationLibraryCard: View, Equatable {
 
     let entry: LibraryEntry
     var signingState: ApplicationLibraryModel.SigningState = .notSigned
 
     /// `nil` outside selection mode; otherwise whether the entry is selected.
     var isSelected: Bool? = nil
+
+    var expiry: LibraryExpiryStatus = .unknown
+    var highlightTerms: [String] = []
+    var showsSigningInsights = false
 
     var body: some View {
         let content = ApplicationLibraryRowContent(entry: entry)
@@ -564,25 +1145,25 @@ struct ApplicationLibraryCard: View {
                         .foregroundStyle(isSelected ? Color.accentColor : Color(.tertiaryLabel))
                         .background(Circle().fill(.thinMaterial))
                         .offset(x: 6, y: -6)
-                        .accessibilityLabel(isSelected ? "Selected" : "Not selected")
-                }
-            }
-            .frame(maxWidth: .infinity)
-            HStack(spacing: 2) {
-                Text(content.name)
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .minimumScaleFactor(0.8)
-                if entry.record.isFavorite {
+                        .accessibilityHidden(true)
+                } else if entry.record.isFavorite {
                     Image(systemName: "star.fill")
                         .font(.caption2)
                         .foregroundStyle(.yellow)
-                        .accessibilityLabel("Favorite")
+                        .padding(3)
+                        .background(Circle().fill(.thinMaterial))
+                        .offset(x: 5, y: -5)
+                        .accessibilityHidden(true)
                 }
             }
             .frame(maxWidth: .infinity)
+            LibraryHighlighter.text(content.name, terms: highlightTerms)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity)
             Text(content.versionText ?? "No Declared Version")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -592,13 +1173,22 @@ struct ApplicationLibraryCard: View {
         .padding(ZSpacing.xs)
         .frame(maxWidth: .infinity)
         .zynCardBackground()
+        .overlay {
+            if isSelected == true {
+                RoundedRectangle(cornerRadius: ZRadius.card)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+            }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: ZRadius.card))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription(content))
-        .accessibilityHint(isSelected == nil ? "Opens the application's details" : "")
+        .accessibilityAddTraits(isSelected == true ? .isSelected : [])
+        .accessibilityHint(isSelected == nil ? "Opens the application's details" : "Double-tap to change the selection")
     }
 
-    /// The card's compact status: a signing mark when it has one, otherwise
-    /// the declared import date. A package problem outranks both.
+    /// The card's compact status: an expiry warning when signing insights
+    /// are shown and one applies, else a signing mark, else the import date.
+    /// A package problem outranks everything.
     @ViewBuilder
     private func statusLine(_ content: ApplicationLibraryRowContent) -> some View {
         switch signingState {
@@ -606,12 +1196,19 @@ struct ApplicationLibraryCard: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.caption2)
                 .foregroundStyle(.orange)
-                .accessibilityLabel(content.availabilityText ?? "Package problem")
+                .accessibilityHidden(true)
         case .signed:
-            Image(systemName: "checkmark.seal.fill")
-                .font(.caption2)
-                .foregroundStyle(.green)
-                .accessibilityLabel("Signed")
+            if showsSigningInsights && expiry.needsAttention {
+                Image(systemName: "clock.badge.exclamationmark")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .accessibilityHidden(true)
+            } else {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.green)
+                    .accessibilityHidden(true)
+            }
         case .notSigned:
             Text(entry.record.importedAt, format: .dateTime.month(.abbreviated).day())
                 .font(.caption2)
@@ -629,6 +1226,9 @@ struct ApplicationLibraryCard: View {
         case .signed: parts.append("Signed")
         case .notSigned: parts.append("Not signed")
         case .packageProblem: parts.append(content.availabilityText ?? "Package problem")
+        }
+        if showsSigningInsights, let expiryText = ApplicationLibraryRow.expiryDescription(expiry) {
+            parts.append(expiryText)
         }
         return parts.joined(separator: ", ")
     }
@@ -757,7 +1357,8 @@ private enum PreviewFixtures {
 
     static func record(
         identity: ApplicationIdentity,
-        importedAt: Date = Date(timeIntervalSinceReferenceDate: 750_000_000)
+        importedAt: Date = Date(timeIntervalSinceReferenceDate: 750_000_000),
+        isFavorite: Bool = false
     ) -> ApplicationRecord {
         guard let fingerprint = ArtifactFingerprint(
             algorithm: .sha256,
@@ -777,15 +1378,16 @@ private enum PreviewFixtures {
             ),
             inspection: ApplicationRecord.InspectionSummary(classification: .valid),
             importedAt: importedAt,
-            updatedAt: importedAt
+            updatedAt: importedAt,
+            isFavorite: isFavorite
         )
     }
 
     static let complete = LibraryEntry(
-        record: record(identity: identity(
-            bundleIdentifier: "com.example.complete",
-            displayName: "Example"
-        )),
+        record: record(
+            identity: identity(bundleIdentifier: "com.example.complete", displayName: "Example"),
+            isFavorite: true
+        ),
         artifactAvailability: .available
     )
 
@@ -812,9 +1414,7 @@ private enum PreviewFixtures {
     NavigationStack {
         List {
             ForEach(PreviewFixtures.all, id: \.record.id) { entry in
-                NavigationLink(value: entry) {
-                    ApplicationLibraryRow(entry: entry)
-                }
+                ApplicationLibraryRow(entry: entry, highlightTerms: ["ex"])
             }
         }
         .navigationTitle("Applications")
@@ -831,6 +1431,21 @@ private enum PreviewFixtures {
         .padding()
     }
     .background(Color(.systemGroupedBackground))
+}
+
+#Preview("Statistics") {
+    LibraryStatisticsCard(
+        statistics: LibraryStatistics(
+            totalApplications: 248,
+            favorites: 12,
+            signed: 31,
+            unsigned: 217,
+            collections: 6,
+            storageBytes: 18_400_000_000
+        ),
+        showsSigning: true
+    ) { _ in }
+    .padding()
 }
 
 #Preview("Loading") {

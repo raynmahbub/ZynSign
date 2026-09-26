@@ -115,7 +115,10 @@ struct RootView: View {
                 library: environment.library,
                 queue: environment.packageImportQueue,
                 bundleInspection: environment.bundleInspection,
-                signingHistory: environment.signingHistory
+                signingHistory: environment.signingHistory,
+                organizer: environment.libraryOrganizer,
+                provenance: environment.applicationProvenance,
+                exporter: environment.libraryExport
             )
         case .certificates:
             NavigationStack { CertificatesView() }

@@ -65,6 +65,22 @@ struct SigningRecord: Equatable, Hashable, Identifiable, Sendable, Codable {
     /// the failure point.
     let duration: TimeInterval
 
+    /// The identifier of the library record that was signed, in its
+    /// canonical string form. Lets the library attribute a signing to the
+    /// exact entry rather than to every entry sharing a bundle identifier.
+    /// `nil` in journal entries written before the field existed, and for
+    /// signings that did not start from a library record.
+    let sourceRecordID: String?
+
+    /// When the provisioning profile the signing used expires, as the
+    /// profile declared it. `nil` when unknown. Lets the library warn
+    /// before a signed output stops launching.
+    let profileExpiresAt: Date?
+
+    /// When the signing certificate stops being valid (its notAfter date).
+    /// `nil` when unknown.
+    let certificateExpiresAt: Date?
+
     init(
         id: SigningRecordIdentifier = SigningRecordIdentifier(),
         presetID: PresetIdentifier?,
@@ -76,7 +92,10 @@ struct SigningRecord: Equatable, Hashable, Identifiable, Sendable, Codable {
         outputFileName: String?,
         outputByteCount: Int?,
         startedAt: Date,
-        duration: TimeInterval
+        duration: TimeInterval,
+        sourceRecordID: String? = nil,
+        profileExpiresAt: Date? = nil,
+        certificateExpiresAt: Date? = nil
     ) {
         self.id = id
         self.presetID = presetID
@@ -89,6 +108,9 @@ struct SigningRecord: Equatable, Hashable, Identifiable, Sendable, Codable {
         self.outputByteCount = outputByteCount
         self.startedAt = startedAt
         self.duration = duration
+        self.sourceRecordID = sourceRecordID
+        self.profileExpiresAt = profileExpiresAt
+        self.certificateExpiresAt = certificateExpiresAt
     }
 
     /// The outcome derived from the captured fields.

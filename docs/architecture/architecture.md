@@ -1727,7 +1727,8 @@ carried forward from Section 6.
 | `SignatureVerifier` | Independent evaluation of an artifact, with no access to signing state | Domain | Yes | Yes — no system verifier may be assumed | Requires feasibility research (item 11) |
 | `TemporaryStorage` | Controlled working space with lifetime, cleanup, and cancellation semantics | Application | Yes — in-memory or directory-backed | Partly — directories and lifecycle are platform-bound | Accepted as a boundary; mechanism Unresolved |
 | `ApplicationRecordStore` | Persistence of non-sensitive library records: insert, update, fetch by identifier, list, delete | Application | Yes — in-memory in tests | No | **Implemented** as a versioned catalog file (Section 15) |
-| `LibraryArtifactStore` | Ownership of the package bytes behind library records: describe a staged archive, adopt it into library storage, observe, remove, enumerate | Application | Yes — in-memory in tests | Partly — directories and moves are platform-bound | **Implemented** over application-owned storage (Section 15) |
+| `LibraryArtifactStore` | Ownership of the package bytes behind library records: describe a staged archive, adopt it into library storage, observe, measure a held artifact on request, remove, enumerate | Application | Yes — in-memory in tests | Partly — directories and moves are platform-bound | **Implemented** over application-owned storage (Section 15) |
+| `LibraryOrganizationStore` | Persistence of the user's organization of the library — collections, memberships, last-opened times — as one versioned document, read and replaced whole | Application | Yes — in-memory in tests | No | **Implemented** as a versioned document beside the catalog (Section 15, Library Organization Decision) |
 | `DeviceInstaller` | Delivery of a signed artifact to a device | Application | Contingent | Yes | **Provisional** — may never exist (item 15); no implementation may be built against it before installation scope is decided |
 
 Rules, **Accepted**:
@@ -1948,6 +1949,99 @@ replacement of a missing artifact as a user-facing operation, and deeper
 library management (the Applications screen lists, imports, and deletes
 records; no repair or replacement operation exists in this build).
 
+### Library Organization Decision
+
+The advanced library (Step 12) adds the user's own arrangement of the
+library — collections and usage — and the machinery that lets the library
+screen answer every question over hundreds of applications without
+re-reading persistence. Nothing in it changes what a record is or what the
+catalog holds.
+
+**Organization model, Accepted.** `LibraryOrganization` is a domain value:
+the collections (`LibraryCollection`: a UUID identity, a normalised name
+unique within its kind ignoring case, diacritics, and width, a kind,
+creation and change times, and ordered memberships each carrying its own
+time) and a last-opened time per record. Everything refers to records and
+collections by identifier; nothing is keyed by name or position. A record
+belongs to any number of collections; removing it from one, or deleting a
+collection, never touches the record or its package. References to records
+the library no longer holds are harmless — readers intersect with the
+records they have — and are pruned when the library screen removes an
+entry. Mutations enforce the rules and throw typed errors
+(`ZynSignError+LibraryOrganization`), leaving the value unchanged.
+
+**Storage, Accepted.** The organization is one JSON document,
+`Application Support/ZynSignLibrary/Organization.json`, schema version 1,
+separate from `catalog.json` so that opening an application or rearranging
+collections never rewrites the catalog, and so the parts a future
+synchronisation would treat differently — package facts versus personal
+arrangement — are separate documents. It follows the catalog's rules: read
+whole and replaced atomically, a missing document is empty, a damaged
+document or one with a value the domain rejects fails closed and is left in
+place, a newer schema is reported as unsupported. `LibraryOrganizer` (an
+actor) owns the read-modify-write; the store port is synchronous, so no two
+changes can interleave, and a change becomes current only after it was
+saved.
+
+**Stored for growth, Accepted as a deliberate exception.** The catalog's
+migration rule stores no field in anticipation of a future need. The
+organization document makes one bounded exception because the Step 12
+requirements ask for cloud synchronisation, tags, shared collections, pinned
+workflows, and automation to be possible *without changing the data model*:
+each collection stores its `kind` (today only `collection`). Tags and shared
+collections are the same shape with another kind; a kind this build does
+not know is preserved on read and write and not presented. Everything else
+the future needs is already structural — stable identifiers and timestamps
+for merging, and codable `LibraryQuery` and `LibraryScope` values for saved
+searches, pinned views, and automations. No sync, tag, sharing, or
+automation behaviour exists in this build.
+
+**Index, Accepted.** `LibraryIndex` is an application-layer value built from
+the library's entries, the organization, the signing journal, and the
+provenance resolved so far. It precomputes folded search text per field,
+membership in both directions, the latest declared version per bundle
+identifier, and each entry's signing fact, and answers queries (scope, then
+filters AND-ed across facets and OR-ed within one, then search terms that
+must each occur somewhere, then one of seven orders), counts, and
+statistics. Small changes patch it (`update`, `remove`, `setOrganization`,
+`setSigningFacts`, `mergeProvenance`); a full read rebuilds it. The screen
+publishes only the visible identifiers, and rows are equatable values.
+
+**Signed means the journal, Accepted.** An entry is *signed* when the
+on-device signing journal holds a successful signing attributable to it.
+`SigningView` now journals every run with the signed record's identifier and
+the expiry dates of the profile and certificate it used; a journal entry
+that names a record belongs to that record alone, and an older entry that
+names only a bundle identifier belongs to records with that identifier that
+existed when it ran. *Expiring Soon* uses the recorded expiry dates with the
+30-day window the Profiles area uses. The journal is bounded, so an entry
+can fall out of it and read as unsigned again; nothing is inferred beyond
+what it holds.
+
+**Declared provenance, Accepted.** Developer and team are read, read-only
+and bounded, from the package's `embedded.mobileprovision` and
+`iTunesMetadata.plist` through the existing archive boundary
+(`ApplicationProvenanceExtraction`), sanitised, cached per artifact in the
+caches directory, and presented as declarations — the embedded profile's
+signature is not verified and the values prove nothing.
+
+**Verification and export, Accepted.** Verify re-reads a held package and
+compares size and SHA-256 fingerprint with the record
+(`LibraryArtifactStore.measureHeldArtifact`, `ArtifactIntegrity`); it is not
+a signature check and repairs nothing. Export prepares readable, sanitised,
+unique names as hard links (copies only where linking fails) in a temporary
+directory that is discarded after sharing; the library's files are only
+read.
+
+**Release gating, Accepted.** The advanced library is exposed by
+`ReleaseFeature.libraryPowerFeatures`; parts that read the signing journal
+also need `smartSign`.
+
+**Still Unresolved:** synchronisation, tags, shared collections, saved
+searches, and automation (structure only, no behaviour); manual ordering
+within a collection; tombstones for merged deletions; persisting
+verification results.
+
 ## 16. Testing Architecture
 
 The testing strategy is **Accepted** as a structure. Individual tests are only
@@ -2074,6 +2168,7 @@ depend on iOS/iPadOS behaviour are recorded as *Provisional*, *Unresolved*, or
 | 35 | Mach-O code-signature region construction | **Accepted** for this increment — 16-byte-aligned `MachOCodeSignatureRegion` framing over validated ZS-024 SuperBlob serialization, `MachOCodeSignatureRegionLayout` arithmetic separating code limit from file length, `MachOCodeSignatureInspector` distinguishing absent, valid, and malformed existing signature states, default rejection of existing signatures with replacement unsupported, load-command capacity gating over verified zero header padding and `__LINKEDIT` virtual slack, universal binary mutation unsupported, and a narrow append-only `MachOCodeSignatureWriter` that preserves unrelated bytes byte-for-byte; no CMS, private-key signing, or platform acceptance is claimed; see [macho-signature-region.md](macho-signature-region.md). |
 | 36 | Signing metadata: entitlements, requirements, and CodeResources | **Accepted** for this increment — a typed entitlement model over the existing `ProvisioningProfileValue` tree with unknown keys preserved, no enumerated entitlement vocabulary, dates excluded rather than coerced, bounds enforced, and five separate states (decoded, structurally valid, provisioning-compatible through a bridge that reuses the ZS-020 policy validator alone, embedded with `platformAuthorization` explicitly `notEvaluated`, and platform-authorized, which no local operation claims); one canonical XML property-list serialization (fixed header, ascending UTF-8 key bytes, tab indentation, one element per line, no value transformation) framing the `0xFADE7171` blob, with XML and binary payloads accepted on read and OpenStep refused; a requirements model carrying set framing and expression bytes verbatim with dispositions absent/presentAndParsed/presentButUnsupported/malformed/generated/verified, expressions never interpreted or generated, framing validated (magic, length, offset, overlap, duplicate-kind, count bounds) and malformed values refused at the embedding boundary before any cryptographic operation; a read-only `ResourceContentStore` port with in-memory and directory stores, deterministic ascending-path sealing, exact stored bytes hashed as `hash2`, symlink fail-closed-or-exclude policy with links never followed, caller-only exclusions recorded as omissions that are never serialized, and caller-supplied nested-code `cdhash` seals (first 20 bytes of the SHA-256 CodeDirectory digest) that the generator never signs or re-derives; the CodeResources document over `files2`/optional caller `rules2` with v1 `files`/`rules` an explicit `unsupportedTopLevelKey` refusal, deterministic serialization through the one canonical serializer, and a parser accepting any legal plist spelling of the supported subset; special-slot derivation for slots 2/3/5 with digest inputs covering the complete embedded blobs for 2 and 5 and the CodeResources file bytes for 3 (**Observed**), contiguous zero-placeholder construction that never invents slot 1; pipeline ordering fixed so metadata is prepared and slots finalized before the CodeDirectory is constructed, hashed, and signed; per-target nested metadata never inherited, with metadata failures reported at the metadata stage (`signingMetadataFailure`) and leaving the staged artifact untouched; read-only inspection classifying embedded entitlements, requirements, and slot-3 state without mutating or verifying anything; structured per-stage errors with paths and counts but never contents or key material; no third-party dependency; byte-exact agreement with Apple's serializers, requirement-expression semantics, platform acceptance, and device behaviour all remain open and recorded as experiments (Section 7); see [signing-metadata.md](signing-metadata.md) |
 | 37 | External validation of signing output | **Accepted** for this increment — developer-side validation (decision 15) as a standing, non-gating CI job: an opt-in export test signs synthetic inputs through the production use cases with a throwaway in-process RSA key and the production verifier and writes public material only; a standard-library host harness judges the exports with `codesign`, `otool`, `ditto`, `unzip`, and OpenSSL, evaluates Apple's documented iOS 15+ format rules, compares against `codesign`'s ad hoc signing of the same inputs with differences labeled expected, input-dependent, or divergence, and compares tamper verdicts; results live in a known-divergence register cited by run; no external tool is called from product code, no credential exists anywhere, and no verdict is presented as platform acceptance, trust, or installability ([external-validation.md](external-validation.md)) |
+| 38 | Library organization and the advanced library | **Accepted** for this increment — collections, memberships, and usage in a versioned organization document separate from the catalog behind `LibraryOrganizationStore`, mutated only through the `LibraryOrganizer` actor with typed refusals and save-before-apply; one application-layer `LibraryIndex` answering search, stacked filters, smart collections, orders, counts, and statistics with incremental patches; *signed* read only from the signing journal, which the signing screen now writes with the signed record and asset expiry; declared developer and team read read-only from the package; Verify comparing bytes with the import fingerprint; Export through hard-linked readable names; a stored collection `kind` as the one deliberate growth field; gated by `libraryPowerFeatures` (and `smartSign` for signing-derived parts) (Section 15, Library Organization Decision) |
 
 ## 19. Non-Goals of This Document
 

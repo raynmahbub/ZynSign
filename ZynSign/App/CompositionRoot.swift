@@ -49,7 +49,48 @@ enum CompositionRoot {
         )
         environment.provisioningProfileImporter = makeProvisioningProfileImporter()
         environment.appIcons = makeAppIconExtraction()
+        environment.libraryOrganizer = makeLibraryOrganizer()
+        environment.applicationProvenance = makeApplicationProvenanceExtraction()
+        environment.libraryExport = makeLibraryExportPreparation()
         return environment
+    }
+
+    /// Builds the library-organization use case over a versioned document
+    /// beside the library catalog, so collections and usage live with the
+    /// library they describe without ever rewriting its catalog.
+    static func makeLibraryOrganizer() -> LibraryOrganizer {
+        LibraryOrganizer(store: FileLibraryOrganizationStore(documentLocation: libraryOrganizationLocation))
+    }
+
+    /// Builds the provenance reader over the same storage convention the
+    /// library artifacts live in. Embedded profiles are decoded with the
+    /// bounded CMS structure reader the signing screen uses; results are
+    /// cached in the system caches directory, which the system may reclaim
+    /// — the right durability for values derived from immutable bytes.
+    static func makeApplicationProvenanceExtraction() -> ApplicationProvenanceExtraction {
+        ApplicationProvenanceExtraction(
+            readerProvider: DirectoryArtifactArchiveReaderProvider(directory: libraryArtifactDirectory),
+            cacheLocation: cachesDirectory.appendingPathComponent("ZynSignProvenance.json", isDirectory: false),
+            profilePayload: { data in
+                (try? CMSStructureReader.read(data))?.encapsulatedContent
+            }
+        )
+    }
+
+    /// Builds the export preparation over the library's artifact directory,
+    /// placing readable file names in a temporary directory the share sheet
+    /// reads from and that is cleared after every export.
+    static func makeLibraryExportPreparation() -> LibraryExportPreparation {
+        let artifactDirectory = libraryArtifactDirectory
+        return LibraryExportPreparation(
+            exportRoot: FileManager.default.temporaryDirectory
+                .appendingPathComponent("ZynSignExports", isDirectory: true),
+            artifactLocation: { artifact in
+                artifactDirectory
+                    .appendingPathComponent(artifact.rawValue, isDirectory: false)
+                    .appendingPathExtension("ipa")
+            }
+        )
     }
 
     /// Builds the provisioning-profile importer the Profiles tab drives. It
@@ -662,5 +703,19 @@ enum CompositionRoot {
     /// The directory adopted artifacts are kept in, named by identifier.
     private static var libraryArtifactDirectory: URL {
         libraryRootDirectory.appendingPathComponent("Artifacts", isDirectory: true)
+    }
+
+    /// The document holding the library's collections and usage.
+    private static var libraryOrganizationLocation: URL {
+        libraryRootDirectory.appendingPathComponent("Organization.json", isDirectory: false)
+    }
+
+    /// The system caches directory, for values derived from library data.
+    private static var cachesDirectory: URL {
+        FileManager.default
+            .urls(for: .cachesDirectory, in: .userDomainMask)
+            .first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Caches", isDirectory: true)
     }
 }

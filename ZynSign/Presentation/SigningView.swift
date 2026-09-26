@@ -296,6 +296,12 @@ struct SigningView: View {
         let sourceURL = env.artifactFileURL(for: entry.record.artifact.artifactID)
         guard FileManager.default.fileExists(atPath: sourceURL.path) else { signingError = "The package file could not be found in ZynSign's storage."; return }
         isSigning = true; signingResult = nil; signingError = nil; outputURL = nil
+        let startedAt = Date()
+        let certificate = selectedIdentity?.certificate
+        let profileExpiry = Self.profileExpirationDate(profile)
+        func journal(stage: String?, errorCode: String?, output: URL?) async {
+            await appendToJournal(startedAt: startedAt, stoppingStage: stage, errorCode: errorCode, output: output, certificate: certificate, profileExpiry: profileExpiry)
+        }
         await liveActivity.start(stage: "Signing", detail: "Integrity → Profile → Discovery…")
         let entitlements: CodeSigningEntitlements
         if let derived = derivedEntitlements { entitlements = derived }
@@ -322,19 +328,63 @@ struct SigningView: View {
                 outputURL = result.outputURL ?? output
                 await liveActivity.end(success: true)
                 env.recordAnalyticsEvent(category: .signing, name: "sign.succeeded", succeeded: true)
+                await journal(stage: "verification", errorCode: nil, output: result.outputURL ?? output)
             } else if let failure = result.failure {
                 signingError = "\(failure.stage.rawValue): \(failure.detail)"
                 await liveActivity.end(success: false)
                 env.recordAnalyticsEvent(category: .signing, name: "sign.refused", succeeded: false)
+                await journal(stage: failure.stage.rawValue, errorCode: String(describing: failure.category), output: nil)
             } else {
                 signingError = "Signing failed without a typed refusal."
                 await liveActivity.end(success: false)
                 env.recordAnalyticsEvent(category: .signing, name: "sign.refused", succeeded: false)
+                await journal(stage: "pipeline", errorCode: nil, output: nil)
             }
-        } catch is CancellationError { signingError = "Signing was cancelled."; try? FileManager.default.removeItem(at: output); await liveActivity.end(success: false); env.recordAnalyticsEvent(category: .signing, name: "sign.cancelled", succeeded: false) }
-        catch let e as ZynSignError { signingError = e.userMessage; try? FileManager.default.removeItem(at: output); await liveActivity.end(success: false); env.recordAnalyticsEvent(category: .signing, name: "sign.failed", succeeded: false) }
-        catch { signingError = "Signing failed unexpectedly."; try? FileManager.default.removeItem(at: output); await liveActivity.end(success: false); env.recordAnalyticsEvent(category: .signing, name: "sign.failed", succeeded: false) }
+        } catch is CancellationError { signingError = "Signing was cancelled."; try? FileManager.default.removeItem(at: output); await liveActivity.end(success: false); env.recordAnalyticsEvent(category: .signing, name: "sign.cancelled", succeeded: false); await journal(stage: nil, errorCode: nil, output: nil) }
+        catch let e as ZynSignError { signingError = e.userMessage; try? FileManager.default.removeItem(at: output); await liveActivity.end(success: false); env.recordAnalyticsEvent(category: .signing, name: "sign.failed", succeeded: false); await journal(stage: "pipeline", errorCode: String(describing: e.category), output: nil) }
+        catch { signingError = "Signing failed unexpectedly."; try? FileManager.default.removeItem(at: output); await liveActivity.end(success: false); env.recordAnalyticsEvent(category: .signing, name: "sign.failed", succeeded: false); await journal(stage: "pipeline", errorCode: nil, output: nil) }
         isSigning = false
+    }
+
+    /// Appends this run to the on-device signing journal and tells the
+    /// library, whose signed state, Recently Signed, Expiring Soon, and
+    /// statistics are read from it. The record names the library entry that
+    /// was signed and the expiry of the profile and certificate used, so the
+    /// library can attribute the signing exactly and warn before the output
+    /// stops launching. A journal write failure never changes the outcome
+    /// of the run.
+    private func appendToJournal(
+        startedAt: Date,
+        stoppingStage: String?,
+        errorCode: String?,
+        output: URL?,
+        certificate: CertificateMetadata?,
+        profileExpiry: Date?
+    ) async {
+        guard let history = env.signingHistory else { return }
+        let byteCount = output.flatMap { try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize }
+        let record = SigningRecord(
+            presetID: nil,
+            certificateFingerprint: certificate?.sha256Fingerprint,
+            sourceBundleIdentifier: entry.record.bundleIdentifier.rawValue,
+            sourceDisplayName: entry.record.displayName,
+            stoppingStage: stoppingStage,
+            errorCode: errorCode,
+            outputFileName: output?.lastPathComponent,
+            outputByteCount: byteCount,
+            startedAt: startedAt,
+            duration: Date().timeIntervalSince(startedAt),
+            sourceRecordID: entry.record.id.rawValue,
+            profileExpiresAt: profileExpiry,
+            certificateExpiresAt: certificate?.notValidAfter
+        )
+        do {
+            try await history.append(record)
+            NotificationCenter.default.post(name: .signingHistoryDidChange, object: nil)
+        } catch {
+            // The journal is a convenience view of history; a failed write
+            // must not turn a delivered signing into a failure.
+        }
     }
 }
 
@@ -346,6 +396,18 @@ private struct ShareSheet: UIViewControllerRepresentable {
 }
 
 extension SigningView {
+    /// The expiration date the provisioning profile declares, for the
+    /// signing journal. `nil` when the profile's property list cannot be
+    /// read or declares none.
+    fileprivate static func profileExpirationDate(_ data: Data) -> Date? {
+        let payload: Data
+        if let cms = try? CMSStructureReader.read(data), let content = cms.encapsulatedContent { payload = content }
+        else if let embedded = ApplicationProvenanceExtraction.embeddedPropertyList(in: data) { payload = embedded }
+        else { payload = data }
+        guard let value = try? PropertyListSerialization.propertyList(from: payload, options: [], format: nil),
+              let dictionary = value as? [String: Any] else { return nil }
+        return dictionary["ExpirationDate"] as? Date
+    }
     fileprivate static func entitlements(fromProvisioningProfile data: Data) throws -> CodeSigningEntitlements {
         let payload: Data
         if let cms = try? CMSStructureReader.read(data), let content = cms.encapsulatedContent { payload = content }
