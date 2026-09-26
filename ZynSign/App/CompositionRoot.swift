@@ -117,6 +117,7 @@ enum CompositionRoot {
         environment.droppedFiles = droppedFiles
         environment.queueNotifier = queueNotifier
         environment.binaryInspection = makeBinaryInspection(intake: intake, library: library)
+        environment.resourceInspection = makeResourceStudioInspection(library: library, readerProvider: readerProvider)
         return environment
     }
 
@@ -311,6 +312,21 @@ enum CompositionRoot {
             ),
             digest: digest,
             limits: inspectionLimits
+        )
+    }
+
+    /// Builds the Resource & Asset Studio inspection use case: inspects app
+    /// icons, launch assets, images, fonts, media, and localization tables in
+    /// an imported IPA bundle, completely read-only.
+    static func makeResourceStudioInspection(
+        library: ApplicationLibrary,
+        readerProvider: any ArtifactArchiveReaderProvider,
+        limits: ArchiveLimits = .default
+    ) -> IPAResourceStudioInspection {
+        IPAResourceStudioInspection(
+            library: library,
+            readerProvider: readerProvider,
+            limits: limits
         )
     }
 
