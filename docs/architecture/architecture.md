@@ -1432,16 +1432,22 @@ offered to the library, which either adopts it — moves it, under the same
 identifier, into durable application-owned artifact storage (Section 15) —
 or recognises it as content the library already holds, in which case the
 staged copy is discarded. Whatever is left in the staging directory by an
-interrupted process is cleared before the first import of the next one;
-because adoption moves the file out of staging, nothing a record depends on
-is ever there to be cleared. Nothing staged survives implicitly.
+interrupted process is swept at the next launch, except the working copies
+the interrupted-import journal says can resume (see the Smart Import Hub
+Decision below); because adoption moves the file out of staging, nothing a
+record depends on is ever there to be swept. Nothing staged survives
+implicitly.
 
-**Still Unresolved:** file coordination for provider-backed locations,
-concurrent imports into shared staging space, storage-pressure handling, and
-crash-recovery semantics beyond the clear-at-next-launch behaviour recorded
-above.
+**Still Unresolved:** file coordination guarantees for every provider-backed
+location. Concurrent imports into the shared staging space, storage-pressure
+handling, and crash recovery are settled by the Smart Import Hub Decision.
 
 ### Import Queue and Duplicate Decision
+
+**Superseded (Step 13):** the one-at-a-time queue and its per-import
+duplicate question are replaced by the Smart Import Hub below. The
+pre-import validation rules and "store first, then remove" replacement
+recorded here still hold.
 
 **Accepted:** importing runs one package at a time, in the order the user
 asked, through a single main-actor queue (`PackageImportQueue`) that every
@@ -1479,6 +1485,67 @@ decides about the copied bytes instead. Nothing above the intake port has the
 means to write to the selected document, which is what makes "the original is
 never modified" a property of the boundary rather than a promise each caller
 keeps.
+
+### Smart Import Hub Decision
+
+**Accepted (Step 13):** every entry point — the Files picker, the share
+sheet, Open In, drag and drop, the Files browser, and the keyboard commands —
+hands files to one main-actor orchestrator, `ImportHub`, and the shell
+presents one `ImportHubView`. Each file is an independent item with its own
+stage, progress, cancellation, and retry. At most two items prepare (copy,
+validate, analyze) at once; confirmed packages are admitted one at a time, so
+the library's serialized admission is never raced. The per-item work lives in
+`ImportWorkflow` behind the `ImportProcessing` port; the hub owns only state
+and scheduling and never touches the filesystem.
+
+**Accepted:** nothing is stored before the user confirms the preview. An
+analyzed package waits as *ready*; conflicts with the library are collected
+there rather than asked mid-import, and each needs an explicit Keep Both,
+Replace Existing, or Skip before the package can be admitted. The rules
+(`ImportRules` over `DeclaredVersionOrder`) only *suggest*: newer → Replace,
+identical → Skip, older → Keep Both, same version with different bytes or
+unorderable versions → no suggestion. Suggestions are applied only by an
+explicit action. Replace removes exactly the entries the user was shown,
+after the new entry is stored; an entry that is already gone is neither
+removed nor reported as retained.
+
+**Accepted:** a `.zip` is accepted as a container and classified from its
+entry table before any byte is extracted (`PackageContainerClassification`).
+A top-level `Payload/` is a package and goes to the existing inspections; an
+archive of `.ipa` / `.tipa` files offers them for the user to choose; anything
+else is refused with its own explanation. One unsafe entry name, duplicated
+entry, case-colliding package name, or package-named link refuses the whole
+archive. Extraction streams a single chosen entry into a working copy named
+by a fresh identifier (`ZipEntryStreamExtractor`), bounded by the declared
+size, a compression-ratio limit, and a 4 GiB ceiling, verified against the
+archive's CRC-32, and refused for encrypted, linked, directory, or
+unsupported entries. No name from inside an archive reaches the filesystem.
+
+**Accepted:** working copies are the recovery unit. Unfinished items are
+journaled (names and identifiers only — never URLs, bookmarks, or scopes).
+At the next launch an item whose working copy survived resumes from
+validation; one without is settled as interrupted with an explanation, and
+every other file in the staging directory is swept. This replaces the
+intake's clear-before-first-staging behaviour, which would have destroyed
+resumable copies; the intake is now stateless and safe to share between
+concurrent items. When the user's Settings policy cleans temporary data at
+launch, that cleanup (which removes only data older than an hour) finishes
+before restoration starts, so the hub restores exactly the working copies
+the policy kept instead of racing it.
+
+**Accepted:** free space is checked before every copy against the copy's
+size, 100 MiB of headroom, and every copy still running
+(`ImportStorageGuard`); an unknown capacity is not a shortage. Working copies
+are fingerprinted on the item's own task
+(`ApplicationLibrary.describeStagedArtifact(_:)`) rather than inside the
+library actor, so a large package never holds library reads behind it.
+
+**Accepted:** background execution is limited to what iOS provides. The hub
+holds a `beginBackgroundTask` extension only while work runs; when it
+expires, running items pause (keeping complete working copies) and resume
+when the scene is active. The interface says imports run while ZynSign is
+open. A Share Extension target and background processing tasks are not part
+of this decision.
 
 ## 9. Archive and IPA Handling
 

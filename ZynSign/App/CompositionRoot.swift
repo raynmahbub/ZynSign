@@ -52,10 +52,18 @@ enum CompositionRoot {
             history: history,
             preferences: preferences.snapshot
         )
+        let appIcons = makeAppIconExtraction()
+        let droppedFiles = DropInboxFileReceiver(directory: importDropInboxDirectory)
         var environment = ApplicationEnvironment(
             applicationInfo: ApplicationInfo.current(bundle: .main),
             packageImport: packageImport,
-            packageImportQueue: PackageImportQueue(importing: packageImport),
+            importHub: makeImportHub(
+                intake: intake,
+                library: library,
+                appIcons: appIcons,
+                droppedFiles: droppedFiles,
+                diagnostics: diagnostics
+            ),
             library: library,
             bundleInspection: makeBundleContentsInspection(intake: intake, library: library),
             applicationDetailsInspection: makeApplicationDetailsInspection(intake: intake, library: library),
@@ -81,12 +89,15 @@ enum CompositionRoot {
         environment.provisioningProfileImporter = makeProvisioningProfileImporter()
         environment.profileCompatibility = ProfileCompatibilityUseCase(identityStore: identityStore)
         environment.profileSelections = UserDefaultsProfileSelectionStore()
-        environment.appIcons = makeAppIconExtraction()
+        // The hub seeds icons it extracts during analysis into this same
+        // instance, so the cards show them without a second extraction.
+        environment.appIcons = appIcons
         environment.signingDiagnostics = diagnostics
         environment.identityAnnotations = makeIdentityAnnotationsStore()
         environment.libraryOrganizer = makeLibraryOrganizer()
         environment.applicationProvenance = makeApplicationProvenanceExtraction()
         environment.libraryExport = makeLibraryExportPreparation()
+        environment.droppedFiles = droppedFiles
         return environment
     }
 
@@ -171,16 +182,74 @@ enum CompositionRoot {
     /// directory — a location the system may reclaim, which is exactly the
     /// durability a derived image deserves.
     static func makeAppIconExtraction() -> AppIconExtraction {
-        let caches = FileManager.default
-            .urls(for: .cachesDirectory, in: .userDomainMask)
-            .first
-            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-                .appendingPathComponent("Library/Caches", isDirectory: true)
-        return AppIconExtraction(
+        AppIconExtraction(
             readerProvider: DirectoryArtifactArchiveReaderProvider(
                 directory: libraryArtifactDirectory
             ),
-            cacheDirectory: caches.appendingPathComponent("ZynSignAppIcons", isDirectory: true)
+            cacheDirectory: cachesDirectory.appendingPathComponent("ZynSignAppIcons", isDirectory: true)
+        )
+    }
+
+    /// Builds the Smart Import Hub over the same intake and library the rest
+    /// of the application uses.
+    ///
+    /// The hub's workflow reads staged working copies through a provider
+    /// bound to the staging directory and library storage — the same
+    /// convention as the one-shot import — checks free space on the staging
+    /// volume before every copy, primes the icon cache as each package is
+    /// admitted, and hands each admitted record to the signing diagnostics,
+    /// as the one-shot import does. History and the interrupted-import journal
+    /// live beside the library catalog in Application Support. Nothing is
+    /// read or written at composition time: the hub restores interrupted
+    /// imports only when the interface asks it to at launch.
+    static func makeImportHub(
+        intake: SecurityScopedArtifactIntake,
+        library: ApplicationLibrary,
+        appIcons: AppIconExtraction?,
+        droppedFiles: (any DroppedFileReceiving)?,
+        diagnostics: SigningDiagnosticsService? = nil,
+        limits: ArchiveLimits = .default
+    ) -> ImportHub {
+        let readerProvider = DirectoryArtifactArchiveReaderProvider(
+            directories: [libraryArtifactDirectory, intake.directory],
+            fileExtension: intake.fileExtension,
+            limits: limits
+        )
+        let workflow = ImportWorkflow(
+            intake: intake,
+            stagingArea: intake,
+            readerProvider: readerProvider,
+            library: library,
+            storage: ImportStorageGuard(
+                probe: VolumeStorageCapacityProbe(volume: FileManager.default.temporaryDirectory)
+            ),
+            limits: limits,
+            onAdmitted: { prepared, record in
+                if let iconData = prepared.iconData {
+                    await appIcons?.remember(iconData, for: record.artifact.artifactID)
+                }
+                if let diagnostics {
+                    // As in the one-shot import: scan the adopted copy at
+                    // utility priority without making the import wait for
+                    // Mach-O/CMS inspection. The dashboard also scans on
+                    // opening if this task is suspended.
+                    let recordID = record.id
+                    Task.detached(priority: .utility) {
+                        _ = try? await diagnostics.analyze(recordWithID: recordID)
+                    }
+                }
+            }
+        )
+        return ImportHub(
+            processing: workflow,
+            history: FileImportHistoryStore(
+                location: libraryRootDirectory.appendingPathComponent("ImportHistory.json", isDirectory: false)
+            ),
+            recoveryJournal: FileImportRecoveryJournal(
+                location: libraryRootDirectory.appendingPathComponent("ImportRecovery.json", isDirectory: false)
+            ),
+            backgroundExecution: UIKitImportBackgroundExecution(),
+            releaseSource: { url in droppedFiles?.release(url) }
         )
     }
 
@@ -1033,6 +1102,13 @@ enum CompositionRoot {
         #else
         return UnavailableBiometricAuthenticator()
         #endif
+    }
+
+    /// The application-owned temporary inbox dropped files are copied into
+    /// while a drop is handled. Created on first use; swept at launch.
+    private static var importDropInboxDirectory: URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZynSignDropInbox", isDirectory: true)
     }
 
     /// The root of durable library storage, inside the application

@@ -22,5 +22,8 @@ struct ZynSignApp: App {
             RootView(environment: environment)
                 .environment(\.applicationEnvironment, environment)
         }
+        .commands {
+            ImportCommands()
+        }
     }
 }

@@ -12,6 +12,154 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — 0.1.0-alpha.2 · Step 13: Smart Import Hub
+
+- **One Import Hub for every entry point** — `ImportHub` (Application) replaces
+  the one-at-a-time import queue. The Files picker (multi-select), the share
+  sheet, Open In, drag and drop, the Files browser, and the ⌘I / ⌘O
+  shortcuts all hand files to `ImportHub.receive(_:origin:)`, and the shell
+  presents the one `ImportHubView`. Share-sheet copies (`Documents/Inbox`)
+  and in-place Open In requests are told apart for labelling only
+  (`ImportOrigin.openIn`); arrivals from either within two seconds of each
+  other form one batch.
+- **Multi-import queue** — every file is its own item with its own stage
+  (Waiting, Preparing, Validating, Analyzing, Importing, Complete, Failed —
+  `ImportQueueStage`), progress, remaining-work line
+  (`ImportRemainingEstimate`: steps left, bytes left, and a time estimate
+  only once a copy has run for a second and passed 5 %), icon once analyzed,
+  Cancel, and Retry. Up to two items prepare at once; each fails, retries,
+  or is cancelled independently. Confirmed packages are stored one at a
+  time so the library's admission is never raced.
+- **Drag and drop on iPad** — `importDropTarget()` makes Home, the Library,
+  the Import quick action and empty-state button, the hub itself, and the
+  hub's dedicated `ImportDropZone` accept dropped files. Targets highlight
+  and preview how many files would be imported; a drop opens the hub.
+  Dropped files are copied into a ZynSign-owned inbox while the drop is
+  handled (`DropInboxFileReceiver`), released once imported, and swept at
+  launch; items that cannot be received as files are still listed.
+- **ZIP archives, opened safely** — `.zip` files are accepted as containers.
+  `PackageContainerClassification` decides from the entry table alone,
+  before anything is extracted: a `Payload/` layout is a package; an archive
+  of `.ipa` / `.tipa` files offers them (one package → **Extract App**,
+  several → a selection sheet); an archive with none, an Xcode archive, a
+  bare `.app`, or archives-inside-archives is refused with its own
+  explanation. Any unsafe entry name, duplicated entry, case-colliding
+  package name, or package-named link refuses the whole archive. macOS
+  resource forks are never offered. `ZipEntryStreamExtractor` streams only
+  the chosen entry into a fresh working copy named by a new identifier,
+  bounds output by the declared size and compression ratio, verifies the
+  CRC-32, and refuses encrypted, linked, directory, and unsupported entries.
+- **Import preview** — analyzed packages wait under **Ready to Import** with
+  icon, name, bundle ID, version and build, size, framework and extension
+  counts, and signing state. Each can be deselected; nothing is stored until
+  the user imports, and deselected packages are skipped. An item whose bytes
+  match another item in the hub is deselected with a note.
+- **Duplicate Resolution Center** — conflicts with the library are collected
+  in the preview instead of being asked one import at a time. Each shows the
+  existing entry beside the incoming package (icon, version and build, size,
+  import date) with a per-conflict **Keep Both / Replace Existing / Skip**
+  choice, **Apply to All**, and **Use Suggested Choices**. Importing stays
+  disabled until every selected conflict has a choice.
+- **Smart import rules** — `ImportRules` over `DeclaredVersionOrder`
+  (numeric-aware: `1.10` > `1.9`, `1.2` = `1.2.0`, `1.0b1` < `1.0`): a newer
+  version suggests Replace, identical bytes suggest Skip, an older version
+  suggests Keep Both, and the same version with different bytes — or
+  versions that cannot be ordered — suggest nothing. A different app imports
+  without a question. Suggestions are only applied by an explicit action,
+  and "Replace Existing" removes exactly the entries the user was shown,
+  after the new entry is stored. Nothing is ever overwritten silently.
+- **Automatic analysis** — right after validation, `ImportWorkflow` reads
+  the icon, identity, signing state (presence of a `_CodeSignature` seal and
+  an embedded profile — worded as present, never as valid), framework and
+  extension counts, minimum OS, devices, file count, and unpacked size
+  (`ApplicationAnalysis`), shown in the preview and in each item's details.
+  On admission the icon cache is primed, so the Library card shows the icon
+  at once, and the new record is handed to `SigningDiagnosticsService` at
+  utility priority, as the one-shot import does. App Details keeps its own,
+  fuller inspection of the stored package; the hub adds no second copy of
+  the same facts there.
+- **Background behaviour, stated honestly** — imports run while ZynSign is
+  open. When ZynSign leaves the foreground the hub asks iOS for its short
+  background-task extension (`UIKitImportBackgroundExecution`); if that
+  expires, running items pause (keeping any complete working copy) and
+  resume when the scene is active again. The hub says exactly this.
+- **Import summary** — Imported / Skipped / Replaced / Failed counts
+  (`ImportSummary.count(of:)`), Retry Failed, Open Library, and Clear
+  Finished. Failed items show the reason, Retry, and a Details sheet with the
+  stage they reached.
+- **Import history** — each finished batch is recorded
+  (`ImportHistoryEntry`, `FileImportHistoryStore`, newest first, 100
+  entries) with its time, source, per-item outcome, replacements, and failure
+  reasons, and imported apps can be reopened from it. It stores names and
+  record identifiers only, stays on the device, and can be cleared.
+- **Storage safety** — originals are only read; every step works on an
+  isolated working copy. Before any copy, `ImportStorageGuard` checks the
+  volume's free space for important usage (`VolumeStorageCapacityProbe`)
+  against the copy's size, 100 MiB of headroom, and every copy still
+  running, and refuses with a Free Up Space explanation. Unfinished items are
+  journaled (`FileImportRecoveryJournal`, names and identifiers only); at the
+  next launch an item whose working copy survived resumes from it, others
+  are explained as interrupted, and every other working copy is swept.
+- **Responsiveness** — preparation and hashing run off the main actor;
+  `ApplicationLibrary.describeStagedArtifact(_:)` hashes a working copy on
+  the item's own task instead of inside the library actor; progress reaches
+  the main actor at most ten times a second per item; icons decode off the
+  main thread and are cached.
+- **Accessibility and iPad** — Dynamic Type (scaled icons, stacked layouts at
+  accessibility sizes), VoiceOver labels, values, custom actions, and a
+  completion announcement, Dark Mode through semantic colours, compact and
+  regular widths, an **Import** menu (⌘I, ⌘O, ⌘Y) plus ⌘↩ to import, ⌘R to
+  resolve conflicts and Esc to close in the hub, context menus on every item
+  and swipe actions on queued and finished items, and Reduce Motion
+  respected.
+- Tests: `ImportHubTests` (entry point, concurrency limit, independence,
+  monotonic progress, preview gate, deselection, ordering, identical items,
+  collected conflicts, Apply to All, suggestions, summary buckets, cancel,
+  retry, storage failures, archives, history, journal, recovery, background
+  pause and resume, batching, unreceived drops), `ImportWorkflowTests` (real
+  intake, reader, extractor, and library store on disk), `ZipEntryStreamExtractorTests`,
+  `PackageContainerClassificationTests` (classification and analysis),
+  `ImportRulesTests`, `ImportQueueStageTests` (stages, estimates, storage
+  policy and guard), `ImportJournalStoreTests`, and new cases in
+  `ImportQueueRenderingTests` and `SecurityScopedArtifactIntakeTests`.
+
+### Changed — Step 13
+
+- `ApplicationEnvironment.packageImportQueue` is now `importHub`; the
+  environment also carries `droppedFiles`. `ApplicationLibraryModel`,
+  `ApplicationLibraryView` (Step 12's library, unchanged apart from the hub
+  and its drop targets), `HomeView`, `FilesView`, and `RootView` observe or
+  feed the hub.
+- At launch the shell runs the user's temporary-data cleanup first (only
+  when the Settings policy asks for it, and only for data older than an
+  hour), then sweeps the drop inbox, then lets the hub restore interrupted
+  imports, so restoration never races the cleanup. Returning to the
+  foreground refreshes the app lock and resumes paused imports in the same
+  scene-phase handler.
+- `SecurityScopedArtifactIntake` no longer clears the staging directory
+  before its first staging; the hub sweeps it at launch with
+  `sweepStagedDocuments(keeping:)` after deciding what can resume. The intake
+  holds no mutable state, so concurrent items can share it, and it now
+  implements `ImportStagingArea` (`stageArchiveEntry`, `stagedByteCount`).
+- `ApplicationLibrary` gained `describeStagedArtifact(_:)`,
+  `admit(_:describedBy:policy:)`, and `duplicateReport(for:describedBy:)`;
+  the existing entry points behave as before.
+- `ImportSettlement.Kind` gained `skipped`, and every kind maps to an
+  `ImportOutcomeBucket`; `ImportSummary` gained `skippedCount` and
+  `count(of:)`. `ImportFailure` is also an `Error` and gained the hub's
+  refusals (insufficient storage, corrupted archive, no packages,
+  unsupported layout, unsafe archive, interrupted).
+- `ImportPreflight.validate` accepts containers when asked
+  (`acceptingContainers:`); the one-shot `IPAPackageImport` still accepts
+  packages only. `IPAFileFormat` gained the container policy.
+- `AppIconExtraction` gained `remember(_:for:)` for icons the hub already
+  read.
+
+### Removed — Step 13
+
+- `PackageImportQueue`, `ImportQueueView`, `PackageImportQueueTests`, and the
+  `SyntheticImporting` test double, superseded by the hub.
+
 ### Added — 0.1.0-alpha.2 · Step 12: Advanced Library Experience
 
 - **One index behind the whole Library** — `LibraryIndex` holds every entry

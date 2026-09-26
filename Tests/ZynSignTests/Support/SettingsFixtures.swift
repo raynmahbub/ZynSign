@@ -110,6 +110,11 @@ enum SettingsFixtures {
     }
 
     /// An application environment over synthetic stores inside `root`.
+    ///
+    /// Arguments follow `ApplicationEnvironment`'s declaration order, which
+    /// its memberwise initializer requires. The signing engine and the
+    /// signing operation runner come from the composition root's own
+    /// factories over the same pipeline; nothing here signs anything.
     @MainActor
     static func makeEnvironment(root: URL, preferences: FilePreferencesStore) -> ApplicationEnvironment {
         let records = InMemoryApplicationRecordStore()
@@ -124,6 +129,18 @@ enum SettingsFixtures {
             library: library
         )
         let identityStore = InMemorySigningIdentityStore()
+        let pipeline = SignApplicationPipeline(
+            identities: identityStore,
+            digest: CryptoKitMessageDigest(),
+            signatureVerifier: UnavailableCryptographicSignatureVerifier(),
+            profileValidation: CompositionRoot.makeProvisioningProfilePipeline(identityStore: identityStore),
+            writer: ZipArchiveWriter()
+        )
+        let layout = makeStorageLayout(root: root)
+        let exports = ExportCenter(
+            records: FileExportRecordStore(catalogLocation: layout.exportCatalog),
+            artifacts: FileExportArtifactStore(exportsDirectory: layout.exportedArtifacts)
+        )
         return ApplicationEnvironment(
             applicationInfo: ApplicationInfo(
                 displayName: "ZynSign",
@@ -131,28 +148,46 @@ enum SettingsFixtures {
                 buildVersion: "42"
             ),
             packageImport: packageImport,
-            packageImportQueue: PackageImportQueue(importing: packageImport),
+            importHub: ImportHub(
+                processing: ImportWorkflow(
+                    intake: intake,
+                    stagingArea: SyntheticImportStagingArea(),
+                    readerProvider: readerProvider,
+                    library: library,
+                    storage: ImportStorageGuard(probe: nil)
+                ),
+                progressInterval: 0
+            ),
             library: library,
             bundleInspection: IPABundleContentsInspection(
                 library: library,
                 readerProvider: readerProvider
             ),
+            applicationDetailsInspection: IPAApplicationDetailsInspection(
+                library: library,
+                readerProvider: readerProvider
+            ),
+            bundleEntryInspection: IPABundleEntryInspection(
+                library: library,
+                readerProvider: readerProvider
+            ),
             identityStore: identityStore,
             pkcs12Importer: UnavailablePKCS12Importer(),
-            signingPipeline: SignApplicationPipeline(
-                identities: identityStore,
-                digest: CryptoKitMessageDigest(),
-                signatureVerifier: UnavailableCryptographicSignatureVerifier(),
-                profileValidation: CompositionRoot.makeProvisioningProfilePipeline(identityStore: identityStore),
-                writer: ZipArchiveWriter()
-            ),
+            signingPipeline: pipeline,
+            signingEngine: CompositionRoot.makeSigningEngine(identityStore: identityStore, pipeline: pipeline),
             analyticsJournal: InMemoryLocalAnalyticsJournal(),
             signingPresets: nil,
             signingHistory: nil,
+            provisioningProfiles: nil,
+            exportCenter: exports,
+            signingOperations: CompositionRoot.makeSigningOperationCenter(
+                pipeline: pipeline,
+                exports: exports,
+                history: InMemorySigningHistoryStore()
+            ),
             storageManagement: makeStorageManagement(root: root),
             preferencesStore: preferences,
-            biometricAuthenticator: FakeBiometricAuthenticator(),
-            provisioningProfiles: nil
+            biometricAuthenticator: FakeBiometricAuthenticator()
         )
     }
 

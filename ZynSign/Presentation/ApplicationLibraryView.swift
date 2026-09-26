@@ -6,9 +6,10 @@ import SwiftUI
 /// the everyday library operations — opening an application's detail screen
 /// (and from there the read-only bundle explorer), marking favourites, and
 /// deleting entries together with the package files behind them, one at a
-/// time or in a selection. Its import action opens the shell's import area,
-/// and its model follows the shared import queue, so a package imported from
-/// anywhere in the application appears here without any manual refreshing.
+/// time or in a selection. Its import action opens the shell's Import Hub,
+/// which also takes files dropped onto the screen, and its model follows the
+/// same hub, so a package imported from anywhere in the application appears
+/// here without any manual refreshing.
 ///
 /// Where the release exposes the library's power features, the screen grows
 /// into a library manager for hundreds of applications: statistics that
@@ -45,16 +46,16 @@ struct ApplicationLibraryView: View {
 
     /// Creates the screen over the use cases the composition root supplied.
     ///
-    /// The queue is the application's single import path: the library model
-    /// observes it, so a package that reaches the library from any entry
-    /// point refreshes this list. Bundle browsing and the complete App
+    /// The Import Hub is the application's single import path: the library
+    /// model observes it, so a package that reaches the library from any
+    /// entry point refreshes this list. Bundle browsing and the complete App
     /// Details report are handed on to each detail screen. Everything after
     /// them is optional: the signing journal (read-only; `nil` means no entry
     /// shows as signed), the organizer (collections and usage), the
     /// provenance source (declared developer and team), and the exporter.
     init(
         library: ApplicationLibrary,
-        queue: PackageImportQueue,
+        hub: ImportHub,
         bundleInspection: IPABundleContentsInspection,
         detailsInspection: IPAApplicationDetailsInspection,
         signingHistory: (any SigningHistoryStore)? = nil,
@@ -64,7 +65,7 @@ struct ApplicationLibraryView: View {
     ) {
         _model = StateObject(wrappedValue: ApplicationLibraryModel(
             library: library,
-            queue: queue,
+            hub: hub,
             signingHistory: signingHistory,
             organizer: organizer,
             provenance: provenance,
@@ -89,6 +90,8 @@ struct ApplicationLibraryView: View {
                 .toolbar { toolbarContent }
                 .safeAreaInset(edge: .bottom) { floatingBar }
                 .disabled(model.isRemovingSelection)
+                // Files dropped anywhere on the Library go to the Import Hub.
+                .importDropTarget()
         }
         .task { await prepare() }
         .onChange(of: storedScope) { _, newValue in
@@ -241,6 +244,7 @@ struct ApplicationLibraryView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(!importPresentation.isAvailable)
+            .importDropTarget(.button)
         }
     }
 
@@ -1409,7 +1413,7 @@ private enum PreviewFixtures {
 #Preview("Empty Library") {
     ApplicationLibraryView(
         library: previewEnvironment.library,
-        queue: previewEnvironment.packageImportQueue,
+        hub: previewEnvironment.importHub,
         bundleInspection: previewEnvironment.bundleInspection,
         detailsInspection: previewEnvironment.applicationDetailsInspection
     )

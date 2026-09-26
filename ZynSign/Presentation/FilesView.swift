@@ -113,7 +113,7 @@ struct FilesView: View {
         let packages = urls.filter { $0.isFileURL && IPAFileFormat.accepts($0) }
         let others = urls.filter { !packages.contains($0) }
         if !packages.isEmpty {
-            environment.packageImportQueue.enqueue(packages, origin: .documentPicker)
+            environment.importHub.receive(packages, origin: .documentPicker)
             importPresentation.present()
         }
         if !others.isEmpty {

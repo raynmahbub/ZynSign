@@ -37,4 +37,26 @@ enum IPAFileFormat {
     static func accepts(_ source: URL) -> Bool {
         acceptsPathExtension(source.pathExtension)
     }
+
+    // MARK: - Containers
+
+    /// Archive extensions the Import Hub opens to look for packages inside.
+    ///
+    /// A ZIP is accepted as a *container*, not as a package: its entry table
+    /// is classified before anything is extracted, packages inside it are
+    /// offered to the user, and an archive with none is refused with an
+    /// explanation. The package policy above is unchanged by this.
+    static let containerPathExtensions = ["zip"]
+
+    /// Whether `candidate` is an accepted container extension, compared
+    /// case-insensitively.
+    static func acceptsContainerPathExtension(_ candidate: String) -> Bool {
+        containerPathExtensions.contains(candidate.lowercased())
+    }
+
+    /// Whether the Import Hub accepts `source`: a package, or an archive that
+    /// may hold packages.
+    static func acceptsForImport(_ source: URL) -> Bool {
+        accepts(source) || acceptsContainerPathExtension(source.pathExtension)
+    }
 }

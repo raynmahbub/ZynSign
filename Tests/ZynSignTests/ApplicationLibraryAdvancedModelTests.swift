@@ -20,7 +20,7 @@ final class ApplicationLibraryAdvancedModelTests: XCTestCase {
     private var organizationStore: InMemoryLibraryOrganizationStore!
     private var organizer: LibraryOrganizer!
     private var journal: InMemorySigningHistoryStore!
-    private var queue: PackageImportQueue!
+    private var hub: ImportHub!
     private var model: ApplicationLibraryModel!
     private let now = LibraryOrganizationFixtures.now
 
@@ -34,17 +34,23 @@ final class ApplicationLibraryAdvancedModelTests: XCTestCase {
         journal = InMemorySigningHistoryStore()
         let intake = SyntheticIntake()
         intake.artifactStore = artifacts
-        queue = PackageImportQueue(importing: IPAPackageImport(
-            intake: intake,
-            readerProvider: SyntheticArchiveReaderProvider.providing(ImportFixtures.validReader()),
-            library: library
-        ))
+        hub = ImportHub(
+            processing: ImportWorkflow(
+                intake: intake,
+                stagingArea: SyntheticImportStagingArea(),
+                readerProvider: SyntheticArchiveReaderProvider.providing(ImportFixtures.validReader()),
+                library: library,
+                storage: ImportStorageGuard(probe: nil)
+            ),
+            progressInterval: 0
+        )
         model = makeModel()
     }
 
     override func tearDown() {
         model = nil
-        queue = nil
+        hub?.cancelAll()
+        hub = nil
         journal = nil
         organizer = nil
         organizationStore = nil
@@ -60,7 +66,7 @@ final class ApplicationLibraryAdvancedModelTests: XCTestCase {
         let fixedNow = now
         return ApplicationLibraryModel(
             library: library,
-            queue: queue,
+            hub: hub,
             signingHistory: journal,
             organizer: organizer,
             exporter: exporter,

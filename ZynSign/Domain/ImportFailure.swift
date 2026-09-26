@@ -1,3 +1,5 @@
+import Foundation
+
 /// A failure explanation for one import, composed for the user.
 ///
 /// This is the single place where the two vocabularies of an import failure —
@@ -110,7 +112,14 @@ struct ImportFailure: Equatable, Hashable, Sendable {
     /// else is a failure ZynSign does not model; its text is never rendered,
     /// so a foreign error cannot leak a path or a provider identity into the
     /// interface.
+    ///
+    /// An `ImportFailure` thrown as an error — which the Import Hub's
+    /// workflow does for refusals it has already explained — is returned
+    /// unchanged.
     static func from(error: any Error) -> ImportFailure {
+        if let failure = error as? ImportFailure {
+            return failure
+        }
         guard let zynSignError = error as? ZynSignError else {
             return ImportFailure(
                 title: "Import Failed",
@@ -214,5 +223,118 @@ struct ImportFailure: Equatable, Hashable, Sendable {
         case .storageFailure, .internalFailure: return true
         case .invalidInput, .unsupportedInput, .ambiguousInput, .capabilityUnavailable, .cancelled: return false
         }
+    }
+}
+
+// MARK: - Import Hub refusals
+
+/// The Import Hub's workflow throws refusals it has already explained as
+/// `ImportFailure`s, so the explanation travels to the item unchanged.
+extension ImportFailure: Error {}
+
+extension ImportFailure {
+
+    /// The device does not have room for the import's working copy. Decided
+    /// before anything is copied; freeing space and retrying can succeed.
+    static func insufficientStorage(requiredBytes: Int, availableBytes: Int) -> ImportFailure {
+        let required = ByteCountFormatter.string(fromByteCount: Int64(requiredBytes), countStyle: .file)
+        let available = ByteCountFormatter.string(fromByteCount: Int64(max(0, availableBytes)), countStyle: .file)
+        return ImportFailure(
+            title: "Not Enough Space",
+            message: "This import needs about \(required) of free space and \(available) is available. Nothing was copied.",
+            recovery: .freeStorage,
+            isRetryable: true,
+            category: .storageFailure
+        )
+    }
+
+    /// The file could not be read as an archive at all.
+    static func corruptedArchive() -> ImportFailure {
+        ImportFailure(
+            title: "Package Refused",
+            message: "The file is damaged or is not an archive ZynSign can read.",
+            recovery: .chooseAnotherFile,
+            isRetryable: false,
+            category: .invalidInput,
+            primaryCode: .unreadableArchive
+        )
+    }
+
+    /// The archive holds no application package.
+    static func archiveHasNoPackages() -> ImportFailure {
+        ImportFailure(
+            title: "Nothing to Import",
+            message: "The archive doesn't contain an application package (.ipa).",
+            recovery: .chooseAnotherFile,
+            isRetryable: false,
+            category: .invalidInput,
+            primaryCode: .missingApplicationBundle
+        )
+    }
+
+    /// The archive holds something recognisable that ZynSign does not
+    /// import, with what to do instead.
+    static func unsupportedLayout(_ layout: PackageContainerClassification.UnsupportedLayout) -> ImportFailure {
+        let message: String
+        switch layout {
+        case .xcodeArchive:
+            message = "This is an Xcode archive. Export it from Xcode as an .ipa, then import the .ipa."
+        case .bareApplicationBundle:
+            message = "This archive holds an .app bundle rather than an .ipa package. Package the app as an .ipa, then import it."
+        case .nestedArchives:
+            message = "This archive only contains other archives. ZynSign doesn't open archives inside archives — extract the inner archive first."
+        }
+        return ImportFailure(
+            title: "Unsupported Layout",
+            message: message,
+            recovery: .chooseAnotherFile,
+            isRetryable: false,
+            category: .unsupportedInput
+        )
+    }
+
+    /// The archive was refused outright because an entry could not be
+    /// handled safely. Nothing was extracted from it.
+    static func unsafeArchive(_ reason: PackageContainerClassification.UnsafeReason) -> ImportFailure {
+        let message: String
+        let code: ValidationIssueCode
+        switch reason {
+        case .unsafeEntryName:
+            message = "The archive contains an entry whose name could place files outside the archive. ZynSign refused the whole archive and extracted nothing."
+            code = .unsafePath
+        case .duplicateEntries:
+            message = "The archive lists the same entry more than once, so ZynSign can't tell which copy is real. Nothing was extracted."
+            code = .conflictingPaths
+        case .linkedPackage:
+            message = "The archive contains a package that is a link rather than a file. ZynSign refused the archive and extracted nothing."
+            code = .unsafePath
+        }
+        return ImportFailure(
+            title: "Archive Refused",
+            message: message,
+            recovery: .chooseAnotherFile,
+            isRetryable: false,
+            category: .invalidInput,
+            primaryCode: code
+        )
+    }
+
+    /// The import was interrupted — ZynSign was closed or stopped — and it
+    /// cannot resume: it keeps no way back to the original file.
+    ///
+    /// Without a working copy the file was never fully copied, so nothing
+    /// was imported. With one that has since disappeared, the import may
+    /// have been completing, so the explanation points at the library
+    /// rather than claiming either outcome.
+    static func interrupted(hadWorkingCopy: Bool) -> ImportFailure {
+        ImportFailure(
+            title: "Import Interrupted",
+            message: hadWorkingCopy
+                ? "ZynSign closed before this import finished, and its working copy is gone. If the app isn't in your library, add the file again. The original file was not changed."
+                : "ZynSign closed before it finished copying this file. Nothing was imported and the original file was not changed. Add the file again to import it.",
+            recovery: .chooseAnotherFile,
+            isRetryable: false,
+            category: .storageFailure
+        )
     }
 }
