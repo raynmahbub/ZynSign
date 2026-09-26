@@ -33,10 +33,19 @@ enum CompositionRoot {
         let presets = makeSigningPresetStore()
         let history = makeSigningHistoryStore()
         let profiles = makeProvisioningProfileLibrary()
+        let appIcons = makeAppIconExtraction()
+        let analysisCatalog = makeApplicationAnalysisCatalog()
+        let droppedFiles = DropInboxFileReceiver(directory: importDropInboxDirectory)
         var environment = ApplicationEnvironment(
             applicationInfo: ApplicationInfo.current(bundle: .main),
             packageImport: packageImport,
-            packageImportQueue: PackageImportQueue(importing: packageImport),
+            importHub: makeImportHub(
+                intake: intake,
+                library: library,
+                appIcons: appIcons,
+                analysisCatalog: analysisCatalog,
+                droppedFiles: droppedFiles
+            ),
             library: library,
             bundleInspection: makeBundleContentsInspection(intake: intake, library: library),
             identityStore: identityStore,
@@ -48,7 +57,9 @@ enum CompositionRoot {
             provisioningProfiles: profiles
         )
         environment.provisioningProfileImporter = makeProvisioningProfileImporter()
-        environment.appIcons = makeAppIconExtraction()
+        environment.appIcons = appIcons
+        environment.analysisCatalog = analysisCatalog
+        environment.droppedFiles = droppedFiles
         return environment
     }
 
@@ -72,16 +83,85 @@ enum CompositionRoot {
     /// directory — a location the system may reclaim, which is exactly the
     /// durability a derived image deserves.
     static func makeAppIconExtraction() -> AppIconExtraction {
-        let caches = FileManager.default
+        AppIconExtraction(
+            readerProvider: DirectoryArtifactArchiveReaderProvider(
+                directory: libraryArtifactDirectory
+            ),
+            cacheDirectory: cachesDirectory.appendingPathComponent("ZynSignAppIcons", isDirectory: true)
+        )
+    }
+
+    /// The system caches directory: for derived data the system may reclaim.
+    private static var cachesDirectory: URL {
+        FileManager.default
             .urls(for: .cachesDirectory, in: .userDomainMask)
             .first
             ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
                 .appendingPathComponent("Library/Caches", isDirectory: true)
-        return AppIconExtraction(
+    }
+
+    /// Builds the analysis catalog over the library's artifact storage,
+    /// caching beside the icons in the system caches directory — derived
+    /// data the system may reclaim and ZynSign can always recompute.
+    static func makeApplicationAnalysisCatalog() -> ApplicationAnalysisCatalog {
+        ApplicationAnalysisCatalog(
             readerProvider: DirectoryArtifactArchiveReaderProvider(
                 directory: libraryArtifactDirectory
             ),
-            cacheDirectory: caches.appendingPathComponent("ZynSignAppIcons", isDirectory: true)
+            cacheDirectory: cachesDirectory.appendingPathComponent("ZynSignAnalysis", isDirectory: true)
+        )
+    }
+
+    /// Builds the Smart Import Hub over the same intake and library the rest
+    /// of the application uses.
+    ///
+    /// The hub's workflow reads staged working copies through a provider
+    /// bound to the staging directory and library storage — the same
+    /// convention as the one-shot import — checks free space on the staging
+    /// volume before every copy, and primes the icon and analysis caches as
+    /// each package is admitted. History and the interrupted-import journal
+    /// live beside the library catalog in Application Support. Nothing is
+    /// read or written at composition time: the hub restores interrupted
+    /// imports only when the interface asks it to at launch.
+    static func makeImportHub(
+        intake: SecurityScopedArtifactIntake,
+        library: ApplicationLibrary,
+        appIcons: AppIconExtraction?,
+        analysisCatalog: ApplicationAnalysisCatalog?,
+        droppedFiles: (any DroppedFileReceiving)?,
+        limits: ArchiveLimits = .default
+    ) -> ImportHub {
+        let readerProvider = DirectoryArtifactArchiveReaderProvider(
+            directories: [libraryArtifactDirectory, intake.directory],
+            fileExtension: intake.fileExtension,
+            limits: limits
+        )
+        let workflow = ImportWorkflow(
+            intake: intake,
+            stagingArea: intake,
+            readerProvider: readerProvider,
+            library: library,
+            storage: ImportStorageGuard(
+                probe: VolumeStorageCapacityProbe(volume: FileManager.default.temporaryDirectory)
+            ),
+            limits: limits,
+            onAdmitted: { prepared, record in
+                if let iconData = prepared.iconData {
+                    await appIcons?.remember(iconData, for: record.artifact.artifactID)
+                }
+                await analysisCatalog?.remember(prepared.analysis, for: record.artifact.artifactID)
+            }
+        )
+        return ImportHub(
+            processing: workflow,
+            history: FileImportHistoryStore(
+                location: libraryRootDirectory.appendingPathComponent("ImportHistory.json", isDirectory: false)
+            ),
+            recoveryJournal: FileImportRecoveryJournal(
+                location: libraryRootDirectory.appendingPathComponent("ImportRecovery.json", isDirectory: false)
+            ),
+            backgroundExecution: UIKitImportBackgroundExecution(),
+            releaseSource: { url in droppedFiles?.release(url) }
         )
     }
 
@@ -639,6 +719,13 @@ enum CompositionRoot {
     private static var importStagingDirectory: URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("ZynSignImports", isDirectory: true)
+    }
+
+    /// The application-owned temporary inbox dropped files are copied into
+    /// while a drop is handled. Created on first use; swept at launch.
+    private static var importDropInboxDirectory: URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZynSignDropInbox", isDirectory: true)
     }
 
     /// The root of durable library storage, inside the application

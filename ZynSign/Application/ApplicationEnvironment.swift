@@ -18,18 +18,19 @@ struct ApplicationEnvironment {
     /// Facts about the running application, shown by the shell.
     let applicationInfo: ApplicationInfo
 
-    /// The package-import use case: one package, imported once. It is
-    /// composed once and handed to the import queue, which is the only path
-    /// the interface imports through; a caller that needs the capability
-    /// without scheduling — a test, or a future single-shot import — reaches
-    /// it here rather than constructing a second pipeline.
+    /// The one-shot package-import use case: one package, imported once,
+    /// asking about duplicates as it goes. The interface imports through
+    /// `importHub` instead; a caller that needs the single-shot capability —
+    /// a test, or a future automation — reaches it here rather than
+    /// constructing a second pipeline.
     let packageImport: IPAPackageImport
 
-    /// The import queue: the entry point every screen, share-sheet hand-off,
-    /// and drop lands on. It owns scheduling, per-job progress and
-    /// cancellation, retries, the duplicate question, and the batch summary,
-    /// and it runs imports through `packageImport`.
-    let packageImportQueue: PackageImportQueue
+    /// The Smart Import Hub: the single entry point every screen, share-sheet
+    /// hand-off, Open In request, and drop lands on. It owns the multi-item
+    /// queue, archive handling, analysis, the preview, the Duplicate
+    /// Resolution Center, the summary, the history, and interrupted-import
+    /// recovery.
+    let importHub: ImportHub
 
     /// The library use case: lists, admits, and removes the application
     /// records behind the Applications area.
@@ -82,6 +83,16 @@ struct ApplicationEnvironment {
     /// the Home and Library cards. `nil` where no reader provider is
     /// composed; treated as read-only after construction.
     var appIcons: AppIconExtraction? = nil
+
+    /// Keeps each library entry's analysis — signing state, frameworks,
+    /// extensions — for the detail screen. `nil` where no reader provider is
+    /// composed; treated as read-only after construction.
+    var analysisCatalog: ApplicationAnalysisCatalog? = nil
+
+    /// Receives files dropped onto ZynSign into a ZynSign-owned inbox, from
+    /// which they are handed to `importHub`. `nil` where drops are not
+    /// supported; treated as read-only after construction.
+    var droppedFiles: (any DroppedFileReceiving)? = nil
 
     /// Records one local activity event when the journal preference allows.
     ///

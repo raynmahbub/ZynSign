@@ -12,18 +12,18 @@ import Combine
 /// any manual list editing.
 ///
 /// The model coordinates nothing itself: it invokes the application-layer
-/// library use case and observes the shared import queue, and renders the
+/// library use case and observes the shared Import Hub, and renders the
 /// outcomes. Persistence and file work run off the main actor inside the use
 /// case; every phase transition happens here, on the main actor. The list is
 /// never edited in place — after every change the model re-reads the library
 /// from persistence, so what the screen shows is what the library holds.
 ///
-/// The import queue is observed, not driven. The Library does not present a
-/// picker, run an import, or track its progress — the shell's import area
+/// The Import Hub is observed, not driven. The Library does not present a
+/// picker, run an import, or track its progress — the shell's Import Hub
 /// does all of that — so this model only notices that an import settled, and
 /// reacts the way the screen should: a package that reached the library
 /// re-reads the list, a package that did not says so without disturbing the
-/// list, and a cancellation says nothing at all.
+/// list, and a cancellation or a skip says nothing at all.
 @MainActor
 final class ApplicationLibraryModel: ObservableObject {
 
@@ -122,35 +122,35 @@ final class ApplicationLibraryModel: ObservableObject {
     @Published private(set) var notice: Notice?
 
     private let library: ApplicationLibrary
-    private let queue: PackageImportQueue
+    private let hub: ImportHub
     private let signingHistory: (any SigningHistoryStore)?
     private var isReadingLibrary = false
     private var hasPendingRead = false
 
-    /// The subscriptions that keep this model following the import queue.
+    /// The subscriptions that keep this model following the Import Hub.
     private var cancellables: Set<AnyCancellable> = []
 
     /// The imports whose outcome has already been announced, so a settle is
     /// reported once and not again on every later change to the job list.
     private var announcedImportJobs: Set<ImportJobIdentifier> = []
 
-    /// Creates the model over the library use case and the shared import
-    /// queue, which it observes. The signing journal is optional and
+    /// Creates the model over the library use case and the shared Import
+    /// Hub, which it observes. The signing journal is optional and
     /// read-only; `nil` simply means no entry can show a signed state.
     init(
         library: ApplicationLibrary,
-        queue: PackageImportQueue,
+        hub: ImportHub,
         signingHistory: (any SigningHistoryStore)? = nil
     ) {
         self.library = library
-        self.queue = queue
+        self.hub = hub
         self.signingHistory = signingHistory
 
-        // The queue publishes on the main actor, so each delivery is handed
+        // The hub publishes on the main actor, so each delivery is handed
         // to the main actor explicitly rather than relying on where the
         // change happened to be made.
-        queue.$jobs
-            .map { jobs in jobs.compactMap { job in job.settlement.map { (job.id, $0) } } }
+        hub.$items
+            .map { items in items.compactMap { item in item.settlement.map { (item.id, $0) } } }
             .removeDuplicates { lhs, rhs in lhs.map(\.0) == rhs.map(\.0) }
             .sink { [weak self] settled in
                 Task { @MainActor in
@@ -159,9 +159,9 @@ final class ApplicationLibraryModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Anything the queue settled before this model existed still has to
+        // Anything the hub settled before this model existed still has to
         // be acted on, so the current state is applied once at creation.
-        handleSettledImports(queue.jobs.compactMap { job in job.settlement.map { (job.id, $0) } })
+        handleSettledImports(hub.items.compactMap { item in item.settlement.map { (item.id, $0) } })
     }
 
     // MARK: - Loading
@@ -434,14 +434,14 @@ final class ApplicationLibraryModel: ObservableObject {
                     title: Self.importFailureTitle,
                     message: ImportQueueRendering.message(for: settlement)
                 )
-            case .cancelled:
+            case .cancelled, .skipped:
                 break
             }
         }
-        // A job that was removed is no longer announced; if the user imports
-        // the same file again it is a new job with a new identifier, so the
-        // marks can be pruned to what the queue still holds.
-        announcedImportJobs.formIntersection(Set(queue.jobs.map(\.id)))
+        // An item that was removed or retried is no longer settled; pruning
+        // the marks to what is settled now lets a retried item announce its
+        // new outcome.
+        announcedImportJobs.formIntersection(Set(settled.map(\.0)))
     }
 
     /// Clears the announcement once the user has acknowledged it.

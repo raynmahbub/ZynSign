@@ -11,22 +11,28 @@ import SwiftUI
 /// Settings → Browse links to them — but the bottom navigation is these
 /// five tabs, which every later milestone builds on.
 ///
-/// The shell is also the single owner of the import area. Every way a
+/// The shell is also the single owner of the Import Hub. Every way a
 /// package can arrive — a quick action, a toolbar button, a share-sheet
-/// hand-off, a file opened into ZynSign — ends in the same place: a job in
-/// `ApplicationEnvironment.packageImportQueue`, shown by the same
-/// `ImportQueueView`. Screens ask for it through
+/// hand-off, an Open In request, a drop, the ⌘I and ⌘O shortcuts — ends in
+/// the same place: an item in `ApplicationEnvironment.importHub`, shown by
+/// the same `ImportHubView`. Screens ask for it through
 /// `EnvironmentValues.importPresentation`; nothing presents a second,
 /// competing import flow.
+///
+/// At launch the shell asks the hub to restore interrupted imports and
+/// sweeps the drop inbox; whenever the scene becomes active again it lets
+/// the hub resume work the system paused in the background.
 struct RootView: View {
 
     @Environment(\.applicationEnvironment) private var environment
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selected: ShellSection = .home
     @State private var isShowingImport = false
+    @State private var hubRequest: ImportHubRequest = .none
 
-    /// The jobs whose outcome has already been recorded, so an import is
-    /// reported exactly once however many times the job list changes.
-    @State private var reportedImportJobs: Set<ImportJobIdentifier> = []
+    /// The items whose outcome has already been recorded, so an import is
+    /// reported exactly once however many times the item list changes.
+    @State private var reportedImportItems: Set<ImportJobIdentifier> = []
 
     var body: some View {
         TabView(selection: $selected) {
@@ -46,12 +52,14 @@ struct RootView: View {
             \.importPresentation,
             ImportPresentation(
                 present: { isShowingImport = true },
+                chooseFiles: { openHub(with: .chooseFiles) },
                 isAvailable: true
             )
         )
         .sheet(isPresented: $isShowingImport) {
-            ImportQueueView(
-                queue: environment.packageImportQueue,
+            ImportHubView(
+                hub: environment.importHub,
+                request: $hubRequest,
                 onOpenLibrary: {
                     isShowingImport = false
                     selected = .library
@@ -59,46 +67,91 @@ struct RootView: View {
                 onDone: { isShowingImport = false }
             )
         }
+        .focusedSceneValue(
+            \.importCommandActions,
+            ImportCommandActions(
+                openHub: { isShowingImport = true },
+                chooseFiles: { openHub(with: .chooseFiles) },
+                showHistory: { openHub(with: .history) }
+            )
+        )
         .onOpenURL { url in acceptIncoming(url) }
-        .onReceive(environment.packageImportQueue.$jobs) { jobs in
-            reportOutcomes(of: jobs)
+        .onReceive(environment.importHub.$items) { items in
+            reportOutcomes(of: items)
+        }
+        .task {
+            if let droppedFiles = environment.droppedFiles {
+                await Task.detached(priority: .utility) { droppedFiles.sweep() }.value
+            }
+            await environment.importHub.restoreInterruptedImports()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                environment.importHub.resume()
+            }
         }
     }
 
     // MARK: - Import
 
+    /// Opens the Import Hub with a request for it to carry out.
+    private func openHub(with request: ImportHubRequest) {
+        hubRequest = request
+        isShowingImport = true
+    }
+
     /// Accepts a URL the system opened ZynSign for.
     ///
-    /// ZynSign declares itself a viewer for packages, provisioning profiles,
-    /// and identities, so this is reached for all three. Only packages are
-    /// this area's business: a URL that is not a file, or whose name is not a
-    /// package, is left alone rather than pushed at the queue — a profile or
-    /// an identity arriving here keeps its own flow, and anything else is
-    /// ignored rather than reported as a failed import.
+    /// ZynSign declares itself a viewer for packages, archives, provisioning
+    /// profiles, and identities, so this is reached for all of them. Only
+    /// packages and archives are the hub's business: a URL that is not a
+    /// file, or whose name is neither, is left alone rather than pushed at
+    /// the hub — a profile or an identity arriving here keeps its own flow,
+    /// and anything else is ignored rather than reported as a failed import.
+    ///
+    /// A copy the system placed in ZynSign's own inbox came through the
+    /// share sheet; anything else was opened in place.
     private func acceptIncoming(_ url: URL) {
-        guard url.isFileURL, IPAFileFormat.accepts(url) else { return }
-        environment.packageImportQueue.enqueue(url, origin: .shareSheet)
+        guard url.isFileURL, IPAFileFormat.acceptsForImport(url) else { return }
+        let origin: ImportOrigin = Self.isShareSheetCopy(url) ? .shareSheet : .openIn
+        environment.importHub.receive([url], origin: origin)
         isShowingImport = true
+    }
+
+    /// Whether `url` is a copy the system placed in ZynSign's own
+    /// `Documents/Inbox` — which is where share-sheet hand-offs land.
+    private static func isShareSheetCopy(_ url: URL) -> Bool {
+        guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return false
+        }
+        let inbox = documents.appendingPathComponent("Inbox", isDirectory: true).standardizedFileURL.path + "/"
+        return url.standardizedFileURL.path.hasPrefix(inbox)
     }
 
     /// Records the local activity for each import that has settled since the
     /// last look. The event carries the category, a fixed name, and whether
     /// the package ended up in the library — never a file name, a location,
     /// or a bundle identifier.
-    private func reportOutcomes(of jobs: [PackageImportQueue.Job]) {
-        for job in jobs {
-            guard let settlement = job.settlement else { continue }
-            guard reportedImportJobs.insert(job.id).inserted else { continue }
+    private func reportOutcomes(of items: [ImportHub.Item]) {
+        for item in items {
+            guard let settlement = item.settlement else { continue }
+            guard reportedImportItems.insert(item.id).inserted else { continue }
+            let name: String
+            switch settlement.kind.bucket {
+            case .imported, .replaced: name = "import.accepted"
+            case .skipped: name = "import.skipped"
+            case .failed: name = "import.rejected"
+            }
             environment.recordAnalyticsEvent(
                 category: .intake,
-                name: settlement.kind.isAccepted ? "import.accepted" : "import.rejected",
-                succeeded: settlement.kind.isAccepted
+                name: name,
+                succeeded: settlement.kind.bucket != .failed
             )
         }
-        // A job that was removed and enqueued again must be reportable again,
-        // so the marks are pruned to what the queue still holds.
-        let live = Set(jobs.map(\.id))
-        reportedImportJobs.formIntersection(live)
+        // An item that was retried or removed must be reportable again, so
+        // the marks are pruned to what the hub still holds settled.
+        let live = Set(items.filter { $0.settlement != nil }.map(\.id))
+        reportedImportItems.formIntersection(live)
     }
 
     // MARK: - Tabs
@@ -113,7 +166,7 @@ struct RootView: View {
         case .library:
             ApplicationLibraryView(
                 library: environment.library,
-                queue: environment.packageImportQueue,
+                hub: environment.importHub,
                 bundleInspection: environment.bundleInspection,
                 signingHistory: environment.signingHistory
             )

@@ -14,11 +14,13 @@ import SwiftUI
 /// library, certificate store, and profile library actually hold something.
 ///
 /// Importing is not Home's business. Every import action here — the toolbar
-/// button, the quick action, the first onboarding step — opens the shell's
-/// import area, where the file is chosen and the queue, progress, duplicate
-/// questions, and outcomes live. Home only reads the results: when an import
-/// settles, the dashboard's counts and its recently imported list are read
-/// again, so what is on screen is what the library holds.
+/// button, the quick action, the first onboarding step, and files dropped
+/// anywhere on the screen or onto the quick action — opens the shell's
+/// Import Hub, where files are chosen and the queue, preview, conflicts, and
+/// outcomes live. Home shows the hub's status while it has work, and reads
+/// the results: when an import adds to the library, the dashboard's counts
+/// and its recently imported list are read again, so what is on screen is
+/// what the library holds.
 struct HomeView: View {
 
     /// Switches the shell to another tab. `RootView` binds it to its selection.
@@ -40,6 +42,9 @@ struct HomeView: View {
             ScrollView {
                 VStack(spacing: ZSpacing.lg) {
                     welcomeHeader
+                    ImportHubStatusBanner(hub: environment.importHub) {
+                        importPresentation.present()
+                    }
                     quickActions
                     if onboardingNeeded {
                         onboardingCard
@@ -54,6 +59,8 @@ struct HomeView: View {
                 }
                 .padding()
             }
+            // Files dropped anywhere on Home go straight to the Import Hub.
+            .importDropTarget()
             .navigationTitle("Home")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -64,8 +71,8 @@ struct HomeView: View {
                 }
             }
             .task { await reload() }
-            .onReceive(environment.packageImportQueue.$jobs) { jobs in
-                reloadWhenAnImportSettles(jobs)
+            .onReceive(environment.importHub.$items) { items in
+                reloadWhenAnImportSettles(items)
             }
             .refreshable { await reload() }
             .navigationDestination(for: LibraryEntry.self) { entry in
@@ -125,6 +132,7 @@ struct HomeView: View {
                 HomeActionButton(title: "Import IPA", icon: "square.and.arrow.down.fill", color: .blue) {
                     importPresentation.present()
                 }
+                .importDropTarget(.button)
                 HomeActionButton(title: "Certificates", icon: "signature", color: .purple) {
                     onOpenSection(.certificates)
                 }
@@ -367,8 +375,8 @@ struct HomeView: View {
     /// notices that the library it describes may have changed. The count is
     /// kept in `@State` so a re-read happens once per settle, not on every
     /// progress report.
-    private func reloadWhenAnImportSettles(_ jobs: [PackageImportQueue.Job]) {
-        let settled = jobs.filter { $0.state.isSettled }.count
+    private func reloadWhenAnImportSettles(_ items: [ImportHub.Item]) {
+        let settled = items.filter { $0.settlement?.kind.isAccepted == true }.count
         guard settled != settledImportCount else { return }
         settledImportCount = settled
         Task { await reload() }

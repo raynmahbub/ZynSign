@@ -41,11 +41,17 @@ struct ImportSettlement: Equatable, Hashable, Sendable {
         /// The user cancelled, or the surrounding work was cancelled.
         case cancelled
 
+        /// The user chose not to import the package — they skipped it in
+        /// the Duplicate Resolution Center, deselected it in the preview,
+        /// or declined to extract it from an archive. Nothing was stored,
+        /// and the file they chose was not changed.
+        case skipped
+
         /// Whether ZynSign holds something for this import afterwards.
         var isAccepted: Bool {
             switch self {
             case .imported, .keptBoth, .replaced, .alreadyHeld: return true
-            case .rejected, .failed, .cancelled: return false
+            case .rejected, .failed, .cancelled, .skipped: return false
             }
         }
 
@@ -59,6 +65,7 @@ struct ImportSettlement: Equatable, Hashable, Sendable {
             case .rejected: return "Refused"
             case .failed: return "Failed"
             case .cancelled: return "Cancelled"
+            case .skipped: return "Skipped"
             }
         }
 
@@ -72,6 +79,17 @@ struct ImportSettlement: Equatable, Hashable, Sendable {
             case .rejected: return "hand.raised.fill"
             case .failed: return "exclamationmark.triangle.fill"
             case .cancelled: return "xmark.circle"
+            case .skipped: return "arrow.uturn.forward.circle"
+            }
+        }
+
+        /// The Import Hub summary bucket the outcome counts toward.
+        var bucket: ImportOutcomeBucket {
+            switch self {
+            case .imported, .keptBoth: return .imported
+            case .replaced: return .replaced
+            case .alreadyHeld, .cancelled, .skipped: return .skipped
+            case .rejected, .failed: return .failed
             }
         }
     }
@@ -126,6 +144,12 @@ struct ImportSettlement: Equatable, Hashable, Sendable {
         ImportSettlement(kind: .cancelled)
     }
 
+    /// A settlement for a package the user chose not to import. `conflict`
+    /// is the library relation they were shown, if any.
+    static func skipped(duplicate: DuplicateOutcome? = nil) -> ImportSettlement {
+        ImportSettlement(kind: .skipped, duplicate: duplicate)
+    }
+
     /// Whether offering to attempt the same file again is honest.
     ///
     /// A cancellation may be repeated — the user may simply have changed
@@ -140,7 +164,7 @@ struct ImportSettlement: Equatable, Hashable, Sendable {
             return failure?.isRetryable ?? false
         case .cancelled:
             return true
-        case .imported, .keptBoth, .replaced, .alreadyHeld, .rejected:
+        case .imported, .keptBoth, .replaced, .alreadyHeld, .rejected, .skipped:
             return false
         }
     }
@@ -234,6 +258,9 @@ struct ImportSummary: Equatable, Hashable, Sendable {
     let failedCount: Int
     let cancelledCount: Int
 
+    /// Packages the user chose not to import.
+    let skippedCount: Int
+
     /// The total size of the packages the queue has seen, in bytes, summed
     /// from what each import measured while copying. Zero when nothing has
     /// been measured yet — never an estimate.
@@ -267,6 +294,7 @@ struct ImportSummary: Equatable, Hashable, Sendable {
         self.rejectedCount = count(.rejected)
         self.failedCount = count(.failed)
         self.cancelledCount = count(.cancelled)
+        self.skippedCount = count(.skipped)
         self.byteCount = max(0, byteCount)
     }
 
@@ -281,7 +309,8 @@ struct ImportSummary: Equatable, Hashable, Sendable {
         rejectedCount: Int,
         failedCount: Int,
         cancelledCount: Int,
-        byteCount: Int
+        byteCount: Int,
+        skippedCount: Int = 0
     ) {
         self.scheduledCount = scheduledCount
         self.settledCount = settledCount
@@ -293,6 +322,24 @@ struct ImportSummary: Equatable, Hashable, Sendable {
         self.failedCount = failedCount
         self.cancelledCount = cancelledCount
         self.byteCount = byteCount
+        self.skippedCount = skippedCount
+    }
+
+    /// How many settled imports count toward `bucket` — the four numbers
+    /// the Import Hub's summary shows.
+    ///
+    /// - Imported: stored as a new entry, including kept-both copies.
+    /// - Replaced: stored in place of existing entries.
+    /// - Skipped: nothing added — skipped, already in the library, or
+    ///   cancelled.
+    /// - Failed: refused or failed, each with its reason.
+    func count(of bucket: ImportOutcomeBucket) -> Int {
+        switch bucket {
+        case .imported: return importedCount + keptBothCount
+        case .replaced: return replacedCount
+        case .skipped: return skippedCount + alreadyHeldCount + cancelledCount
+        case .failed: return rejectedCount + failedCount
+        }
     }
 
     /// How many packages the library gained: imports stored, whether they

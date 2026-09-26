@@ -27,8 +27,8 @@ struct ApplicationLibraryView: View {
     @AppStorage("zynsign.library.showsGrid") private var showsGrid = false
     private let bundleInspection: IPABundleContentsInspection
 
-    /// Creates the screen over the library, import queue, and bundle
-    /// inspection use cases the composition root supplied. The queue is the
+    /// Creates the screen over the library, Import Hub, and bundle
+    /// inspection use cases the composition root supplied. The hub is the
     /// application's single import path: the library model observes it, so a
     /// package that reaches the library from any entry point refreshes this
     /// list. The inspection use case is handed on to the detail screen, which
@@ -36,13 +36,13 @@ struct ApplicationLibraryView: View {
     /// simply means cards never show a signed state.
     init(
         library: ApplicationLibrary,
-        queue: PackageImportQueue,
+        hub: ImportHub,
         bundleInspection: IPABundleContentsInspection,
         signingHistory: (any SigningHistoryStore)? = nil
     ) {
         _model = StateObject(wrappedValue: ApplicationLibraryModel(
             library: library,
-            queue: queue,
+            hub: hub,
             signingHistory: signingHistory
         ))
         self.bundleInspection = bundleInspection
@@ -72,6 +72,8 @@ struct ApplicationLibraryView: View {
                 )
                 .toolbar { toolbarContent }
                 .disabled(model.isRemovingSelection)
+                // Files dropped anywhere on the Library go to the Import Hub.
+                .importDropTarget()
         }
         .task { await model.load() }
         .safeAreaInset(edge: .bottom) { selectionBar }
@@ -157,6 +159,7 @@ struct ApplicationLibraryView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(!importPresentation.isAvailable)
+            .importDropTarget(.button)
         }
     }
 
@@ -803,7 +806,7 @@ private enum PreviewFixtures {
 #Preview("Empty Library") {
     ApplicationLibraryView(
         library: previewEnvironment.library,
-        queue: previewEnvironment.packageImportQueue,
+        hub: previewEnvironment.importHub,
         bundleInspection: previewEnvironment.bundleInspection
     )
 }

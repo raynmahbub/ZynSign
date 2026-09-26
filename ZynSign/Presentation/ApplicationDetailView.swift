@@ -17,10 +17,20 @@ import SwiftUI
 /// explorer, which lists the bundle's contents read-only. The offer follows
 /// the entry's availability as the library derived it; the screen does not
 /// re-examine storage to decide whether to show it.
+///
+/// The Analysis section shows what the Import Hub learned when the package
+/// arrived — signing state, frameworks, extensions — from the analysis
+/// catalog, which the hub fills as it imports. Entries imported before the
+/// hub existed are analyzed on first view, from the package the library
+/// holds.
 struct ApplicationDetailView: View {
 
     let entry: LibraryEntry
     private let bundleInspection: IPABundleContentsInspection
+
+    @Environment(\.applicationEnvironment) private var environment
+    @State private var analysis: ApplicationAnalysis?
+    @State private var isLoadingAnalysis = false
 
     /// Creates the screen for `entry`, with the inspection use case the
     /// bundle explorer runs on.
@@ -74,6 +84,17 @@ struct ApplicationDetailView: View {
                          : "Exploring lists the files and folders inside the application bundle. It reads the package's own records of them and does not open, run, or change any file.")
                 }
             }
+            if let analysis {
+                ApplicationAnalysisSection(analysis: analysis)
+            } else if isLoadingAnalysis {
+                Section("Analysis") {
+                    HStack(spacing: ZSpacing.sm) {
+                        ProgressView()
+                        Text("Reading the package…")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
             Section("Library Record") {
                 LabeledContent("Original File", value: content.sourceFileName)
                 LabeledContent("Imported") {
@@ -95,6 +116,19 @@ struct ApplicationDetailView: View {
         }
         .navigationTitle(content.name)
         .navigationBarTitleDisplayMode(.inline)
+        .task(id: entry.record.artifact.artifactID) {
+            await loadAnalysis()
+        }
+    }
+
+    /// Reads the entry's analysis from the catalog. Only an available
+    /// package can be analyzed; for anything else the section is omitted
+    /// rather than guessed.
+    private func loadAnalysis() async {
+        guard entry.isArtifactAvailable, let catalog = environment.analysisCatalog else { return }
+        isLoadingAnalysis = true
+        analysis = await catalog.analysis(for: entry.record.artifact.artifactID)
+        isLoadingAnalysis = false
     }
 }
 
