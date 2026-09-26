@@ -116,6 +116,7 @@ enum CompositionRoot {
         environment.libraryExport = makeLibraryExportPreparation()
         environment.droppedFiles = droppedFiles
         environment.queueNotifier = queueNotifier
+        environment.binaryInspection = makeBinaryInspection(intake: intake, library: library)
         return environment
     }
 
@@ -257,6 +258,75 @@ enum CompositionRoot {
                     .appendingPathComponent(artifact.rawValue, isDirectory: false)
                     .appendingPathExtension("ipa")
             }
+        )
+    }
+
+    /// Builds the Binary & Signature Inspector use case over the given
+    /// library.
+    ///
+    /// The archive boundary reads library storage under the same file
+    /// extension and resource policy as the other artifact-facing use cases,
+    /// except for the single-read bound, which is widened to the inspector's
+    /// executable bound: executables are routinely larger than the 4 MiB
+    /// metadata reads the default policy allows. The per-entry and total
+    /// ceilings still apply. Signed packages are opened only from the Export
+    /// Center's artifact directory, for comparison. The parser, decoder, digest,
+    /// and CMS mechanism are the same read-only components the rest of the
+    /// application composes; nothing built here signs, writes, or evaluates
+    /// certificate trust.
+    static func makeBinaryInspection(
+        intake: SecurityScopedArtifactIntake,
+        library: ApplicationLibrary,
+        limits: ArchiveLimits = .default,
+        inspectionLimits: BinaryInspectionLimits = .default
+    ) -> IPABinaryInspection {
+        let readerLimits = ArchiveLimits(
+            maximumEntryCount: limits.maximumEntryCount,
+            maximumEntryNameLength: limits.maximumEntryNameLength,
+            maximumPathDepth: limits.maximumPathDepth,
+            maximumEntryBytes: limits.maximumEntryBytes,
+            maximumTotalUncompressedBytes: limits.maximumTotalUncompressedBytes,
+            maximumCompressionRatio: limits.maximumCompressionRatio,
+            maximumInspectionReadBytes: max(
+                limits.maximumInspectionReadBytes,
+                inspectionLimits.maximumExecutableBytes,
+                inspectionLimits.maximumSealedFileBytes
+            )
+        )
+        let digest = makeMessageDigest()
+        return IPABinaryInspection(
+            library: library,
+            readerProvider: DirectoryArtifactArchiveReaderProvider(
+                directory: libraryArtifactDirectory,
+                fileExtension: intake.fileExtension,
+                limits: readerLimits
+            ),
+            makePackageReader: { ZipArchiveReader(location: $0, limits: readerLimits) },
+            signedPackagesDirectory: exportArtifactDirectory(),
+            parser: ReadOnlyMachOParser(),
+            decoder: ReadOnlyMachOLoadCommandDecoder(),
+            verifier: BinarySignatureVerifier(
+                digest: digest,
+                cmsVerifier: makeCodeSignatureCMSVerifier(digest: digest)
+            ),
+            digest: digest,
+            limits: inspectionLimits
+        )
+    }
+
+    /// Builds the mechanism that examines an existing code signature's CMS
+    /// message: ZynSign's bounded CMS reader, the platform certificate parser,
+    /// and the same signature-verification selection the provisioning-profile
+    /// boundary uses — the Security framework's key primitives on iOS, an
+    /// explicit "unavailable" everywhere else.
+    static func makeCodeSignatureCMSVerifier(
+        digest: any MessageDigest = makeMessageDigest(),
+        certificateParser: any CertificateParser = AppleCertificateParser()
+    ) -> any CodeSignatureCMSVerifying {
+        DetachedCodeSignatureCMSInspector(
+            certificateParser: certificateParser,
+            signatureVerifier: makeCMSSignatureVerifier(),
+            digest: digest
         )
     }
 

@@ -67,6 +67,15 @@ final class CodeSignatureRequirementsTests: XCTestCase {
                        "987920904eab650e75788c054aa0b0524e6a80bfc71aa32df8d237a61743f986")
     }
 
+    /// Regression: an empty set — the form ad-hoc signatures carry — used to
+    /// trap while checking entry ranges (`1..<0`) instead of parsing.
+    func testEmptySetParsesWithoutEntries() throws {
+        let parsed = try RequirementsSet.parse(hex("fade0c01 0000000c 00000000"))
+        XCTAssertEqual(parsed.disposition, .presentAndParsed)
+        XCTAssertNotNil(parsed.set)
+        XCTAssertEqual(parsed.set?.entries.count, 0)
+    }
+
     func testSerializationIsDeterministicAndSortedByKind() throws {
         let requirement = try FramedRequirement(expressionBytes: Data([0xAA]))
         let ascending = try RequirementsSet(entries: [

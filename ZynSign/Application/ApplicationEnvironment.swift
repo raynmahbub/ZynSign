@@ -190,6 +190,14 @@ struct ApplicationEnvironment {
     /// cast.
     var queueNotifier: (any SigningQueueNotifying)? = nil
 
+    /// The Binary & Signature Inspector use case: inspects, read-only, every
+    /// executable in a library application's bundle — Mach-O structure,
+    /// load commands, and code signature — and verifies each signature on
+    /// the device. `nil` where no composition supplies it, in which case the
+    /// interface does not offer the inspector; treated as read-only after
+    /// construction.
+    var binaryInspection: IPABinaryInspection? = nil
+
     /// Records one local activity event when the journal preference allows.
     ///
     /// This is the only recording path the presentation layer uses. It
