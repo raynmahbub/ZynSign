@@ -146,6 +146,21 @@ struct ApplicationEnvironment {
     /// does; the application learns only whether an attempt succeeded.
     let biometricAuthenticator: any BiometricAuthenticating
 
+    /// The library-organization use case: collections and usage. `nil`
+    /// where no organization storage is composed, in which case the library
+    /// offers no collections; treated as read-only after construction.
+    var libraryOrganizer: LibraryOrganizer? = nil
+
+    /// Reads the developer and team each library package declares, for
+    /// search and the Team filter. `nil` where no reader provider is
+    /// composed; treated as read-only after construction.
+    var applicationProvenance: ApplicationProvenanceExtraction? = nil
+
+    /// Prepares library package files for the share sheet under readable
+    /// names. `nil` where no export location is composed, in which case the
+    /// library offers no Export; treated as read-only after construction.
+    var libraryExport: LibraryExportPreparation? = nil
+
     /// Records one local activity event when the journal preference allows.
     ///
     /// This is the only recording path the presentation layer uses. It

@@ -63,7 +63,15 @@ final class SigningEngineModel: ObservableObject {
     /// - Parameters:
     ///   - request: The run's inputs.
     ///   - environment: The environment the engine is reached through.
-    func run(_ request: SigningEngineRequest, environment: ApplicationEnvironment) {
+    ///   - onFinish: Called on the main actor once the run concludes, with
+    ///     its result — `nil` when the run threw instead of concluding — and
+    ///     whether it was cancelled. Called even when the screen that started
+    ///     the run has gone away, so what the run did can still be recorded.
+    func run(
+        _ request: SigningEngineRequest,
+        environment: ApplicationEnvironment,
+        onFinish: (@MainActor (_ result: SigningEngineResult?, _ wasCancelled: Bool) -> Void)? = nil
+    ) {
         guard !isRunning else { return }
         isRunning = true
         result = nil
@@ -73,6 +81,7 @@ final class SigningEngineModel: ObservableObject {
         let engine = environment.signingEngine
         runTask = Task { [weak self] in
             var outcome: SigningEngineResult?
+            var wasCancelled = false
             do {
                 outcome = try await engine.sign(request) { snapshot in
                     Task { @MainActor [weak self] in
@@ -81,10 +90,12 @@ final class SigningEngineModel: ObservableObject {
                 }
             } catch is CancellationError {
                 outcome = nil
+                wasCancelled = true
             } catch {
                 outcome = nil
             }
-            await MainActor.run { [weak self] in
+            await MainActor.run { [weak self, outcome, wasCancelled] in
+                onFinish?(outcome, wasCancelled)
                 guard let self else { return }
                 self.isRunning = false
                 self.result = outcome

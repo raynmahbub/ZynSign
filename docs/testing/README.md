@@ -362,6 +362,94 @@ It also has tests for application persistence and library records:
   rather than recreated; stray artifacts detected and removed on request;
   and a rejected package leaving no record and no artifact.
 
+It also has tests for the advanced library (Step 12):
+
+- the organization domain (`LibraryOrganizationTests`): collection names
+  trimmed, collapsed, stripped of control characters with emoji sequences
+  intact, bounded, and compared ignoring case, diacritics, and width;
+  collection values adding idempotently in order and removing only what is
+  named; creating, renaming (including to another spelling of its own
+  name), and deleting collections; names unique within one kind; a record
+  in several collections; removing from one collection leaving the others;
+  moving as add-then-remove and moving into the same collection changing
+  nothing; refusals leaving the value unchanged; forgetting records pruning
+  memberships and usage but never collections; scopes and queries
+  round-tripping through their stored and codable forms; the original Name
+  order's stored value still reading as Name A–Z;
+- the organizer and its file store (`LibraryOrganizerTests`): a change saved
+  before it becomes current; a failed save and a refused change neither
+  saved nor applied; an unchanged organization not saved again; a move as
+  one save; a read failure thrown and retried, with nothing written over an
+  unreadable organization; usage recorded and records forgotten; the
+  document round-tripping collections, member order, unknown kinds, and
+  usage through a temporary directory; a missing document read as empty; a
+  newer schema reported and left untouched; and damaged documents —
+  undecodable, version 0, a bad identifier, duplicate identifiers or names,
+  an unnormalised name, a bad usage identifier, a record listed twice —
+  failing closed;
+- the library index (`LibraryIndexTests`): search across name, bundle
+  identifier, version, file name, declared developer and team, and
+  collection names, with every term required and case, diacritics, and
+  width ignored; highlight runs that reassemble the displayed text and merge
+  overlaps; filters AND-ed across facets and OR-ed within one; latest and
+  older versions; the team filter and team list; the seven-day recency
+  windows; recently signed and unsigned following the journal, a failed
+  signing leaving an app unsigned; Expiring Soon holding expiring and
+  expired apps but not valid or unknown ones; collection scopes ignoring
+  memberships of removed records; scope and filters combining; all seven
+  orders; statistics including stored bytes for missing and inconsistent
+  files; incremental updates matching a full rebuild; a renamed collection
+  updating collection search; a thousand-entry library answering queries
+  correctly; and a 2,000-entry query measurement (`measure`, informative
+  only);
+- signing facts (`LibrarySigningFactsTests`): a signing naming a record
+  belonging to it alone; a legacy signing belonging only to records that
+  existed when it ran; only successful signings counting, the latest
+  winning; the earlier of profile and certificate expiry deciding; expiry
+  status at the window boundaries; journals without the new fields
+  decoding;
+- declared provenance (`ApplicationProvenanceExtractionTests`): the team
+  from the embedded profile and the developer from store metadata; a decoded
+  payload preferred over scanning; a package declaring nothing reading as
+  unknown; an oversized profile not read; sanitising; results cached for the
+  launch and across launches; an unopenable archive not cached; forgetting;
+  a damaged cache ignored and rebuilt;
+- verification (`LibraryArtifactVerificationTests`): intact packages;
+  changed bytes of the same size caught where availability would not;
+  truncated and missing packages reported without recreating anything;
+  unknown records and read failures as typed errors; and the file store
+  measuring a held artifact exactly as import described it;
+- export preparation (`LibraryExportPreparationTests`): file names from
+  name, version, and build; bundle-identifier fallback; unsafe characters,
+  leading dots, empty names, and length bounds; case-insensitive
+  uniqueness; prepared files carrying the library's bytes; unavailable
+  packages skipped and counted; nothing to export as a typed failure; and
+  discarding removing only the prepared names;
+- the library screen model (`ApplicationLibraryAdvancedModelTests`): scopes,
+  filters, and search stacking on the visible list; orders applied;
+  collections created, filled, moved between, and emptied with every change
+  persisted; creating from inside a collection moving the apps; name
+  problems reported while typing; a deleted collection's scope and filters
+  falling back; deleting an app removing it from its collections; the
+  selection only ever holding visible entries; bulk favourite; bulk
+  deletion; statistics following the library and the journal; a signing
+  elsewhere refreshing signed state, Recently Signed, and Expiring Soon
+  without a reload; a journal read failure keeping signed state; verification
+  reports; export bundles prepared and discarded, and nothing to export
+  announced; the Last Opened order; empty-state reasons; and row states
+  carrying highlight terms and explaining hidden matches;
+- the Sign screen's journal (`SigningJournalTests`): a signed engine run
+  recorded as a success naming its library entry, version, and delivered
+  file; a refusal recording its stage and category and no output; a failure
+  the engine categorised as a cancellation recorded as cancelled; a run that
+  threw recorded as cancelled or failed without an invented stage; the
+  certificate's fingerprint, name, and expiry and the profile's declared
+  name and expiry read from signed-container-shaped bytes; unreadable
+  profile bytes leaving those fields empty; a recorded signing making its
+  entry signed with the recorded expiry; and the notifying journal
+  announcing each completed append, removal, and clear, but not a read or a
+  change that failed.
+
 It also has tests for bundle inspection and the bundle explorer:
 
 - bundle paths: the root, single and nested components, case, spaces, and

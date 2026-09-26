@@ -167,6 +167,17 @@ struct SigningRecord: Equatable, Hashable, Identifiable, Sendable, Codable {
     /// profile's bytes are never stored.
     let provisioningProfileName: String?
 
+    /// When the provisioning profile the run used expires, as the profile
+    /// declared it. `nil` when the run did not establish it, and in records
+    /// written before the field existed. Lets the library warn before a
+    /// signed output stops launching.
+    let profileExpiresAt: Date?
+
+    /// When the signing certificate the run used stops being valid — its
+    /// notAfter date. `nil` when unknown. A date, never certificate
+    /// contents.
+    let certificateExpiresAt: Date?
+
     /// The configuration the run used.
     let configuration: SigningConfigurationSummary?
 
@@ -250,7 +261,9 @@ struct SigningRecord: Equatable, Hashable, Identifiable, Sendable, Codable {
         verificationStatus: ArtifactVerificationStatus? = nil,
         verificationRecordedAt: Date? = nil,
         verificationFindings: [String]? = nil,
-        timeline: [SigningTimelineEntry]? = nil
+        timeline: [SigningTimelineEntry]? = nil,
+        profileExpiresAt: Date? = nil,
+        certificateExpiresAt: Date? = nil
     ) {
         self.id = id
         self.presetID = presetID
@@ -278,6 +291,8 @@ struct SigningRecord: Equatable, Hashable, Identifiable, Sendable, Codable {
         self.verificationRecordedAt = verificationRecordedAt
         self.verificationFindings = verificationFindings
         self.timeline = timeline
+        self.profileExpiresAt = profileExpiresAt
+        self.certificateExpiresAt = certificateExpiresAt
     }
 
     /// The outcome of the operation.

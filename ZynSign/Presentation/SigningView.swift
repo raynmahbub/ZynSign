@@ -919,13 +919,25 @@ struct SigningView: View {
         isSigningConfirmed = false
         ZHaptics.tap()
         liveActivity.start(stage: "Preparing", detail: "Creating an isolated working copy…")
+        // The engine keeps no history, so the screen journals each run it
+        // starts: the signing history and the library's signed state read
+        // it. A journal write that fails never changes the run's outcome.
+        let journal = SigningEngineJournalDraft(
+            entry: entry, identity: selectedIdentity, profile: profile, startedAt: Date()
+        )
+        let history = env.signingHistory
         model.run(
             SigningEngineModel.makeRequest(
                 entry: entry, sourceURL: sourceURL, profile: profile,
                 identityID: identityID, entitlements: entitlements,
                 emitDEREntitlements: requestedKey.emitDER
             ),
-            environment: env
+            environment: env,
+            onFinish: { result, wasCancelled in
+                guard let history else { return }
+                let record = journal.record(result: result, wasCancelled: wasCancelled, finishedAt: Date())
+                Task { try? await history.append(record) }
+            }
         )
         mirrorProgressToLiveActivity()
     }

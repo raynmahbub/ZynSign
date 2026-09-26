@@ -50,6 +50,7 @@ Gated entry points:
 | `missionControl` | `HomeView` Mission Control card |
 | `deliveryHandoff` | `SigningView` “Deliver…”, Settings → Installation hand-off section |
 | `activityJournal` | Settings → Analytics journal sections, **and** `ApplicationEnvironment.recordAnalyticsEvent`, so nothing is recorded before users can see and clear it |
+| `libraryPowerFeatures` | `LibraryFeatureAvailability` in the Library: statistics card, scope bar (smart collections and collections), filter menu and chips, the four extra orders, collection sheets, bulk actions beyond Delete, quick actions beyond Favorite/Details/Delete; `HomeView` Favorites card. Signing-derived parts (Signed/Unsigned/Recently Signed/Expiring Soon, the Sign action) also require `smartSign` |
 
 Settings → Diagnostics → Build shows the active release (`v0.1.0 · 0 of 7
 staged features`), so testers can confirm what they're running.

@@ -200,8 +200,9 @@ protocol SigningWorkspaceProviding: Sendable {
 ///     import → validation → preflight → nested signing → main signing →
 ///     verification → packaging → export
 ///
-/// and it is the only place that turns an execution into history. What it
-/// guarantees:
+/// and it turns every execution it runs into history. (The Sign screen runs
+/// the Signing Engine directly and journals its runs through
+/// `SigningEngineJournalDraft`.) What it guarantees:
 ///
 /// - **Isolation.** Every run works in its own directory, named by the run's
 ///   own identifier, so concurrent runs and a concurrent cleanup can never

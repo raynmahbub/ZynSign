@@ -12,6 +12,154 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — 0.1.0-alpha.2 · Step 12: Advanced Library Experience
+
+- **One index behind the whole Library** — `LibraryIndex` holds every entry
+  with the facts the screen searches, filters, sorts, and counts by: folded
+  search text per field, collection membership in both directions, the
+  latest declared version of each bundle identifier, and each entry's
+  signing fact. Typing, toggling a filter, or changing the order runs a
+  query over precomputed values and publishes only the list of visible
+  identifiers; a favourite toggled, apps moved between collections, or an
+  app opened re-reads just what changed from persistence and patches the
+  index instead of reloading the library. Rows and cards are equatable
+  values, so a change to one entry re-renders that entry; the list stays a
+  virtualised `List` and the grid a `LazyVGrid`.
+- **Favorites** — one tap from the detail screen's star (and the leading
+  full swipe, the context menu, and a VoiceOver action); a **Favorites**
+  card on Home (tap an app to open it, *See All* opens the library on
+  Favorites); a Favorites filter and smart collection in the Library; the
+  mark stays in the catalog as before. The card star is a small corner mark.
+- **Collections** — create, rename, and delete collections; put any number
+  of apps into one at once (from a selection, a context menu, or while
+  creating the collection); take apps out without deleting them; an app can
+  be in any number of collections. Moving from inside a collection moves;
+  from anywhere else it adds. Names are normalised, limited to 60
+  characters, and unique ignoring case, diacritics, and width, checked as
+  they are typed. Deleting a collection is confirmed and never deletes its
+  apps; deleting an app removes it from every collection.
+- **Smart collections** — **Recently Imported** (last 7 days), **Recently
+  Signed** (successful ZynSign signings in the last 7 days), **Unsigned**,
+  **Expiring Soon**, and **Favorites**, computed on demand from the index so
+  they update themselves. *Expiring Soon* lists apps whose most recent
+  ZynSign signing used a provisioning profile or certificate that expires
+  within 30 days — or already has — the same window the Profiles tab uses.
+- **Advanced search** — every word must match somewhere in the name, bundle
+  identifier, version or build, original file name, declared developer,
+  declared team (name or identifier), or the name of a collection the app is
+  in; case, diacritics, and character width are ignored. Matches are
+  highlighted in the row as you type, and a match in a field the row does
+  not show (developer, team, file name, collection) is explained on its own
+  line.
+- **Declared developer and team** — `ApplicationProvenanceExtraction` reads,
+  read-only and within small bounds, the team a package's
+  `embedded.mobileprovision` declares (`TeamIdentifier`, `TeamName`) and the
+  developer its `iTunesMetadata.plist` declares (`artistName`). Values are
+  sanitised, shown as declarations rather than findings, resolved in the
+  background a few packages at a time after the list is on screen, and
+  cached per artifact in the caches directory.
+- **Stackable filters** — Favorites, Signed, Unsigned, Recently Imported,
+  Recently Signed, Expiring Soon, Collection, Version (latest or older
+  versions of each bundle identifier), and Team. Filters on different facets
+  must all hold and filters on one facet are alternatives, so *Favorites +
+  Unsigned + Recently Imported* narrows while two collections widen. Active
+  filters show as removable chips with *Clear All*; the filter menu asks the
+  system to stay open while filters are stacked.
+- **Seven orders, remembered** — Recently Imported, Recently Signed, Name
+  A–Z, Name Z–A, Version, Size, and Last Opened (recorded when an app's
+  details open). The preferred order and the last scope are remembered
+  across launches; the stored value of the original Name order still reads
+  as Name A–Z.
+- **Library statistics** — Total Apps, Favorites, Signed, Unsigned,
+  Collections, and Storage (bytes the package files occupy: recorded size
+  when available, observed size when inconsistent, nothing when missing),
+  derived from the index so they update with the list. Each tile is a
+  shortcut to the matching scope, filter, or order.
+- **Bulk actions** — while apps are selected a floating bar offers Select
+  All / Deselect All, Favorite (or Unfavorite when all are), Move to
+  Collection, Export, Verify, Remove from Collection (inside a collection),
+  and Delete; it exists only while something is selected. The selection can
+  only ever hold apps on screen — a filter or search that hides an app
+  removes it from the selection — so a bulk action never touches something
+  the user cannot see. Deletion is confirmed; one bulk operation runs at a
+  time, with progress.
+- **Quick actions** — View Details, Favorite, Sign, Verify, Export, Move to
+  Collection, collection membership toggles, Remove from Collection, and
+  Delete on every row and card: as swipe actions (leading Favorite / Sign /
+  Verify, trailing Delete / Move / Export), as context menus, as the detail
+  screen's Actions menu, and as VoiceOver custom actions.
+- **Verify** — `ApplicationLibrary.verifyArtifact(recordWithID:)` re-reads a
+  package file in full and compares its size and SHA-256 fingerprint with
+  what was recorded at import: *intact*, *changed since import* (caught even
+  when the size is unchanged), or *missing*. It runs off the library actor,
+  repairs nothing, and is reported per app with a summary.
+- **Export** — `LibraryExportPreparation` hands the share sheet readable
+  names (`Name 1.2 (34).ipa`, made safe and unique) as hard links to the
+  library's files (copies only where a link cannot be made); apps without a
+  package file are skipped and counted, and the prepared names are discarded
+  when the sheet closes. The library's own files are only ever read.
+- **Empty states** — *No Favorites — Star your favorite apps to find them
+  quickly.*, *No Collections — Create your first collection to organize your
+  library.*, *No Search Results — Try a different name, bundle ID, or
+  filter.*, plus a rule-explaining state for every other smart collection
+  and an empty-collection state.
+- **Accessibility** — rows and cards read as one element with every badge in
+  words; selection changes and outcomes are announced; every quick action is
+  a VoiceOver custom action; tap targets are at least 44 points; statistics,
+  chips, and grid columns scale with Dynamic Type, and the bulk bar drops its
+  captions at accessibility sizes; ⌘A selects all, Esc leaves selection,
+  ⌘⌫ deletes the selection, ⇧⌘N creates a collection.
+- **Built to grow** — collections are identified values that refer to
+  records by identifier, carry creation and change times (and each
+  membership its own time), and carry a kind, so tags and shared collections
+  are new kinds rather than a new model; a `LibraryQuery` (search, stacked
+  filters, order) and a `LibraryScope` have stable codable forms that saved
+  searches, pinned workflows, and automations can store.
+- `LibraryOrganizationTests`, `LibraryOrganizerTests`, `LibraryIndexTests`
+  (including a thousand-entry correctness test and a 2,000-entry query
+  measurement), `LibrarySigningFactsTests`,
+  `ApplicationProvenanceExtractionTests`, `LibraryArtifactVerificationTests`,
+  `LibraryExportPreparationTests`, `ApplicationLibraryAdvancedModelTests`,
+  and `SigningJournalTests` (the Sign screen's journal record and the
+  notifying journal).
+
+### Changed — Step 12
+
+- **Sign-screen runs are journaled.** The Sign screen runs the Signing
+  Engine, which keeps no history, rather than `SigningOperationCenter`, which
+  does — so no run started there reached the signing journal, and neither
+  Signing History nor the library's *Signed* badge could reflect it. Each
+  run now starts a `SigningEngineJournalDraft` (entry, certificate
+  fingerprint and name, the profile's declared name, and both expiry dates)
+  and appends the completed record — signed, failed, or cancelled — through
+  a new `onFinish` hook on `SigningEngineModel.run`. A journal write that
+  fails never changes the run's outcome.
+- **The journal says when it changed.** The composition root wraps the
+  journal in `NotifyingSigningHistoryStore`, which posts
+  `signingHistoryDidChange` after every append, removal, or clear — a
+  signing, a storage cleanup, or a cleared journal — so the library re-reads
+  it without any writer having to remember to post.
+- `SigningRecord` gains optional `profileExpiresAt` and
+  `certificateExpiresAt`; journals without them decode unchanged. The
+  library attributes a signing through the record's existing
+  `sourceRecordIdentifier`: a signing that names its record belongs to that
+  record alone, and an older entry that names only a bundle identifier is
+  attributed to records with that identifier that already existed when it
+  ran. `BatchSigningCoordinator` records the signed record too.
+- `LibraryArtifactStore` gains `measureHeldArtifact(_:)` (implemented by the
+  file store with the same streaming SHA-256 import uses).
+- `ApplicationLibraryModel.SortOrder` is now `LibrarySortMode`; `.name` is
+  Name A–Z. Version order compares the marketing version and then the build,
+  with undeclared versions last.
+- Collections and usage live in a new versioned document,
+  `Application Support/ZynSignLibrary/Organization.json` (schema 1), so
+  rearranging collections or opening an app never rewrites `catalog.json`.
+- **Release gating** — everything above is behind
+  `ReleaseFeature.libraryPowerFeatures`; parts that read the signing journal
+  (Signed, Unsigned, Recently Signed, Expiring Soon, Sign) also need
+  `smartSign`. `ReleaseTrain.swift` currently introduces
+  `libraryPowerFeatures` in `v0.1.0-alpha.1`. Debug builds show everything.
+
 ### Added — 0.1.0-alpha.1 · Step 11: Settings, Security & Configuration Center
 
 - **Settings Control Center** — Settings is an index, not a form. Every
