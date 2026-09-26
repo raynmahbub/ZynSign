@@ -57,16 +57,25 @@ final class ReleaseTrainTests: XCTestCase {
     }
 
     func testFeatureRolloutMatchesThePlan() {
-        XCTAssertEqual(ReleaseStage.alpha1.features, [.certificateStudio])
-        XCTAssertEqual(ReleaseStage.alpha2.features, [.certificateStudio, .smartSign])
-        XCTAssertEqual(ReleaseStage.alpha3.features, [.certificateStudio, .smartSign, .appStore, .downloads])
-        XCTAssertEqual(ReleaseStage.beta1.features, Set(ReleaseFeature.allCases))
+        XCTAssertEqual(ReleaseStage.alpha1.introducedFeatures, Set([.certificateStudio, .libraryPowerFeatures]))
+        XCTAssertEqual(
+            ReleaseStage.alpha2.introducedFeatures,
+            Set([.smartSign, .provisioningProfileManager, .signingPresets])
+        )
+        XCTAssertEqual(ReleaseStage.alpha3.introducedFeatures, Set([.appStore, .downloads]))
+        XCTAssertEqual(
+            ReleaseStage.beta1.introducedFeatures,
+            Set([.missionControl, .deliveryHandoff, .activityJournal])
+        )
+        XCTAssertEqual(ReleaseStage.beta3.introducedFeatures, Set([.batchSigning]))
+        XCTAssertEqual(ReleaseStage.stable.introducedFeatures, Set([.signingHealthScore]))
+        XCTAssertTrue(ReleaseStage.alpha2.features.contains(.signingPresets))
+        XCTAssertTrue(ReleaseStage.alpha2.features.contains(.smartSign))
+        XCTAssertFalse(ReleaseStage.alpha1.features.contains(.signingPresets))
     }
 
-    func testFeatureCompleteFromBetaOnwards() {
-        for stage in ReleaseStage.allCases where stage >= .beta1 {
-            XCTAssertEqual(stage.features, Set(ReleaseFeature.allCases), "\(stage) must be feature complete")
-        }
+    func testStableReleaseIncludesEveryFeature() {
+        XCTAssertEqual(ReleaseStage.stable.features, Set(ReleaseFeature.allCases))
     }
 
     func testFeaturesOnlyAccumulate() {
@@ -130,6 +139,7 @@ final class ReleaseTrainTests: XCTestCase {
         #if DEBUG
         XCTAssertEqual(ReleaseTrain.gate, ReleaseGate(stage: .alpha2, exposesEverything: false))
         XCTAssertTrue(ReleaseTrain.isAvailable(.smartSign))
+        XCTAssertTrue(ReleaseTrain.isAvailable(.signingPresets))
         XCTAssertFalse(ReleaseTrain.isAvailable(.downloads))
         #else
         XCTAssertEqual(ReleaseTrain.gate.stage, ReleaseTrain.current)

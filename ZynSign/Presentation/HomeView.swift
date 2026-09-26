@@ -33,6 +33,7 @@ struct HomeView: View {
     @State private var failedLoad = false
     @State private var hasReadLibrary = false
     @State private var settledImportCount = 0
+    @State private var presetRoute: HomePresetRoute?
     @AppStorage("zynsign.onboarding.completed") private var onboardingCompleted = false
 
     var body: some View {
@@ -70,6 +71,14 @@ struct HomeView: View {
             .refreshable { await reload() }
             .navigationDestination(for: LibraryEntry.self) { entry in
                 ApplicationDetailView(entry: entry, bundleInspection: environment.bundleInspection)
+            }
+            .navigationDestination(item: $presetRoute) { route in
+                switch route {
+                case .library:
+                    PresetsView()
+                case .queue:
+                    ProfessionalSigningQueueView()
+                }
             }
         }
     }
@@ -130,6 +139,16 @@ struct HomeView: View {
                 }
                 HomeActionButton(title: "Profiles", icon: "person.text.rectangle", color: .orange) {
                     onOpenSection(.profiles)
+                }
+            }
+            if ReleaseTrain.isAvailable(.signingPresets) {
+                HStack(spacing: ZSpacing.sm) {
+                    HomeActionButton(title: "Presets", icon: "rectangle.stack.fill", color: .teal) {
+                        presetRoute = .library
+                    }
+                    HomeActionButton(title: "Signing Queue", icon: "list.bullet.rectangle", color: .indigo) {
+                        presetRoute = .queue
+                    }
                 }
             }
         }
@@ -556,6 +575,11 @@ private struct OnboardingStepRow: View {
         .accessibilityLabel("\(title). \(detail). \(isComplete ? "Complete" : "Not done yet.")")
         .accessibilityAddTraits(.isButton)
     }
+}
+
+private enum HomePresetRoute: Hashable {
+    case library
+    case queue
 }
 
 #Preview("Dashboard") {

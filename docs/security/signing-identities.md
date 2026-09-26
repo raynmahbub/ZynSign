@@ -188,6 +188,11 @@ or device, so none of the ZS-021 suites (nor any earlier suite) was compiled
 or run; the static checks below do not prove Swift compilation or runtime
 security.
 
+Signing presets store a certificate fingerprint and a profile identifier, not
+key bytes, a password, or profile contents. Recommending a preset does not
+sign. One-tap signing still requires the confirmation gate and a passing
+preflight. See [signing-presets.md](../architecture/signing-presets.md).
+
 This implementation environment is Linux without Swift, Xcode, an Apple SDK,
 a simulator, or a device. XCTest, iOS builds, and Keychain integration tests were
 **not run**. Twenty source-boundary assertions, changed-file/credential-pattern checks,

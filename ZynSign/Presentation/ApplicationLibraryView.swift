@@ -24,6 +24,7 @@ struct ApplicationLibraryView: View {
     @State private var entryPendingDetails: LibraryEntry?
     @State private var isSelecting = false
     @State private var selection: Set<ApplicationRecordIdentifier> = []
+    @State private var showPresetQueue = false
     @AppStorage("zynsign.library.showsGrid") private var showsGrid = false
     private let bundleInspection: IPABundleContentsInspection
 
@@ -75,6 +76,9 @@ struct ApplicationLibraryView: View {
         }
         .task { await model.load() }
         .safeAreaInset(edge: .bottom) { selectionBar }
+        .sheet(isPresented: $showPresetQueue) {
+            ProfessionalSigningQueueView(lockedEntries: selectedEntries, lockedPresetID: nil)
+        }
         .alert(
             model.notice?.title ?? "",
             isPresented: noticeBinding,
@@ -428,6 +432,16 @@ struct ApplicationLibraryView: View {
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
                 Spacer()
+                if ReleaseTrain.isAvailable(.signingPresets) {
+                    Button {
+                        showPresetQueue = true
+                    } label: {
+                        Label("Sign with Preset", systemImage: "rectangle.stack")
+                    }
+                    .disabled(selection.isEmpty)
+                    .presetTouchTarget()
+                    .accessibilityHint("Reviews which selected apps match a preset. Incompatible apps are not signed.")
+                }
                 Button {
                     selectionPendingRemoval = selectedEntries
                 } label: {

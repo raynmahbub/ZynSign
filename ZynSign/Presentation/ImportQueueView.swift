@@ -15,7 +15,8 @@ import SwiftUI
 /// never edits the library: a finished import says what happened and offers
 /// to open the Library, where the entry can be seen. And it never claims a
 /// package is signed, genuine, or installable: an import that succeeded says
-/// the bytes are in ZynSign's library, which is exactly what happened.
+/// the bytes are in ZynSign's library. A matching preset may offer Ready to
+/// Sign; that opens confirmation and does not sign by itself.
 struct ImportQueueView: View {
 
     /// The import queue this screen shows, observed directly: its state is
@@ -136,15 +137,20 @@ struct ImportQueueView: View {
     }
 
     private func row(for job: PackageImportQueue.Job) -> some View {
-        ImportJobRow(
-            job: job,
-            onCancel: { queue.cancel(job.id) },
-            onRetry: { queue.retry(job.id) },
-            onRemove: { withAnimation(.snappy) { queue.remove(job.id) } },
-            onResolve: { resolution in
-                withAnimation(.snappy) { queue.resolveDuplicate(job.id, with: resolution) }
+        VStack(alignment: .leading, spacing: ZSpacing.xs) {
+            ImportJobRow(
+                job: job,
+                onCancel: { queue.cancel(job.id) },
+                onRetry: { queue.retry(job.id) },
+                onRemove: { withAnimation(.snappy) { queue.remove(job.id) } },
+                onResolve: { resolution in
+                    withAnimation(.snappy) { queue.resolveDuplicate(job.id, with: resolution) }
+                }
+            )
+            if let record = job.settlement?.record, job.settlement?.kind.isAccepted == true {
+                ImportReadyToSignOffer(record: record)
             }
-        )
+        }
     }
 
     private var emptyContent: some View {

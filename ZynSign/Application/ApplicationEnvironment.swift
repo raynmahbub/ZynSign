@@ -83,6 +83,15 @@ struct ApplicationEnvironment {
     /// composed; treated as read-only after construction.
     var appIcons: AppIconExtraction? = nil
 
+    /// Preset library, matching, and resolution. Signing still requires an
+    /// explicit confirmation after a preset is offered.
+    var signingPresetWorkflow: SigningPresetWorkflow? = nil
+
+    /// The professional signing queue. Staging a plan does not sign;
+    /// `confirmAndStart` is the final confirmation, and incompatible apps
+    /// are never handed to the runner.
+    var professionalSigningQueue: ProfessionalSigningQueue? = nil
+
     /// Records one local activity event when the journal preference allows.
     ///
     /// This is the only recording path the presentation layer uses. It

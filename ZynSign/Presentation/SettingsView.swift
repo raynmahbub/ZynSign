@@ -68,8 +68,15 @@ struct SettingsView: View {
                     Label(ShellSection.downloads.title, systemImage: ShellSection.downloads.symbolName)
                 }
             }
+            if ReleaseTrain.isAvailable(.signingPresets) {
+                NavigationLink { PresetsView() } label: {
+                    Label(ShellSection.presets.title, systemImage: ShellSection.presets.symbolName)
+                }
+            }
         } header: { Text("Browse") } footer: {
-            Text("Files, the App Store, and Downloads are complete areas of ZynSign, reached from here rather than the tab bar.")
+            Text(ReleaseTrain.isAvailable(.signingPresets)
+                 ? "Files, the App Store, Downloads, and Presets are complete areas of ZynSign, reached from here rather than the tab bar."
+                 : "Files, the App Store, and Downloads are complete areas of ZynSign, reached from here rather than the tab bar.")
         }
     }
 
@@ -79,6 +86,11 @@ struct SettingsView: View {
         Section {
             NavigationLink { SigningOptionsView() } label: {
                 Label("Signing Options", systemImage: "slider.horizontal.3")
+            }
+            if ReleaseTrain.isAvailable(.signingPresets) {
+                NavigationLink { PresetsView() } label: {
+                    Label("Signing Presets", systemImage: "rectangle.stack.fill")
+                }
             }
         } header: { Text("Signing") } footer: {
             Text("Configure the options used when the pipeline is composed for signing. Certificates and profiles are managed in their own tabs.")

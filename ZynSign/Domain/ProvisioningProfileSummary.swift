@@ -80,18 +80,23 @@ struct ProvisioningProfileSummary: Equatable, Hashable, Identifiable, Sendable, 
     /// the given bundle identifier. Wildcard suffixes (`com.example.*`)
     /// are matched.
     func covers(bundleIdentifier: String) -> Bool {
-        for pattern in bundleIdentifierPatterns {
-            if matches(pattern: pattern, value: bundleIdentifier) { return true }
+        bundleIdentifierPatterns.contains { pattern in
+            Self.pattern(pattern, covers: bundleIdentifier)
         }
-        return false
     }
 
-    private func matches(pattern: String, value: String) -> Bool {
+    /// Whether one declared pattern covers `bundleIdentifier`.
+    ///
+    /// A trailing `.*` covers the prefix itself and any single-or-deeper
+    /// suffix (`com.example` and `com.example.app`). Anything else is an
+    /// exact match. This is the same rule `covers(bundleIdentifier:)` uses,
+    /// exposed so preset matching cannot drift from the profile summary.
+    static func pattern(_ pattern: String, covers bundleIdentifier: String) -> Bool {
         if pattern.hasSuffix(".*") {
             let prefix = String(pattern.dropLast(2))
-            return value == prefix || value.hasPrefix(prefix + ".")
+            return bundleIdentifier == prefix || bundleIdentifier.hasPrefix(prefix + ".")
         }
-        return pattern == value
+        return pattern == bundleIdentifier
     }
 
     /// Sort: soonest-to-expire first; expired profiles sink to the end.

@@ -20,6 +20,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
     case files
     case appStore
     case downloads
+    case presets
 
     var id: Self { self }
 
@@ -39,6 +40,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
         case .files: return "Files"
         case .appStore: return "App Store"
         case .downloads: return "Downloads"
+        case .presets: return "Presets"
         }
     }
 
@@ -53,6 +55,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
         case .files: return "folder.fill"
         case .appStore: return "bag.fill"
         case .downloads: return "arrow.down.circle.fill"
+        case .presets: return "rectangle.stack.fill"
         }
     }
 
@@ -67,6 +70,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
         case .files: return "folder"
         case .appStore: return "bag"
         case .downloads: return "arrow.down.circle"
+        case .presets: return "rectangle.stack"
         }
     }
 
@@ -92,6 +96,8 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
             return "Discover and download applications from your configured sources."
         case .downloads:
             return "Download packages from URLs, track progress, and import them into the library when finished."
+        case .presets:
+            return "Reusable signing presets — certificate and profile references, options, and live compatibility. Presets do not store secrets."
         }
     }
 }

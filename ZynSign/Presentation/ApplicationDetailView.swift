@@ -74,6 +74,9 @@ struct ApplicationDetailView: View {
                          : "Exploring lists the files and folders inside the application bundle. It reads the package's own records of them and does not open, run, or change any file.")
                 }
             }
+            if content.canExploreBundle && ReleaseTrain.isAvailable(.signingPresets) {
+                RecommendedPresetSection(entry: entry)
+            }
             Section("Library Record") {
                 LabeledContent("Original File", value: content.sourceFileName)
                 LabeledContent("Imported") {

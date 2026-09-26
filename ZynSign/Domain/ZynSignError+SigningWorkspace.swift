@@ -49,6 +49,64 @@ extension ZynSignError {
         )
     }
 
+    /// The name the user offered cannot be stored.
+    static func presetNameInvalid(
+        diagnosticDetail: String? = nil
+    ) -> ZynSignError {
+        ZynSignError(
+            category: .invalidInput,
+            userMessage: "Enter a preset name that is not empty and is 80 characters or fewer.",
+            diagnosticDetail: diagnosticDetail
+        )
+    }
+
+    /// No stored preset has the requested identifier.
+    static func presetNotFound(
+        diagnosticDetail: String? = nil
+    ) -> ZynSignError {
+        ZynSignError(
+            category: .invalidInput,
+            userMessage: "That signing preset is no longer available.",
+            diagnosticDetail: diagnosticDetail
+        )
+    }
+
+    /// A preset cannot be applied because preflight did not pass, or a
+    /// referenced certificate or profile could not be resolved.
+    static func presetNotReady(
+        userMessage: String = "That signing preset is not ready to use.",
+        diagnosticDetail: String? = nil
+    ) -> ZynSignError {
+        ZynSignError(
+            category: .capabilityUnavailable,
+            userMessage: userMessage,
+            diagnosticDetail: diagnosticDetail
+        )
+    }
+
+    /// Signing was requested without the final confirmation step.
+    static func presetConfirmationRequired(
+        diagnosticDetail: String? = nil
+    ) -> ZynSignError {
+        ZynSignError(
+            category: .invalidInput,
+            userMessage: "Confirm the preset summary before signing.",
+            diagnosticDetail: diagnosticDetail
+        )
+    }
+
+    /// The signing queue was asked to run an application the plan marked as
+    /// needing manual attention. The queue refuses rather than forcing it.
+    static func presetQueueRefusedIncompatible(
+        diagnosticDetail: String? = nil
+    ) -> ZynSignError {
+        ZynSignError(
+            category: .invalidInput,
+            userMessage: "An application that needs manual attention was not queued.",
+            diagnosticDetail: diagnosticDetail
+        )
+    }
+
     // MARK: - Signing history workspace
 
     /// The signing history journal's own storage could not be prepared,

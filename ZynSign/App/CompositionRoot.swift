@@ -49,7 +49,94 @@ enum CompositionRoot {
         )
         environment.provisioningProfileImporter = makeProvisioningProfileImporter()
         environment.appIcons = makeAppIconExtraction()
+        let workflow = makeSigningPresetWorkflow(
+            presets: presets,
+            profiles: profiles,
+            identities: identityStore
+        )
+        environment.signingPresetWorkflow = workflow
+        environment.professionalSigningQueue = makeProfessionalSigningQueue(
+            workflow: workflow,
+            pipeline: pipeline,
+            history: history
+        )
         return environment
+    }
+
+    /// Builds the preset workflow over the same stores the rest of the
+    /// environment uses. Profile bytes are read from the directory the
+    /// profile catalog lives in — the file the importer wrote, not a copy
+    /// kept on the preset.
+    static func makeSigningPresetWorkflow(
+        presets: any SigningPresetStore,
+        profiles: any ProvisioningProfileLibrary,
+        identities: any IdentityStore
+    ) -> SigningPresetWorkflow {
+        SigningPresetWorkflow(
+            presets: presets,
+            profiles: profiles,
+            identities: identities,
+            profileDirectory: provisioningProfileCatalogLocation().deletingLastPathComponent(),
+            artifactURL: { id in
+                // Re-derived here so the workflow does not need the
+                // environment it is being installed into. The convention
+                // matches `ApplicationEnvironment.artifactFileURL(for:)`.
+                let applicationSupport = FileManager.default
+                    .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+                    .first
+                    ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                        .appendingPathComponent("Library/Application Support", isDirectory: true)
+                return applicationSupport
+                    .appendingPathComponent("ZynSignLibrary", isDirectory: true)
+                    .appendingPathComponent("Artifacts", isDirectory: true)
+                    .appendingPathComponent(id.rawValue, isDirectory: false)
+                    .appendingPathExtension("ipa")
+            }
+        )
+    }
+
+    /// The professional signing queue. Each confirmed step runs through
+    /// `BatchSigningCoordinator.runOne`, so history is recorded by the same
+    /// coordinator a batch run uses, and only for requests the workflow
+    /// prepared from the compatible half of the plan.
+    static func makeProfessionalSigningQueue(
+        workflow: SigningPresetWorkflow,
+        pipeline: SignApplicationPipeline,
+        history: any SigningHistoryStore
+    ) -> ProfessionalSigningQueue {
+        let coordinator = BatchSigningCoordinator(
+            pipeline: pipeline,
+            history: history,
+            requestFactory: { _, _, _ in
+                // The queue signs requests the workflow already prepared.
+                // `run(_:)` is not the queue's path; refusing here keeps a
+                // second, option-dropping factory from being invented.
+                throw ZynSignError.presetNotReady(
+                    userMessage: "This signing queue runs prepared requests only."
+                )
+            }
+        )
+        return ProfessionalSigningQueue(
+            runner: { step in
+                let result = await coordinator.runOne(
+                    entry: step.entry,
+                    request: step.request,
+                    presetID: step.presetID,
+                    certificateFingerprint: step.certificateFingerprint
+                )
+                switch result.outcome {
+                case .succeeded:
+                    return .succeeded(outputFileName: result.outputFileName ?? step.request.outputURL.lastPathComponent)
+                case .failed:
+                    return .failed(message: result.userMessage ?? "Signing failed.")
+                case .cancelled:
+                    return .cancelled
+                }
+            },
+            recordOutcome: { outcome in
+                try? await workflow.record(outcome)
+            }
+        )
     }
 
     /// Builds the provisioning-profile importer the Profiles tab drives. It

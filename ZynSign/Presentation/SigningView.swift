@@ -34,6 +34,7 @@ struct SigningView: View {
 
     var body: some View {
         List {
+            RecommendedPresetSection(entry: entry)
             appSection
             identitySection
             profileSection
@@ -347,20 +348,7 @@ private struct ShareSheet: UIViewControllerRepresentable {
 
 extension SigningView {
     fileprivate static func entitlements(fromProvisioningProfile data: Data) throws -> CodeSigningEntitlements {
-        let payload: Data
-        if let cms = try? CMSStructureReader.read(data), let content = cms.encapsulatedContent { payload = content }
-        else if let r = data.range(of: Data("<?xml".utf8)) { payload = data.subdata(in: r.lowerBound..<data.endIndex) }
-        else if let r = data.range(of: Data("bplist00".utf8)) { payload = data.subdata(in: r.lowerBound..<data.endIndex) }
-        else { payload = data }
-        let parser = PropertyListProvisioningProfileParser()
-        do {
-            let profile = try parser.parse(ProvisioningProfilePayload(plistData: payload))
-            if let ent = profile.entitlements { return try CodeSigningEntitlements(profileEntitlements: ent) }
-            return try CodeSigningEntitlements(values: [:])
-        } catch {
-            if let direct = try? EntitlementsPlistParser.parse(payload) { return direct }
-            throw error
-        }
+        try SigningProfileEntitlementDerivation.derive(from: data)
     }
     fileprivate static func entitlementValueSummary(_ value: ProvisioningProfileValue?) -> String {
         guard let value else { return "—" }

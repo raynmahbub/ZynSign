@@ -44,7 +44,7 @@ Features are finished and compiled in. `ReleaseTrain.current` in [`ReleaseTrain.
 |---|---|
 | **`v0.1.0`** ◀ current | Home Dashboard · Import · Library (grid/list, search, sort, favourites) · Bundle Explorer · Certificates · Profiles · Settings |
 | `v0.1.0-alpha.1` | Certificate Studio |
-| `v0.1.0-alpha.2` | Smart Sign (+ Signing Options, Installation screen) |
+| `v0.1.0-alpha.2` | Smart Sign (+ Signing Options, Installation screen, Intelligent Signing Presets) |
 | `v0.1.0-alpha.3` | App Store + Repository Health · Background Downloads |
 | `v0.9.0-beta.1` | Mission Control · Delivery Hand-off · Activity Journal — **feature complete** |
 | `v0.9.0-beta.2…4` → `v1.0.0-rc.1…3` → `v1.0.0` | Fixes only |
