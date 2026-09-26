@@ -316,7 +316,10 @@ struct RequirementsSet: Equatable, Hashable {
                     parsedEntries.append(RequirementsSetEntry(kind: RequirementKind(rawValue: kind), requirement: requirement))
                 }
                 let sortedRanges = ranges.sorted { $0.lowerBound < $1.lowerBound }
-                for index in 1..<sortedRanges.count {
+                // `dropFirst()` rather than `1..<count`: an empty set — the
+                // form ad-hoc signatures carry — has no ranges, and `1..<0`
+                // would trap instead of parsing.
+                for index in sortedRanges.indices.dropFirst() {
                     guard sortedRanges[index - 1].upperBound <= sortedRanges[index].lowerBound else {
                         throw RequirementsError.invalidOffset
                     }
