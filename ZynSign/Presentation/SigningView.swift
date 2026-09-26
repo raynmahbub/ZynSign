@@ -113,6 +113,7 @@ struct SigningView: View {
 
     var body: some View {
         List {
+            Section { ReleaseReadinessLink(recordID: entry.record.id) }
             appSection
             RecommendedPresetSection(entry: entry, origin: .signingScreen)
             diagnosticsSection
