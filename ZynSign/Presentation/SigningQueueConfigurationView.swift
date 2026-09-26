@@ -13,6 +13,13 @@ import UniformTypeIdentifiers
 /// and the sheet's success state offers the dashboard rather than pretending
 /// to run anything itself.
 ///
+/// Queueing is the moment the user asks for signing, so it is the moment
+/// ZynSign's lock is consulted: when the user requires authentication
+/// before sensitive actions, the sheet asks once for the whole selection —
+/// exactly as Smart Sign asks before a run — and queues nothing unless the
+/// attempt succeeds. A queued job never signs behind a preference the user
+/// set.
+///
 /// One configuration applies to the whole selection. That is a deliberate
 /// limit, stated on screen: a provisioning profile authorizes specific
 /// bundle identifiers, so signing several applications with one profile is
@@ -35,6 +42,7 @@ struct SigningQueueConfigurationView: View {
     var onDone: () -> Void = {}
 
     @Environment(\.applicationEnvironment) private var env
+    @Environment(\.appLock) private var appLock
 
     @State private var identities: [SigningIdentity] = []
     @State private var isLoadingIdentities = true
@@ -54,6 +62,8 @@ struct SigningQueueConfigurationView: View {
 
     @State private var queuedCount: Int?
     @State private var skippedUnavailableCount = 0
+    @State private var isAuthorizing = false
+    @State private var authorizationError: String?
 
     private var queue: SigningQueue { env.signingQueue }
 
@@ -76,6 +86,7 @@ struct SigningQueueConfigurationView: View {
 
     private var canQueue: Bool {
         queuedCount == nil
+            && !isAuthorizing
             && selectedIdentityID != nil
             && profileData != nil
             && !signableEntries.isEmpty
@@ -180,7 +191,11 @@ struct SigningQueueConfigurationView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 NavigationLink {
-                    CertificatesView()
+                    CertificateManagerView(
+                        store: env.identityStore,
+                        annotations: env.identityAnnotations,
+                        importer: env.pkcs12Importer
+                    )
                 } label: {
                     Label("Open Certificates", systemImage: "key.fill")
                 }
@@ -319,10 +334,13 @@ struct SigningQueueConfigurationView: View {
     private var actionSection: some View {
         Section {
             Button {
-                enqueueJobs()
+                Task { await authorizeAndEnqueue() }
             } label: {
                 HStack {
                     Spacer()
+                    if isAuthorizing {
+                        ProgressView().tint(.white)
+                    }
                     Text(queueButtonTitle)
                         .fontWeight(.semibold)
                     Spacer()
@@ -331,13 +349,18 @@ struct SigningQueueConfigurationView: View {
             .listRowBackground(canQueue ? Color.accentColor : Color.gray.opacity(0.3))
             .foregroundStyle(canQueue ? .white : .secondary)
             .disabled(!canQueue)
-            if !canQueue {
+            if !canQueue && !isAuthorizing {
                 Text(whyDisabled)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            if let authorizationError {
+                Label(authorizationError, systemImage: "lock.trianglebadge.exclamationmark")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            }
         } footer: {
-            Text("Each job runs the same nine-stage pipeline as Smart Sign, in its own isolated workspace with its own log and verification, and delivers to Documents/Signed. The queue keeps working while you use the rest of ZynSign.")
+            Text("Each job runs as its own signing operation — an isolated workspace, its own log, independent verification — and its verified artifact is committed to Exports and recorded in the signing history. The queue keeps working while you use the rest of ZynSign.")
         }
     }
 
@@ -367,7 +390,7 @@ struct SigningQueueConfigurationView: View {
                 .accessibilityHidden(true)
             Text(count == 1 ? "1 Job Queued" : "\(count) Jobs Queued")
                 .font(.title2.weight(.semibold))
-            Text("The queue owns the work now. Jobs run one at a time, \(priority.displayName.lowercased()) priority first, and each delivers a verified container to Documents/Signed.")
+            Text("The queue owns the work now. Jobs run one at a time, \(priority.displayName.lowercased()) priority first, and each verified artifact is added to Exports.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -430,12 +453,17 @@ struct SigningQueueConfigurationView: View {
         profileSummaries = (try? await profiles.allProfiles()) ?? []
     }
 
-    /// Selects a profile the library already holds: its bytes are read from
-    /// the library's own storage, never re-picked and never copied by the
-    /// sheet — the queue keeps its own copy once the job is accepted.
+    /// Selects a profile the library already holds: its bytes are read
+    /// through the profile library itself, never re-picked and never copied
+    /// by the sheet — the queue keeps its own copy once the job is accepted.
     private func selectLibraryProfile(_ summary: ProvisioningProfileSummary) {
-        let url = env.provisioningProfileFileURL(named: summary.sourceFileName)
-        guard let data = try? Data(contentsOf: url), !data.isEmpty else {
+        Task { await loadLibraryProfile(summary) }
+    }
+
+    private func loadLibraryProfile(_ summary: ProvisioningProfileSummary) async {
+        guard let profiles = env.provisioningProfiles,
+              let data = try? await profiles.profileBytes(withID: summary.id),
+              !data.isEmpty else {
             profileError = "The profile's stored file could not be read. Choose it from Files instead."
             return
         }
@@ -475,6 +503,22 @@ struct SigningQueueConfigurationView: View {
             profileError = (error as? ZynSignError)?.userMessage
                 ?? "The file picker could not provide the selected profile."
         }
+    }
+
+    /// Consults ZynSign's lock, then queues. The lock asks only when the
+    /// user requires authentication before sensitive actions (or ZynSign is
+    /// locked); a failed or cancelled attempt queues nothing and says why.
+    private func authorizeAndEnqueue() async {
+        guard canQueue else { return }
+        isAuthorizing = true
+        authorizationError = nil
+        let outcome = await appLock.authorize(.sign)
+        isAuthorizing = false
+        guard outcome.isAuthenticated else {
+            authorizationError = outcome.message
+            return
+        }
+        enqueueJobs()
     }
 
     /// Builds one submission per signable entry and hands them to the queue

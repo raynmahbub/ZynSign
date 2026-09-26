@@ -14,11 +14,13 @@ import SwiftUI
 /// library, certificate store, and profile library actually hold something.
 ///
 /// Importing is not Home's business. Every import action here — the toolbar
-/// button, the quick action, the first onboarding step — opens the shell's
-/// import area, where the file is chosen and the queue, progress, duplicate
-/// questions, and outcomes live. Home only reads the results: when an import
-/// settles, the dashboard's counts and its recently imported list are read
-/// again, so what is on screen is what the library holds.
+/// button, the quick action, the first onboarding step, and files dropped
+/// anywhere on the screen or onto the quick action — opens the shell's
+/// Import Hub, where files are chosen and the queue, preview, conflicts, and
+/// outcomes live. Home shows the hub's status while it has work, and reads
+/// the results: when an import adds to the library, the dashboard's counts
+/// and its recently imported list are read again, so what is on screen is
+/// what the library holds.
 struct HomeView: View {
 
     /// Switches the shell to another tab. `RootView` binds it to its selection.
@@ -33,18 +35,35 @@ struct HomeView: View {
     @State private var failedLoad = false
     @State private var hasReadLibrary = false
     @State private var settledImportCount = 0
-    @AppStorage("zynsign.onboarding.completed") private var onboardingCompleted = false
+    @AppStorage(LibraryPreferenceKeys.scope) private var libraryScope = LibraryScope.all.storageValue
+    /// Whether first-launch onboarding has been completed.
+    ///
+    /// This lives in the preferences store rather than in `UserDefaults`, so
+    /// that Settings → General can show it again and there is exactly one
+    /// record of it. It is the one preference that records something the user
+    /// did rather than something the user wants.
+    @Environment(\.settingsCenter) private var settings
+
+    private var onboardingCompleted: Bool {
+        settings.preferences.general.onboardingCompleted
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: ZSpacing.lg) {
                     welcomeHeader
+                    ImportHubStatusBanner(hub: environment.importHub) {
+                        importPresentation.present()
+                    }
                     quickActions
                     if onboardingNeeded {
                         onboardingCard
                     }
                     statisticsCard
+                    if showsFavorites {
+                        favoritesCard
+                    }
                     if !entries.isEmpty {
                         recentlyImportedCard
                     }
@@ -54,6 +73,8 @@ struct HomeView: View {
                 }
                 .padding()
             }
+            // Files dropped anywhere on Home go straight to the Import Hub.
+            .importDropTarget()
             .navigationTitle("Home")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -64,12 +85,16 @@ struct HomeView: View {
                 }
             }
             .task { await reload() }
-            .onReceive(environment.packageImportQueue.$jobs) { jobs in
-                reloadWhenAnImportSettles(jobs)
+            .onReceive(environment.importHub.$items) { items in
+                reloadWhenAnImportSettles(items)
             }
             .refreshable { await reload() }
             .navigationDestination(for: LibraryEntry.self) { entry in
-                ApplicationDetailView(entry: entry, bundleInspection: environment.bundleInspection)
+                ApplicationDetailView(
+                    entry: entry,
+                    bundleInspection: environment.bundleInspection,
+                    detailsInspection: environment.applicationDetailsInspection
+                )
             }
         }
     }
@@ -125,6 +150,7 @@ struct HomeView: View {
                 HomeActionButton(title: "Import IPA", icon: "square.and.arrow.down.fill", color: .blue) {
                     importPresentation.present()
                 }
+                .importDropTarget(.button)
                 HomeActionButton(title: "Certificates", icon: "signature", color: .purple) {
                     onOpenSection(.certificates)
                 }
@@ -144,7 +170,7 @@ struct HomeView: View {
                     .font(.headline)
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
-                Button("View All") { onOpenSection(.library) }
+                Button("View All") { openLibrary(on: .all) }
                     .font(.footnote)
                     .disabled(failedLoad && entries.isEmpty)
             }
@@ -160,7 +186,7 @@ struct HomeView: View {
                         icon: "square.grid.2x2",
                         color: .blue
                     ) {
-                        onOpenSection(.library)
+                        openLibrary(on: .all)
                     }
                     StatTile(
                         value: certificateCount.map { "\($0)" },
@@ -194,7 +220,7 @@ struct HomeView: View {
                     .font(.headline)
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
-                Button("Open Library") { onOpenSection(.library) }
+                Button("Open Library") { openLibrary(on: .all) }
                     .font(.footnote)
             }
             VStack(spacing: 0) {
@@ -212,6 +238,79 @@ struct HomeView: View {
         }
         .padding()
         .zynCardBackground(cornerRadius: ZRadius.lg)
+    }
+
+    // MARK: - Favorites
+
+    /// Favourites are the user's own shortlist, so they sit above what
+    /// merely arrived recently. The card appears once the library holds
+    /// anything; before the first star it says how to make one.
+    private var showsFavorites: Bool {
+        ReleaseTrain.isAvailable(.libraryPowerFeatures) && !entries.isEmpty
+    }
+
+    private var favoritesCard: some View {
+        VStack(alignment: .leading, spacing: ZSpacing.xs) {
+            HStack {
+                Text("Favorites")
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer()
+                if !favoriteEntries.isEmpty {
+                    Button("See All") { openLibrary(on: .smart(.favorites)) }
+                        .font(.footnote)
+                        .accessibilityLabel("See all favorites in the library")
+                }
+            }
+            if favoriteEntries.isEmpty {
+                HStack(spacing: ZSpacing.sm) {
+                    Image(systemName: "star")
+                        .font(.title3)
+                        .foregroundStyle(.yellow)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("No Favorites")
+                            .font(.subheadline.weight(.semibold))
+                        Text("Star your favorite apps to find them quickly.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .accessibilityElement(children: .combine)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: ZSpacing.sm) {
+                        ForEach(favoriteEntries, id: \.record.id) { entry in
+                            NavigationLink(value: entry) {
+                                FavoriteApplicationTile(entry: entry)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        .padding()
+        .zynCardBackground(cornerRadius: ZRadius.lg)
+    }
+
+    /// Every favourite, by name — the same order the library's Name A–Z
+    /// uses, so the two never disagree.
+    private var favoriteEntries: [LibraryEntry] {
+        entries
+            .filter { $0.record.isFavorite }
+            .sorted { LibraryIndex.nameOrder($0.record, $1.record) }
+    }
+
+    /// Opens the library tab on `scope`. The library remembers its scope,
+    /// so Home sets it before switching tabs rather than reaching into the
+    /// other tab's state.
+    private func openLibrary(on scope: LibraryScope) {
+        libraryScope = scope.storageValue
+        onOpenSection(.library)
     }
 
     /// The most recent imports, newest first, at most three — a window into
@@ -248,7 +347,7 @@ struct HomeView: View {
                 }
                 Spacer()
                 Button {
-                    onboardingCompleted = true
+                    completeOnboarding()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
@@ -355,8 +454,18 @@ struct HomeView: View {
         certificateCount = (try? environment.identityStore.listIdentities().count) ?? nil
         profileCount = try? await environment.provisioningProfiles?.count()
         if !entries.isEmpty && (certificateCount ?? 0) > 0 && (profileCount ?? 0) > 0 {
-            onboardingCompleted = true
+            completeOnboarding()
         }
+    }
+
+    /// Records that the user has finished with first-launch onboarding.
+    ///
+    /// The record is a preference, so Settings → General can show the card
+    /// again, and so there is exactly one place that says whether the user has
+    /// seen it.
+    private func completeOnboarding() {
+        guard !onboardingCompleted else { return }
+        settings.update { $0.general.onboardingCompleted = true }
     }
 
     // MARK: - Import
@@ -367,8 +476,8 @@ struct HomeView: View {
     /// notices that the library it describes may have changed. The count is
     /// kept in `@State` so a re-read happens once per settle, not on every
     /// progress report.
-    private func reloadWhenAnImportSettles(_ jobs: [PackageImportQueue.Job]) {
-        let settled = jobs.filter { $0.state.isSettled }.count
+    private func reloadWhenAnImportSettles(_ items: [ImportHub.Item]) {
+        let settled = items.filter { $0.settlement?.kind.isAccepted == true }.count
         guard settled != settledImportCount else { return }
         settledImportCount = settled
         Task { await reload() }
@@ -453,6 +562,37 @@ private struct StatTile: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(label): \(value ?? "unavailable")")
+    }
+}
+
+/// One favourite application on Home: its icon and name. The whole tile
+/// opens the application's details.
+private struct FavoriteApplicationTile: View {
+    let entry: LibraryEntry
+
+    @ScaledMetric(relativeTo: .caption) private var tileWidth: CGFloat = 76
+
+    var body: some View {
+        let name = entry.record.displayName ?? "Unnamed Application"
+        VStack(spacing: ZSpacing.xxs) {
+            ApplicationIconView(
+                artifactID: entry.record.artifact.artifactID,
+                displayName: name,
+                bundleIdentifier: entry.record.bundleIdentifier.rawValue,
+                size: 56
+            )
+            Text(name)
+                .font(.caption)
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+        }
+        .frame(width: tileWidth)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(name)
+        .accessibilityHint("Opens the application's details")
+        .accessibilityAddTraits(.isButton)
     }
 }
 

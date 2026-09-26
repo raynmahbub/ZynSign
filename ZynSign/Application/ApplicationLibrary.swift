@@ -47,6 +47,7 @@ actor ApplicationLibrary {
 
     private let records: any ApplicationRecordStore
     private let artifacts: any LibraryArtifactStore
+    private let diagnosticHistory: (any SigningDiagnosticsHistoryStore)?
     private let now: @Sendable () -> Date
 
     /// Artifacts adopted by an admission whose record has not been written
@@ -60,10 +61,12 @@ actor ApplicationLibrary {
     init(
         records: any ApplicationRecordStore,
         artifacts: any LibraryArtifactStore,
+        diagnosticHistory: (any SigningDiagnosticsHistoryStore)? = nil,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.records = records
         self.artifacts = artifacts
+        self.diagnosticHistory = diagnosticHistory
         self.now = now
     }
 
@@ -95,14 +98,63 @@ actor ApplicationLibrary {
         policy: AdmissionPolicy = .strict
     ) async throws -> LibraryAdmission {
         try Task.checkCancellation()
+        let metadata = try Self.inspectedMetadata(of: artifact, purpose: "offered to the library")
+        let reference = try artifacts.describeStagedArtifact(artifact.id)
+        return try await recordAdmission(artifact, metadata: metadata, reference: reference, policy: policy)
+    }
 
-        guard artifact.permitsLaterStages, let metadata = artifact.metadata else {
+    /// Offers an accepted import to the library, with the staged archive
+    /// already described by `describeStagedArtifact(_:)`.
+    ///
+    /// Identical to `admit(_:policy:)` except that the archive is not
+    /// measured again inside the library: describing a large archive means
+    /// hashing all of it, and doing that here would hold every other library
+    /// read — the Library screen refreshing, another import comparing —
+    /// behind it. The caller must describe the same staged archive it now
+    /// offers, and nothing may write to a staged archive in between; the
+    /// Import Hub's workflow owns its working copies exclusively, so both
+    /// hold. A reference for a different artifact is refused.
+    func admit(
+        _ artifact: IPAArtifact,
+        describedBy reference: ArtifactReference,
+        policy: AdmissionPolicy = .strict
+    ) async throws -> LibraryAdmission {
+        try Task.checkCancellation()
+        let metadata = try Self.inspectedMetadata(of: artifact, purpose: "offered to the library")
+        guard reference.artifactID == artifact.id else {
             throw ZynSignError.unrecordableArtifact(
-                diagnosticDetail: "Artifact '\(artifact.id.rawValue)' was offered to the library without passing inspection."
+                diagnosticDetail: "Artifact '\(artifact.id.rawValue)' was offered with a description of a different artifact."
             )
         }
+        return try await recordAdmission(artifact, metadata: metadata, reference: reference, policy: policy)
+    }
 
-        let reference = try artifacts.describeStagedArtifact(artifact.id)
+    /// Measures a staged archive — its size and content fingerprint —
+    /// without occupying the library.
+    ///
+    /// The artifact store is safe to use from any task, and measuring
+    /// changes nothing, so this runs on the caller's task rather than the
+    /// library's. Pair it with `admit(_:describedBy:policy:)` and
+    /// `duplicateReport(for:describedBy:)`.
+    nonisolated func describeStagedArtifact(_ artifact: ArtifactIdentifier) throws -> ArtifactReference {
+        try artifacts.describeStagedArtifact(artifact)
+    }
+
+    private static func inspectedMetadata(of artifact: IPAArtifact, purpose: String) throws -> ApplicationMetadata {
+        guard artifact.permitsLaterStages, let metadata = artifact.metadata else {
+            throw ZynSignError.unrecordableArtifact(
+                diagnosticDetail: "Artifact '\(artifact.id.rawValue)' was \(purpose) without passing inspection."
+            )
+        }
+        return metadata
+    }
+
+    private func recordAdmission(
+        _ artifact: IPAArtifact,
+        metadata: ApplicationMetadata,
+        reference: ArtifactReference,
+        policy: AdmissionPolicy
+    ) async throws -> LibraryAdmission {
         let existing = try await records.allRecords()
 
         switch ApplicationRecordDuplicatePolicy.evaluate(
@@ -157,12 +209,29 @@ actor ApplicationLibrary {
     /// a comparison that could not be made must not be reported as "no
     /// duplicate".
     func duplicateReport(for artifact: IPAArtifact) async throws -> DuplicateReport {
-        guard artifact.permitsLaterStages, let metadata = artifact.metadata else {
+        let metadata = try Self.inspectedMetadata(of: artifact, purpose: "compared with the library")
+        let reference = try artifacts.describeStagedArtifact(artifact.id)
+        return try await compare(metadata: metadata, reference: reference)
+    }
+
+    /// Compares an examined, still-staged artifact against the library,
+    /// with the staged archive already described by
+    /// `describeStagedArtifact(_:)` so the library is not held while it is
+    /// hashed.
+    func duplicateReport(
+        for artifact: IPAArtifact,
+        describedBy reference: ArtifactReference
+    ) async throws -> DuplicateReport {
+        let metadata = try Self.inspectedMetadata(of: artifact, purpose: "compared with the library")
+        guard reference.artifactID == artifact.id else {
             throw ZynSignError.unrecordableArtifact(
-                diagnosticDetail: "Artifact '\(artifact.id.rawValue)' was compared with the library without passing inspection."
+                diagnosticDetail: "Artifact '\(artifact.id.rawValue)' was compared with a description of a different artifact."
             )
         }
-        let reference = try artifacts.describeStagedArtifact(artifact.id)
+        return try await compare(metadata: metadata, reference: reference)
+    }
+
+    private func compare(metadata: ApplicationMetadata, reference: ArtifactReference) async throws -> DuplicateReport {
         let existing = try await records.allRecords()
         return DuplicateDetection.report(
             identity: metadata.identity,
@@ -221,6 +290,35 @@ actor ApplicationLibrary {
         try await records.update(record.with(isFavorite: isFavorite, updatedAt: now()))
     }
 
+    // MARK: - Verification
+
+    /// Verifies that the package file the library holds for the record
+    /// carrying `id` is still exactly the bytes recorded at import.
+    ///
+    /// The file is read in full and its size and content fingerprint are
+    /// compared with the record's reference. Nothing is repaired, moved, or
+    /// rewritten: a changed or missing file is reported, and the record is
+    /// left as it is. Reading a large package takes time, so the work runs
+    /// off the library's executor (the method is `nonisolated`) and never
+    /// holds up imports, listing, or removal while it hashes.
+    ///
+    /// Fails with a typed error when no such record exists, or when a held
+    /// file cannot be read.
+    nonisolated func verifyArtifact(recordWithID id: ApplicationRecordIdentifier) async throws -> ArtifactIntegrity {
+        guard let record = try await records.record(withID: id) else {
+            throw ZynSignError.libraryRecordNotFound(
+                diagnosticDetail: "No library record carries identifier '\(id.rawValue)'."
+            )
+        }
+        guard let measured = try artifacts.measureHeldArtifact(record.artifact.artifactID) else {
+            return .missing
+        }
+        if measured.describesSameContent(as: record.artifact) {
+            return .intact
+        }
+        return .modified(recordedByteCount: record.artifact.byteCount, observedByteCount: measured.byteCount)
+    }
+
     // MARK: - Removal
 
     /// Removes the record carrying `id` and the artifact it refers to.
@@ -236,7 +334,16 @@ actor ApplicationLibrary {
             )
         }
         try await records.delete(recordWithID: id)
-        try artifacts.removeArtifact(record.artifact.artifactID)
+        // This history contains only scan codes and the opaque record UUID,
+        // but it should not outlive a deleted library entry. Cleanup is best
+        // effort: a journal error must not resurrect a deleted record.
+        do {
+            try artifacts.removeArtifact(record.artifact.artifactID)
+        } catch {
+            try? await diagnosticHistory?.remove(for: id)
+            throw error
+        }
+        try? await diagnosticHistory?.remove(for: id)
     }
 
     // MARK: - Orphaned artifacts

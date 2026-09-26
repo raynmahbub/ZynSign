@@ -71,7 +71,7 @@ struct SigningQueueView: View {
             case .retryAllFailed:
                 return "\(count) failed job\(count == 1 ? "" : "s") will run again from clean, untouched inputs."
             case .clearCompleted:
-                return "\(count) completed job\(count == 1 ? "" : "s") will be removed from the list. The signed containers in Documents/Signed are not touched."
+                return "\(count) completed job\(count == 1 ? "" : "s") will be removed from the list. The signed artifacts in Exports are not touched."
             case .clearFailed:
                 return "\(count) failed job\(count == 1 ? "" : "s") will be removed from the list. Nothing else changes."
             }
@@ -119,7 +119,7 @@ struct SigningQueueView: View {
         ContentUnavailableView {
             Label("No Signing Jobs", systemImage: "tray")
         } description: {
-            Text("Queue applications from the Library — one at a time from a row's actions, or several at once with Select → Queue. Each job runs the same nine-stage pipeline as Smart Sign, in its own isolated workspace, and delivers to Documents/Signed. The queue keeps working while you use the rest of ZynSign.")
+            Text("Queue applications from the Library — one at a time from a row's actions, or several at once with Select → Queue. Each job runs as its own signing operation, in an isolated workspace, and adds its verified artifact to Exports. The queue keeps working while you use the rest of ZynSign.")
         } actions: {
             Button("Open Library") {
                 ZHaptics.tap()

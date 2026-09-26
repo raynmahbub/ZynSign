@@ -104,15 +104,17 @@ struct SigningJobFailure: Equatable, Hashable, Sendable, Codable {
 
 /// What one completed signing job delivered.
 ///
-/// The evidence is the pipeline's own: counts from the stage reports and
-/// the delivered container's name and size. A completion states that the
-/// container the run produced passed the run's independent verification —
-/// it is not a trust, authorization, or installability claim, exactly as
-/// the pipeline documents.
+/// The evidence is the signing operation's own: the exported artifact's
+/// name, size, and export identifier, the nested-target count the run's
+/// plan established, and what independent verification concluded. A
+/// completion states that the container the run produced passed the run's
+/// independent verification and was committed to export storage — it is
+/// not a trust, authorization, or installability claim, exactly as the
+/// pipeline documents.
 struct SigningJobCompletion: Equatable, Hashable, Sendable, Codable {
 
-    /// The delivered container's file name inside the signed-output
-    /// directory. A label only, never a full path.
+    /// The exported artifact's file name inside export storage. A label
+    /// only, never a full path.
     let outputFileName: String
 
     /// The delivered container's size in bytes, when it could be measured.
@@ -136,6 +138,19 @@ struct SigningJobCompletion: Equatable, Hashable, Sendable, Codable {
     /// When the job completed.
     let finishedAt: Date
 
+    /// The Export Center record describing the delivered artifact, by its
+    /// stored identifier, so the job can open the export it produced.
+    /// Optional because snapshots written before jobs were delivered
+    /// through export storage carry none.
+    let exportIdentifier: String?
+
+    /// What independent verification of the exported artifact concluded —
+    /// the same check the Export Center's "Verify Again" runs, recorded
+    /// after the artifact was committed. Distinct from
+    /// `verificationPassed`, which is the run's own verification of the
+    /// container before delivery.
+    let exportVerification: ArtifactVerificationStatus?
+
     init(
         outputFileName: String,
         outputByteCount: Int? = nil,
@@ -143,7 +158,9 @@ struct SigningJobCompletion: Equatable, Hashable, Sendable, Codable {
         sealedFileCount: Int? = nil,
         signatureByteCount: Int? = nil,
         verificationPassed: Bool = true,
-        finishedAt: Date
+        finishedAt: Date,
+        exportIdentifier: String? = nil,
+        exportVerification: ArtifactVerificationStatus? = nil
     ) {
         self.outputFileName = outputFileName
         self.outputByteCount = outputByteCount
@@ -152,6 +169,8 @@ struct SigningJobCompletion: Equatable, Hashable, Sendable, Codable {
         self.signatureByteCount = signatureByteCount
         self.verificationPassed = verificationPassed
         self.finishedAt = finishedAt
+        self.exportIdentifier = exportIdentifier
+        self.exportVerification = exportVerification
     }
 }
 

@@ -32,7 +32,7 @@ struct SignMachOUseCase {
         let image: MachOImage
         do { image = try parser.parse(request.artifact) }
         catch let error as MachOParsingError { throw MachOSigningError.invalidMachO(error) }
-        try admit(image)
+        try Self.checkSupportedImage(image)
         // The offset depends only on the original length, not on CMS contents.
         let offsetPlan = try MachOCodeSignatureRegionLayout(
             appendingSerializedSuperBlobLength: 1, toFileLength: request.artifact.count)
@@ -281,10 +281,11 @@ struct SignMachOUseCase {
         } catch let error as CodeDirectoryError { throw MachOSigningError.codeDirectoryConstruction(error) }
     }
 
-    /// An explicit synthetic executable model: two non-overlapping segments,
-    /// one file-backed text section, no encryption or unhandled load commands.
-    /// Other valid Mach-O layouts are unsupported, not silently generalized.
-    private func admit(_ image: MachOImage) throws {
+    /// The exact read-only image admission rule the signer applies before any
+    /// key operation. Diagnostics reuse it instead of guessing support from a
+    /// Mach-O header. This is not a guarantee that later signing will succeed.
+    /// Only a narrow, synthetic two-segment layout is supported today.
+    static func checkSupportedImage(_ image: MachOImage) throws {
         guard case .thin(let slice) = image.container else { throw MachOSigningError.unsupportedMachOForm }
         if slice.embeddedSignature != nil { throw MachOSigningError.layout(.existingSignatureRejected) }
         guard slice.header.wordSize == .bits64, slice.header.byteOrder == .littleEndian,

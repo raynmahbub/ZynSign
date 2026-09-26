@@ -50,9 +50,33 @@ protocol ArchiveReader: AnyObject {
     /// receives a failure — never a silently shortened value.
     func readEntryData(at path: ArchivePath, maximumBytes: Int) throws -> Data
 
+    /// Reads at most `maximumBytes` expanded bytes from the entry at `path`.
+    ///
+    /// When the entry's declared compressed and expanded sizes both fit in
+    /// `maximumBytes` and in the reader's policy, this is a complete read:
+    /// implementations that record a checksum verify it, and the result is the
+    /// whole entry. When the entry is larger, an implementation may return a
+    /// prefix of at most `maximumBytes` expanded bytes without verifying the
+    /// whole-entry checksum, or it may fail rather than return a partial
+    /// value. The default fails closed by attempting a complete read.
+    ///
+    /// A prefix is not a substitute for the entry. Nothing this method does
+    /// writes the container, extracts it, or follows a link.
+    func readEntryPrefix(at path: ArchivePath, maximumBytes: Int) throws -> Data
+
     /// Releases the container's underlying resources.
     ///
     /// Closing is idempotent, and inspection closes the reader on every
     /// outcome — success, failure, and cancellation alike.
     func close()
+}
+
+extension ArchiveReader {
+
+    /// Fails closed: a reader that has not implemented a true prefix read
+    /// attempts a complete read and therefore refuses an entry larger than
+    /// the bound rather than silently shortening it.
+    func readEntryPrefix(at path: ArchivePath, maximumBytes: Int) throws -> Data {
+        try readEntryData(at: path, maximumBytes: maximumBytes)
+    }
 }

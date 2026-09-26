@@ -93,6 +93,22 @@ actor AppIconExtraction {
         return data
     }
 
+    /// Records icon data that was already extracted — by the Import Hub,
+    /// while it analyzed the package — for the package stored as
+    /// `artifact`, so the library shows the icon without reading the
+    /// package again. Data beyond the size bound is ignored.
+    func remember(_ data: Data, for artifact: ArtifactIdentifier) {
+        guard !data.isEmpty, data.count <= maximumIconBytes else { return }
+        memoryCache[artifact] = data
+        do {
+            try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+            try data.write(to: Self.cacheURL(for: artifact, in: cacheDirectory), options: .atomic)
+        } catch {
+            // Best effort: without the disk copy the icon is extracted
+            // again the next time it is needed.
+        }
+    }
+
     // MARK: - Extraction
 
     /// Chooses and reads one icon entry from `reader`. Internal (not

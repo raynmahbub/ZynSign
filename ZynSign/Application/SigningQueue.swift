@@ -19,9 +19,9 @@ import Combine
 /// would multiply peak memory and battery cost on a phone. The scheduler is
 /// nevertheless written against a `maximumConcurrentJobs` bound rather than
 /// a hard-coded single task, and every job is fully isolated — its own
-/// request, its own output name, its own pipeline-created working
-/// directory, its own log, its own verification — so raising the bound is a
-/// policy change, not an architecture change.
+/// request, its own operation-created working directory, its own export
+/// name chosen by export storage, its own log, its own verification — so
+/// raising the bound is a policy change, not an architecture change.
 ///
 /// **A running job is never preempted.** Priorities and reordering arrange
 /// *waiting* jobs; a run in flight always finishes, fails, or is cancelled
@@ -32,10 +32,10 @@ import Combine
 /// safely resume from, and a control that cannot be implemented safely is
 /// not a control.
 ///
-/// **A retry is a fresh, clean run.** The pipeline creates a new working
-/// directory per attempt, the executor removes the job's own stale output
-/// before running, and the source container is only ever read — so a retry
-/// never continues from a partially modified state, it repeats an untouched
+/// **A retry is a fresh, clean run.** Every attempt is a new signing
+/// operation with a new working directory, a failed attempt delivers
+/// nothing, and the source container is only ever read — so a retry never
+/// continues from a partially modified state, it repeats an untouched
 /// one. Retrying is offered only where it is honest: transient failures,
 /// interruptions, and cancellations, never an input the pipeline refused on
 /// its content.
@@ -49,10 +49,11 @@ import Combine
 /// working directories, orphaned profile copies) is swept during
 /// restoration.
 ///
-/// The queue owns no signed bytes. A completed job names the container the
-/// pipeline delivered to the signed-output directory; removing the job from
-/// the list never touches that container, and clearing the list never
-/// deletes anything the user can see in Files.
+/// The queue owns no signed bytes. A completed job names the artifact its
+/// signing operation committed to export storage, where the Export Center
+/// lists it; removing the job from the list never touches that artifact,
+/// and clearing the list never deletes anything the user can see in Files
+/// or in Exports.
 @MainActor
 final class SigningQueue: ObservableObject {
 
@@ -273,8 +274,6 @@ final class SigningQueue: ObservableObject {
     /// re-derives locations exactly the way a fresh enqueue did.
     private let artifactURLResolver: @Sendable (ArtifactIdentifier) -> URL
 
-    /// Where delivered containers go. Injected for the same reason.
-    private let outputDirectory: URL
 
     private let now: () -> Date
 
@@ -315,14 +314,12 @@ final class SigningQueue: ObservableObject {
         store: (any SigningQueueStore)? = nil,
         notifier: (any SigningQueueNotifying)? = nil,
         artifactURLResolver: @escaping @Sendable (ArtifactIdentifier) -> URL,
-        outputDirectory: URL,
         now: @escaping () -> Date = { Date() }
     ) {
         self.executor = executor
         self.store = store
         self.notifier = notifier
         self.artifactURLResolver = artifactURLResolver
-        self.outputDirectory = outputDirectory
         self.now = now
     }
 
@@ -552,7 +549,7 @@ final class SigningQueue: ObservableObject {
     ///
     /// The retry re-queues the job at the position its priority earns and,
     /// when it runs, creates a completely fresh execution: a new working
-    /// directory, the stale output removed, the source read again. Nothing
+    /// operation and working directory, the source read again. Nothing
     /// continues from a partially modified state, because no state
     /// survives a settled run to continue from.
     ///
@@ -584,9 +581,9 @@ final class SigningQueue: ObservableObject {
     // MARK: - Removing
 
     /// Removes a settled job from the list, discarding the queue's copy of
-    /// its request and its persisted profile copy. Nothing else changes: a
-    /// container the job delivered is the user's file, in Documents/Signed,
-    /// and removing the job never touches it.
+    /// its request and its persisted profile copy. Nothing else changes: an
+    /// artifact the job delivered belongs to the Export Center, and removing
+    /// the job never touches it.
     func remove(_ id: SigningJobIdentifier) {
         guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
         guard jobs[index].state.isSettled else { return }
@@ -884,10 +881,8 @@ final class SigningQueue: ObservableObject {
         SigningJobExecutionRequest(
             jobID: jobID,
             attempt: attempt,
+            recordID: submission.recordID,
             sourceURL: artifactURLResolver(submission.artifactID),
-            outputURL: outputDirectory.appendingPathComponent(
-                Self.outputFileName(for: submission, jobID: jobID)
-            ),
             profile: submission.profile,
             identityID: submission.identityID,
             emitDEREntitlements: submission.emitDEREntitlements,
@@ -902,21 +897,6 @@ final class SigningQueue: ObservableObject {
         )
     }
 
-    /// The delivered container's file name for one job: the application's
-    /// name, made filesystem-safe, plus the job identifier's short form.
-    /// Deterministic per job, so a retry overwrites exactly its own earlier
-    /// output and never another job's.
-    static func outputFileName(for submission: SigningJobSubmission, jobID: SigningJobIdentifier) -> String {
-        let base = submission.applicationName.isEmpty
-            ? submission.bundleIdentifier
-            : submission.applicationName
-        let safeBase = base
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: ":", with: "_")
-            .replacingOccurrences(of: " ", with: "_")
-        let short = String(jobID.rawValue.prefix(8))
-        return "\(safeBase)_signed_\(short).ipa"
-    }
 
     /// Mirrors one progress report onto its job.
     ///
@@ -969,7 +949,7 @@ final class SigningQueue: ObservableObject {
             notice = SigningQueueNotice(
                 kind: .jobCompleted,
                 title: "\(job.applicationName) signed",
-                message: "The verified container was delivered to Documents/Signed.",
+                message: "The verified artifact is ready in Exports.",
                 jobID: job.id,
                 createdAt: now()
             )
@@ -1132,8 +1112,7 @@ final class SigningQueue: ObservableObject {
                         profileDisplayName: submission.profileDisplayName,
                         profileTeamIdentifier: submission.profileTeamIdentifier,
                         emitDEREntitlements: submission.emitDEREntitlements,
-                        presetID: submission.presetID?.rawValue,
-                        outputFileName: Self.outputFileName(for: submission, jobID: job.id)
+                        presetID: submission.presetID?.rawValue
                     )
                 }
                 return StoredSigningJob(

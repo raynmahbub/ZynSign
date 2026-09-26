@@ -92,13 +92,14 @@ struct SigningJobSubmission: Equatable, Sendable {
     }
 }
 
-/// One signing job as the executor receives it: fully resolved locations
-/// and configuration, plus the display metadata the history record needs.
+/// One signing job as the executor receives it: the resolved source,
+/// the configuration, and the display metadata the run records.
 ///
 /// The executor runs exactly one job. Everything it needs is here, and
 /// nothing here is shared with another job: the source is read-only, the
-/// output name is the job's own, and the run's working copy is created
-/// fresh per attempt by the pipeline.
+/// run's working directory is created fresh per attempt by the signing
+/// operation, and the delivered artifact is named by export storage at
+/// commit time, which refuses to overwrite anything already there.
 struct SigningJobExecutionRequest: Equatable, Sendable {
 
     /// The job being executed.
@@ -107,11 +108,14 @@ struct SigningJobExecutionRequest: Equatable, Sendable {
     /// Which run of the job this is: 1 for the first, 2 after one retry.
     let attempt: Int
 
+    /// The library record being signed. The executor resolves the record's
+    /// current library entry when the run starts, so a job whose
+    /// application was removed from the library fails honestly instead of
+    /// signing a package the library no longer lists.
+    let recordID: ApplicationRecordIdentifier
+
     /// The source container to sign. Read but never modified.
     let sourceURL: URL
-
-    /// Where the signed, verified container is delivered. Unique per job.
-    let outputURL: URL
 
     /// The replacement profile's bytes.
     let profile: Data
@@ -149,8 +153,8 @@ struct SigningJobExecutionRequest: Equatable, Sendable {
     init(
         jobID: SigningJobIdentifier,
         attempt: Int,
+        recordID: ApplicationRecordIdentifier,
         sourceURL: URL,
-        outputURL: URL,
         profile: Data,
         identityID: SigningIdentityIdentifier,
         emitDEREntitlements: Bool,
@@ -165,8 +169,8 @@ struct SigningJobExecutionRequest: Equatable, Sendable {
     ) {
         self.jobID = jobID
         self.attempt = attempt
+        self.recordID = recordID
         self.sourceURL = sourceURL
-        self.outputURL = outputURL
         self.profile = profile
         self.identityID = identityID
         self.emitDEREntitlements = emitDEREntitlements
@@ -217,9 +221,9 @@ protocol SigningJobProgressReporting: AnyObject, Sendable {
 ///
 /// The port exists so the queue — which owns scheduling, priorities,
 /// retries, cancellation, notices, and persistence — depends on the
-/// *capability* of signing a job rather than on the concrete pipeline.
-/// `PipelineSigningExecutor` is the capability's only production
-/// implementation, and a test can substitute a controllable one without a
+/// *capability* of signing a job rather than on the concrete signing
+/// operation. `SigningOperationExecutor` is the capability's only
+/// production implementation, and a test can substitute a controllable one without a
 /// filesystem, a container, or a Keychain.
 protocol SigningQueueExecuting {
 
@@ -227,7 +231,7 @@ protocol SigningQueueExecuting {
     ///
     /// - Parameters:
     ///   - request: the fully resolved job to run. Read-only inputs; the
-    ///     output location is the job's own.
+    ///     delivered artifact is named by export storage.
     ///   - progress: where the run reports the stages it reaches, or `nil`
     ///     when the caller does not want progress.
     ///

@@ -5,7 +5,7 @@ import XCTest
 /// mappings the library screen renders.
 ///
 /// The model is exercised with the real library use case over in-memory
-/// stores, and the real import queue over the real import use case with
+/// stores, and the real Import Hub over the real import workflow with
 /// synthetic ports beneath it, so the phases it renders are the phases the
 /// application layer actually produces: loading into loaded, empty, or
 /// failed; a settled import refreshing the library and announcing itself;
@@ -19,7 +19,7 @@ final class ApplicationLibraryModelTests: XCTestCase {
     private var artifacts: SyntheticLibraryArtifactStore!
     private var library: ApplicationLibrary!
     private var intake: SyntheticIntake!
-    private var queue: PackageImportQueue!
+    private var hub: ImportHub!
     private var model: ApplicationLibraryModel!
 
     override func setUp() {
@@ -34,13 +34,14 @@ final class ApplicationLibraryModelTests: XCTestCase {
         )
         intake = SyntheticIntake()
         intake.artifactStore = artifacts
-        queue = PackageImportQueue(importing: makePackageImport(), now: { [clock] in clock.now() })
-        model = ApplicationLibraryModel(library: library, queue: queue)
+        hub = makeHub(reader: ImportFixtures.validReader(), now: { [clock] in clock.now() })
+        model = ApplicationLibraryModel(library: library, hub: hub)
     }
 
     override func tearDown() {
         model = nil
-        queue = nil
+        hub?.cancelAll()
+        hub = nil
         intake = nil
         library = nil
         artifacts = nil
@@ -50,35 +51,45 @@ final class ApplicationLibraryModelTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func makePackageImport() -> IPAPackageImport {
-        IPAPackageImport(
-            intake: intake,
-            readerProvider: SyntheticArchiveReaderProvider.providing(ImportFixtures.validReader()),
-            library: library
+    private func makeHub(reader: SyntheticArchiveReader, now: @escaping () -> Date = { Date() }) -> ImportHub {
+        ImportHub(
+            processing: ImportWorkflow(
+                intake: intake,
+                stagingArea: SyntheticImportStagingArea(),
+                readerProvider: SyntheticArchiveReaderProvider.providing(reader),
+                library: library,
+                storage: ImportStorageGuard(probe: nil)
+            ),
+            progressInterval: 0,
+            now: now
         )
     }
 
-    /// Rebuilds the import queue and the screen model over a different
+    /// Rebuilds the Import Hub and the screen model over a different
     /// reader, for tests that need a specific container outcome.
     private func makeModels(reader: SyntheticArchiveReader) {
-        queue = PackageImportQueue(importing: IPAPackageImport(
-            intake: intake,
-            readerProvider: SyntheticArchiveReaderProvider.providing(reader),
-            library: library
-        ))
-        model = ApplicationLibraryModel(library: library, queue: queue)
+        hub = makeHub(reader: reader)
+        model = ApplicationLibraryModel(library: library, hub: hub)
     }
 
-    /// Enqueues a package the way any entry point does, and returns the
-    /// settlement once the import has finished. The model observes the same
-    /// queue, so what it announces is what the queue settled.
+    /// Hands a package to the hub the way any entry point does, confirms it
+    /// in the preview, and returns the settlement once the import has
+    /// finished. The model observes the same hub, so what it announces is
+    /// what the hub settled.
     private func importPackage(
         from source: URL = ImportFixtures.sourceURL(),
         origin: ImportOrigin = .documentPicker
     ) async -> ImportSettlement? {
-        queue.enqueue(source, origin: origin)
-        await awaitCondition("The import never settled.") { !self.queue.isBusy }
-        return queue.jobs.last?.settlement
+        guard let id = hub.receive([source], origin: origin).first else { return nil }
+        func current() -> ImportHub.Item? { hub.items.first { $0.id == id } }
+        await waitUntil("The import never reached the preview.") {
+            current().map { $0.isReady || $0.settlement != nil } ?? false
+        }
+        if current()?.isReady == true {
+            hub.importSelected()
+        }
+        await waitUntil("The import never settled.") { current()?.settlement != nil }
+        return current()?.settlement
     }
 
     /// Spins the main actor until `condition` holds, bounded so a condition
@@ -212,12 +223,12 @@ final class ApplicationLibraryModelTests: XCTestCase {
         XCTAssertEqual(model.phase, .empty)
 
         intake.behaviour = .waitsUntilCancelledThenFails
-        queue.enqueue(ImportFixtures.sourceURL(), origin: .documentPicker)
-        await awaitCondition("The import never started.") { self.queue.isBusy }
-        queue.cancel(queue.jobs[0].id)
-        await awaitCondition("The import never settled.") { !self.queue.isBusy }
+        hub.receive([ImportFixtures.sourceURL()], origin: .documentPicker)
+        await awaitCondition("The import never started.") { self.hub.isBusy }
+        hub.cancel(hub.items[0].id)
+        await awaitCondition("The import never settled.") { !self.hub.isBusy }
 
-        XCTAssertEqual(queue.jobs[0].settlement?.kind, .cancelled)
+        XCTAssertEqual(hub.items[0].settlement?.kind, .cancelled)
         // A cancellation is the user withdrawing the request: no
         // announcement, and the library exactly as it was.
         XCTAssertNil(model.notice)
@@ -686,7 +697,7 @@ final class ApplicationLibraryModelTests: XCTestCase {
         )
         let modelWithJournal = ApplicationLibraryModel(
             library: library,
-            queue: queue,
+            hub: hub,
             signingHistory: SyntheticSigningHistoryStore(recordsToReturn: [signed])
         )
         await modelWithJournal.load()

@@ -1,53 +1,55 @@
 import SwiftUI
 import UIKit
 
-/// The Settings area — ZynSign's configuration hub.
+/// The Settings Control Center.
 ///
-/// Settings is where signing options, appearance, storage and diagnostics
-/// live, together with links to the complete areas that are not tabs
-/// (Files, App Store, Downloads) and the honest capability screens
-/// (Pairing, Analytics, Installation). Certificates and provisioning
-/// profiles have their own tabs in the shell.
+/// Settings is an index, not a form. Everything a user can configure lives in
+/// its own section, reached from here, and every section is a peer of every
+/// other: the hub lists what the catalog holds and nothing more, so a new
+/// section is a new file rather than a new case in this view.
+///
+/// The order is deliberate — what ZynSign is, what else it can show you, the
+/// preferences you will actually change, the honest capability screens, the
+/// settings kept apart from everyday use, and finally what the application is
+/// and ships with.
 struct SettingsView: View {
 
     @Environment(\.applicationEnvironment) private var environment
     @Environment(\.signingQueuePresentation) private var signingQueuePresentation
-    @State private var showResetConfirm = false
-    @State private var resetMessage: String?
 
     var body: some View {
         NavigationStack {
             List {
-                aboutSection
+                summarySection
                 browseSection
-                if ReleaseTrain.isAvailable(.smartSign) {
-                    signingOptionsSection
-                }
-                signingSection
-                appearanceSection
-                storageSection
-                diagnosticsSection
-                resetSection
+                preferencesSection
+                workflowSection
+                separatedSection
+                aboutSection
             }
             .navigationTitle("Settings")
-            .alert("Reset Library?", isPresented: $showResetConfirm) {
-                Button("Cancel", role: .cancel) {}
-                Button("Reset", role: .destructive) { Task { await resetLibrary() } }
-            } message: {
-                Text("All imported packages and their records in ZynSign's library will be permanently deleted. This cannot be undone.")
-            }
-            .alert(resetMessage ?? "", isPresented: Binding(get: { resetMessage != nil }, set: { if !$0 { resetMessage = nil } })) { Button("OK", role: .cancel) {} } message: { Text(resetMessage ?? "") }
         }
     }
 
-    private var aboutSection: some View {
-        Section("About") {
-            LabeledContent("Name", value: environment.applicationInfo.displayName)
-            LabeledContent("Version", value: "\(environment.applicationInfo.marketingVersion) (\(environment.applicationInfo.buildVersion))")
-            LabeledContent("Build", value: "Development")
-            Link(destination: URL(string: "https://github.com/raynmahbub/ZynSign")!) {
-                Label("ZynSign on GitHub", systemImage: "link")
+    // MARK: - ZynSign
+
+    /// What this build is, in one row. The rest is in About.
+    private var summarySection: some View {
+        Section {
+            HStack(spacing: ZSpacing.md) {
+                ZynSignAppMark(size: 52)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(environment.applicationInfo.displayName)
+                        .font(.headline)
+                    Text("Version \(environment.applicationInfo.marketingVersion) (\(environment.applicationInfo.buildVersion))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
             }
+            .accessibilityElement(children: .combine)
+        } footer: {
+            Text("Every preference is saved as you change it. Nothing here waits for a confirmation — except the one reset in Recovery that deletes imported applications, which says what it will delete and asks twice.")
         }
     }
 
@@ -74,12 +76,35 @@ struct SettingsView: View {
         }
     }
 
-    /// Signing preferences. Certificates have their own tab; this is where
-    /// the options a signing run uses are configured.
-    private var signingOptionsSection: some View {
+    /// The everyday preference sections, listed from the catalog.
+    ///
+    /// The hub knows their titles and where they go; it knows nothing about
+    /// what is inside them, which is what lets a section be added, extended,
+    /// or reordered without touching this view.
+    private var preferencesSection: some View {
         Section {
-            NavigationLink { SigningOptionsView() } label: {
-                Label("Signing Options", systemImage: "slider.horizontal.3")
+            ForEach(SettingsSectionCatalog.everyday) { section in
+                NavigationLink { section.destination() } label: {
+                    ZSettingsLabel(
+                        title: section.descriptor.title,
+                        subtitle: section.descriptor.summary,
+                        symbol: section.descriptor.symbolName
+                    )
+                }
+            }
+        } header: { Text("Preferences") } footer: {
+            Text("General, signing, security, storage, diagnostics, and appearance. Each section explains what it changes and what it cannot.")
+        }
+    }
+
+    /// The honest capability screens: what ZynSign does, and what it
+    /// deliberately does not.
+    private var workflowSection: some View {
+        Section {
+            if ReleaseTrain.isAvailable(.smartSign) {
+                NavigationLink { SigningOptionsView() } label: {
+                    Label("Signing Options", systemImage: "slider.horizontal.3")
+                }
             }
             if signingQueuePresentation.isAvailable {
                 Button { signingQueuePresentation.present() } label: {
@@ -87,13 +112,6 @@ struct SettingsView: View {
                 }
                 .accessibilityHint("Opens the signing queue dashboard.")
             }
-        } header: { Text("Signing") } footer: {
-            Text("Configure the options used when the pipeline is composed for signing. Certificates and profiles are managed in their own tabs.")
-        }
-    }
-
-    private var signingSection: some View {
-        Section {
             NavigationLink { ArchiveSettingsView() } label: {
                 Label("Archive & Extraction", systemImage: "doc.zipper")
             }
@@ -131,111 +149,67 @@ struct SettingsView: View {
         return parts.joined(separator: " ")
     }
 
-    private var appearanceSection: some View {
+    /// Advanced and recovery, listed apart from everyday settings.
+    private var separatedSection: some View {
         Section {
-            NavigationLink { AppearanceSettingsView() } label: {
-                Label("Appearance", systemImage: "paintbrush")
+            ForEach(SettingsSectionCatalog.separated) { section in
+                NavigationLink { section.destination() } label: {
+                    ZSettingsLabel(
+                        title: section.descriptor.title,
+                        subtitle: section.descriptor.summary,
+                        symbol: section.descriptor.symbolName
+                    )
+                }
             }
-            NavigationLink { AppIconSettingsView() } label: {
-                Label("App Icon", systemImage: "app.badge")
-            }
-        } header: { Text("Personalisation") }
-    }
-
-    private var storageSection: some View {
-        Section {
-            Button { openDocuments() } label: { Label("Open Documents", systemImage: "folder") }
-            Button { openLibraryFolder() } label: { Label("Open Library Folder", systemImage: "externaldrive") }
-            LabeledContent("Library Location", value: "Application Support/ZynSignLibrary")
-                .font(.footnote).foregroundStyle(.secondary)
-        } header: { Text("Storage") } footer: {
-            Text("All of ZynSign's files — staged imports, adopted artifacts, and the catalog — live inside the app container. Nothing is shared outside the sandbox.")
+        } header: { Text("Advanced & Recovery") } footer: {
+            Text("Advanced changes how ZynSign works internally. Recovery restores a known-good state without taking anything you imported — with one labelled exception.")
         }
     }
 
-    private var diagnosticsSection: some View {
+    /// About, last: what this build is and what ships with it.
+    private var aboutSection: some View {
         Section {
-            NavigationLink { DiagnosticsView() } label: {
-                Label("Diagnostics & Logs", systemImage: "doc.text.magnifyingglass")
+            ForEach(SettingsSectionCatalog.about) { section in
+                NavigationLink { section.destination() } label: {
+                    ZSettingsLabel(
+                        title: section.descriptor.title,
+                        subtitle: section.descriptor.summary,
+                        symbol: section.descriptor.symbolName
+                    )
+                }
             }
-        } header: { Text("Diagnostics") }
-    }
-
-    private var resetSection: some View {
-        Section {
-            Button(role: .destructive) { showResetConfirm = true } label: {
-                Label("Reset Library", systemImage: "trash")
-            }
-        } header: { Text("Reset") } footer: {
-            Text("Clears every record and every package file ZynSign keeps. Orphaned artifacts are removed as well.")
-        }
-    }
-
-    private func openDocuments() {
-        guard let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
-        // Open in Files via share sheet fallback
-        share(url: url)
-    }
-    private func openLibraryFolder() {
-        let lib = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.appendingPathComponent("ZynSignLibrary", isDirectory: true)
-        if let lib { share(url: lib) }
-    }
-    private func share(url: URL) {
-        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let window = scene.windows.first,
-              let vc = window.rootViewController else { return }
-        let av = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-        if let pop = av.popoverPresentationController { pop.sourceView = window; pop.sourceRect = CGRect(x: window.bounds.midX, y: window.bounds.midY, width: 0, height: 0) }
-        vc.present(av, animated: true)
-    }
-    private func resetLibrary() async {
-        do {
-            let entries = try await environment.library.entries()
-            for e in entries { try? await environment.library.remove(recordWithID: e.record.id) }
-            try? await environment.library.removeOrphanedArtifacts()
-            resetMessage = "Library cleared."
-        } catch {
-            resetMessage = (error as? ZynSignError)?.userMessage ?? "The library could not be reset."
-        }
+        } header: { Text("About") }
     }
 }
 
 // MARK: - Sub-screens
 
-private struct CertificatesSettingsView: View {
-    var body: some View {
-        List {
-            Section {
-                ContentUnavailableView {
-                    Label("No Certificates", systemImage: "signature")
-                } description: {
-                    Text("Add a .p12 or Keychain identity to sign packages. Identities stay in the Keychain, marked non-extractable, and are never logged.")
-                }
-            }
-            Section("What will be here") {
-                Label("Import .p12 (when E7 lands)", systemImage: "key.fill").foregroundStyle(.secondary)
-                Label("View certificate metadata, validity, chain", systemImage: "info.circle").foregroundStyle(.secondary)
-                Label("Per-identity readiness (key available, associated, adequate)", systemImage: "checkmark.shield").foregroundStyle(.secondary)
-            }
-        }
-        .navigationTitle("Certificates").navigationBarTitleDisplayMode(.inline)
-    }
-}
+/// Only controls that the signing screen really passes to the pipeline may
+/// appear here. Settings has no global signing configuration to silently
+/// promise a bundle-ID rewrite or plug-in removal the pipeline cannot do.
 struct SigningOptionsView: View {
-    @AppStorage("zynsign.signing.bundleIdPrefix") private var bundlePrefix = ""
-    @AppStorage("zynsign.signing.stripPlugins") private var stripPlugins = false
+    private let emitDEREntitlements: Binding<Bool>?
+
+    init(emitDEREntitlements: Binding<Bool>? = nil) {
+        self.emitDEREntitlements = emitDEREntitlements
+    }
+
     var body: some View {
         Form {
-            Section("Bundle Identifier") {
-                TextField("Optional prefix (e.g. com.example)", text: $bundlePrefix)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                Text("Applied when the provisioning profile's App ID scope covers the identifier. No wildcard is inferred.").font(.caption).foregroundStyle(.secondary)
+            Section("Entitlement encoding") {
+                if let emitDEREntitlements {
+                    Toggle("Request DER entitlements (unsupported)", isOn: emitDEREntitlements)
+                    Text("This build embeds XML only. Requesting DER will be diagnosed as unsupported and block signing; the signer does not yet write slot 7. For an iOS 15+ target requiring DER, use a signer with verified DER support.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                } else {
+                    Text("This build embeds XML entitlements only. DER output is not supported. Open an app in the Library to review its local signing diagnostics.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
             }
-            Section("Advanced") {
-                Toggle("Strip plug-ins before signing", isOn: $stripPlugins)
-                Text("Removes unsupported nested code rather than refusing the package. Disabled by default — the pipeline fails closed.").font(.caption).foregroundStyle(.secondary)
+            Section("Supported today") {
+                Text("The current pipeline only signs supported unsigned Mach-O layouts. It cannot replace existing signatures, change bundle identifiers, or strip nested code. Pre-sign diagnostics checks those limits before signing.")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
-            Section { Text("Options are applied by the pipeline's nested-signing and metadata stages in fixed order and are verified independently. Nothing is persisted until device validation is complete.").font(.footnote).foregroundStyle(.secondary) }
         }
         .navigationTitle("Signing Options").navigationBarTitleDisplayMode(.inline)
     }
@@ -456,36 +430,10 @@ private struct ActivityShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
-private struct AppearanceSettingsView: View {
-    @AppStorage("zynsign.appearance.colorScheme") private var scheme = 0
-    var body: some View {
-        Form {
-            Picker("Appearance", selection: $scheme) {
-                Text("System").tag(0); Text("Light").tag(1); Text("Dark").tag(2)
-            }.pickerStyle(.segmented)
-            Section { Text("Restart the app to apply a scheme override on iOS 17.").font(.footnote).foregroundStyle(.secondary) }
-        }.navigationTitle("Appearance").navigationBarTitleDisplayMode(.inline)
-    }
-}
-private struct AppIconSettingsView: View {
+struct AppIconSettingsView: View {
     var body: some View {
         List {
             Section { Label("Default icon — more variants will appear with future releases.", systemImage: "app.badge").foregroundStyle(.secondary) }
         }.navigationTitle("App Icon").navigationBarTitleDisplayMode(.inline)
-    }
-}
-private struct DiagnosticsView: View {
-    @Environment(\.applicationEnvironment) private var env
-    var body: some View {
-        List {
-            Section("Diagnostics") {
-                Text("ZynSign redacts diagnostics: no key material, profile bodies, file paths, or device identifiers in user-facing messages. Full `debugDescription` is written only where the security rules permit.").font(.footnote).foregroundStyle(.secondary)
-            }
-            Section("Build") {
-                LabeledContent("Marketing version", value: env.applicationInfo.marketingVersion)
-                LabeledContent("Build version", value: env.applicationInfo.buildVersion)
-                LabeledContent("Release", value: ReleaseTrain.gate.summary)
-            }
-        }.navigationTitle("Diagnostics").navigationBarTitleDisplayMode(.inline)
     }
 }

@@ -19,8 +19,10 @@ Library · Details · Import ──enqueue─┘  │                           
 RootView (toasts, VoiceOver)            ▼
                                    SigningQueueExecuting (port)
                                         │
-                                   PipelineSigningExecutor
-                                        │  stage observer
+                                   SigningOperationExecutor
+                                        │  run(_:observer:)
+                                   SigningOperationCenter ──▶ Export Center + signing history
+                                        │
                                    SignApplicationPipeline (unchanged 9 stages)
 ```
 
@@ -29,9 +31,21 @@ RootView (toasts, VoiceOver)            ▼
   `Job` values. The queue lives in `ApplicationEnvironment`, so it keeps
   running when the user navigates away from a screen.
 - **`SigningQueueExecuting`** is the port the queue runs jobs through.
-  `PipelineSigningExecutor` is its only production implementation. It wraps
-  the same `SignApplicationPipeline` that inline Smart Sign uses: one set of
-  signing machinery with two entry points.
+  `SigningOperationExecutor` is its only production implementation. It runs
+  each job as **one `SigningOperationCenter` operation** — the operation
+  that works in its own directory, commits the verified container to the
+  **Export Center** under export storage's naming, verifies the committed
+  artifact independently, and journals every run (succeeded, failed,
+  cancelled) in the **signing history**. The executor resolves the job's
+  library entry *at run time*, derives the entitlements from the job's
+  profile copy (`ProfileEntitlementDerivation`), maps progress, and turns
+  the operation's outcome into a job outcome. It never writes the journal
+  itself, so the queue and the history can never disagree.
+- **Why the operation center and not `SigningEngineCoordinator`.** The
+  engine runs a signing and hands back a container; delivery, export
+  records and history are the center's. A queued job has no screen waiting
+  to deliver its result, so it must go through the path that delivers and
+  records on its own.
 - **`SigningQueueStore`** and **`SigningQueueNotifying`** are the
   persistence and local-notification ports.
 
@@ -61,10 +75,21 @@ Completed.** The mapping from the pipeline's nine stages is fixed:
 
 ### Honest progress
 
-`SignApplicationPipeline.sign(_:reportingStage:)` calls an optional observer
-right before each stage starts. The call is additive: the default is `nil`,
-and existing call sites don't change. So the overall fraction only moves when
-a stage actually begins.
+`SigningOperationCenter.run(_:observer:)` forwards the pipeline's progress
+events to an optional observer, after the operation's own timeline has
+recorded each one. The parameter is additive: the default is `nil`, and
+existing call sites don't change. The executor maps `stageStarted` events
+onto job stages and counts `nestedItemSigned` events for Signing Frameworks,
+so the overall fraction only moves when a stage actually begins or a nested
+target is actually signed.
+
+A failure the operation recorded is placed at the job stage matching the
+operation's `SigningOperationStage` (import → Preparing, validation /
+preflight → Preflight, nested signing → Extracting or Signing Frameworks by
+the progress the run reported, main signing → Signing App, packaging →
+Packaging, verification / export → Verification). A refusal before the
+operation started (package missing, not enough space, no workspace) fails
+at Preparing and journals nothing, because nothing ran.
 
 - Each stage has a declared weight (`SigningJobStage.weight`), and the
   weights add up to 1.
@@ -96,7 +121,7 @@ a stage actually begins.
 | Cancel | queued / running | Cancelling a queued job settles it right away, without ever opening the container. Cancelling a running job is cooperative: the job shows **"Cancelling…"** until the pipeline reaches its next stage boundary. |
 | Retry | failed (retryable) / cancelled | Re-queues the job by priority. When it runs, it's a **fresh, clean run** (§5). |
 | View Details | always | `SigningJobDetailView` |
-| Remove | settled only | Discards the queue's copy of the request and its profile copy. **Never** touches the delivered container. |
+| Remove | settled only | Discards the queue's copy of the request and its profile copy. **Never** touches the exported artifact or its history record. |
 | Pause | **never offered** | The pipeline has no checkpoint a half-signed working copy could safely resume from, so this control isn't exposed. The safe alternatives are a clean cancellation and a clean retry. |
 
 Retryability comes from `DiagnosticCategory`. `invalidInput`,
@@ -107,25 +132,28 @@ internal, capability and interruption failures can be retried.
 Bulk operations (dashboard ⋯ menu): **Cancel All Waiting**, **Retry All
 Failed**, **Clear Completed**, **Clear Failed**. Destructive ones ask for
 confirmation, and each confirmation says what the action won't touch.
-**Queue Selected** lives in the Library's selection bar.
+**Queue Selected** lives in the Library's selection toolbar and the
+selection bar's menu.
 
 ## 5. Isolation and concurrent safety
 
 Each job has:
 
-- **Its own workspace.** The pipeline creates
-  `tmp/ZynSignSigningQueue/zynsign-signing-<UUID>/` for every *attempt* and
-  removes it when the attempt ends. `CompositionRoot` passes this root as
-  `workingDirectoryRoot`.
-- **Its own output.** The output name is `<SafeName>_signed_<jobID8>.ipa` in
-  `Documents/Signed`. It's fixed per job, so a retry replaces only that
-  job's earlier output. The executor removes that one stale file before the
-  run starts.
+- **Its own workspace.** Every *attempt* is a fresh signing operation, and
+  the operation creates its own directory under `tmp/ZynSignWork/`
+  (`FileSigningWorkspace`) and removes it when the attempt ends.
+- **Its own export.** A completed attempt's verified container is committed
+  to export storage under the Export Center's naming policy, which never
+  overwrites an existing export. A failed or cancelled attempt commits
+  nothing, so a retry has nothing to clean up and nothing to continue from.
+  The job keeps the export's identifier; its detail screen reads the export's
+  current availability from the Export Center.
 - **Read-only source.** The library artifact is only ever read.
 - **Its own log.** `Job.log` holds fixed diagnostic language. It never
   contains identities, keys, profile content or paths.
-- **Its own verification.** Each run's `VerifySignedApplication` pass runs
-  against that run's expectations.
+- **Its own verification.** Each run's pipeline verification runs against
+  that run's expectations, and the center verifies the committed artifact
+  again independently.
 
 State shared between jobs is limited to the queue's `@MainActor` arrays.
 Profile bytes and identity identifiers stay in a private `submissions`
@@ -152,8 +180,8 @@ is exposed.
 
 Recovery removes profile copies that no restored job references. It also
 removes working directories **created before this session**. Directories
-created during this session belong to live runs (inline Smart Sign shares the
-root) and are never touched. Nothing runs, and nothing is persisted, until
+created during this session belong to live runs (every signing operation
+shares the root, queued or not) and are never touched. Nothing runs, and nothing is persisted, until
 restoration finishes. This prevents two problems: a partial list overwriting
 the snapshot, and a fresh working copy being swept.
 
@@ -179,16 +207,28 @@ else.
 | Library row | Swipe **Queue** · context menu **Queue for Signing…** |
 | Library bulk selection | Select → **Queue Selected** |
 | Library toolbar | **Signing Queue** button with an active-job badge (⌘⇧Q) |
-| Application Details | **Add to Signing Queue…** |
+| Application Details | Quick Actions → **Add to Queue** |
 | Smart Sign | **Add to Signing Queue Instead** (uses the screen's current configuration) |
-| Smart Import Hub | Per-row queue button, plus **Queue for Signing** on the batch summary |
+| Smart Import Hub | **Queue for Signing** on the batch summary, plus each imported row's context menu and VoiceOver actions. Records are re-resolved through the library when asked, so a replaced or deleted app is never queued from a stale record |
 | Settings | Signing → **Signing Queue** |
 | Tab bar | Library tab badge counts active jobs |
 
 All of these present one `SigningQueueConfigurationView`: identity, a profile
-(from the profile library or from Files), the DER layout, and priority. The
-dashboard itself is shell-owned (`SigningQueuePresentation`), the same way
-`ImportPresentation` works.
+(from the profile library, read through `ProvisioningProfileLibrary`, or from
+Files), the DER layout, and priority. The dashboard itself is shell-owned
+(`SigningQueuePresentation`), the same way `ImportPresentation` works.
+
+### App lock
+
+Accepting a job is the user's request to sign, so it is the moment ZynSign's
+lock is consulted. Both the configuration sheet and Smart Sign's **Add to
+Signing Queue Instead** call `AppLockController.authorize(.sign)` before
+enqueueing — once per sheet, however many apps are selected. When *Require
+Authentication for Sensitive Actions* is off this returns immediately; when
+it is on, a failed or cancelled attempt queues nothing and says why. A queued
+job therefore never signs behind a preference the user set. Smart Sign's
+button is also gated by the screen's own `canSign`, so a configuration its
+diagnostics block cannot be queued either.
 
 ## 9. Accessibility
 
@@ -231,6 +271,7 @@ The architecture already leaves room for these:
 ## 12. What this doesn't claim
 
 A completed job means the container the run produced passed that run's
-independent verification. It's not a claim about trust, authorization or
+verification and was committed to Exports; the export's own verification
+status is shown beside it. It's not a claim about trust, authorization or
 installability. See `application-signing-pipeline.md` and
 `installation-compatibility.md`.

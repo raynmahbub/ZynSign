@@ -41,7 +41,6 @@ final class SigningQueueTests: XCTestCase {
             store: store,
             notifier: notifier,
             artifactURLResolver: SigningQueueFixtures.artifactURLResolver,
-            outputDirectory: SigningQueueFixtures.outputDirectory,
             now: { SigningQueueFixtures.fixedDate }
         )
     }
@@ -258,10 +257,13 @@ final class SigningQueueTests: XCTestCase {
         XCTAssertNotNil(queue.job(withID: id)?.completion)
         XCTAssertEqual(queue.job(withID: id)?.attemptCount, 2)
         XCTAssertEqual(executor.requests.map(\.attempt), [1, 2])
-        // A retry is the same job: the same output name, so it replaces its
-        // own earlier output and never another job's.
-        XCTAssertEqual(executor.requests[0].outputURL, executor.requests[1].outputURL)
+        // A retry is the same job over the same untouched inputs; the
+        // signing operation gives every attempt a fresh working directory
+        // and a fresh export, so no attempt continues from another's state.
         XCTAssertEqual(executor.requests[0].jobID, executor.requests[1].jobID)
+        XCTAssertEqual(executor.requests[0].recordID, executor.requests[1].recordID)
+        XCTAssertEqual(executor.requests[0].sourceURL, executor.requests[1].sourceURL)
+        XCTAssertEqual(executor.requests[0].profile, executor.requests[1].profile)
     }
 
     func testAContentRefusalIsNotOfferedARetry() async {
@@ -406,32 +408,20 @@ final class SigningQueueTests: XCTestCase {
 
     // MARK: - Isolation
 
-    func testEveryJobHasItsOwnOutputAndReadsItsOwnSource() async {
+    func testEveryJobIsItsOwnRunAndReadsItsOwnSource() async {
         let submissions = (0..<6).map { SigningQueueFixtures.submission(name: "Same Name") }
         queue.enqueue(submissions, origin: .bulkSelection)
         await waitUntilIdle()
 
         let requests = executor.requests
         XCTAssertEqual(requests.count, 6)
-        XCTAssertEqual(Set(requests.map(\.outputURL)).count, 6, "Two jobs must never share an output")
-        XCTAssertEqual(Set(requests.map(\.jobID)).count, 6)
+        XCTAssertEqual(Set(requests.map(\.jobID)).count, 6, "Every job is its own run")
         for (request, submission) in zip(requests, submissions) {
             XCTAssertEqual(request.sourceURL, SigningQueueFixtures.artifactURLResolver(submission.artifactID))
-            XCTAssertEqual(request.outputURL.deletingLastPathComponent(), SigningQueueFixtures.outputDirectory)
+            XCTAssertEqual(request.recordID, submission.recordID)
             XCTAssertEqual(request.identityID, submission.identityID)
             XCTAssertEqual(request.profile, submission.profile)
         }
-    }
-
-    func testOutputFileNamesAreFilesystemSafeAndUniquePerJob() {
-        let submission = SigningQueueFixtures.submission(name: "My App: Pro/Max")
-        let first = SigningQueue.outputFileName(for: submission, jobID: SigningJobIdentifier())
-        let second = SigningQueue.outputFileName(for: submission, jobID: SigningJobIdentifier())
-        XCTAssertFalse(first.contains("/"))
-        XCTAssertFalse(first.contains(":"))
-        XCTAssertFalse(first.contains(" "))
-        XCTAssertTrue(first.hasSuffix(".ipa"))
-        XCTAssertNotEqual(first, second)
     }
 
     // MARK: - Notices
@@ -542,8 +532,7 @@ final class SigningQueueTests: XCTestCase {
                 profileDisplayName: "Synthetic Profile",
                 profileTeamIdentifier: "EXAMPLE123",
                 emitDEREntitlements: false,
-                presetID: nil,
-                outputFileName: "out.ipa"
+                presetID: nil
             )
         }
         func stored(

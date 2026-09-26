@@ -10,8 +10,9 @@ import UIKit
 /// progress, and log update live while it is open. It states facts and
 /// nothing beyond them: a completed job's verification line reports the
 /// pipeline's own independent verification, never trust or installability,
-/// and the output section names the delivered file — a container the
-/// removal of a job from this list never touches.
+/// and the output section names the artifact the job's signing operation
+/// committed to Exports — an artifact the removal of a job from this list
+/// never touches.
 struct SigningJobDetailView: View {
 
     @ObservedObject var queue: SigningQueue
@@ -20,6 +21,11 @@ struct SigningJobDetailView: View {
     @Environment(\.applicationEnvironment) private var env
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shareItem: SignedOutputShare?
+
+    /// The Export Center's current view of the artifact a completed job
+    /// delivered: its availability and location, read when the job's
+    /// completion is shown so the screen never names a path itself.
+    @State private var exportEntry: ExportEntry?
 
     private var job: SigningQueue.Job? { queue.job(withID: jobID) }
     private var now: Date { Date() }
@@ -40,7 +46,7 @@ struct SigningJobDetailView: View {
                 ContentUnavailableView {
                     Label("Job Removed", systemImage: "tray")
                 } description: {
-                    Text("This job is no longer in the signing queue. Anything it delivered is still in Documents/Signed, and the signing journal still records what it did.")
+                    Text("This job is no longer in the signing queue. Anything it delivered is still in Exports, and the signing history still records what it did.")
                 }
             }
         }
@@ -48,6 +54,13 @@ struct SigningJobDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $shareItem) { item in
             SignedOutputShareSheet(url: item.url)
+        }
+        .task(id: job?.completion?.exportIdentifier) {
+            // Re-read whenever the job's delivered export changes — a retry
+            // that completes again delivers a different artifact.
+            exportEntry = await env.exportCenter.entry(
+                forStoredIdentifier: job?.completion?.exportIdentifier
+            )
         }
     }
 
@@ -296,9 +309,15 @@ struct SigningJobDetailView: View {
                 }
                 Spacer()
             }
-            LabeledContent("Export Status", value: completion.verificationPassed ? "Signed & verified" : "Delivered")
+            LabeledContent("Run Verification", value: completion.verificationPassed ? "Passed" : "Not recorded")
+            if let exportVerification = completion.exportVerification {
+                LabeledContent("Export Verification", value: exportVerification.displayName)
+            }
             LabeledContent("Artifact", value: completion.outputFileName)
-            LabeledContent("Location", value: "Documents/Signed")
+            LabeledContent("Location", value: "Exports")
+            if let exportEntry {
+                LabeledContent("Availability", value: exportEntry.availability.displayName)
+            }
             if let byteCount = completion.outputByteCount {
                 LabeledContent(
                     "Size",
@@ -311,25 +330,18 @@ struct SigningJobDetailView: View {
                     value: ByteCountFormatter.string(fromByteCount: Int64(signatureBytes), countStyle: .file)
                 )
             }
-            if let url = signedOutputURL(completion) {
+            if let exportEntry, exportEntry.permitsArtifactActions, let url = exportEntry.fileURL {
                 Button {
                     shareItem = SignedOutputShare(url: url)
                 } label: {
                     Label("Share Signed IPA…", systemImage: "square.and.arrow.up")
                 }
-                .disabled(!FileManager.default.fileExists(atPath: url.path))
             }
         } header: {
             Text("Output")
         } footer: {
-            Text("The container is the exact artifact the pipeline produced and independently verified — not a trust, authorization, or installability claim. Removing this job from the queue never touches the file.")
+            Text("The artifact is exactly what the signing operation produced, verified, and committed to Exports — not a trust, authorization, or installability claim. Manage or verify it again from Exports; removing this job from the queue never touches the file.")
         }
-    }
-
-    /// The delivered container's location, derived through the environment's
-    /// own output convention — the screen names no path itself.
-    private func signedOutputURL(_ completion: SigningJobCompletion) -> URL? {
-        env.signedOutputFileURL(named: completion.outputFileName)
     }
 
     // MARK: - Controls

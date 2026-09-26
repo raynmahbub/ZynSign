@@ -22,6 +22,9 @@
 /// - **Observe** an artifact: report whether library storage holds a regular
 ///   file under the identifier and how large it is. Observation never
 ///   creates, repairs, or replaces anything.
+/// - **Measure** a held artifact: read it again in full and compute its
+///   size and content fingerprint, so a record's bytes can be verified on
+///   request. Measuring reads; it never moves, repairs, or replaces.
 /// - **Remove** an artifact from library storage. Idempotent.
 /// - **Enumerate** the identifiers library storage holds, so that artifacts
 ///   no record refers to can be detected.
@@ -48,6 +51,13 @@ protocol LibraryArtifactStore: Sendable {
 
     /// What library storage currently holds under `artifact`.
     func observeArtifact(_ artifact: ArtifactIdentifier) -> StoredArtifactObservation
+
+    /// Measures the artifact library storage holds under `artifact`: its
+    /// size and content fingerprint, computed by reading the whole file
+    /// now. Returns `nil` when nothing is held under the identifier, and
+    /// fails with a typed error when a held file cannot be read. This is
+    /// the expensive, explicit counterpart of `observeArtifact(_:)`.
+    func measureHeldArtifact(_ artifact: ArtifactIdentifier) throws -> ArtifactReference?
 
     /// The identifiers of every artifact library storage currently holds.
     func heldArtifactIdentifiers() throws -> Set<ArtifactIdentifier>

@@ -183,11 +183,6 @@ struct StoredSigningJobSetup: Equatable, Sendable, Codable {
     /// snapshot schema.
     let presetID: String?
 
-    /// The delivered container's file name, fixed when the job is accepted
-    /// so a retry overwrites exactly its own earlier output and never
-    /// another job's.
-    let outputFileName: String
-
     init(
         identityID: String,
         identityDisplayName: String?,
@@ -196,8 +191,7 @@ struct StoredSigningJobSetup: Equatable, Sendable, Codable {
         profileDisplayName: String?,
         profileTeamIdentifier: String?,
         emitDEREntitlements: Bool,
-        presetID: String?,
-        outputFileName: String
+        presetID: String?
     ) {
         self.identityID = identityID
         self.identityDisplayName = identityDisplayName
@@ -207,6 +201,5 @@ struct StoredSigningJobSetup: Equatable, Sendable, Codable {
         self.profileTeamIdentifier = profileTeamIdentifier
         self.emitDEREntitlements = emitDEREntitlements
         self.presetID = presetID
-        self.outputFileName = outputFileName
     }
 }

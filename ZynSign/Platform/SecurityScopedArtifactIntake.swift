@@ -30,9 +30,14 @@ import Foundation
 ///   never changes what is written, and a receiver that drops reports
 ///   changes nothing but what the interface shows.
 /// - **Cleanup.** A failed or cancelled staging removes the partial copy on
-///   its way out. Before the first staging of a process, files left by a
-///   previous process are cleared, so nothing large is left in temporary
-///   storage indefinitely.
+///   its way out. Files left by a previous process are removed by
+///   `sweepStagedDocuments(keeping:)`, which the Import Hub calls once at
+///   launch after deciding which interrupted imports can resume from their
+///   working copies, so nothing large is left in temporary storage
+///   indefinitely and nothing resumable is lost.
+/// - **Archive entries.** A package inside a staged ZIP is streamed into its
+///   own working copy by `stageArchiveEntry(_:from:as:reporting:)`, under a
+///   fresh identifier — never under the name the archive gives it.
 ///
 /// **The selected document is read, never written.** This type opens the
 /// source for reading, copies through it, and closes it; it never opens the
@@ -44,8 +49,9 @@ import Foundation
 /// Staging is transient by design. An accepted package is moved out of the
 /// staging directory by the library's artifact store when the library adopts
 /// it; every other outcome discards the staged copy. The staging directory
-/// therefore never holds anything a record depends on, and clearing it is
-/// always safe.
+/// therefore never holds anything a record depends on; the only thing worth
+/// keeping in it is the working copy of an interrupted import, and the
+/// sweep is told which those are.
 ///
 /// The staging directory is written only by this type: the composition root
 /// binds the archive-reader provider and the library's artifact store to the
@@ -53,10 +59,10 @@ import Foundation
 /// archive is discoverable by the artifact's identifier alone. No domain or
 /// application type sees a URL.
 ///
-/// Imports are not concurrent by design — the import use case is the only
-/// caller, and the presentation layer serializes imports — so the type is
-/// not internally synchronized.
-final class SecurityScopedArtifactIntake: ArtifactIntake {
+/// The type holds no mutable state: every operation works on its own
+/// uniquely named file, so the Import Hub's concurrent items may share one
+/// intake safely.
+final class SecurityScopedArtifactIntake: ArtifactIntake, ImportStagingArea {
 
     /// The application-owned directory staged archives are copied into.
     /// Written only by this type and created on first use; the library's
@@ -73,7 +79,6 @@ final class SecurityScopedArtifactIntake: ArtifactIntake {
     let copyChunkSize: Int
 
     /// Whether the stale-import clear has already run in this process.
-    private var hasClearedStaleImports = false
 
     /// Creates an intake over `directory`, which need not exist yet.
     init(
@@ -133,7 +138,6 @@ final class SecurityScopedArtifactIntake: ArtifactIntake {
         if Task.isCancelled {
             throw ZynSignError.importCancelled()
         }
-        clearStaleImportsIfNeeded()
 
         let destination = location(for: artifact)
         // Fresh identifiers never collide, but a stale file must never be
@@ -460,23 +464,70 @@ final class SecurityScopedArtifactIntake: ArtifactIntake {
 
     // MARK: - Leftover lifecycle
 
-    /// Clears, once per process, everything a previous process left in the
-    /// staging directory. Staged archives are session-scoped: an accepted
-    /// package is moved out of staging when the library adopts it and every
-    /// other outcome discards the staged copy, so any pre-existing file is a
-    /// leftover whose owner is gone and which no record refers to. Failure
-    /// to clear is not allowed to block an import — the destination is
-    /// emptied regardless — and nothing here runs automatically at launch.
-    private func clearStaleImportsIfNeeded() {
-        guard !hasClearedStaleImports else { return }
-        hasClearedStaleImports = true
-
+    /// Removes everything in the staging directory except the working
+    /// copies of `artifacts`.
+    ///
+    /// Staged archives are session-scoped: an accepted package is moved out
+    /// of staging when the library adopts it and every other outcome
+    /// discards the staged copy, so a pre-existing file is a leftover — a
+    /// partial copy, or the working copy of an import nothing will resume.
+    /// The Import Hub calls this once at launch, keeping the copies of the
+    /// interrupted imports it restores. Failure to remove a leftover is not
+    /// allowed to block anything; it is simply tried again next launch.
+    func sweepStagedDocuments(keeping artifacts: Set<ArtifactIdentifier>) {
+        let kept = Set(artifacts.map { location(for: $0).lastPathComponent })
         let leftovers = (try? FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: nil
         )) ?? []
-        for leftover in leftovers {
+        for leftover in leftovers where !kept.contains(leftover.lastPathComponent) {
             try? FileManager.default.removeItem(at: leftover)
+        }
+    }
+
+    /// The size of the working copy staged as `artifact`, or `nil` when
+    /// there is none.
+    func stagedByteCount(for artifact: ArtifactIdentifier) -> Int? {
+        let url = self.location(for: artifact)
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+              values.isRegularFile == true else {
+            return nil
+        }
+        return values.fileSize
+    }
+
+    // MARK: - Archive entries
+
+    /// Streams one package out of the archive staged as `container` into a
+    /// new working copy named `artifact`.
+    ///
+    /// The container is ZynSign's own working copy, so no security scope or
+    /// coordination is involved. The extractor bounds the output by the
+    /// sizes the archive declares, verifies the archive's checksum, and
+    /// refuses encrypted, linked, and unsupported entries; the destination is
+    /// chosen here, from the identifier alone. A failed or cancelled
+    /// extraction leaves nothing behind.
+    func stageArchiveEntry(
+        _ candidate: NestedPackageCandidate,
+        from container: ArtifactIdentifier,
+        as artifact: ArtifactIdentifier,
+        reporting progress: (any ImportProgressReporting)?
+    ) throws {
+        if Task.isCancelled {
+            throw ZynSignError.importCancelled()
+        }
+        try prepareDirectory()
+        let destination = location(for: artifact)
+        try? FileManager.default.removeItem(at: destination)
+        do {
+            try ZipEntryStreamExtractor(archive: location(for: container)).extract(
+                candidate.path,
+                to: destination,
+                reporting: progress
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            throw error
         }
     }
 
@@ -488,7 +539,9 @@ final class SecurityScopedArtifactIntake: ArtifactIntake {
     /// archive storage convention of `DirectoryArtifactArchiveReaderProvider`
     /// and `FileLibraryArtifactStore`; the composition root binds all three
     /// to the same directory and extension.
-    private func location(for artifact: ArtifactIdentifier) -> URL {
+    /// The working-copy location for `artifact`: the staging directory, the
+    /// identifier, and the extension convention — nothing else.
+    func location(for artifact: ArtifactIdentifier) -> URL {
         directory
             .appendingPathComponent(artifact.rawValue, isDirectory: false)
             .appendingPathExtension(fileExtension)

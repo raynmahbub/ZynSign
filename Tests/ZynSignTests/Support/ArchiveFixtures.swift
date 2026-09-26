@@ -122,6 +122,21 @@ final class SyntheticArchiveReader: ArchiveReader {
         return content
     }
 
+    func readEntryPrefix(at path: ArchivePath, maximumBytes: Int) throws -> Data {
+        requestedPaths.append(path)
+        if let failure = failure, failure == .contentUnreadable {
+            throw ZynSignError.archiveEntryUnreadable(diagnosticDetail: "synthetic container failure")
+        }
+        guard let content = contentByPath[path.rawValue] else {
+            throw ZynSignError.invalidArtifact(diagnosticDetail: "synthetic container has no entry at '\(path.rawValue)'")
+        }
+        guard maximumBytes >= 0 else { return Data() }
+        if content.count <= maximumBytes {
+            return content
+        }
+        return Data(content.prefix(maximumBytes))
+    }
+
     func close() {
         closeCount += 1
     }

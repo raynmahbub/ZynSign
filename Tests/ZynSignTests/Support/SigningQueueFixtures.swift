@@ -16,10 +16,6 @@ enum SigningQueueFixtures {
     /// Synthetic profile bytes. Not a profile; a marker the doubles carry.
     static let profileBytes = Data("synthetic-profile".utf8)
 
-    /// The output directory the queue under test delivers into. Never
-    /// written: the synthetic executor delivers nothing.
-    static let outputDirectory = URL(fileURLWithPath: "/synthetic/Signed", isDirectory: true)
-
     /// The artifact-location convention the queue under test uses.
     static let artifactURLResolver: @Sendable (ArtifactIdentifier) -> URL = { id in
         URL(fileURLWithPath: "/synthetic/Artifacts/\(id.rawValue).ipa")

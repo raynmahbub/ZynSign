@@ -200,8 +200,8 @@ actor FileSigningQueueStore: SigningQueueStore {
         // created before this session belongs to a dead process — its run
         // can never be resumed, and every new run creates its own fresh
         // directory — so it is removed. Directories created during this
-        // session belong to live runs (the inline signing screen shares the
-        // root) and are left alone.
+        // session belong to live runs (every signing operation shares the
+        // root, queued or not) and are left alone.
         if let runDirectories = try? fileManager.contentsOfDirectory(
             at: workingDirectoryRoot,
             includingPropertiesForKeys: [.creationDateKey],
