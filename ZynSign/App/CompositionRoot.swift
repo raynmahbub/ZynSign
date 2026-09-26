@@ -35,6 +35,7 @@ enum CompositionRoot {
         let diagnosticHistory = makeSigningDiagnosticsHistoryStore()
         let library = makeApplicationLibrary(intake: intake, diagnosticHistory: diagnosticHistory)
         let identityStore = makeIdentityStore()
+        let identityAnnotationsStore = makeIdentityAnnotationsStore()
         let diagnostics = makeSigningDiagnostics(
             library: library, intake: intake, identities: identityStore,
             history: diagnosticHistory
@@ -110,7 +111,18 @@ enum CompositionRoot {
         environment.appIcons = appIcons
         environment.signingPresetWorkflow = signingPresetWorkflow
         environment.signingDiagnostics = diagnostics
-        environment.identityAnnotations = makeIdentityAnnotationsStore()
+        environment.identityAnnotations = identityAnnotationsStore
+        // The Identity Center reads the same stores the tabs read — one
+        // identity store, one profile library, one library, one
+        // annotation store, one journal — so its snapshot can never
+        // disagree with what those tabs show.
+        environment.identityCenter = IdentityCenterService(
+            identityStore: identityStore,
+            profiles: profiles,
+            library: library,
+            annotations: identityAnnotationsStore,
+            history: history
+        )
         environment.libraryOrganizer = makeLibraryOrganizer()
         environment.applicationProvenance = makeApplicationProvenanceExtraction()
         environment.libraryExport = makeLibraryExportPreparation()

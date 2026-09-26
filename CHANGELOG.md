@@ -12,6 +12,24 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — Alpha 3 · Step 16: Developer Identity Center
+
+- **Identity Dashboard**: one workspace for all signing identities — Teams, Certificates, Profiles, Healthy, and Needs Attention counts, an overall status, and a spoken summary — reached from Settings → **Developer Identity** and from toolbar links on the Certificates and Profiles tabs.
+- **Team Workspace**: certificates and profiles grouped by the Team ID they declare (case-insensitive, first spelling preserved), with expand/collapse, team summaries, an Ungrouped bucket for identities with no recognisable Team ID, and per-team compatible-app counts.
+- **Certificate Inspector**: name, team, issuer, validity, algorithm, key size, purpose, fingerprint, key availability, and the full health check list — with Set Default, Refresh Validation, Copy Team ID, View Linked Profiles, View Compatible Apps, and Remove. Private keys are never displayed; removing a registration never deletes a key.
+- **Provisioning Profile Manager (center view)**: name, team, bundle identifier, expiration, type, devices, entitlement keys, linked certificates, and compatible apps — with **Ready / Expiring / Expired / Conflict** status badges and the health checks behind them.
+- **Relationship Graph**: a read-only, team-by-team visualization of certificate–profile relationships (embedded fingerprints and shared teams), with individually accessible nodes, a spoken summary per team, and lazy rendering of expanded teams.
+- **Identity Health Center**: per-identity checks — Certificate Valid, Key Available, Profile Valid, Team Match, Expiration, Bundle Compatible — folded into 🟢 Healthy / 🟡 Warning / 🔴 Blocked, with fixed-language detail sentences and full spoken summaries. Computed once per snapshot and cached with it.
+- **Smart Conflict Detection**: duplicate certificates, multiple matching certificates without a default, team mismatch between a profile and an embedded certificate, missing profile for a team with a usable certificate, expired profiles, and orphaned profiles — each with severity, fixed-language findings, and a remedy the center never applies on its own.
+- **Expiration Forecast**: Expired → Critical (≤7 days) → Important (≤14 days) → Warning (≤30 days) → Watch, sorted most-urgent first, aligned with the certificate manager's and profile library's existing 30-day language.
+- **Smart Recommendations**: the signing screen now proposes a **Recommended Identity** — scored from previous successful signing of that app, usable keys, profile compatibility, team match, and the user's default — with its reasons shown. Applying it sets the pickers; the user's Sign tap remains the only confirmation.
+- **Identity Timeline**: recent identity events — imports, profile additions, signed and failed runs, and the most urgent expiration observations — grouped Today / Yesterday / date, most recent first, capped and composed of fixed language only.
+- **Quick Actions & Context Menus**: Set Default, Copy Team ID, View Linked Profiles, View Compatible Apps, Refresh Validation, Remove — on every identity card and inspector; removal asks for confirmation and, where supported, authentication (`removeIdentity` sensitive action).
+- **Security & Performance**: private keys stay in the iOS Keychain; snapshots carry metadata and composed language only; one read per store per snapshot; cached health; lazy rendering; efficient single-pass team grouping.
+- **Accessibility**: Dynamic Type, VoiceOver labels and spoken health/overall summaries, accessible graph nodes, Dark Mode, and large touch targets.
+- Synthetic XCTest coverage for every engine and the service/model assembly
+  ([scope and boundaries](docs/architecture/developer-identity-center.md)). Feature ships at Alpha 3 via `ReleaseFeature.identityCenter`.
+
 ### Added — Alpha 3 · Step 19: Resource & Asset Studio
 
 - **Asset Dashboard**: Summary count cards for Icons, Launch Assets, Images, Fonts, Audio, Videos, and Localization Files with zero-I/O structural preview on the Application Details screen.
