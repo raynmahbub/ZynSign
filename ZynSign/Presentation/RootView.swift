@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 /// The root of the ZynSign interface: the tab shell the user navigates.
@@ -22,17 +23,51 @@ import SwiftUI
 /// At launch the shell asks the hub to restore interrupted imports and
 /// sweeps the drop inbox; whenever the scene becomes active again it lets
 /// the hub resume work the system paused in the background.
+///
+/// The shell is finally where the application-wide consequences of the user's
+/// preferences are applied, because they are properties of the whole
+/// interface rather than of any one screen: the colour scheme, the contrast,
+/// whether ZynSign's own transitions animate, and whether the application is
+/// locked. Applying them here is what makes a change in Settings take effect
+/// everywhere at once.
 struct RootView: View {
 
     @Environment(\.applicationEnvironment) private var environment
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.scenePhase) private var scenePhase
-    @State private var selected: ShellSection = .home
+
+    /// The Settings Control Center's model: every preference, written once.
+    @StateObject private var settings: SettingsCenterModel
+
+    /// ZynSign's lock, over the same preferences.
+    @StateObject private var appLock: AppLockController
+
+    @State private var selected: ShellSection
     @State private var isShowingImport = false
     @State private var hubRequest: ImportHubRequest = .none
 
     /// The items whose outcome has already been recorded, so an import is
     /// reported exactly once however many times the item list changes.
     @State private var reportedImportItems: Set<ImportJobIdentifier> = []
+
+    /// Ticks while the shell is open, so a lapsed session can be noticed.
+    private let inactivityTimer = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
+
+    /// Builds the shell over one environment.
+    ///
+    /// The settings model and the lock are created here, once, from that
+    /// environment, and installed into the hierarchy — so the Settings area,
+    /// the Security Center, and the lock overlay all act on the same
+    /// preferences and the same lock state.
+    init(environment: ApplicationEnvironment = CompositionRoot.makeApplicationEnvironment()) {
+        let model = SettingsCenterModel(store: environment.preferencesStore, environment: environment)
+        _settings = StateObject(wrappedValue: model)
+        _appLock = StateObject(wrappedValue: AppLockController(
+            authenticator: environment.biometricAuthenticator,
+            preferences: { model.preferences }
+        ))
+        _selected = State(initialValue: model.preferences.general.landingTab.shellSection)
+    }
 
     var body: some View {
         TabView(selection: $selected) {
@@ -48,6 +83,49 @@ struct RootView: View {
             }
         }
         .tint(.primary)
+        .environment(\.settingsCenter, settings)
+        .environment(\.appLock, appLock)
+        .preferredColorScheme(settings.preferences.appearance.appearanceMode.resolvedColorScheme)
+        .environment(
+            \.colorSchemeContrast,
+            settings.preferences.appearance.increaseContrast ? .increased : .standard
+        )
+        .transaction { transaction in
+            // ZynSign's own transitions follow the animation preference. The
+            // system's Reduce Motion setting is honoured on top of it, so a
+            // user who asked for less motion never gets more.
+            if !settings.preferences.general.animationPreference.permitsAnimation(
+                systemReduceMotion: systemReduceMotion
+            ) {
+                transaction.animation = nil
+            }
+        }
+        .onChange(of: settings.preferences.general.landingTab) { _, landingTab in
+            selected = landingTab.shellSection
+        }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .background:
+                appLock.lockIfProtectionEnabled()
+            case .active:
+                appLock.refreshAvailability()
+                // Work the system paused while ZynSign was in the background
+                // continues now that the scene is active again.
+                environment.importHub.resume()
+            case .inactive:
+                break
+            @unknown default:
+                break
+            }
+        }
+        .onReceive(inactivityTimer) { _ in
+            appLock.evaluateInactivity()
+        }
+        .overlay {
+            if appLock.isLocked {
+                AppLockOverlay()
+            }
+        }
         .environment(
             \.importPresentation,
             ImportPresentation(
@@ -80,15 +158,16 @@ struct RootView: View {
             reportOutcomes(of: items)
         }
         .task {
+            // Tidying scratch files at launch happens only when the user's
+            // policy allows it, and it finishes before the hub restores
+            // interrupted imports: the restoration then sees exactly the
+            // working copies the policy kept (cleanup removes only data
+            // older than an hour), rather than racing it.
+            await settings.cleanTemporaryWorkspaceIfPolicyAllows()
             if let droppedFiles = environment.droppedFiles {
                 await Task.detached(priority: .utility) { droppedFiles.sweep() }.value
             }
             await environment.importHub.restoreInterruptedImports()
-        }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active {
-                environment.importHub.resume()
-            }
         }
     }
 
@@ -168,14 +247,33 @@ struct RootView: View {
                 library: environment.library,
                 hub: environment.importHub,
                 bundleInspection: environment.bundleInspection,
-                signingHistory: environment.signingHistory
+                detailsInspection: environment.applicationDetailsInspection,
+                signingHistory: environment.signingHistory,
+                organizer: environment.libraryOrganizer,
+                provenance: environment.applicationProvenance,
+                exporter: environment.libraryExport
             )
         case .certificates:
-            NavigationStack { CertificatesView() }
+            NavigationStack {
+                CertificateManagerView(
+                    store: environment.identityStore,
+                    annotations: environment.identityAnnotations,
+                    importer: environment.pkcs12Importer
+                )
+            }
         case .profiles:
             ProfilesView(
                 profiles: environment.provisioningProfiles,
-                importer: environment.provisioningProfileImporter
+                importer: environment.provisioningProfileImporter,
+                compatibility: environment.profileCompatibility,
+                selections: environment.profileSelections,
+                recordEvent: { name, succeeded in
+                    environment.recordAnalyticsEvent(
+                        category: .intake,
+                        name: name,
+                        succeeded: succeeded
+                    )
+                }
             )
         case .settings:
             SettingsView()

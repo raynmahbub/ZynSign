@@ -12,6 +12,7 @@ struct ImportHistoryView: View {
     @ObservedObject var hub: ImportHub
     let library: ApplicationLibrary
     let bundleInspection: IPABundleContentsInspection
+    let detailsInspection: IPAApplicationDetailsInspection
 
     @State private var openedEntry: LibraryEntry?
     @State private var isConfirmingClear = false
@@ -84,7 +85,11 @@ struct ImportHistoryView: View {
             Text("\(name) is no longer in the library.")
         }
         .navigationDestination(item: $openedEntry) { entry in
-            ApplicationDetailView(entry: entry, bundleInspection: bundleInspection)
+            ApplicationDetailView(
+                entry: entry,
+                bundleInspection: bundleInspection,
+                detailsInspection: detailsInspection
+            )
         }
         .task { await hub.loadHistory() }
     }

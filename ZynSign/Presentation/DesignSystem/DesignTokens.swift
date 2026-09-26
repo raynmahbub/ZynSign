@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 /// ZynSign design tokens — the single source of truth for spacing, radii,
@@ -94,18 +95,38 @@ extension View {
 
 /// ZynSign’s haptics — a stateless helper that never retains state.
 /// Call from any view via `ZHaptics.tap()` or `.sensoryFeedback` on iOS 17+.
+///
+/// `isEnabled` is the user's haptic-feedback preference, applied by the
+/// Settings Control Center whenever it loads or the preference changes. It
+/// defaults to on, so a call site that has not consulted the settings still
+/// gets feedback rather than silence. Access is guarded because the flag is
+/// read from views and written from the settings model, which are not
+/// guaranteed to be on the same actor at every moment.
 enum ZHaptics {
+
+    private static let lock = NSLock()
+    private static var storedIsEnabled = true
+
+    /// Whether haptic feedback is allowed.
+    static var isEnabled: Bool {
+        get { lock.withLock { storedIsEnabled } }
+        set { lock.withLock { storedIsEnabled = newValue } }
+    }
+
     static func tap() {
+        guard isEnabled else { return }
 #if os(iOS)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
 #endif
     }
     static func success() {
+        guard isEnabled else { return }
 #if os(iOS)
         UINotificationFeedbackGenerator().notificationOccurred(.success)
 #endif
     }
     static func warning() {
+        guard isEnabled else { return }
 #if os(iOS)
         UINotificationFeedbackGenerator().notificationOccurred(.warning)
 #endif

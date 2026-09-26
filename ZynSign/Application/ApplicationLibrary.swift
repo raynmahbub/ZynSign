@@ -47,6 +47,7 @@ actor ApplicationLibrary {
 
     private let records: any ApplicationRecordStore
     private let artifacts: any LibraryArtifactStore
+    private let diagnosticHistory: (any SigningDiagnosticsHistoryStore)?
     private let now: @Sendable () -> Date
 
     /// Artifacts adopted by an admission whose record has not been written
@@ -60,10 +61,12 @@ actor ApplicationLibrary {
     init(
         records: any ApplicationRecordStore,
         artifacts: any LibraryArtifactStore,
+        diagnosticHistory: (any SigningDiagnosticsHistoryStore)? = nil,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.records = records
         self.artifacts = artifacts
+        self.diagnosticHistory = diagnosticHistory
         self.now = now
     }
 
@@ -287,6 +290,35 @@ actor ApplicationLibrary {
         try await records.update(record.with(isFavorite: isFavorite, updatedAt: now()))
     }
 
+    // MARK: - Verification
+
+    /// Verifies that the package file the library holds for the record
+    /// carrying `id` is still exactly the bytes recorded at import.
+    ///
+    /// The file is read in full and its size and content fingerprint are
+    /// compared with the record's reference. Nothing is repaired, moved, or
+    /// rewritten: a changed or missing file is reported, and the record is
+    /// left as it is. Reading a large package takes time, so the work runs
+    /// off the library's executor (the method is `nonisolated`) and never
+    /// holds up imports, listing, or removal while it hashes.
+    ///
+    /// Fails with a typed error when no such record exists, or when a held
+    /// file cannot be read.
+    nonisolated func verifyArtifact(recordWithID id: ApplicationRecordIdentifier) async throws -> ArtifactIntegrity {
+        guard let record = try await records.record(withID: id) else {
+            throw ZynSignError.libraryRecordNotFound(
+                diagnosticDetail: "No library record carries identifier '\(id.rawValue)'."
+            )
+        }
+        guard let measured = try artifacts.measureHeldArtifact(record.artifact.artifactID) else {
+            return .missing
+        }
+        if measured.describesSameContent(as: record.artifact) {
+            return .intact
+        }
+        return .modified(recordedByteCount: record.artifact.byteCount, observedByteCount: measured.byteCount)
+    }
+
     // MARK: - Removal
 
     /// Removes the record carrying `id` and the artifact it refers to.
@@ -302,7 +334,16 @@ actor ApplicationLibrary {
             )
         }
         try await records.delete(recordWithID: id)
-        try artifacts.removeArtifact(record.artifact.artifactID)
+        // This history contains only scan codes and the opaque record UUID,
+        // but it should not outlive a deleted library entry. Cleanup is best
+        // effort: a journal error must not resurrect a deleted record.
+        do {
+            try artifacts.removeArtifact(record.artifact.artifactID)
+        } catch {
+            try? await diagnosticHistory?.remove(for: id)
+            throw error
+        }
+        try? await diagnosticHistory?.remove(for: id)
     }
 
     // MARK: - Orphaned artifacts

@@ -10,7 +10,9 @@ It is measurement. Nothing here changes how ZynSign signs, and no verdict
 recorded here is iOS platform acceptance, trust evaluation, or
 installability. Using macOS tooling as an independent validator is the
 developer-side validation tier that architecture Sections 2 and 16 accept;
-it is never a runtime path.
+it is never a runtime path. [Smart Diagnostics](smart-diagnostics.md) reads
+signing *inputs* before a run; its score cannot resolve the output divergences
+recorded below or substitute for independent validation.
 
 ## How it runs
 

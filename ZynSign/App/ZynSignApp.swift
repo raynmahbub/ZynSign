@@ -6,6 +6,11 @@ import SwiftUI
 /// application environment and installs it into the view hierarchy. All
 /// behaviour lives behind that environment; nothing is constructed, decided,
 /// or coordinated here.
+///
+/// The environment is handed to the shell explicitly rather than only through
+/// the SwiftUI environment, because the shell builds the Settings Control
+/// Center and the lock over it: one environment, one settings model, one
+/// lock — the same objects the rest of the interface reads.
 @main
 struct ZynSignApp: App {
 
@@ -14,7 +19,7 @@ struct ZynSignApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            RootView(environment: environment)
                 .environment(\.applicationEnvironment, environment)
         }
         .commands {

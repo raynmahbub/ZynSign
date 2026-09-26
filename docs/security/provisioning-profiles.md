@@ -26,8 +26,11 @@ and reports one staged result. It owns no rule, no policy, and no verdict of its
 own; the security properties below are the properties it inherits. It is the first
 path on which a profile read out of an application bundle's
 `embedded.mobileprovision` entry reaches this pipeline, and that reading is a
-bounded, read-only entry read by a separate intake — the bundle explorer still
-reads no entry content of any kind. See the integrated pipeline boundary section below.
+bounded, read-only entry read by a separate intake. The bundle explorer's
+structure listing still reads no entry content. An explicit preview may show
+the profile's declared property list and says that declaration was not
+verified; it is not this pipeline. See [ipa-explorer.md](../architecture/ipa-explorer.md)
+and the integrated pipeline boundary section below.
 
 Production use of the verification path is gated by experiments E3 and E4 in
 [on-device-signing-feasibility.md](../architecture/on-device-signing-feasibility.md):
@@ -142,13 +145,14 @@ is handed over as `.notEvaluated` — the state's actual meaning.
 
 Profile bytes are never modified. Where a package contains a DER-encoded
 `embedded.mobileprovision`, its presence at that location is a filesystem
-observation made by the bundle explorer, which reads no entry content. Since
-ZS-020 the bytes themselves can reach the pipeline, but only through
+observation made by the bundle explorer's structure listing, which reads no
+entry content. Since ZS-020 the bytes themselves can reach the pipeline, but only through
 `BundleProvisioningProfileIntake`: one named entry of one package, read through the
 existing `ArchiveReader` under the tighter of the archive's inspection-read bound
 and the profile input bound, refused rather than truncated when it will not fit,
-and never written, rewritten, stripped, or re-encoded. Archive inspection and the
-explorer still do not read or evaluate embedded profiles.
+and never written, rewritten, stripped, or re-encoded. An explorer preview may
+also read that entry as a declared property list. It does not evaluate the
+profile, and it is not this pipeline.
 
 ## Identity relationship without capability
 

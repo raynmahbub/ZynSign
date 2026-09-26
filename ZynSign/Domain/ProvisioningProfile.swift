@@ -208,13 +208,24 @@ struct ProvisioningProfileCertificateReference: Equatable, Hashable {
 ///
 /// `unknown` is the correct result when evidence conflicts or is insufficient;
 /// classification never establishes CMS authenticity or platform acceptance.
-enum ProvisioningProfileClassification: String, CaseIterable, Equatable, Hashable {
+enum ProvisioningProfileClassification: String, CaseIterable, Equatable, Hashable, Codable {
 
     case development
     case adHoc
     case appStore
     case enterprise
     case unknown
+
+    /// The user-presentable distribution-type name.
+    var displayName: String {
+        switch self {
+        case .development: return "Development"
+        case .adHoc: return "Ad Hoc"
+        case .appStore: return "App Store"
+        case .enterprise: return "Enterprise"
+        case .unknown: return "Unknown"
+        }
+    }
 }
 
 /// The typed profile metadata extracted from a decoded property-list payload.
@@ -234,6 +245,9 @@ struct ProvisioningProfile: Equatable, Hashable {
     let applicationIdentifier: ProvisioningApplicationIdentifier?
     let applicationIdentifierPrefixes: [String]?
     let teamIdentifiers: [String]?
+    /// The profile's declared `TeamName` — the human name of the team the
+    /// profile belongs to. Absent in older or stripped profiles.
+    let teamName: String?
     let entitlementTeamIdentifier: String?
     let entitlements: ProvisioningProfileEntitlements?
     let provisionedDevices: [ProvisionedDeviceIdentifier]?
@@ -253,6 +267,7 @@ struct ProvisioningProfile: Equatable, Hashable {
         applicationIdentifier: ProvisioningApplicationIdentifier? = nil,
         applicationIdentifierPrefixes: [String]? = nil,
         teamIdentifiers: [String]? = nil,
+        teamName: String? = nil,
         entitlementTeamIdentifier: String? = nil,
         entitlements: ProvisioningProfileEntitlements? = nil,
         provisionedDevices: [ProvisionedDeviceIdentifier]? = nil,
@@ -271,6 +286,7 @@ struct ProvisioningProfile: Equatable, Hashable {
         self.applicationIdentifier = applicationIdentifier
         self.applicationIdentifierPrefixes = applicationIdentifierPrefixes
         self.teamIdentifiers = teamIdentifiers
+        self.teamName = teamName
         self.entitlementTeamIdentifier = entitlementTeamIdentifier
         self.entitlements = entitlements
         self.provisionedDevices = provisionedDevices

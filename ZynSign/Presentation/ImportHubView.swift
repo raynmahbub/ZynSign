@@ -61,13 +61,18 @@ struct ImportHubView: View {
                 .toolbar { toolbarContent }
                 .safeAreaInset(edge: .bottom) { actionBar }
                 .navigationDestination(item: $openedEntry) { entry in
-                    ApplicationDetailView(entry: entry, bundleInspection: environment.bundleInspection)
+                    ApplicationDetailView(
+                        entry: entry,
+                        bundleInspection: environment.bundleInspection,
+                        detailsInspection: environment.applicationDetailsInspection
+                    )
                 }
                 .navigationDestination(isPresented: $isShowingHistory) {
                     ImportHistoryView(
                         hub: hub,
                         library: environment.library,
-                        bundleInspection: environment.bundleInspection
+                        bundleInspection: environment.bundleInspection,
+                        detailsInspection: environment.applicationDetailsInspection
                     )
                 }
         }
