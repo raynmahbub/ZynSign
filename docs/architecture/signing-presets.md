@@ -78,19 +78,26 @@ action.
 screen. They do not sign. Confirm and Sign is shown only after preflight
 passed and the certificate and profile resolved. `PresetSignConfirmationGate`
 refuses a confirmation that was not acknowledged or that does not pass
-preflight. The normal signing wizard stays on the app detail screen and on
-the signing screen.
+preflight. Confirming also asks the app lock, then enqueues one
+`SigningJobSubmission` on `SigningQueue`. The confirmation screen does not
+call the pipeline and does not record a successful use. The queue's executor
+derives entitlements and stamps the preset identifier. Usage counts update
+when that job settles. The normal signing wizard stays on the app detail
+screen and on the signing screen.
 
 ## Bulk queue
 
-The professional signing queue splits a selection into apps that pass
-preflight and apps that need manual attention. Those sets are disjoint.
-`ProfessionalSigningQueue.stage` refuses a request whose identifier is in the
-attention set and does not call the runner. `confirmAndStart` is the final
-confirmation; attention jobs stay in that state. Cancelling marks waiting
-jobs cancelled and does not invent successes.
+The planner splits a selection into apps that pass preflight and apps that
+need manual attention. Those sets are disjoint. Confirming, after the app
+lock, enqueues only the compatible apps on `SigningQueue` — the same job
+queue the rest of the app uses. Attention apps are listed and are not
+enqueued. Usage counts update when a queued job settles, not when it is
+added.
 
-From the library, Select and then Sign with Preset opens that queue for the
+`ProfessionalSigningQueue` remains the admission test for that split. Its
+runner is not the production path.
+
+From the library, Select and then Sign with Preset opens the planner for the
 selection. Home and the preset library open the same screen.
 
 ## Import

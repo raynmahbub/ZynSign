@@ -1,9 +1,80 @@
 import SwiftUI
 
+/// The offer shown on an app's detail screen. A card, not a list section:
+/// the detail screen is a scroll of cards.
+struct RecommendedPresetCard: View {
+    let entry: LibraryEntry
+
+    @Environment(\.applicationEnvironment) private var environment
+    @State private var match: PresetMatch?
+    @State private var looked = false
+    @State private var showConfirmation = false
+
+    var body: some View {
+        if ReleaseTrain.isAvailable(.signingPresets) {
+            ZCard {
+                VStack(alignment: .leading, spacing: ZSpacing.sm) {
+                    SectionHeading(title: "Recommended Preset", symbol: "rectangle.stack")
+                    if !looked {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .accessibilityLabel("Checking presets")
+                    } else if let match, match.report.passesPreflight {
+                        Text(match.preset.name)
+                            .font(.headline)
+                        Text(match.reasons.prefix(3).joined(separator: " "))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        ZStatusBadge(match.report.overall.displayName, systemImage: "checkmark.seal", kind: PresetDisplay.badgeKind(for: match.report.overall))
+                        Button {
+                            ZHaptics.tap()
+                            showConfirmation = true
+                        } label: {
+                            Text("Sign with Recommended Preset")
+                                .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityHint("Opens the confirmation summary. Nothing is signed until you confirm there.")
+                    } else {
+                        Text("No preset passes preflight for this app. The signing wizard is still available.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(match.map { "Recommended Preset. \($0.report.spokenSummary)" } ?? "Recommended Preset")
+            }
+            .task { await load() }
+            .sheet(isPresented: $showConfirmation) {
+                if let match {
+                    PresetSigningConfirmationView(entry: entry, presetID: match.preset.id, origin: .applicationDetails)
+                }
+            }
+        }
+    }
+
+    private func load() async {
+        guard let workflow = environment.signingPresetWorkflow else {
+            looked = true
+            return
+        }
+        let app = PresetAppContext(
+            bundleIdentifier: entry.record.bundleIdentifier.rawValue,
+            displayName: entry.record.displayName
+        )
+        match = try? await workflow.recommendation(for: app)
+        looked = true
+    }
+}
+
 /// The offer shown when an app is opened. A compatible preset is named.
 /// It is not signed until the confirmation screen's final button is used.
 struct RecommendedPresetSection: View {
     let entry: LibraryEntry
+    var origin: SigningJobOrigin = .signingScreen
 
     @Environment(\.applicationEnvironment) private var environment
     @State private var match: PresetMatch?
@@ -49,7 +120,7 @@ struct RecommendedPresetSection: View {
             .task { await load() }
             .sheet(isPresented: $showConfirmation) {
                 if let match {
-                    PresetSigningConfirmationView(entry: entry, presetID: match.preset.id)
+                    PresetSigningConfirmationView(entry: entry, presetID: match.preset.id, origin: origin)
                 }
             }
         }
@@ -102,7 +173,7 @@ struct ImportReadyToSignOffer: View {
                 .accessibilityElement(children: .contain)
                 .sheet(isPresented: $showConfirmation) {
                     if let match = readiness.recommendation {
-                        PresetSigningConfirmationView(entry: entry, presetID: match.preset.id)
+                        PresetSigningConfirmationView(entry: entry, presetID: match.preset.id, origin: .importHub)
                     }
                 }
             }

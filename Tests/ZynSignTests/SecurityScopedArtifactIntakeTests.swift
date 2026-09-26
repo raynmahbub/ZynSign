@@ -176,19 +176,89 @@ final class SecurityScopedArtifactIntakeTests: XCTestCase {
 
     // MARK: - Leftover lifecycle
 
-    func testLeftoversFromAPreviousProcessAreClearedBeforeTheFirstStaging() throws {
-        // The stale file is planted directly, before any intake use, so the
-        // staging directory — otherwise created lazily by the intake — must
-        // exist first.
+    func testStagingLeavesOtherWorkingCopiesAlone() throws {
+        // A working copy an interrupted import may resume from must survive
+        // later stagings; only the launch-time sweep decides what goes.
         try FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
-        let staleName = "\(UUID().uuidString).ipa"
-        ImportFixtures.writeFile(named: staleName, content: Data([0x50]), in: stagingDirectory)
+        let survivorName = "\(UUID().uuidString).ipa"
+        ImportFixtures.writeFile(named: survivorName, content: Data([0x50]), in: stagingDirectory)
 
         let intake = makeIntake()
         try intake.stageDocument(at: writeSource(), as: IPAArtifact().id)
 
-        XCTAssertEqual(ImportFixtures.fileNames(in: stagingDirectory).contains(staleName), false)
-        XCTAssertEqual(ImportFixtures.fileNames(in: stagingDirectory).count, 1)
+        XCTAssertTrue(ImportFixtures.fileNames(in: stagingDirectory).contains(survivorName))
+        XCTAssertEqual(ImportFixtures.fileNames(in: stagingDirectory).count, 2)
+    }
+
+    func testTheSweepRemovesLeftoversExceptTheCopiesKept() throws {
+        let intake = makeIntake()
+        let kept = IPAArtifact().id
+        let leftover = IPAArtifact().id
+        try intake.stageDocument(at: writeSource(), as: kept)
+        try intake.stageDocument(at: writeSource(), as: leftover)
+        ImportFixtures.writeFile(named: "partial-copy.tmp", content: Data([0x01]), in: stagingDirectory)
+
+        intake.sweepStagedDocuments(keeping: [kept])
+
+        XCTAssertEqual(ImportFixtures.fileNames(in: stagingDirectory), ["\(kept.rawValue).ipa"])
+    }
+
+    func testTheStagedSizeIsReportedOnlyForExistingWorkingCopies() throws {
+        let intake = makeIntake()
+        let artifact = IPAArtifact().id
+        let source = writeSource()
+        XCTAssertNil(intake.stagedByteCount(for: artifact))
+
+        try intake.stageDocument(at: source, as: artifact)
+        let expected = try Data(contentsOf: source).count
+        XCTAssertEqual(intake.stagedByteCount(for: artifact), expected)
+
+        intake.discardStagedDocument(for: artifact)
+        XCTAssertNil(intake.stagedByteCount(for: artifact))
+    }
+
+    // MARK: - Archive entries
+
+    func testAnArchiveEntryIsStagedAsItsOwnWorkingCopy() throws {
+        let package = Array(ImportHubFixtures.package())
+        let archive = ZipFixtureBuilder.archive([
+            ZipFixtureBuilder.Entry(name: "Apps/App.ipa", content: package, deflate: true),
+        ])
+        let source = ImportFixtures.writeFile(named: "Bundle.zip", content: Data(archive), in: workDirectory)
+        let intake = makeIntake()
+        let container = IPAArtifact().id
+        let child = IPAArtifact().id
+        try intake.stageDocument(at: source, as: container)
+
+        try intake.stageArchiveEntry(
+            NestedPackageCandidate(path: makePath("Apps/App.ipa"), byteCount: package.count, compressedByteCount: 0),
+            from: container,
+            as: child,
+            reporting: nil
+        )
+
+        XCTAssertEqual(
+            try Data(contentsOf: stagingDirectory.appendingPathComponent("\(child.rawValue).ipa")),
+            Data(package)
+        )
+        XCTAssertEqual(try Data(contentsOf: source), Data(archive), "The archive the user chose is only read.")
+    }
+
+    func testAFailedArchiveEntryLeavesNothingBehind() throws {
+        let archive = ZipFixtureBuilder.archive([ZipFixtureBuilder.Entry(name: "App.ipa", content: [0x01])])
+        let source = ImportFixtures.writeFile(named: "Bundle.zip", content: Data(archive), in: workDirectory)
+        let intake = makeIntake()
+        let container = IPAArtifact().id
+        let child = IPAArtifact().id
+        try intake.stageDocument(at: source, as: container)
+
+        XCTAssertThrowsError(try intake.stageArchiveEntry(
+            NestedPackageCandidate(path: makePath("Missing.ipa"), byteCount: 1, compressedByteCount: 1),
+            from: container,
+            as: child,
+            reporting: nil
+        ))
+        XCTAssertEqual(ImportFixtures.fileNames(in: stagingDirectory), ["\(container.rawValue).ipa"])
     }
 
     // MARK: - Cancellation

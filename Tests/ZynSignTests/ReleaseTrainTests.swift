@@ -57,25 +57,49 @@ final class ReleaseTrainTests: XCTestCase {
     }
 
     func testFeatureRolloutMatchesThePlan() {
-        XCTAssertEqual(ReleaseStage.alpha1.introducedFeatures, Set([.certificateStudio, .libraryPowerFeatures]))
+        XCTAssertEqual(ReleaseStage.alpha1.features, [.certificateStudio, .libraryPowerFeatures])
+        XCTAssertEqual(ReleaseStage.alpha2.features, [
+            .certificateStudio, .libraryPowerFeatures,
+            .smartSign, .provisioningProfileManager, .signingQueue, .signingPresets,
+        ])
+        XCTAssertEqual(ReleaseStage.alpha3.features, [
+            .certificateStudio, .libraryPowerFeatures,
+            .smartSign, .provisioningProfileManager, .signingQueue, .signingPresets,
+            .appStore, .downloads,
+        ])
         XCTAssertEqual(
             ReleaseStage.alpha2.introducedFeatures,
-            Set([.smartSign, .provisioningProfileManager, .signingPresets])
+            [.smartSign, .provisioningProfileManager, .signingQueue, .signingPresets]
         )
-        XCTAssertEqual(ReleaseStage.alpha3.introducedFeatures, Set([.appStore, .downloads]))
         XCTAssertEqual(
             ReleaseStage.beta1.introducedFeatures,
-            Set([.missionControl, .deliveryHandoff, .activityJournal])
+            [.missionControl, .deliveryHandoff, .activityJournal]
         )
-        XCTAssertEqual(ReleaseStage.beta3.introducedFeatures, Set([.batchSigning]))
-        XCTAssertEqual(ReleaseStage.stable.introducedFeatures, Set([.signingHealthScore]))
-        XCTAssertTrue(ReleaseStage.alpha2.features.contains(.signingPresets))
-        XCTAssertTrue(ReleaseStage.alpha2.features.contains(.smartSign))
-        XCTAssertFalse(ReleaseStage.alpha1.features.contains(.signingPresets))
+        XCTAssertFalse(ReleaseStage.beta1.introducedFeatures.contains(.signingPresets))
+        XCTAssertFalse(ReleaseStage.beta1.features.contains(.batchSigning), "Batch signing ships in beta 3")
+        XCTAssertEqual(ReleaseStage.beta3.features, Set(ReleaseFeature.allCases).subtracting([.signingHealthScore]))
+        XCTAssertEqual(ReleaseStage.stable.features, Set(ReleaseFeature.allCases))
     }
 
-    func testStableReleaseIncludesEveryFeature() {
-        XCTAssertEqual(ReleaseStage.stable.features, Set(ReleaseFeature.allCases))
+    func testTheSigningQueueShipsWithSmartSignInAlpha2() {
+        XCTAssertTrue(ReleaseStage.alpha2.introducedFeatures.contains(.signingQueue))
+        XCTAssertFalse(ReleaseStage.alpha1.features.contains(.signingQueue))
+        XCTAssertEqual(ReleaseFeature.signingQueue.prerequisites, [.smartSign])
+        XCTAssertEqual(ReleaseFeature.signingQueue.displayName, "Professional Signing Queue")
+    }
+
+    func testSigningPresetsShipWithSmartSignInAlpha2() {
+        XCTAssertTrue(ReleaseStage.alpha2.introducedFeatures.contains(.signingPresets))
+        XCTAssertTrue(ReleaseStage.alpha2.features.contains(.signingPresets))
+        XCTAssertFalse(ReleaseStage.alpha1.features.contains(.signingPresets))
+        XCTAssertFalse(ReleaseStage.beta1.introducedFeatures.contains(.signingPresets))
+        XCTAssertEqual(ReleaseFeature.signingPresets.displayName, "Intelligent Signing Presets")
+    }
+
+    func testFeatureCompleteFromTheFinalRelease() {
+        for stage in ReleaseStage.allCases where stage >= .stable {
+            XCTAssertEqual(stage.features, Set(ReleaseFeature.allCases), "\(stage) must be feature complete")
+        }
     }
 
     func testFeaturesOnlyAccumulate() {

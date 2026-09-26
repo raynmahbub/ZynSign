@@ -6,7 +6,7 @@
 /// requires, including the honest distinction between input that is at fault
 /// and a capability that ZynSign cannot provide on this platform or in this
 /// build.
-enum DiagnosticCategory: String, CaseIterable, Hashable, CustomStringConvertible {
+enum DiagnosticCategory: String, CaseIterable, Hashable, CustomStringConvertible, Codable, Sendable {
 
     /// Input is structurally broken or malformed.
     case invalidInput

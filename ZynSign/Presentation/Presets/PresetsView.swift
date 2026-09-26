@@ -4,6 +4,10 @@ import SwiftUI
 /// its current health. Actions match the context menu. Nothing on this
 /// screen signs an app by itself.
 struct PresetsView: View {
+    /// When this view is already inside a navigation stack, the compact
+    /// layout should not wrap itself in a second one.
+    var embedsNavigationStack: Bool = true
+
     @Environment(\.horizontalSizeClass) private var sizeClass
     @StateObject private var model = PresetLibraryModel()
     @Environment(\.applicationEnvironment) private var environment
@@ -24,13 +28,12 @@ struct PresetsView: View {
                         )
                     }
                 }
-            } else {
+            } else if embedsNavigationStack {
                 NavigationStack {
-                    library
-                        .navigationDestination(for: PresetIdentifier.self) { id in
-                            PresetDetailView(presetID: id, model: model)
-                        }
+                    compactLibrary
                 }
+            } else {
+                compactLibrary
             }
         }
         .task { await model.load(using: environment) }
@@ -65,6 +68,13 @@ struct PresetsView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
+    }
+
+    private var compactLibrary: some View {
+        library
+            .navigationDestination(for: PresetIdentifier.self) { id in
+                PresetDetailView(presetID: id, model: model)
+            }
     }
 
     private var library: some View {

@@ -77,7 +77,7 @@ Exploitable only through a hostile working copy, hence Medium.
   undecodable names are refused; duplicate locations keep the
   first-recorded entry and are counted. No extraction path exists.
 - **Symlink handling:** links are listed, never followed, in the bundle
-  explorer, which reads no entry content. The resource-sealing generator
+  explorer. A preview does not read or follow a link. The resource-sealing generator
   applies its fail-closed-or-exclude policy to whatever the store
   reports; the directory store's link detection itself is an accepted
   risk below, pending the Xcode runner.

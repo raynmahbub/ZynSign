@@ -47,10 +47,20 @@ enum ImportPreflight {
     ///   - source: the URL the platform vended for the selection, used for
     ///     its extension alone.
     ///   - description: what the platform observed about the document.
-    static func validate(_ source: URL, describedBy description: ImportSourceDescription) throws {
-        guard IPAFileFormat.accepts(source) else {
+    ///   - acceptingContainers: whether a ZIP archive that may *hold*
+    ///     packages is acceptable too. The Import Hub accepts them and opens
+    ///     them safely; the one-shot import accepts packages only.
+    static func validate(
+        _ source: URL,
+        describedBy description: ImportSourceDescription,
+        acceptingContainers: Bool = false
+    ) throws {
+        let acceptsName = acceptingContainers
+            ? IPAFileFormat.acceptsForImport(source)
+            : IPAFileFormat.accepts(source)
+        guard acceptsName else {
             throw ZynSignError.unsupportedImportFile(
-                diagnosticDetail: "The selected file's extension is not the accepted package type."
+                diagnosticDetail: "The selected file's extension is not an accepted package or archive type."
             )
         }
 

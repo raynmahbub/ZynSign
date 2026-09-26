@@ -30,9 +30,12 @@ ZS-020 integrates the three stages into one application-layer workflow whose
 `valid` result states only that every stage ZynSign implements reached its
 positive outcome. For that workflow one `embedded.mobileprovision` entry can be
 read out of a package through the existing archive boundary, behind a bounded,
-read-only intake; the bundle explorer still reads no entry content, no profile
-state is persisted, no signing capability is requested, and no profile interface
-exists. Production activation of the identity path remains gated by experiment E7,
+read-only intake. The bundle explorer's structure listing still reads no entry
+content. An explicit explorer preview may read one bounded entry, including a
+declared profile property list, and does not verify it
+([ipa-explorer.md](../architecture/ipa-explorer.md)). No profile state is
+persisted, no signing capability is requested, and no profile-management
+interface exists. Production activation of the identity path remains gated by experiment E7,
 and of the profile verification path by experiments E3 and E4. The security
 boundaries for private-key material, certificate and profile parsing as
 untrusted input, and raw certificate bytes ownership are established in

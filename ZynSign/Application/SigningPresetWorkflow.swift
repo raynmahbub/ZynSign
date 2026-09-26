@@ -6,8 +6,9 @@ import Foundation
 /// profile library, and the identity store together. Matching itself stays
 /// in the domain: this type assembles the snapshot, enforces name and
 /// default rules, and resolves references into the bytes a signing request
-/// needs. It does not sign. One-tap signing confirms first, then the queue
-/// or the confirmation screen calls the pipeline.
+/// needs. It does not sign. Confirmed one-tap and bulk work become
+/// `SigningJobSubmission` values for `SigningQueue`. Usage is recorded when
+/// that queue settles a job, not when the job is added.
 struct SigningPresetWorkflow {
     let presets: any SigningPresetStore
     let profiles: any ProvisioningProfileLibrary
@@ -271,6 +272,65 @@ struct SigningPresetWorkflow {
         return requests
     }
 
+    /// One submission for a resolved preset. Does not enqueue and does not
+    /// record a use.
+    func submission(
+        for entry: LibraryEntry,
+        resolved: ResolvedPresetSigning
+    ) -> SigningJobSubmission {
+        SigningJobSubmission(
+            recordID: entry.record.id,
+            artifactID: entry.record.artifact.artifactID,
+            applicationName: entry.record.displayName ?? entry.record.bundleIdentifier.rawValue,
+            bundleIdentifier: entry.record.bundleIdentifier.rawValue,
+            versionText: Self.versionText(for: entry),
+            identityID: resolved.identity.id,
+            identityDisplayName: resolved.identity.displayName,
+            certificateFingerprint: resolved.identity.fingerprint,
+            profile: resolved.profileBytes,
+            profileDisplayName: resolved.profile.name,
+            profileTeamIdentifier: resolved.profile.teamIdentifier,
+            emitDEREntitlements: resolved.options.emitDEREntitlements,
+            presetID: resolved.preset.id
+        )
+    }
+
+    /// Submissions for the compatible half of a plan only. An identifier in
+    /// `needsAttention` is never included. If a compatible app cannot be
+    /// prepared, nothing is returned — a partial queue would hide the failure.
+    func queueSubmissions(
+        for plan: PresetBulkPlan,
+        entries: [LibraryEntry]
+    ) async throws -> [SigningJobSubmission] {
+        let attention = Set(plan.needsAttention.map(\.id))
+        guard let preset = try await presets.preset(withID: plan.presetID) else {
+            throw ZynSignError.presetNotFound()
+        }
+        let resolved = try await resolve(preset)
+        var submissions: [SigningJobSubmission] = []
+        for item in plan.compatible {
+            if attention.contains(item.id) {
+                throw ZynSignError.presetQueueRefusedIncompatible(
+                    diagnosticDetail: "Plan listed \(item.id) as both compatible and needing attention."
+                )
+            }
+            guard let entry = entries.first(where: { $0.record.id.rawValue == item.id }) else {
+                throw ZynSignError.presetNotReady(
+                    userMessage: "ZynSign could not prepare “\(item.displayName)” for signing, so nothing was queued."
+                )
+            }
+            let source = artifactURL(entry.record.artifact.artifactID)
+            guard FileManager.default.fileExists(atPath: source.path) else {
+                throw ZynSignError.presetNotReady(
+                    userMessage: "ZynSign could not prepare “\(item.displayName)” for signing, so nothing was queued.",
+                    diagnosticDetail: "The package file is not in library storage."
+                )
+            }
+            submissions.append(submission(for: entry, resolved: resolved))
+        }
+        return submissions
+    }
+
     func options(for preset: SigningPreset) -> SignApplicationOptions {
         let team = preset.teamIdentifier.flatMap { try? CodeDirectoryTeamIdentifier(rawValue: $0) }
         return SignApplicationOptions(
@@ -357,7 +417,7 @@ struct SigningPresetWorkflow {
                 diagnosticDetail: "The package file is not in library storage."
             )
         }
-        let entitlements = try SigningProfileEntitlementDerivation.derive(from: resolved.profileBytes)
+        let entitlements = try ProfileEntitlementDerivation.entitlements(fromProvisioningProfile: resolved.profileBytes)
         let output = outputDirectory.appendingPathComponent(Self.outputName(for: entry), isDirectory: false)
         return SignApplicationRequest(
             sourceURL: source,
@@ -367,6 +427,19 @@ struct SigningPresetWorkflow {
             outputURL: output,
             options: resolved.options
         )
+    }
+
+    private static func versionText(for entry: LibraryEntry) -> String? {
+        switch (entry.record.identity.shortVersionString, entry.record.identity.buildVersion) {
+        case (.some(let version), .some(let build)):
+            return "Version \(version) (\(build))"
+        case (.some(let version), .none):
+            return "Version \(version)"
+        case (.none, .some(let build)):
+            return "Build \(build)"
+        case (.none, .none):
+            return nil
+        }
     }
 
     static func outputName(for entry: LibraryEntry) -> String {

@@ -2,10 +2,29 @@ import SwiftUI
 import UniformTypeIdentifiers
 import UIKit
 
-/// Signing screen — Smart Sign with real entitlements, DER (0x20400) and Live Activities.
+/// Signing screen — Smart Sign, executed by the Signing Engine.
+///
+/// The screen collects the three things a run needs — an identity, a
+/// provisioning profile, and the entitlement set the profile authorizes — and
+/// hands them to the engine, which owns the order of the run, its safety
+/// properties, and its progress. What the screen shows is the engine's own
+/// state: the ten stages with their live detail, an estimate once one is
+/// meaningful, the delivered container on success, and — on a refusal — the
+/// refusing stage, its reason, and the recovery facts.
+///
+/// Every value rendered here is text the engine produced. Nothing on this
+/// screen is a trust, authorization, or installability claim about the result.
+/// Read-only Signing Health checks the selected inputs before the engine starts.
 struct SigningView: View {
     let entry: LibraryEntry
     @Environment(\.applicationEnvironment) private var env
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.settingsCenter) private var settings
+    @Environment(\.appLock) private var appLock
+    @Environment(\.signingQueuePresentation) private var signingQueuePresentation
+    @State private var showQueuedToast = false
+    @State private var isQueueing = false
+    @StateObject private var model = SigningEngineModel()
     @State private var identities: [SigningIdentity] = []
     @State private var selectedIdentityID: SigningIdentityIdentifier?
     @State private var isLoadingIdentities = true
@@ -13,58 +32,171 @@ struct SigningView: View {
     @State private var profileData: Data?
     @State private var profileFileName: String?
     @State private var profileError: String?
+    @State private var savedProfiles: [ProvisioningProfileSummary] = []
+    @State private var savedProfilesError: String?
+    @State private var isLoadingSavedProfiles = true
+    @State private var selectedSavedProfileID: ProvisioningProfileIdentifier?
+    @State private var isLoadingProfile = false
+    @State private var profileSelectionGeneration = 0
+    @State private var savedProfileListGeneration = 0
     @State private var showProfileImporter = false
-    @State private var isSigning = false
-    @State private var signingResult: SignApplicationResult?
-    @State private var signingError: String?
-    @State private var outputURL: URL?
-    @State private var showShare = false
     @State private var shareItem: ShareURL?
     @State private var showSigningOptions = false
     @State private var showSuccessToast = false
     @State private var showErrorToast = false
     @State private var emitDEREntitlements = false
+    @State private var health: SigningDiagnosticsAnalysis?
+    @State private var analyzedFor: SigningScanKey?
+    @State private var isAnalyzing = true
+    @State private var analysisError: String?
+    @State private var preflightError: String?
+    @State private var isPreparingToSign = false
+    /// Whether the strict-verification confirmation is showing.
+    @State private var isConfirmingStrictSign = false
+    /// Whether the user has already answered that confirmation for the
+    /// current selection, so confirming signs rather than asking again.
+    @State private var isSigningConfirmed = false
+    @State private var preflightTask: Task<Void, Never>?
+    @State private var profileRevision = 0
+    @State private var identityRevision = 0
+    @State private var scanRevision = 0
+    @State private var successScale: CGFloat = 1
     @StateObject private var liveActivity = LiveActivityService()
+    @Environment(\.scenePhase) private var scenePhase
 
+    /// Changing a picker or the actual per-run option cancels the old SwiftUI
+    /// task; an old result can never enable signing for a new configuration.
+    private struct SigningScanKey: Hashable {
+        let recordID: ApplicationRecordIdentifier
+        let identityID: SigningIdentityIdentifier?
+        let profileRevision: Int
+        let storedProfileID: ProvisioningProfileIdentifier?
+        let identityRevision: Int
+        let scanRevision: Int
+        let isLoading: Bool
+        let emitDER: Bool
+    }
+
+    private var scanKey: SigningScanKey {
+        SigningScanKey(recordID: entry.record.id, identityID: selectedIdentityID,
+                       profileRevision: profileRevision, storedProfileID: selectedSavedProfileID,
+                       identityRevision: identityRevision, scanRevision: scanRevision,
+                       isLoading: isLoadingIdentities || isLoadingProfile,
+                       emitDER: emitDEREntitlements)
+    }
+
+    private var isSigning: Bool { model.isRunning }
     private var selectedIdentity: SigningIdentity? {
         guard let id = selectedIdentityID else { return nil }
         return identities.first { $0.id == id }
     }
-    private var canSign: Bool { !isSigning && selectedIdentityID != nil && profileData != nil && entry.isArtifactAvailable }
+    private var canSign: Bool {
+        guard !isSigning, !isPreparingToSign, !scanKey.isLoading else { return false }
+        guard selectedIdentityID != nil, profileData != nil, entry.isArtifactAvailable else { return false }
+        if settings.preferences.signing.automaticCompatibilityAnalysis {
+            // The card is the gate: signing waits for a current assessment of
+            // exactly this configuration, and refuses while one is blocked.
+            guard !isAnalyzing, analyzedFor == scanKey, let health else { return false }
+            guard health.report.status != .blocked, health.entitlements != nil else { return false }
+        }
+        // With automatic analysis off, the pre-sign analysis is the gate
+        // instead — the same checks, run when the user asks to sign.
+        return true
+    }
 
     var body: some View {
         List {
-            RecommendedPresetSection(entry: entry)
             appSection
+            RecommendedPresetSection(entry: entry, origin: .signingScreen)
+            diagnosticsSection
+            if isSigning || model.progress != nil {
+                progressSection
+            }
             identitySection
             profileSection
             entitlementsSection
             actionSection
-            signingStatusSection
-            if let result = signingResult { resultSection(result) }
-            if let error = signingError, signingResult == nil {
-                Section { HStack(spacing: ZSpacing.xs) { ZStatusBadge(error, systemImage: "exclamationmark.triangle", kind: .error) } } header: { Text("Signing Result") }
-            }
+            resultSections
             helpSection
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Sign \(entry.record.displayName ?? "Application")")
         .navigationBarTitleDisplayMode(.inline)
         .task { await loadIdentities() }
-        .refreshable { await loadIdentities() }
+        .task { await loadSavedProfiles() }
+        .task(id: scanKey) {
+            guard !scanKey.isLoading else { return }
+            guard settings.preferences.signing.automaticCompatibilityAnalysis else {
+                // The user asked not to be assessed automatically. Signing
+                // still runs its own pre-sign analysis, so nothing is left
+                // unchecked — it simply is not run until the user signs.
+                isAnalyzing = false
+                health = nil
+                analyzedFor = nil
+                return
+            }
+            await analyzeHealth()
+        }
+        .task {
+            // Re-evaluate dates and short-lived archive evidence while the
+            // screen is visible; an unchanged picker is not a perpetual pass.
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(60)) } catch { break }
+                guard !Task.isCancelled else { break }
+                scanRevision += 1
+            }
+        }
+        .refreshable { await loadIdentities(); await loadSavedProfiles(); scanRevision += 1 }
+        .onReceive(NotificationCenter.default.publisher(for: .zynsignSigningIdentityChanged)) { _ in
+            Task { await loadIdentities() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .zynsignProvisioningProfilesChanged)) { _ in
+            Task { await loadSavedProfiles() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                Task { await loadIdentities(); await loadSavedProfiles(); scanRevision += 1 }
+            }
+        }
+        .onDisappear { preflightTask?.cancel() }
         .fileImporter(isPresented: $showProfileImporter, allowedContentTypes: [.data, .item], allowsMultipleSelection: false) { result in handleProfilePicker(result) }
         .sheet(item: $shareItem) { item in ShareSheet(url: item.url) }
-        .alert("Signing Failed", isPresented: Binding(get: { signingError != nil }, set: { if !$0 { signingError = nil } })) { Button("OK", role: .cancel) { signingError = nil } } message: { Text(signingError ?? "") }
-        .zToast(isPresented: $showSuccessToast, message: "Signed — ready in Documents/Signed", style: .success)
-        .zToast(isPresented: $showErrorToast, message: signingError ?? "Refused — working copy discarded", style: .error, duration: .seconds(4))
-        .zBottomSheet(isPresented: $showSigningOptions) {
-            NavigationStack { SigningOptionsView().toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { showSigningOptions = false } } } }
+        .sheet(isPresented: $model.isPresentingDetails) {
+            NavigationStack {
+                if let result = model.result {
+                    SigningDetailsView(result: result, entry: entry)
+                        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { model.isPresentingDetails = false } } }
+                }
+            }
         }
-        .onChange(of: signingResult) { _, new in
-            if new?.status == .signed { ZHaptics.success(); withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { showSuccessToast = true } }
-            else if new?.failure != nil { ZHaptics.warning(); withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { showErrorToast = true } }
+        .alert("Sign anyway?", isPresented: $isConfirmingStrictSign) {
+            Button("Cancel", role: .cancel) { isSigningConfirmed = false }
+            Button("Sign") { startSigning() }
+        } message: {
+            Text("Verification strictness is set to Strict and the pre-sign diagnostics reported \(strictFindingCount) finding\(strictFindingCount == 1 ? "" : "s"). ZynSign will not refuse — it wants you to confirm.")
+        }
+        .zToast(isPresented: $showSuccessToast, message: "Signed, verified, and delivered to Documents/Signed", style: .success)
+        .zToast(isPresented: $showQueuedToast, message: "Added to the signing queue", style: .info)
+        .zToast(isPresented: $showErrorToast, message: model.result?.failure?.userMessage ?? "Refused — nothing was delivered", style: .error, duration: .seconds(4))
+        .zBottomSheet(isPresented: $showSigningOptions) {
+            NavigationStack { SigningOptionsView(emitDEREntitlements: $emitDEREntitlements).toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { showSigningOptions = false } } } }
+        }
+        .onChange(of: model.result?.status) { _, new in
+            guard let new else { return }
+            if new == .signed {
+                ZHaptics.success()
+                rememberSelections()
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) { successScale = 1.08 }
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.9).delay(0.18)) { successScale = 1 }
+                showSuccessToast = true
+            } else {
+                ZHaptics.warning()
+                showErrorToast = true
+            }
         }
     }
+
+    // MARK: - Application
 
     private var appSection: some View {
         Section("Application") {
@@ -72,295 +204,859 @@ struct SigningView: View {
             LabeledContent("Identifier", value: entry.record.bundleIdentifier.rawValue)
             LabeledContent("Version", value: entry.record.identity.shortVersionString ?? "—")
             LabeledContent("Build", value: entry.record.identity.buildVersion ?? "—")
-            LabeledContent("Package", value: entry.artifactAvailability.displayName).foregroundStyle(entry.isArtifactAvailable ? .primary : .orange)
-            if !entry.isArtifactAvailable { Label("The package file is not available. Re-import the application before signing.", systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.footnote) }
-            NavigationLink { BundleExplorerView(inspection: env.bundleInspection, entry: entry) } label: { Label("Explore Bundle", systemImage: "folder") }.disabled(!entry.isArtifactAvailable)
+            if !entry.isArtifactAvailable {
+                Label("The package file is not available. Re-import the application before signing.", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+                    .font(.footnote)
+            }
+            NavigationLink { BundleExplorerView(inspection: env.bundleInspection, entry: entry) } label: {
+                Label("Explore IPA", systemImage: "square.stack.3d.up")
+            }
+            .disabled(!entry.isArtifactAvailable)
+            .accessibilityHint("Opens the read-only IPA explorer.")
         }
     }
+
+    private var diagnosticsSection: some View {
+        Section {
+            SigningHealthCard(report: analyzedFor == scanKey ? health?.report : nil,
+                              isAnalyzing: isAnalyzing || scanKey.isLoading, error: analysisError)
+                .listRowInsets(EdgeInsets(top: ZSpacing.sm, leading: ZSpacing.md,
+                                          bottom: ZSpacing.sm, trailing: ZSpacing.md))
+                .listRowBackground(Color.clear)
+            if let health, analyzedFor == scanKey {
+                NavigationLink {
+                    SigningDiagnosticsView(report: health.report, history: health.history,
+                                           changes: health.changes,
+                                           historyUnavailable: health.historyUnavailable)
+                } label: { Label("View issues, recommendations & history", systemImage: "doc.text.magnifyingglass") }
+            }
+            if analysisError != nil {
+                Button("Try analysis again") { scanRevision += 1 }
+            }
+            if let preflightError {
+                Label(preflightError, systemImage: "exclamationmark.shield")
+                    .font(.footnote).foregroundStyle(.orange)
+            }
+        } header: { Text("Pre-Sign Diagnostics") } footer: {
+            Text("The compatibility summary updates as you choose an identity, profile or signing option. These checks never change the IPA; the pipeline checks again when signing begins.")
+        }
+    }
+
+    // MARK: - Engine progress
+
+    @ViewBuilder
+    private var progressSection: some View {
+        let snapshot = model.progress
+        Section("Progress") {
+            ZCard(variant: .material, cornerRadius: ZRadius.lg) {
+                VStack(alignment: .leading, spacing: ZSpacing.md) {
+                    HStack(alignment: .center, spacing: ZSpacing.md) {
+                        ZProgressRing(
+                            progress: snapshot?.fractionCompleted,
+                            status: snapshot?.currentStage?.title ?? (model.result?.status == .signed ? "Signed" : "Signing")
+                        )
+                        VStack(alignment: .leading, spacing: ZSpacing.xxs) {
+                            Text(snapshot?.currentStage?.title ?? "Finishing")
+                                .font(.headline)
+                            Text(snapshot?.currentStage?.summary ?? snapshot?.detail ?? "Delivering the verified container")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            HStack(spacing: ZSpacing.xs) {
+                                if let seconds = snapshot?.estimatedRemainingSeconds {
+                                    Label("≈ \(seconds)s left", systemImage: "clock")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                if let fraction = snapshot?.fractionCompleted {
+                                    Text("\(Int((fraction * 100).rounded()))%")
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                }
+                                if liveActivity.isActive {
+                                    Label("Live Activity", systemImage: "livephoto")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    ZSigningStageList(records: model.stageRecords)
+                }
+            }
+            .listRowInsets(EdgeInsets(top: ZSpacing.sm, leading: ZSpacing.md, bottom: ZSpacing.sm, trailing: ZSpacing.md))
+            .listRowBackground(Color.clear)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(snapshot?.accessibilityDescription ?? "Signing progress")
+            if isSigning {
+                Button("Cancel Signing", role: .destructive) { model.cancel() }
+                    .accessibilityHint("Stops the run, discards the working copy, and delivers nothing")
+            }
+        }
+    }
+
+    // MARK: - Identity, profile, entitlements
 
     private var identitySection: some View {
         Section {
             if isLoadingIdentities { ZSkeleton(rows: 2) }
             else if let err = identitiesError { Label(err, systemImage: "exclamationmark.triangle").foregroundStyle(.orange); Button("Retry") { Task { await loadIdentities() } } }
             else if identities.isEmpty {
-                ContentUnavailableView { Label("No Certificates", systemImage: "signature") } description: { Text("Import a .p12 identity in the Certificates tab to sign.") } actions: { NavigationLink { CertificatesView() } label: { Label("Open Certificates", systemImage: "key.fill") }.buttonStyle(.bordered) }
+                ContentUnavailableView { Label("No Certificates", systemImage: "signature") } description: { Text("Import a .p12 identity in the Certificates tab to sign.") } actions: { NavigationLink { CertificateManagerView(store: env.identityStore, annotations: env.identityAnnotations, importer: env.pkcs12Importer) } label: { Label("Open Certificates", systemImage: "key.fill") }.buttonStyle(.bordered) }
                 .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
             } else {
                 Picker("Signing Identity", selection: $selectedIdentityID) {
                     Text("Select Identity").tag(nil as SigningIdentityIdentifier?)
-                    ForEach(identities, id: \.id) { idt in VStack(alignment: .leading) { Text(idt.displayName); Text(idt.certificate.subject.displayName).font(.caption).foregroundStyle(.secondary) }.tag(Optional(idt.id)) }
-                }.pickerStyle(.navigationLink)
-                if let idt = selectedIdentity {
-                    LabeledContent("Key", value: idt.keyAvailability.rawValue)
-                    LabeledContent("Association", value: String(describing: idt.association))
-                    LabeledContent("Capability", value: String(describing: idt.capabilityState))
-                    HStack { if idt.isUsableForSigning { ZStatusBadge.ready("Ready to sign") } else { ZStatusBadge.needsAttention("Not usable") }; Spacer() }
-                    if idt.isUsableForSigning { Text("Private key verified, association matched — pipeline will verify again on sign.").font(.caption).foregroundStyle(.secondary) }
-                    else { Text("Usable only when key is available, certificate ↔ key match, and capability is ready. Re-import the correct .p12 or check validity.").font(.caption).foregroundStyle(.secondary) }
+                    ForEach(identities, id: \.id) { identity in
+                        VStack(alignment: .leading) {
+                            Text(identity.displayName)
+                            Text(identity.certificate.subject.displayName).font(.caption).foregroundStyle(.secondary)
+                        }
+                        .tag(Optional(identity.id))
+                    }
+                }
+                if let identity = selectedIdentity {
+                    HStack { if identity.isUsableForSigning { ZStatusBadge.ready("Ready to sign") } else { ZStatusBadge.needsAttention("Not usable") }; Spacer() }
+                    if identity.isUsableForSigning {
+                        Text("The certificate is resolved again from secure storage when the signed bytes are verified.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Text("A usable identity has an available key, a certificate that matches it, and a ready signing capability.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
-        } header: { Text("Signing Identity") } footer: { Text("Private keys never leave the Keychain and are never displayed. The pipeline verifies key association and protection on every operation.") }
+        } header: {
+            Text("Signing Identity")
+        } footer: {
+            Text("Private keys never leave the Keychain and are never displayed.")
+        }
     }
 
     private var profileSection: some View {
         Section {
+            if isLoadingProfile {
+                ProgressView("Reading saved profile…")
+                    .accessibilityLabel("Reading saved provisioning profile")
+            }
             if let name = profileFileName, let data = profileData {
                 LabeledContent("Profile", value: name)
                 LabeledContent("Size", value: ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file))
-                Button("Remove Profile", role: .destructive) { profileData = nil; profileFileName = nil; profileError = nil }
-            } else {
-                Button { showProfileImporter = true } label: { Label("Choose Provisioning Profile…", systemImage: "doc.badge.ellipsis") }
-                Text("A .mobileprovision file that authorizes the target bundle identifier and contains the signing certificate. The file is read only for this signing run and is not persisted.").font(.caption).foregroundStyle(.secondary)
+                Button("Remove Profile", role: .destructive) { clearProfileSelection() }
+                    .disabled(isSigning)
+            } else if !isLoadingProfile {
+                Text("Choose a profile that authorizes this app and the selected certificate. ZynSign verifies the exact bytes; saved-profile summaries are not signing evidence.")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
-            if let err = profileError { Label(err, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.footnote) }
-            Button("Choose from Files") { showProfileImporter = true }.font(.footnote)
+            if let error = profileError {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange).font(.footnote)
+            }
+            if !savedProfiles.isEmpty {
+                Menu {
+                    ForEach(savedProfiles) { summary in
+                        Button {
+                            chooseSavedProfile(summary)
+                        } label: {
+                            Label(summary.name, systemImage: selectedSavedProfileID == summary.id ? "checkmark.circle.fill" : "doc.text")
+                        }
+                    }
+                } label: { Label("Choose Saved Profile…", systemImage: "tray.full") }
+                    .disabled(isSigning)
+                Text("The saved file is read within the CMS size limit and reverified for this app, identity and signing option. A saved summary alone never enables signing.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if isLoadingSavedProfiles {
+                ProgressView("Loading saved profiles…")
+            } else if let error = savedProfilesError {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.footnote).foregroundStyle(.orange)
+                Button("Retry saved profiles") { Task { await loadSavedProfiles() } }
+                    .disabled(isSigning)
+            }
+            Button { showProfileImporter = true } label: {
+                Label("Choose from Files…", systemImage: "doc.badge.ellipsis")
+            }.disabled(isSigning)
         } header: { Text("Provisioning Profile") }
-    }
-
-    private var derivedEntitlements: CodeSigningEntitlements? {
-        guard let data = profileData else { return nil }
-        return try? Self.entitlements(fromProvisioningProfile: data)
-    }
-    private var derivedEntitlementsDiagnostic: String? {
-        guard let data = profileData else { return nil }
-        do { _ = try Self.entitlements(fromProvisioningProfile: data); return nil }
-        catch let e as ZynSignError { return e.userMessage }
-        catch let e as EntitlementsError { return "Entitlements error: \(String(describing: e))" }
-        catch { return "The profile's entitlements could not be derived." }
     }
 
     private var entitlementsSection: some View {
         Section {
             if profileData == nil {
                 LabeledContent("Entitlements", value: "Choose a profile first")
-                Text("Choose a provisioning profile to derive its entitlements. The signing pipeline validates the set against the profile before any code is signed.").font(.caption).foregroundStyle(.secondary)
-            } else if let entitlements = derivedEntitlements {
-                HStack { LabeledContent("Entitlements", value: "\(entitlements.count) from profile"); Spacer(); ZStatusBadge("\(entitlements.count) keys", systemImage: "checkmark.seal.fill", kind: .success) }
-                if entitlements.isEmpty { Text("The profile authorizes an empty entitlement set — the pipeline will sign with no additional claims.").font(.caption).foregroundStyle(.secondary) }
-                else {
-                    ForEach(entitlements.keys.prefix(8), id: \.self) { key in HStack { Text(key).font(.caption).monospaced(); Spacer(); Text(Self.entitlementValueSummary(entitlements[key])).font(.caption2).foregroundStyle(.secondary).lineLimit(1) } }
-                    if entitlements.count > 8 { Text("+ \(entitlements.count - 8) more — full set is signed and verified, not truncated.").font(.caption2).foregroundStyle(.secondary) }
-                    Text("Derived directly from the profile's Entitlements dictionary and preserved verbatim (unknown keys kept, ordering canonicalized on serialization). The pipeline holds this set against the profile's policy before signing.").font(.caption).foregroundStyle(.secondary)
+                Text("Only claims from an authenticated profile will be prepared for signing.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if let claims = health?.entitlements, analyzedFor == scanKey {
+                LabeledContent("Verified profile claims", value: "\(claims.count) keys")
+                if !claims.isEmpty {
+                    ForEach(claims.keys.prefix(8), id: \.self) { key in
+                        Text(key).font(.caption.monospaced()).lineLimit(2)
+                    }
+                    if claims.count > 8 {
+                        Text("+ \(claims.count - 8) more claims are checked and used; none are dropped.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
+                Text("These exact claims are compared with the authenticated profile and passed to the signing pipeline. iOS authorization is not established by this check.")
+                    .font(.caption).foregroundStyle(.secondary)
             } else {
-                HStack { LabeledContent("Entitlements", value: "Derivation failed — empty will be tried"); Spacer(); ZStatusBadge("Not derived", systemImage: "exclamationmark.triangle", kind: .error) }
-                if let diag = derivedEntitlementsDiagnostic { Text(diag).font(.caption).foregroundStyle(.orange) }
-                Text("ZynSign could not read entitlements from this profile. Signing will proceed with an empty set and the pipeline's profile stage will refuse if the profile requires claims.").font(.caption).foregroundStyle(.secondary)
+                LabeledContent("Entitlements", value: isAnalyzing ? "Analyzing…" : "Not verified")
+                Text("If the profile cannot be authenticated or its claims cannot be represented, signing will not substitute an empty set.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
-            Toggle(isOn: $emitDEREntitlements) { Label("DER entitlements (iOS 15+ • 0x20400)", systemImage: "doc.text.image") }.tint(.blue)
-            HStack(spacing: ZSpacing.xs) {
-                ZStatusBadge(emitDEREntitlements ? "0x20400" : "0x20200", systemImage: "cpu", kind: emitDEREntitlements ? .info : .neutral)
-                ZStatusBadge(emitDEREntitlements ? "Slot 5 + 7" : "Slot 5", systemImage: "square.stack.3d.up", kind: .neutral)
-            }
-            Text(emitDEREntitlements ? "DER is on — emits XML blob (slot 5, 0xFADE7171) and deterministic DER SET (slot 7, 0xFADE7172, v0x20400). iOS 15+ validates slot 7; older validates slot 5." : "DER is off — XML entitlements only (slot 5, v0x20200). Turn on for iOS 15+ DER enforcement.").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Toggle(isOn: $emitDEREntitlements) {
+                Label("Request DER entitlements (unsupported)", systemImage: "doc.text.image")
+            }.tint(.blue).disabled(isSigning)
+            ZStatusBadge(emitDEREntitlements ? "DER not available" : "XML only",
+                         systemImage: "cpu", kind: emitDEREntitlements ? .neutral : .warning)
+            Text(emitDEREntitlements
+                 ? "The current signer does not emit DER. Diagnostics blocks this option rather than producing an XML-only signature labeled as DER."
+                 : "Only XML entitlements are emitted. If iOS 15+ requires DER for your target, use a signer with verified DER support.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             if liveActivity.isActive, let state = liveActivity.currentState {
-                HStack(spacing: ZSpacing.xs) { ZStatusBadge(state.stage, systemImage: "livephoto", kind: .info); ZStatusBadge("\(Int(state.progress*100))%", systemImage: "percent", kind: .neutral) }
+                HStack(spacing: ZSpacing.xs) {
+                    ZStatusBadge(state.stage, systemImage: "livephoto", kind: .info)
+                    ZStatusBadge("\(Int(state.progress * 100))%", systemImage: "percent", kind: .neutral)
+                }
                 Text(state.detail).font(.caption2).foregroundStyle(.secondary)
             }
-            NavigationLink { SigningOptionsView() } label: { Label("Signing Options", systemImage: "slider.horizontal.3") }
-            Button { ZHaptics.tap(); showSigningOptions = true } label: { Label("Quick Options (Sheet)", systemImage: "rectangle.bottomthird.inset.filled") }.foregroundStyle(.secondary)
-        } header: { Text("Entitlements") }
+            NavigationLink { SigningOptionsView(emitDEREntitlements: $emitDEREntitlements) } label: {
+                Label("Signing Options", systemImage: "slider.horizontal.3")
+            }.disabled(isSigning)
+            Button { ZHaptics.tap(); showSigningOptions = true } label: {
+                Label("Quick Options (Sheet)", systemImage: "rectangle.bottomthird.inset.filled")
+            }.foregroundStyle(.secondary).disabled(isSigning)
+        } header: { Text("Entitlements & Options") }
     }
+
+    // MARK: - Action
 
     private var actionSection: some View {
         Section {
-            Button { Task { await sign() } } label: {
-                HStack { Spacer(); if isSigning { ProgressView().tint(.white); Text("Signing…").foregroundStyle(.white) } else { Text("Sign Application").fontWeight(.semibold) }; Spacer() }
+            Button { startSigning() } label: {
+                HStack {
+                    Spacer()
+                    if isSigning || isPreparingToSign {
+                        ProgressView().tint(.white)
+                        Text(isSigning ? "Signing…" : "Checking…").foregroundStyle(.white)
+                    } else if model.result?.status == .signed {
+                        Label("Sign Again", systemImage: "arrow.clockwise").fontWeight(.semibold)
+                    } else {
+                        Text("Sign Application").fontWeight(.semibold)
+                    }
+                    Spacer()
+                }
             }
-            .listRowBackground(canSign ? Color.accentColor : Color.gray.opacity(0.3)).foregroundStyle(canSign ? .white : .secondary).disabled(!canSign)
-            if !canSign && entry.isArtifactAvailable { Text(whyDisabled).font(.caption).foregroundStyle(.secondary) }
-        } footer: { Text("The nine-stage pipeline runs: integrity, profile, discovery, extraction, nested signing, resource sealing, main-executable signing, packaging, verification. Any refusal ends the run and delivers nothing.") }
+            .listRowBackground(canSign ? Color.accentColor : Color.gray.opacity(0.3))
+            .foregroundStyle(canSign ? .white : .secondary)
+            .disabled(!canSign)
+            .accessibilityHint("Runs the complete on-device signing pipeline")
+            if !canSign && !isSigning {
+                Text(whyDisabled).font(.caption).foregroundStyle(.secondary)
+            }
+            if signingQueuePresentation.isAvailable {
+                Button { Task { await addToQueue() } } label: {
+                    Label("Add to Signing Queue Instead", systemImage: "tray.and.arrow.down")
+                }
+                .disabled(!canSign || isQueueing)
+                .accessibilityHint("Queues this configuration and returns immediately; the queue signs in the background while you keep using ZynSign.")
+                Button { signingQueuePresentation.present() } label: {
+                    Label("Open Signing Queue", systemImage: "list.bullet.rectangle")
+                }
+                .foregroundStyle(.secondary)
+            }
+        } footer: {
+            Text("The engine prepares an isolated working copy, validates the bundle, signs every nested binary inner-first, seals resources, signs the main executable, verifies the result independently, and only delivers a container that verified. Any refusal ends the run and leaves nothing behind.")
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
-    private var signingStatusSection: some View {
-        Group {
-            if isSigning {
-                Section {
-                    ZCard(variant: .material, cornerRadius: ZRadius.lg) {
-                        VStack(spacing: ZSpacing.sm) {
-                            HStack(spacing: ZSpacing.md) {
-                                ZProgressRing(status: "Signing")
-                                VStack(alignment: .leading, spacing: ZSpacing.xxs) {
-                                    Text("Smart Sign in progress").font(.headline)
-                                    Text("Running integrity → profile → discovery → extraction → sealing → signing → packaging → verification").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                                    HStack(spacing: ZSpacing.xs) { ZStatusBadge("Signing", systemImage: "hammer.fill", kind: .info); ZStatusBadge("9 stages", systemImage: "list.number", kind: .neutral); if emitDEREntitlements { ZStatusBadge("DER 0x20400", systemImage: "cpu", kind: .info) } }
-                                    if liveActivity.isActive { ZStatusBadge("Live Activity", systemImage: "livephoto", kind: .success) }
-                                }
-                                Spacer()
-                            }
-                            ZSigningStatusMachine(current: .signing)
-                        }
-                    }
-                    .listRowInsets(EdgeInsets(top: ZSpacing.sm, leading: ZSpacing.md, bottom: ZSpacing.sm, trailing: ZSpacing.md)).listRowBackground(Color.clear)
-                } header: { Text("Signing Status") }
-            } else if let result = signingResult {
-                Section {
-                    ZCard(variant: result.status == .signed ? .filled : .outlined, cornerRadius: ZRadius.lg) {
-                        VStack(spacing: ZSpacing.sm) {
-                            HStack(spacing: ZSpacing.md) {
-                                ZProgressRing(progress: result.status == .signed ? 1.0 : 0, status: result.status == .signed ? "Completed" : "Refused", tint: result.status == .signed ? .green : .red)
-                                VStack(alignment: .leading, spacing: ZSpacing.xxs) {
-                                    Text(result.status == .signed ? "Completed" : "Refused at \(result.failure?.stage.rawValue ?? "—")").font(.headline).foregroundStyle(result.status == .signed ? .green : .red)
-                                    Text(result.status == .signed ? "Signed container verified and ready in Documents/Signed." : result.failure?.detail ?? "No container delivered — working copy discarded.").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                                    HStack(spacing: ZSpacing.xs) {
-                                        if result.status == .signed { ZStatusBadge("Signed", systemImage: "checkmark.seal.fill", kind: .success); if let c = result.stages?.discovery.nestedItemCount { ZStatusBadge("\(c) nested", systemImage: "internaldrive", kind: .neutral) }; if emitDEREntitlements { ZStatusBadge("DER", systemImage: "doc.text.image", kind: .info) } }
-                                        else { ZStatusBadge("Refused", systemImage: "xmark.shield.fill", kind: .error); if let cat = result.failure?.category { ZStatusBadge(String(describing: cat), kind: .neutral) } }
-                                    }
-                                }
-                                Spacer()
-                            }
-                            ZSigningStatusMachine(current: ZSigningStatusMachine.Step.from(result: result), failed: result.status != .signed)
-                        }
-                    }
-                    .listRowInsets(EdgeInsets(top: ZSpacing.sm, leading: ZSpacing.md, bottom: ZSpacing.sm, trailing: ZSpacing.md)).listRowBackground(Color.clear)
-                } header: { Text("Signing Status") }
+    /// Hands the current configuration to the signing queue instead of
+    /// running it here: the queue owns the work from this moment, and the
+    /// screen is free to be left.
+    ///
+    /// Queueing is gated exactly like signing here: the button is enabled
+    /// only when `canSign` holds — so a configuration the diagnostics block
+    /// cannot be queued either — and ZynSign's lock is consulted before the
+    /// job is accepted, because accepting it is the user's request to sign.
+    private func addToQueue() async {
+        guard canSign, !isQueueing else { return }
+        guard let identityID = selectedIdentityID, let profile = profileData, entry.isArtifactAvailable else { return }
+        isQueueing = true
+        defer { isQueueing = false }
+        let authorization = await appLock.authorize(.sign)
+        guard authorization.isAuthenticated else {
+            preflightError = authorization.message
+            return
+        }
+        let summary = ProfileEntitlementDerivation.displaySummary(fromProvisioningProfile: profile)
+        let submission = SigningJobSubmission(
+            recordID: entry.record.id,
+            artifactID: entry.record.artifact.artifactID,
+            applicationName: entry.record.displayName ?? entry.record.bundleIdentifier.rawValue,
+            bundleIdentifier: entry.record.bundleIdentifier.rawValue,
+            versionText: ApplicationLibraryRowContent(entry: entry).versionText,
+            identityID: identityID,
+            identityDisplayName: selectedIdentity?.displayName,
+            certificateFingerprint: selectedIdentity?.fingerprint,
+            profile: profile,
+            profileDisplayName: summary?.name ?? profileFileName,
+            profileTeamIdentifier: summary?.teamIdentifier,
+            emitDEREntitlements: emitDEREntitlements
+        )
+        env.signingQueue.enqueue(submission, priority: .normal, origin: .signingScreen)
+        env.recordAnalyticsEvent(category: .signing, name: "queue.job.enqueued", succeeded: true)
+        ZHaptics.tap()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { showQueuedToast = true }
+    }
+
+    private var whyDisabled: String {
+        if isSigning { return "A signing run is already in progress." }
+        if isPreparingToSign { return "Rechecking the inputs before signing…" }
+        if !entry.isArtifactAvailable { return "The package file is not available." }
+        if selectedIdentityID == nil { return "Select a signing identity." }
+        if profileData == nil { return "Choose a provisioning profile." }
+        if settings.preferences.signing.automaticCompatibilityAnalysis {
+            if isAnalyzing || analyzedFor != scanKey { return "Checking this configuration before signing…" }
+            if health?.report.status == .blocked {
+                return "Resolve the blocked checks in Signing Diagnostics before signing."
+            }
+            if health?.entitlements == nil { return "The profile's authenticated entitlements are not available." }
+            if let analysisError { return analysisError }
+        } else if let analysisError {
+            return analysisError
+        }
+        return "Resolve the requirements above to sign."
+    }
+
+    // MARK: - Result
+
+    @ViewBuilder
+    private var resultSections: some View {
+        if let result = model.result {
+            switch result.status {
+            case .signed:
+                signedSection(result)
+            case .failed:
+                refusedSection(result)
             }
         }
     }
 
-    private var whyDisabled: String {
-        if selectedIdentityID == nil { return "Select a signing identity." }
-        if profileData == nil { return "Choose a provisioning profile." }
-        if isSigning { return "A signing run is already in progress." }
-        return "Resolve the requirements above to sign."
+    @ViewBuilder
+    private func signedSection(_ result: SigningEngineResult) -> some View {
+        if let url = result.outputURL {
+            Section("Signed Application") {
+                ZCard(variant: .filled, cornerRadius: ZRadius.lg) {
+                    HStack(spacing: ZSpacing.md) {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.largeTitle)
+                            .foregroundStyle(.green)
+                            .scaleEffect(successScale)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: ZSpacing.xxs) {
+                            Text("Signed and verified")
+                                .font(.headline)
+                                .foregroundStyle(.green)
+                            Text(model.deliverySummary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            HStack(spacing: ZSpacing.xs) {
+                                if let summary = result.summary {
+                                    ZStatusBadge(
+                                        "\(summary.verificationPassedCount)/\(summary.verificationCheckCount) checks",
+                                        systemImage: "checkmark.shield.fill",
+                                        kind: summary.verificationPassed ? .success : .warning
+                                    )
+                                    if summary.nestedTargetCount > 0 {
+                                        ZStatusBadge("\(summary.nestedTargetCount) nested", systemImage: "square.stack.3d.up", kind: .neutral)
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                }
+                .listRowInsets(EdgeInsets(top: ZSpacing.sm, leading: ZSpacing.md, bottom: ZSpacing.sm, trailing: ZSpacing.md))
+                .listRowBackground(Color.clear)
+                .accessibilityElement(children: .combine)
+
+                ZSigningStageList(records: result.progress.records)
+
+                LabeledContent("Output", value: url.lastPathComponent)
+                if let workingCopy = result.workingCopy {
+                    LabeledContent("Original", value: workingCopy.originalUnchanged ? "Unchanged (re-measured)" : "Not re-measured")
+                    LabeledContent("Working copy", value: workingCopy.discarded ? "Discarded (\(workingCopy.reclaimedItemCount) items)" : "Kept")
+                }
+
+                Button { ZHaptics.tap(); shareItem = ShareURL(url: url) } label: { Label("Export IPA", systemImage: "square.and.arrow.up") }
+                Button { model.isPresentingDetails = true } label: { Label("Open Details", systemImage: "list.bullet.rectangle") }
+                Button {
+                    ZHaptics.tap()
+                    Task { await model.verifyAgain(environment: env) }
+                } label: {
+                    HStack {
+                        Label("Verify Again", systemImage: "checkmark.shield")
+                        Spacer()
+                        if model.isReVerifying { ProgressView().controlSize(.small) }
+                    }
+                }
+                .disabled(model.isReVerifying)
+                if let reVerification = model.reVerification {
+                    HStack(spacing: ZSpacing.xs) {
+                        ZStatusBadge(
+                            reVerification.passed ? "Re-verified" : "No longer verifies",
+                            systemImage: reVerification.passed ? "checkmark.shield.fill" : "xmark.octagon.fill",
+                            kind: reVerification.passed ? .success : .error
+                        )
+                        Text("\(reVerification.checks.filter(\.passed).count)/\(reVerification.checks.count) checks")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+                if let message = model.reVerificationMessage {
+                    Text(message).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                }
+                if ReleaseTrain.isAvailable(.deliveryHandoff) {
+                    NavigationLink {
+                        InstallationDeliveryView(package: InstallationDeliveryPackage(signedIPA: url, record: entry.record))
+                    } label: {
+                        Label("Deliver…", systemImage: "tray.and.arrow.up")
+                    }
+                }
+                Button { dismiss() } label: { Label("Return to Library", systemImage: "chevron.backward") }
+                Text("The container in Documents/Signed is the artifact the engine produced and verified. It carries no trust or installability claim.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
-    private func resultSection(_ result: SignApplicationResult) -> some View {
-        Group {
-            if result.status == .signed, let url = result.outputURL ?? outputURL {
-                Section("Signed Application") {
-                    HStack(spacing: ZSpacing.xs) { ZStatusBadge("Signed successfully", systemImage: "checkmark.seal.fill", kind: .success); Spacer() }
-                    LabeledContent("Output", value: url.lastPathComponent)
-                    if let stages = result.stages {
-                        LabeledContent("Nested Targets", value: "\(stages.discovery.nestedItemCount)")
-                        LabeledContent("Sealed Files", value: "\(stages.sealing.sealedFileCount)")
-                        LabeledContent("Signature", value: ByteCountFormatter.string(fromByteCount: Int64(stages.mainExecutable.signatureByteCount), countStyle: .file))
-                    }
-                    Button { shareItem = ShareURL(url: url) } label: { Label("Share Signed IPA…", systemImage: "square.and.arrow.up") }
-                    Button { shareItem = ShareURL(url: url) } label: { Label("Open in Files", systemImage: "folder") }
-                    if ReleaseTrain.isAvailable(.deliveryHandoff) {
-                        NavigationLink {
-                            InstallationDeliveryView(package: InstallationDeliveryPackage(signedIPA: url, record: entry.record))
-                        } label: {
-                            Label("Deliver…", systemImage: "tray.and.arrow.up")
+    @ViewBuilder
+    private func refusedSection(_ result: SigningEngineResult) -> some View {
+        if let failure = result.failure {
+            Section("Signing Refused") {
+                ZCard(variant: .outlined, cornerRadius: ZRadius.lg) {
+                    VStack(alignment: .leading, spacing: ZSpacing.sm) {
+                        HStack(alignment: .top, spacing: ZSpacing.xs) {
+                            Image(systemName: "xmark.octagon.fill").font(.title3).foregroundStyle(.red).accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: ZSpacing.xxs) {
+                                Text("Refused at \(failure.stage.title)").font(.headline).foregroundStyle(.red)
+                                Text(failure.detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 0)
                         }
+                        HStack(spacing: ZSpacing.xs) {
+                            ZStatusBadge(failure.originalUnchanged ? "Original unchanged" : "Original not re-measured",
+                                         systemImage: failure.originalUnchanged ? "checkmark.shield" : "questionmark.circle",
+                                         kind: failure.originalUnchanged ? .success : .warning)
+                            ZStatusBadge(failure.workingCopyDiscarded ? "Working copy discarded" : "Working copy kept",
+                                         systemImage: "trash",
+                                         kind: failure.workingCopyDiscarded ? .neutral : .warning)
+                            if failure.outputPreexisted {
+                                ZStatusBadge("Existing artifact kept", systemImage: "doc", kind: .neutral)
+                            }
+                        }
+                        Text(failure.userMessage).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
-                    Text("The signed container is in Documents/Signed. It is the exact artifact the pipeline produced and independently verified — not a trust or installability claim.").font(.caption).foregroundStyle(.secondary)
                 }
-            } else if let failure = result.failure {
-                Section("Signing Refused") {
-                    HStack(spacing: ZSpacing.xs) { ZStatusBadge("Refused at \(failure.stage.rawValue)", systemImage: "xmark.shield.fill", kind: .error); Spacer() }
-                    Text(failure.detail).font(.footnote).foregroundStyle(.secondary)
-                    ZStatusBadge(String(describing: failure.category), kind: .neutral)
-                    Text("Nothing was delivered; the working copy was discarded.").font(.caption).foregroundStyle(.secondary)
+                .listRowInsets(EdgeInsets(top: ZSpacing.sm, leading: ZSpacing.md, bottom: ZSpacing.sm, trailing: ZSpacing.md))
+                .listRowBackground(Color.clear)
+                .accessibilityElement(children: .combine)
+
+                ZSigningStageList(records: result.progress.records)
+
+                if failure.isRetryable {
+                    Button { ZHaptics.tap(); startSigning() } label: { Label("Try Again", systemImage: "arrow.clockwise") }
+                    Text("The inputs were not what refused — the same setup may succeed on a retry.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("These inputs need to change before signing can succeed.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
+                Button { model.isPresentingDetails = true } label: { Label("Open Details", systemImage: "list.bullet.rectangle") }
+                Button { dismiss() } label: { Label("Return to Library", systemImage: "chevron.backward") }
             }
         }
     }
 
     private var helpSection: some View {
         Section("About Signing") {
-            Text("Signing appends a code signature and does not replace existing signatures — inputs must be unsigned. Nested frameworks are signed without their own resource seals; the main seal references them by cdhash. Symbolic links are recorded as seal omissions.").font(.footnote).foregroundStyle(.secondary)
+            Text("Signing appends a code signature and never replaces an existing one — inputs must be unsigned. Nested binaries are signed inner-first and the main executable last; the resource seal references each nested binary by its code-directory digest, and symbolic links are recorded as seal omissions.")
+                .font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func loadIdentities() async {
+    // MARK: - Actions
+
+    @MainActor private func loadIdentities() async {
         isLoadingIdentities = true
-        defer { isLoadingIdentities = false }
+        defer {
+            isLoadingIdentities = false
+            identityRevision += 1
+        }
         do {
             identities = try env.identityStore.listIdentities()
             identitiesError = nil
-            if selectedIdentityID == nil, let first = identities.first(where: { $0.isUsableForSigning }) ?? identities.first { selectedIdentityID = first.id }
-        } catch let e as ZynSignError { identitiesError = e.userMessage } catch { identitiesError = "Secure identity storage could not be accessed." }
+            if let selectedIdentityID, !identities.contains(where: { $0.id == selectedIdentityID }) {
+                self.selectedIdentityID = nil
+            }
+            // The preferred identity from Settings → Signing is the starting
+            // point; anything the user picks here overrides it for this run.
+            if selectedIdentityID == nil {
+                selectedIdentityID = preferredIdentityID
+                    ?? identities.first(where: { $0.isUsableForSigning })?.id
+                    ?? identities.first?.id
+            }
+        } catch let error as ZynSignError {
+            identitiesError = error.userMessage
+            identities = []
+            selectedIdentityID = nil
+        } catch {
+            identitiesError = "Secure identity storage could not be accessed."
+            identities = []
+            selectedIdentityID = nil
+        }
     }
 
-    private func handleProfilePicker(_ result: Result<[URL], any Error>) {
+    @MainActor private func clearProfileSelection() {
+        profileSelectionGeneration += 1 // invalidate any in-flight saved-file read
+        selectedSavedProfileID = nil
+        profileData = nil
+        profileFileName = nil
+        profileError = nil
+        isLoadingProfile = false
+        profileRevision += 1
+    }
+
+    @MainActor private func chooseSavedProfile(_ summary: ProvisioningProfileSummary) {
+        guard !isSigning else { return }
+        profileSelectionGeneration += 1
+        let generation = profileSelectionGeneration
+        selectedSavedProfileID = summary.id
+        profileData = nil // the summary itself grants no signing authority
+        profileFileName = summary.name
+        profileError = nil
+        isLoadingProfile = true
+        profileRevision += 1
+        Task { await readSavedProfile(summary, generation: generation) }
+    }
+
+    @MainActor private func readSavedProfile(
+        _ summary: ProvisioningProfileSummary, generation: Int
+    ) async {
+        do {
+            let data = try await env.provisioningProfiles?.profileBytes(withID: summary.id)
+            guard generation == profileSelectionGeneration,
+                  selectedSavedProfileID == summary.id else { return }
+            if let data {
+                profileData = data
+                profileFileName = summary.name
+                profileError = nil
+            } else {
+                profileData = nil
+                profileFileName = nil
+                profileError = "The saved file is no longer available. Re-import it or choose another profile."
+            }
+        } catch {
+            guard generation == profileSelectionGeneration,
+                  selectedSavedProfileID == summary.id else { return }
+            profileData = nil
+            profileFileName = nil
+            profileError = "The saved profile could not be read within the inspection limit. Re-import it or choose another profile."
+        }
+        isLoadingProfile = false
+        profileRevision += 1
+    }
+
+    @MainActor private func loadSavedProfiles() async {
+        savedProfileListGeneration += 1
+        let generation = savedProfileListGeneration
+        guard let library = env.provisioningProfiles else {
+            savedProfiles = []
+            savedProfilesError = "Saved profiles are not available in this build."
+            isLoadingSavedProfiles = false
+            if selectedSavedProfileID != nil { clearProfileSelection() }
+            return
+        }
+        isLoadingSavedProfiles = true
+        defer {
+            if generation == savedProfileListGeneration { isLoadingSavedProfiles = false }
+        }
+        do {
+            let summaries = try await library.allProfiles()
+            guard !Task.isCancelled, generation == savedProfileListGeneration else { return }
+            savedProfiles = summaries
+            savedProfilesError = nil
+            if let id = selectedSavedProfileID, !isSigning {
+                if let selected = summaries.first(where: { $0.id == id }) {
+                    // Refresh exact bytes when the app becomes active, a
+                    // profile changes, or the list is pulled to refresh.
+                    chooseSavedProfile(selected)
+                } else {
+                    clearProfileSelection()
+                    profileError = "That saved profile was removed. Choose another profile."
+                }
+            }
+        } catch {
+            guard !Task.isCancelled, generation == savedProfileListGeneration else { return }
+            savedProfiles = []
+            savedProfilesError = "Saved profiles could not be loaded."
+            if selectedSavedProfileID != nil {
+                clearProfileSelection()
+                profileError = "The saved profile library is unavailable. Re-open it and try again."
+            }
+        }
+    }
+
+    @MainActor private func analyzeHealth() async {
+        guard let diagnostics = env.signingDiagnostics else {
+            isAnalyzing = false
+            analysisError = "Signing diagnostics are unavailable in this build."
+            return
+        }
+        let requestedKey = scanKey
+        let profile = profileData
+        let identity = selectedIdentityID
+        isAnalyzing = true
+        health = nil
+        analyzedFor = nil
+        analysisError = nil
+        do {
+            let result = try await diagnostics.analyze(
+                recordWithID: entry.record.id, identityID: identity,
+                profileData: profile, emitDEREntitlements: requestedKey.emitDER
+            )
+            guard !Task.isCancelled, requestedKey == scanKey else { return }
+            health = result
+            analyzedFor = requestedKey
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled, requestedKey == scanKey else { return }
+            analysisError = (error as? SigningDiagnosticsError)?.userMessage
+                ?? "This configuration could not be analyzed. Please try again."
+        }
+        isAnalyzing = false
+    }
+
+    @MainActor private func handleProfilePicker(_ result: Result<[URL], any Error>) {
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
+            // Clear the old choice before reading a new one. A failed pick
+            // must never leave a previous profile's green checks enabled.
+            clearProfileSelection()
             let accessing = url.startAccessingSecurityScopedResource()
             defer { if accessing { url.stopAccessingSecurityScopedResource() } }
             let ext = url.pathExtension.lowercased()
-            guard ext == "mobileprovision" || ext == "provisionprofile" else { profileError = "The selected file is not a provisioning profile. Choose a .mobileprovision file."; return }
-            guard let data = try? Data(contentsOf: url), !data.isEmpty, data.count <= 10 * 1024 * 1024 else { profileError = "The profile could not be read or is too large."; return }
-            profileData = data; profileFileName = url.lastPathComponent; profileError = nil
+            guard ext == "mobileprovision" || ext == "provisionprofile" else {
+                profileError = "Choose a .mobileprovision file."
+                return
+            }
+            do {
+                let handle = try FileHandle(forReadingFrom: url)
+                defer { try? handle.close() }
+                // Bound the read BEFORE allocating profile data, at the same
+                // limit the CMS pipeline enforces. No full-file fallback.
+                let bytes = try handle.read(upToCount: ProvisioningProfileInput.maximumByteCount + 1) ?? Data()
+                guard !bytes.isEmpty, bytes.count <= ProvisioningProfileInput.maximumByteCount else {
+                    profileError = "The profile is empty or exceeds the inspection limit."
+                    return
+                }
+                profileData = bytes
+                profileFileName = url.lastPathComponent
+                profileError = nil
+                profileRevision += 1
+            } catch {
+                profileError = "The selected profile could not be read."
+            }
         case .failure(let error):
             let ns = error as NSError
             if ns.domain == NSCocoaErrorDomain && ns.code == NSUserCancelledError { return }
-            profileError = (error as? ZynSignError)?.userMessage ?? "The file picker could not provide the selected profile."
+            profileError = "The file picker could not provide the selected profile."
         }
     }
 
-    private func sign() async {
-        guard let identityID = selectedIdentityID, let profile = profileData else { signingError = "Select an identity and a provisioning profile."; return }
-        guard entry.isArtifactAvailable else { signingError = "The package file is not available."; return }
-        let sourceURL = env.artifactFileURL(for: entry.record.artifact.artifactID)
-        guard FileManager.default.fileExists(atPath: sourceURL.path) else { signingError = "The package file could not be found in ZynSign's storage."; return }
-        isSigning = true; signingResult = nil; signingError = nil; outputURL = nil
-        await liveActivity.start(stage: "Signing", detail: "Integrity → Profile → Discovery…")
-        let entitlements: CodeSigningEntitlements
-        if let derived = derivedEntitlements { entitlements = derived }
-        else if let data = profileData, let fallback = try? Self.entitlements(fromProvisioningProfile: data) { entitlements = fallback }
-        else {
-            do { entitlements = try CodeSigningEntitlements(values: [:]) }
-            catch { signingError = "The entitlement set could not be created."; isSigning = false; await liveActivity.end(success: false); return }
+    /// An old picker result or app-record score is never a signing input.
+    /// A forced local scan must finish for precisely the current selection
+    /// before the engine receives its authenticated profile claims.
+    @MainActor private func startSigning() {
+        guard canSign else { return }
+        isPreparingToSign = true
+        preflightError = nil
+        preflightTask = Task { await preflightAndStart() }
+    }
+
+    @MainActor private func preflightAndStart() async {
+        defer {
+            isPreparingToSign = false
+            preflightTask = nil
         }
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-        let signedDir = docs.appendingPathComponent("Signed", isDirectory: true)
-        try? FileManager.default.createDirectory(at: signedDir, withIntermediateDirectories: true)
-        let base = (entry.record.displayName ?? entry.record.bundleIdentifier.rawValue).replacingOccurrences(of: " ", with: "_")
-        let output = signedDir.appendingPathComponent("\(base)_signed.ipa")
-        try? FileManager.default.removeItem(at: output)
-        var options = SignApplicationOptions()
-        if emitDEREntitlements { options = SignApplicationOptions(emitDEREntitlements: true) }
-        let request = SignApplicationRequest(sourceURL: sourceURL, profile: profile, identityID: identityID, entitlements: entitlements, outputURL: output, options: options)
-        do {
-            await liveActivity.update(progress: 0.2, detail: "Discovery → Extraction…")
-            let result = try await env.signingPipeline.sign(request)
-            await liveActivity.update(progress: 0.9, detail: result.status == .signed ? "Verified" : "Refused")
-            signingResult = result
-            if result.status == .signed {
-                outputURL = result.outputURL ?? output
-                await liveActivity.end(success: true)
-                env.recordAnalyticsEvent(category: .signing, name: "sign.succeeded", succeeded: true)
-            } else if let failure = result.failure {
-                signingError = "\(failure.stage.rawValue): \(failure.detail)"
-                await liveActivity.end(success: false)
-                env.recordAnalyticsEvent(category: .signing, name: "sign.refused", succeeded: false)
-            } else {
-                signingError = "Signing failed without a typed refusal."
-                await liveActivity.end(success: false)
-                env.recordAnalyticsEvent(category: .signing, name: "sign.refused", succeeded: false)
+        guard let diagnostics = env.signingDiagnostics,
+              let identityID = selectedIdentityID, let profile = profileData else {
+            preflightError = "Resolve the current signing diagnostics before signing."
+            return
+        }
+        let requestedKey = scanKey
+        if let savedID = selectedSavedProfileID {
+            do {
+                guard let current = try await env.provisioningProfiles?.profileBytes(withID: savedID) else {
+                    clearProfileSelection()
+                    profileError = "That saved profile is no longer available."
+                    preflightError = "Choose a current profile and review its diagnostics."
+                    return
+                }
+                guard !Task.isCancelled, requestedKey == scanKey else { return }
+                guard current == profile else {
+                    profileData = current
+                    profileRevision += 1
+                    preflightError = "The saved profile changed. Review its updated diagnostics before signing."
+                    return
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                profileData = nil
+                profileRevision += 1
+                profileError = "The saved profile could not be read. Re-import it or choose another."
+                preflightError = "The saved profile is unavailable. Review the new diagnostics."
+                return
             }
-        } catch is CancellationError { signingError = "Signing was cancelled."; try? FileManager.default.removeItem(at: output); await liveActivity.end(success: false); env.recordAnalyticsEvent(category: .signing, name: "sign.cancelled", succeeded: false) }
-        catch let e as ZynSignError { signingError = e.userMessage; try? FileManager.default.removeItem(at: output); await liveActivity.end(success: false); env.recordAnalyticsEvent(category: .signing, name: "sign.failed", succeeded: false) }
-        catch { signingError = "Signing failed unexpectedly."; try? FileManager.default.removeItem(at: output); await liveActivity.end(success: false); env.recordAnalyticsEvent(category: .signing, name: "sign.failed", succeeded: false) }
-        isSigning = false
+        }
+        let preflight: SigningDiagnosticsAnalysis
+        do {
+            preflight = try await diagnostics.analyze(
+                recordWithID: entry.record.id, identityID: identityID,
+                profileData: profile, emitDEREntitlements: requestedKey.emitDER,
+                force: true
+            )
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled, requestedKey == scanKey else { return }
+            preflightError = "Pre-sign verification could not complete. Re-run diagnostics."
+            return
+        }
+        guard !Task.isCancelled, requestedKey == scanKey else { return }
+        health = preflight
+        analyzedFor = requestedKey
+        guard preflight.report.status != .blocked,
+              let entitlements = preflight.entitlements else {
+            preflightError = "Signing is blocked by updated diagnostics. Review the issues."
+            return
+        }
+        let sourceURL = env.artifactFileURL(for: entry.record.artifact.artifactID)
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            preflightError = "The stored package is no longer available. Re-import it."
+            scanRevision += 1
+            return
+        }
+        // Authentication is asked for only when the user asked for it; a
+        // locked ZynSign is unlocked by this same attempt.
+        let authorization = await appLock.authorize(.sign)
+        guard authorization.isAuthenticated else {
+            preflightError = authorization.message
+            return
+        }
+        // Strict verification asks before acting on a result that carries any
+        // finding. It never refuses: confirming signs exactly as usual.
+        if settings.preferences.advanced.verificationStrictness == .strict,
+           !isSigningConfirmed,
+           !preflight.report.issues.isEmpty {
+            isSigningConfirmed = true
+            isConfirmingStrictSign = true
+            return
+        }
+        isSigningConfirmed = false
+        ZHaptics.tap()
+        liveActivity.start(stage: "Preparing", detail: "Creating an isolated working copy…")
+        // The engine keeps no history, so the screen journals each run it
+        // starts: the signing history and the library's signed state read
+        // it. A journal write that fails never changes the run's outcome.
+        let journal = SigningEngineJournalDraft(
+            entry: entry, identity: selectedIdentity, profile: profile, startedAt: Date()
+        )
+        let history = env.signingHistory
+        model.run(
+            SigningEngineModel.makeRequest(
+                entry: entry, sourceURL: sourceURL, profile: profile,
+                identityID: identityID, entitlements: entitlements,
+                emitDEREntitlements: requestedKey.emitDER
+            ),
+            environment: env,
+            onFinish: { result, wasCancelled in
+                guard let history else { return }
+                let record = journal.record(result: result, wasCancelled: wasCancelled, finishedAt: Date())
+                Task { try? await history.append(record) }
+            }
+        )
+        mirrorProgressToLiveActivity()
+    }
+
+    /// The identity the user's signing preferences name, when it is still
+    /// available. Named by the certificate's public fingerprint — never by
+    /// anything that could reach key material.
+    private var preferredIdentityID: SigningIdentityIdentifier? {
+        guard let fingerprint = settings.preferences.signing.preferredIdentityFingerprint else { return nil }
+        return identities.first { $0.fingerprint.hexDigest == fingerprint }?.id
+    }
+
+    /// How many findings the strict-verification confirmation names.
+    private var strictFindingCount: Int {
+        health?.report.issues.count ?? 0
+    }
+
+    /// Records what was signed with as the starting point for next time.
+    ///
+    /// Only the references are stored — the certificate's public fingerprint
+    /// and the name the profile declares — never key material, and only when
+    /// the user asked for selections to be remembered.
+    private func rememberSelections() {
+        guard settings.preferences.signing.rememberSelections else { return }
+        settings.update { preferences in
+            if let identity = selectedIdentity {
+                preferences.signing.preferredIdentityFingerprint = identity.fingerprint.hexDigest
+            }
+            if let savedID = selectedSavedProfileID,
+               let profile = savedProfiles.first(where: { $0.id == savedID }) {
+                preferences.signing.preferredProfileName = profile.name
+            }
+        }
+    }
+
+    /// Mirrors the engine's own progress into the Live Activity while the
+    /// screen is backgrounded. The in-app ring shows the same snapshot.
+    private func mirrorProgressToLiveActivity() {
+        Task {
+            while model.isRunning {
+                if let progress = model.progress {
+                    liveActivity.update(
+                        progress: progress.fractionCompleted,
+                        detail: progress.detail.isEmpty
+                            ? (progress.currentStage?.title ?? "Signing")
+                            : "\(progress.currentStage?.title ?? "Signing") — \(progress.detail)"
+                    )
+                }
+                try? await Task.sleep(nanoseconds: 400_000_000)
+            }
+            liveActivity.end(success: model.result?.status == .signed)
+        }
     }
 }
 
-private struct ShareURL: Identifiable { let url: URL; var id: String { url.absoluteString } }
+private struct ShareURL: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
+}
+
 private struct ShareSheet: UIViewControllerRepresentable {
     let url: URL
-    func makeUIViewController(context: Context) -> UIActivityViewController { UIActivityViewController(activityItems: [url], applicationActivities: nil) }
-    func updateUIViewController(_ ui: UIActivityViewController, context: Context) {}
-}
-
-extension SigningView {
-    fileprivate static func entitlements(fromProvisioningProfile data: Data) throws -> CodeSigningEntitlements {
-        try SigningProfileEntitlementDerivation.derive(from: data)
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
     }
-    fileprivate static func entitlementValueSummary(_ value: ProvisioningProfileValue?) -> String {
-        guard let value else { return "—" }
-        switch value {
-        case .string(let s): return s.count > 32 ? String(s.prefix(32)) + "…" : s
-        case .boolean(let b): return b ? "true" : "false"
-        case .integer(let i): return String(i)
-        case .real(let r): return String(describing: r)
-        case .data(let d): return "\(d.count) bytes"
-        case .date: return "date"
-        case .array(let a): return "\(a.count) items"
-        case .dictionary(let d): return "\(d.count) keys"
-        }
-    }
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

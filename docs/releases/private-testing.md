@@ -88,7 +88,7 @@ Test on **two real devices**: one iOS 17 (e.g., iPhone 13) + one iOS 18 (e.g., i
 | Area | Action | Pass if |
 |---|---|---|
 | **Import** | Files → pick `app.ipa` + `app.tipa` (50-200 MB), also a >500 MB | Staged, SHA-256 deduped, `Library` shows `isArtifactAvailable`, background `Downloads` handles `itms-services` |
-| **Library** | Re-launch, check `isArtifactAvailable`, `Explore Bundle`, delete | Persists across kill, read-only listing correct, orphan sweep works |
+| **Library** | Re-launch, check `isArtifactAvailable`, `Explore IPA`, open one file, delete | Persists across kill, tree and stats match the package, the preview does not modify it, orphan sweep works |
 | **Certificates** | `Settings → Certificates → Import` `.p12` 10 MiB + wrong password + duplicate | `WhenUnlockedThisDeviceOnly` + `ZStatusBadge ready/needsAttention`, `Export public JSON` shares, wrong password → `authorizationFailure`, duplicate → rejected |
 | **Smart Sign** | `Library → Sign` with real cert + `.mobileprovision` (derive `N keys` preview) + `DER 0x20400` on/off + empty profile (should refuse at `profile` stage) | 9 stages → `Documents/Signed/*_signed.ipa` `Share`, `ZProgressRing` + `ZSigningStatusMachine` + Live Activity in-app badge, refusal `Refused at profile` no container |
 | **Repository** | `App Store → Add Source` `https://qnblackcat.github.io/AltStore/apps.json` + bad URL → `Check Health` | `Fast <800ms` / `Slow` / `Offline` + `ms` + `ZStatusBadge`, bad URL → `Offline` |

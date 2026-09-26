@@ -1,16 +1,19 @@
 import SwiftUI
-import UIKit
 
-/// The final confirmation before a preset signs one app.
+/// The final confirmation before a preset is queued for one app.
 ///
-/// Opening this screen does not sign. The pipeline runs only after the
-/// user taps Confirm and Sign, and only when preflight passed. The manual
-/// wizard is a separate screen and remains available from the app.
+/// Opening this screen does not sign and does not enqueue. The Signing
+/// Queue receives the job only after the user taps Confirm and Sign, the
+/// app lock allows it, and preflight passed. The manual wizard remains
+/// available. Usage counts update when the queue settles the job.
 struct PresetSigningConfirmationView: View {
     let entry: LibraryEntry
     let presetID: PresetIdentifier
+    var origin: SigningJobOrigin = .signingScreen
 
     @Environment(\.applicationEnvironment) private var environment
+    @Environment(\.signingQueuePresentation) private var signingQueuePresentation
+    @Environment(\.appLock) private var appLock
     @Environment(\.dismiss) private var dismiss
     @State private var preset: SigningPreset?
     @State private var report: PresetCompatibilityReport?
@@ -19,10 +22,6 @@ struct PresetSigningConfirmationView: View {
     @State private var isSigning = false
     @State private var resultMessage: String?
     @State private var resultIsSuccess = false
-    @State private var outputURL: URL?
-    @State private var shareItem: PresetShareURL?
-    @State private var deliveryPackage: InstallationDeliveryPackage?
-    @StateObject private var liveActivity = LiveActivityService()
 
     var body: some View {
         NavigationStack {
@@ -42,18 +41,14 @@ struct PresetSigningConfirmationView: View {
                         Text(resultMessage)
                             .font(.body)
                             .fixedSize(horizontal: false, vertical: true)
-                        if resultIsSuccess, let outputURL {
-                            Text("Saved as \(outputURL.lastPathComponent) in Documents/Signed.")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                            if let deliveryPackage, ReleaseTrain.isAvailable(.deliveryHandoff) {
-                                NavigationLink {
-                                    InstallationDeliveryView(package: deliveryPackage)
-                                } label: {
-                                    Label("Deliver…", systemImage: "tray.and.arrow.up")
-                                }
-                                .presetTouchTarget()
+                        if resultIsSuccess && signingQueuePresentation.isAvailable {
+                            Button {
+                                signingQueuePresentation.present()
+                            } label: {
+                                Label("Open Signing Queue", systemImage: "tray.full")
+                                    .frame(maxWidth: .infinity, minHeight: 44)
                             }
+                            .presetTouchTarget()
                         }
                     }
                 }
@@ -67,9 +62,6 @@ struct PresetSigningConfirmationView: View {
                 }
             }
             .task { await load() }
-            .sheet(item: $shareItem) { item in
-                PresetShareSheet(url: item.url)
-            }
         }
     }
 
@@ -90,7 +82,7 @@ struct PresetSigningConfirmationView: View {
         } header: {
             Text("Recommended Preset")
         } footer: {
-            Text("Nothing is signed until you confirm. The signing pipeline still verifies the result. This does not replace the manual signing wizard.")
+            Text("Nothing is signed until you confirm. Confirming adds one job to the Signing Queue, which runs the same pipeline, including verification. This does not replace the manual signing wizard.")
         }
     }
 
@@ -145,7 +137,7 @@ struct PresetSigningConfirmationView: View {
                         Spacer()
                         if isSigning {
                             ProgressView()
-                            Text("Signing…")
+                            Text("Adding to Queue…")
                         } else {
                             Text("Confirm and Sign")
                                 .fontWeight(.semibold)
@@ -156,7 +148,7 @@ struct PresetSigningConfirmationView: View {
                 }
                 .disabled(isSigning)
                 .keyboardShortcut(.defaultAction)
-                .accessibilityHint("Signs this app with the recommended preset. This is the final confirmation.")
+                .accessibilityHint("Adds this app to the Signing Queue with the recommended preset. This is the final confirmation. Nothing is signed on this screen.")
             } else if !resultIsSuccess {
                 Text(loadError ?? "This preset does not pass preflight for this app, so Sign with Recommended Preset is not available. Use the signing wizard to choose a certificate and profile yourself.")
                     .font(.footnote)
@@ -222,125 +214,17 @@ struct PresetSigningConfirmationView: View {
         }
         isSigning = true
         defer { isSigning = false }
-        await liveActivity.start(stage: "Signing", detail: preset.name)
-        let entitlements: CodeSigningEntitlements
-        do {
-            entitlements = try SigningProfileEntitlementDerivation.derive(from: resolved.profileBytes)
-        } catch {
-            resultMessage = "The profile's entitlements could not be derived, so nothing was signed."
+        let authorization = await appLock.authorize(.sign)
+        guard authorization.isAuthenticated else {
+            resultMessage = authorization.message
             resultIsSuccess = false
-            await liveActivity.end(success: false)
-            await record(workflow, preset: preset, result: .failed)
             return
         }
-        let directory = SigningPresetWorkflow.signedOutputDirectory()
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let output = directory.appendingPathComponent(SigningPresetWorkflow.outputName(for: entry))
-        try? FileManager.default.removeItem(at: output)
-        let request = SignApplicationRequest(
-            sourceURL: source,
-            profile: resolved.profileBytes,
-            identityID: resolved.identity.id,
-            entitlements: entitlements,
-            outputURL: output,
-            options: resolved.options
-        )
-        do {
-            let signed = try await environment.signingPipeline.sign(request)
-            if signed.status == .signed {
-                outputURL = signed.outputURL ?? output
-                resultIsSuccess = true
-                resultMessage = "Signed with \(preset.name). Verification ran as part of the pipeline."
-                await liveActivity.end(success: true)
-                await record(workflow, preset: preset, result: .succeeded)
-                await appendHistory(preset: preset, succeeded: true, output: outputURL)
-                environment.recordAnalyticsEvent(category: .signing, name: "preset.sign.succeeded", succeeded: true)
-                applyExport(preset: preset, url: outputURL ?? output)
-                ZHaptics.success()
-            } else {
-                resultIsSuccess = false
-                resultMessage = signed.failure?.detail ?? "Signing was refused. Nothing was delivered."
-                await liveActivity.end(success: false)
-                await record(workflow, preset: preset, result: .failed)
-                await appendHistory(preset: preset, succeeded: false, output: nil)
-                environment.recordAnalyticsEvent(category: .signing, name: "preset.sign.refused", succeeded: false)
-                ZHaptics.warning()
-            }
-        } catch is CancellationError {
-            resultMessage = "Signing was cancelled."
-            resultIsSuccess = false
-            try? FileManager.default.removeItem(at: output)
-            await liveActivity.end(success: false)
-            await record(workflow, preset: preset, result: .cancelled)
-        } catch let error as ZynSignError {
-            resultMessage = error.userMessage
-            resultIsSuccess = false
-            try? FileManager.default.removeItem(at: output)
-            await liveActivity.end(success: false)
-            await record(workflow, preset: preset, result: .failed)
-            environment.recordAnalyticsEvent(category: .signing, name: "preset.sign.failed", succeeded: false)
-        } catch {
-            resultMessage = "Signing failed unexpectedly."
-            resultIsSuccess = false
-            try? FileManager.default.removeItem(at: output)
-            await liveActivity.end(success: false)
-            await record(workflow, preset: preset, result: .failed)
-        }
+        let submission = workflow.submission(for: entry, resolved: resolved)
+        environment.signingQueue.enqueue(submission, priority: .normal, origin: origin)
+        resultIsSuccess = true
+        resultMessage = "Added to the Signing Queue with \(preset.name). Signing and verification run there. This screen did not sign the app."
+        environment.recordAnalyticsEvent(category: .signing, name: "queue.job.enqueued", succeeded: true)
+        ZHaptics.success()
     }
-
-    private func record(_ workflow: SigningPresetWorkflow, preset: SigningPreset, result: PresetUseOutcome.Result) async {
-        let outcome = PresetUseOutcome(
-            presetID: preset.id,
-            result: result,
-            bundleIdentifier: entry.record.bundleIdentifier.rawValue,
-            displayName: entry.record.displayName,
-            at: Date()
-        )
-        try? await workflow.record(outcome)
-    }
-
-    private func appendHistory(preset: SigningPreset, succeeded: Bool, output: URL?) async {
-        guard let history = environment.signingHistory else { return }
-        let record = SigningRecord(
-            presetID: preset.id,
-            certificateFingerprint: preset.certificateFingerprint,
-            sourceBundleIdentifier: entry.record.bundleIdentifier.rawValue,
-            sourceDisplayName: entry.record.displayName,
-            stoppingStage: succeeded ? "verification" : "signing",
-            errorCode: succeeded ? nil : "refused",
-            outputFileName: succeeded ? output?.lastPathComponent : nil,
-            outputByteCount: nil,
-            startedAt: Date(),
-            duration: 0
-        )
-        try? await history.append(record)
-    }
-
-    private func applyExport(preset: SigningPreset, url: URL) {
-        switch preset.exportBehavior {
-        case .keepInSignedFolder:
-            break
-        case .promptToShare:
-            shareItem = PresetShareURL(url: url)
-        case .promptToDeliver:
-            if ReleaseTrain.isAvailable(.deliveryHandoff) {
-                deliveryPackage = InstallationDeliveryPackage(signedIPA: url, record: entry.record)
-            } else {
-                shareItem = PresetShareURL(url: url)
-            }
-        }
-    }
-}
-
-private struct PresetShareURL: Identifiable {
-    let url: URL
-    var id: String { url.absoluteString }
-}
-
-private struct PresetShareSheet: UIViewControllerRepresentable {
-    let url: URL
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: [url], applicationActivities: nil)
-    }
-    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }

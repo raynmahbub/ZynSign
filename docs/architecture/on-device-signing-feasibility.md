@@ -473,8 +473,11 @@ Since the same increment, one package path exists for the profile bytes themselv
 read-only intake reads the `embedded.mobileprovision` entry of a library
 application's bundle through the existing bounded archive reader and hands those
 bytes to the pipeline. That closes the input half of §7.2's "requires a custom CMS
-unwrap" chain for embedded profiles, without extraction, without any write, and
-without changing the bundle explorer, which still reads no entry content.
+unwrap" chain for embedded profiles, without extraction and without any write.
+The bundle explorer's structure listing still reads no entry content. An
+explicit preview, documented in [ipa-explorer.md](ipa-explorer.md), may later
+read one bounded entry; that preview does not verify the profile and is not
+this intake.
 
 **Open here.** Whether the platform's wildcard and profile-type rules agree with
 the predicates above is not established. A trustworthy device identifier remains

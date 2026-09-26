@@ -20,12 +20,13 @@ enum SigningQueueAdmission {
     }
 }
 
-/// The professional signing queue.
+/// Admission checks for a preset plan, kept for tests.
 ///
-/// Staging a plan does not sign. `confirmAndStart` is the final
-/// confirmation, and it runs only jobs whose state is `.waiting`. Jobs
-/// marked `.needsAttention` stay there: they are visible, and they are
-/// never handed to the runner. Incompatible apps are not forced through.
+/// The interface does not drive this type. After confirmation and the app
+/// lock, compatible apps are enqueued on `SigningQueue`. `stage` still
+/// refuses an attention-set identifier, and `confirmAndStart` still runs
+/// only waiting jobs, so those refusals can be tested without the job queue.
+/// Incompatible apps are not forced through.
 @MainActor
 final class ProfessionalSigningQueue: ObservableObject {
 

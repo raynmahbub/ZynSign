@@ -147,7 +147,8 @@ actor BatchSigningCoordinator {
                     outputFileName: url.lastPathComponent,
                     outputByteCount: byteCount,
                     startedAt: startedAt,
-                    duration: duration
+                    duration: duration,
+                    sourceRecordIdentifier: entry.record.id.rawValue
                 )
                 try? await history.append(record)
                 step = StepResult(
@@ -172,7 +173,8 @@ actor BatchSigningCoordinator {
                     outputFileName: nil,
                     outputByteCount: nil,
                     startedAt: startedAt,
-                    duration: duration
+                    duration: duration,
+                    sourceRecordIdentifier: entry.record.id.rawValue
                 )
                 try? await history.append(record)
                 step = StepResult(
@@ -201,7 +203,8 @@ actor BatchSigningCoordinator {
                     outputFileName: nil,
                     outputByteCount: nil,
                     startedAt: startedAt,
-                    duration: duration
+                    duration: duration,
+                    sourceRecordIdentifier: entry.record.id.rawValue
                 )
                 try? await history.append(record)
                 step = StepResult(

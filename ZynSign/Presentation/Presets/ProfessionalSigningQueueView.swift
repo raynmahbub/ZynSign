@@ -1,10 +1,11 @@
 import SwiftUI
 
-/// Bulk signing against one preset.
+/// Bulk planning against one preset.
 ///
 /// Compatible apps are listed separately from apps that need manual
-/// attention. Queueing requires a confirmation, and the queue refuses to
-/// run the attention set. The manual wizard is unchanged.
+/// attention. Queueing requires a confirmation and the app lock. Only
+/// compatible apps are added to `SigningQueue`. Incompatible apps are not
+/// forced through. The manual wizard is unchanged.
 struct ProfessionalSigningQueueView: View {
     var lockedEntries: [LibraryEntry]? = nil
     var lockedPresetID: PresetIdentifier? = nil
@@ -12,28 +13,28 @@ struct ProfessionalSigningQueueView: View {
     @Environment(\.applicationEnvironment) private var environment
 
     var body: some View {
-        if let queue = environment.professionalSigningQueue {
-            ProfessionalSigningQueueScreen(
-                queue: queue,
-                lockedEntries: lockedEntries,
-                lockedPresetID: lockedPresetID
+        if environment.signingPresetWorkflow == nil {
+            ContentUnavailableView(
+                "Signing Presets Unavailable",
+                systemImage: "rectangle.stack",
+                description: Text("Signing presets are not available.")
             )
         } else {
-            ContentUnavailableView(
-                "Signing Queue Unavailable",
-                systemImage: "list.bullet.rectangle",
-                description: Text("The signing queue is not available.")
+            ProfessionalSigningQueueScreen(
+                lockedEntries: lockedEntries,
+                lockedPresetID: lockedPresetID
             )
         }
     }
 }
 
 private struct ProfessionalSigningQueueScreen: View {
-    @ObservedObject var queue: ProfessionalSigningQueue
     var lockedEntries: [LibraryEntry]?
     var lockedPresetID: PresetIdentifier?
 
     @Environment(\.applicationEnvironment) private var environment
+    @Environment(\.signingQueuePresentation) private var signingQueuePresentation
+    @Environment(\.appLock) private var appLock
     @Environment(\.dismiss) private var dismiss
     @State private var presets: [SigningPreset] = []
     @State private var entries: [LibraryEntry] = []
@@ -43,12 +44,13 @@ private struct ProfessionalSigningQueueScreen: View {
     @State private var showConfirm = false
     @State private var errorMessage: String?
     @State private var isPreparing = false
+    @State private var queuedCount: Int?
 
     var body: some View {
         NavigationStack {
             List {
-                if queue.phase == .running || queue.phase == .finished {
-                    progress(queue)
+                if let queuedCount {
+                    queuedSection(queuedCount)
                 } else {
                     planner
                     if let plan {
@@ -64,7 +66,7 @@ private struct ProfessionalSigningQueueScreen: View {
                     }
                 }
             }
-            .navigationTitle("Signing Queue")
+            .navigationTitle("Sign with Preset")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -108,7 +110,7 @@ private struct ProfessionalSigningQueueScreen: View {
         } header: {
             Text("Preset")
         } footer: {
-            Text("Incompatible apps are shown and are not signed. Nothing is queued until you confirm.")
+            Text("Incompatible apps are shown and are not queued. Nothing is queued until you confirm.")
         }
 
         if lockedEntries == nil {
@@ -161,10 +163,10 @@ private struct ProfessionalSigningQueueScreen: View {
                     ZStatusBadge("Compatible", systemImage: "checkmark", kind: .success)
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(item.displayName), \(item.bundleIdentifier), compatible. Will be signed after confirmation.")
+                .accessibilityLabel("\(item.displayName), \(item.bundleIdentifier), compatible. Will be added to the Signing Queue after confirmation.")
             }
         } header: {
-            Text("Will be signed (\(plan.compatible.count))")
+            Text("Will be queued (\(plan.compatible.count))")
         }
 
         Section {
@@ -188,7 +190,7 @@ private struct ProfessionalSigningQueueScreen: View {
                     }
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(item.displayName) needs manual attention. \(item.reasons.joined(separator: " ")) This app will not be signed.")
+                .accessibilityLabel("\(item.displayName) needs manual attention. \(item.reasons.joined(separator: " ")) This app will not be queued.")
             }
         } header: {
             Text("Needs manual attention (\(plan.needsAttention.count))")
@@ -200,116 +202,52 @@ private struct ProfessionalSigningQueueScreen: View {
             Button {
                 showConfirm = true
             } label: {
-                Text("Queue Compatible Apps")
+                Text(isPreparing ? "Adding to Queue…" : "Queue Compatible Apps")
                     .fontWeight(.semibold)
                     .frame(maxWidth: .infinity, minHeight: 44)
             }
             .buttonStyle(.borderedProminent)
             .disabled(plan.compatible.isEmpty || isPreparing)
             .keyboardShortcut(.defaultAction)
-            .accessibilityHint("Asks you to confirm before signing \(plan.compatible.count) compatible apps. \(plan.needsAttention.count) apps that need manual attention will not be signed.")
+            .accessibilityHint("Asks you to confirm before adding \(plan.compatible.count) compatible apps to the Signing Queue. \(plan.needsAttention.count) apps that need manual attention will not be queued.")
         }
     }
 
     @ViewBuilder
-    private func progress(_ queue: ProfessionalSigningQueue) -> some View {
+    private func queuedSection(_ count: Int) -> some View {
         Section {
-            if queue.phase == .running {
-                HStack {
-                    ProgressView()
-                    Text("Signing compatible apps")
-                }
-                .accessibilityElement(children: .combine)
-            }
-            ForEach(queue.jobs) { job in
-                VStack(alignment: .leading, spacing: ZSpacing.xxs) {
-                    Text(job.displayName)
-                    Text(job.bundleIdentifier)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    jobBadge(job)
-                    if case .needsAttention(let reasons) = job.state {
-                        ForEach(reasons, id: \.self) { reason in
-                            Text(reason)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    if case .failed(let message) = job.state {
-                        Text(message)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(jobSpoken(job))
-            }
-            if queue.phase == .running {
-                Button("Cancel Remaining", role: .destructive) {
-                    queue.cancelRemaining()
+            Text("Added \(count) compatible app\(count == 1 ? "" : "s") to the Signing Queue. Apps that need manual attention were not queued.")
+                .fixedSize(horizontal: false, vertical: true)
+            if signingQueuePresentation.isAvailable {
+                Button {
+                    signingQueuePresentation.present()
+                } label: {
+                    Label("Open Signing Queue", systemImage: "tray.full")
+                        .frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .presetTouchTarget()
             }
-            if queue.phase == .finished {
-                Button("Done") { dismiss() }
-                    .presetTouchTarget()
-                    .keyboardShortcut(.defaultAction)
-            }
+            Button("Done") { dismiss() }
+                .presetTouchTarget()
+                .keyboardShortcut(.defaultAction)
         } header: {
-            Text(queue.presetName.map { "Queue · \($0)" } ?? "Queue")
-        } footer: {
-            Text("Apps that need manual attention stay in that state. They are not signed by this queue.")
-        }
-    }
-
-    @ViewBuilder
-    private func jobBadge(_ job: ProfessionalSigningQueue.Job) -> some View {
-        switch job.state {
-        case .waiting:
-            ZStatusBadge("Waiting", systemImage: "clock", kind: .neutral)
-        case .needsAttention:
-            ZStatusBadge("Needs manual attention", systemImage: "exclamationmark.triangle", kind: .warning)
-        case .running:
-            ZStatusBadge("Signing", systemImage: "signature", kind: .info)
-        case .succeeded:
-            ZStatusBadge("Signed", systemImage: "checkmark", kind: .success)
-        case .failed:
-            ZStatusBadge("Failed", systemImage: "xmark", kind: .error)
-        case .cancelled:
-            ZStatusBadge("Cancelled", systemImage: "xmark.circle", kind: .neutral)
-        }
-    }
-
-    private func jobSpoken(_ job: ProfessionalSigningQueue.Job) -> String {
-        switch job.state {
-        case .waiting:
-            return "\(job.displayName), waiting."
-        case .needsAttention(let reasons):
-            return "\(job.displayName), needs manual attention. \(reasons.joined(separator: " "))"
-        case .running:
-            return "\(job.displayName), signing."
-        case .succeeded(let name):
-            return "\(job.displayName), signed. \(name)."
-        case .failed(let message):
-            return "\(job.displayName), failed. \(message)"
-        case .cancelled:
-            return "\(job.displayName), cancelled."
+            Text("Queued")
         }
     }
 
     private var confirmTitle: String {
         let count = plan?.compatible.count ?? 0
-        return "Sign \(count) compatible app\(count == 1 ? "" : "s")?"
+        return "Queue \(count) compatible app\(count == 1 ? "" : "s")?"
     }
 
-    private var confirmButtonTitle: String { "Confirm and Sign" }
+    private var confirmButtonTitle: String { "Confirm and Queue" }
 
     private var confirmMessage: String {
         let attention = plan?.needsAttention.count ?? 0
         if attention == 0 {
-            return "Each compatible app still goes through the signing pipeline, including verification. Nothing is signed until you confirm."
+            return "Each compatible app is added to the Signing Queue, which verifies the result. Nothing is queued until you confirm."
         }
-        return "\(attention) app\(attention == 1 ? "" : "s") need manual attention and will not be signed. Nothing is signed until you confirm."
+        return "\(attention) app\(attention == 1 ? "" : "s") need manual attention and will not be queued. Nothing is queued until you confirm."
     }
 
     private func toggle(_ entry: LibraryEntry) {
@@ -323,9 +261,6 @@ private struct ProfessionalSigningQueueScreen: View {
     }
 
     private func load() async {
-        if queue.phase == .finished {
-            queue.reset()
-        }
         guard let workflow = environment.signingPresetWorkflow else { return }
         presets = (try? await workflow.allPresets()) ?? []
         if let lockedEntries {
@@ -339,7 +274,8 @@ private struct ProfessionalSigningQueueScreen: View {
     }
 
     private func refreshPlan() async {
-        guard let workflow = environment.signingPresetWorkflow,
+        guard queuedCount == nil,
+              let workflow = environment.signingPresetWorkflow,
               let presetID = selectedPresetID,
               let preset = presets.first(where: { $0.id == presetID }) else {
             plan = nil
@@ -359,12 +295,25 @@ private struct ProfessionalSigningQueueScreen: View {
         let chosen = entries.filter { selectedIDs.contains($0.record.id.rawValue) }
         isPreparing = true
         defer { isPreparing = false }
+        let authorization = await appLock.authorize(.sign)
+        guard authorization.isAuthenticated else {
+            errorMessage = authorization.message
+            return
+        }
         do {
-            let directory = SigningPresetWorkflow.signedOutputDirectory()
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let requests = try await workflow.executionRequests(for: plan, entries: chosen, outputDirectory: directory)
-            try queue.stage(plan: plan, requests: requests)
-            await queue.confirmAndStart()
+            let submissions = try await workflow.queueSubmissions(for: plan, entries: chosen)
+            let allowed = Set(plan.compatible.map(\.id)).subtracting(plan.needsAttention.map(\.id))
+            guard submissions.allSatisfy({ allowed.contains($0.recordID.rawValue) }) else {
+                throw ZynSignError.presetQueueRefusedIncompatible()
+            }
+            guard !submissions.isEmpty else {
+                errorMessage = "No compatible app could be queued."
+                return
+            }
+            environment.signingQueue.enqueue(submissions, priority: .normal, origin: .bulkSelection)
+            environment.recordAnalyticsEvent(category: .signing, name: "queue.job.enqueued", succeeded: true)
+            queuedCount = submissions.count
+            errorMessage = nil
             ZHaptics.success()
         } catch let error as ZynSignError {
             errorMessage = error.userMessage
