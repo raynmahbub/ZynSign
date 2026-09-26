@@ -301,6 +301,11 @@ final class SigningQueue: ObservableObject {
     /// a list the user merely cleared.
     private var runsSettledSinceIdle = 0
 
+    /// Records preset usage when a job that carried a preset settles.
+    /// Passed in at init so composition never writes main-actor state after
+    /// the queue exists. `nil` in tests that do not track presets.
+    private let presetUsageRecorder: ((PresetUseOutcome) -> Void)?
+
     /// Creates the queue over the executor, persistence, and notification
     /// boundaries the composition root chose. `now` is injectable so tests
     /// get deterministic ordering and timestamps.
@@ -314,12 +319,14 @@ final class SigningQueue: ObservableObject {
         store: (any SigningQueueStore)? = nil,
         notifier: (any SigningQueueNotifying)? = nil,
         artifactURLResolver: @escaping @Sendable (ArtifactIdentifier) -> URL,
+        presetUsageRecorder: ((PresetUseOutcome) -> Void)? = nil,
         now: @escaping () -> Date = { Date() }
     ) {
         self.executor = executor
         self.store = store
         self.notifier = notifier
         self.artifactURLResolver = artifactURLResolver
+        self.presetUsageRecorder = presetUsageRecorder
         self.now = now
     }
 
@@ -935,9 +942,34 @@ final class SigningQueue: ObservableObject {
         if wasRunning {
             runsSettledSinceIdle += 1
         }
+        recordPresetUsage(jobID: id, state: state)
         postNotice(for: jobs[index])
         persist()
         checkQueueFinished()
+    }
+
+    /// Updates preset usage only after a job settles. Enqueueing is not a
+    /// use: a queued job can still be cancelled before it opens the package.
+    private func recordPresetUsage(jobID: SigningJobIdentifier, state: SigningJobState) {
+        guard let presetID = submissions[jobID]?.presetID,
+              let result = Self.presetResult(state),
+              let job = jobs.first(where: { $0.id == jobID }) else { return }
+        presetUsageRecorder?(PresetUseOutcome(
+            presetID: presetID,
+            result: result,
+            bundleIdentifier: job.bundleIdentifier,
+            displayName: job.applicationName,
+            at: now()
+        ))
+    }
+
+    private static func presetResult(_ state: SigningJobState) -> PresetUseOutcome.Result? {
+        switch state {
+        case .completed: return .succeeded
+        case .failed: return .failed
+        case .cancelled: return .cancelled
+        case .queued, .running: return nil
+        }
     }
 
     // MARK: - Notices and notifications

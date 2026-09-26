@@ -252,6 +252,10 @@ struct LibraryBulkActionBar: View {
     /// the bar's width is unchanged. `nil` offers nothing.
     var onQueue: (() -> Void)? = nil
 
+    /// Opens preset planning for the selection. Offered from the selection
+    /// menu, beside Queue Selected. `nil` when presets are not exposed.
+    var onSignWithPreset: (() -> Void)? = nil
+
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
@@ -324,6 +328,12 @@ struct LibraryBulkActionBar: View {
                 }
                 .disabled(!model.selectedEntries.contains { $0.isArtifactAvailable })
             }
+            if let onSignWithPreset {
+                Button(action: onSignWithPreset) {
+                    Label("Sign with Preset…", systemImage: "rectangle.stack")
+                }
+                .disabled(!model.selectedEntries.contains { $0.isArtifactAvailable })
+            }
         } label: {
             Text("\(count) selected")
                 .font(.footnote.weight(.semibold))
@@ -334,9 +344,20 @@ struct LibraryBulkActionBar: View {
                 .contentShape(Rectangle())
         }
         .accessibilityLabel("\(count) selected")
-        .accessibilityHint(onQueue == nil
-            ? "Opens Select All and Deselect All"
-            : "Opens Select All, Deselect All, and Queue Selected for Signing")
+        .accessibilityHint(selectionMenuHint)
+    }
+
+    private var selectionMenuHint: String {
+        switch (onQueue != nil, onSignWithPreset != nil) {
+        case (true, true):
+            return "Opens Select All, Deselect All, Queue Selected for Signing, and Sign with Preset"
+        case (true, false):
+            return "Opens Select All, Deselect All, and Queue Selected for Signing"
+        case (false, true):
+            return "Opens Select All, Deselect All, and Sign with Preset"
+        case (false, false):
+            return "Opens Select All and Deselect All"
+        }
     }
 
     private func action(

@@ -60,10 +60,18 @@ enum CompositionRoot {
             history: history
         )
         let queueNotifier = makeSigningQueueNotifier()
+        let signingPresetWorkflow = makeSigningPresetWorkflow(
+            presets: presets,
+            profiles: profiles,
+            identities: identityStore
+        )
         let signingQueue = makeSigningQueue(
             operations: signingOperations,
             library: library,
-            notifier: queueNotifier
+            notifier: queueNotifier,
+            presetUsageRecorder: { outcome in
+                Task { try? await signingPresetWorkflow.record(outcome) }
+            }
         )
         var environment = ApplicationEnvironment(
             applicationInfo: ApplicationInfo.current(bundle: .main),
@@ -100,6 +108,7 @@ enum CompositionRoot {
         // The hub seeds icons it extracts during analysis into this same
         // instance, so the cards show them without a second extraction.
         environment.appIcons = appIcons
+        environment.signingPresetWorkflow = signingPresetWorkflow
         environment.signingDiagnostics = diagnostics
         environment.identityAnnotations = makeIdentityAnnotationsStore()
         environment.libraryOrganizer = makeLibraryOrganizer()
@@ -121,13 +130,32 @@ enum CompositionRoot {
     static func makeSigningQueue(
         operations: SigningOperationCenter,
         library: ApplicationLibrary,
-        notifier: (any SigningQueueNotifying)? = nil
+        notifier: (any SigningQueueNotifying)? = nil,
+        presetUsageRecorder: ((PresetUseOutcome) -> Void)? = nil
     ) -> SigningQueue {
         SigningQueue(
             executor: SigningOperationExecutor(operations: operations, library: library),
             store: makeSigningQueueStore(),
             notifier: notifier,
-            artifactURLResolver: { artifactID in libraryArtifactFileURL(for: artifactID) }
+            artifactURLResolver: { artifactID in libraryArtifactFileURL(for: artifactID) },
+            presetUsageRecorder: presetUsageRecorder
+        )
+    }
+
+    /// The preset workflow the confirmation screen and the bulk planner use.
+    /// It resolves references. It does not sign; confirmed work is enqueued
+    /// on `SigningQueue`.
+    static func makeSigningPresetWorkflow(
+        presets: any SigningPresetStore,
+        profiles: any ProvisioningProfileLibrary,
+        identities: any IdentityStore
+    ) -> SigningPresetWorkflow {
+        SigningPresetWorkflow(
+            presets: presets,
+            profiles: profiles,
+            identities: identities,
+            profileDirectory: provisioningProfileCatalogLocation().deletingLastPathComponent(),
+            artifactURL: { artifactID in libraryArtifactFileURL(for: artifactID) }
         )
     }
 

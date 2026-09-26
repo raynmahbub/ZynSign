@@ -18,7 +18,7 @@ struct CertificateFingerprint: Equatable, Hashable, CustomStringConvertible, Cod
     /// The algorithm that produced the digest. Fixed to SHA-256 for this
     /// type; recorded explicitly so that the representation stays
     /// interpretable if the domain ever supports additional algorithms.
-    enum Algorithm: String, CaseIterable, Hashable {
+    enum Algorithm: String, CaseIterable, Hashable, Codable {
         case sha256
     }
 

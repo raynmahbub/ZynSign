@@ -107,6 +107,7 @@ struct SigningView: View {
     var body: some View {
         List {
             appSection
+            RecommendedPresetSection(entry: entry, origin: .signingScreen)
             diagnosticsSection
             if isSigning || model.progress != nil {
                 progressSection

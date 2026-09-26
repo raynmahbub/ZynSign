@@ -41,8 +41,8 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
     /// failure recovery, persistence, and bulk queue operations.
     case signingQueue
 
-    /// Beta 1: Professional signing — signing presets, advanced signing
-    /// options, verification summary.
+    /// Alpha 2: Intelligent signing presets — library, builder, matching,
+    /// one-tap confirmation, and bulk planning into the signing queue.
     case signingPresets
 
     /// Beta 3: Productivity — batch signing and signing history.
@@ -89,7 +89,7 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .libraryPowerFeatures: return "Library Power Features"
         case .provisioningProfileManager: return "Provisioning Profile Manager"
         case .signingQueue: return "Professional Signing Queue"
-        case .signingPresets: return "Signing Presets"
+        case .signingPresets: return "Intelligent Signing Presets"
         case .batchSigning: return "Batch Signing"
         case .signingHealthScore: return "Signing Health Score"
         }
@@ -150,9 +150,9 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
         switch self {
         case .horizon: return []
         case .alpha1: return [.certificateStudio, .libraryPowerFeatures]
-        case .alpha2: return [.smartSign, .provisioningProfileManager, .signingQueue]
+        case .alpha2: return [.smartSign, .provisioningProfileManager, .signingQueue, .signingPresets]
         case .alpha3: return [.appStore, .downloads]
-        case .beta1: return [.missionControl, .deliveryHandoff, .activityJournal, .signingPresets]
+        case .beta1: return [.missionControl, .deliveryHandoff, .activityJournal]
         case .beta2: return []
         case .beta3: return [.batchSigning]
         case .beta4: return []

@@ -28,6 +28,7 @@ struct HomeView: View {
 
     @Environment(\.applicationEnvironment) private var environment
     @Environment(\.importPresentation) private var importPresentation
+    @Environment(\.signingQueuePresentation) private var signingQueuePresentation
     @StateObject private var missionControl = MissionControlService()
     @State private var entries: [LibraryEntry] = []
     @State private var certificateCount: Int?
@@ -35,6 +36,7 @@ struct HomeView: View {
     @State private var failedLoad = false
     @State private var hasReadLibrary = false
     @State private var settledImportCount = 0
+    @State private var showPresets = false
     @AppStorage(LibraryPreferenceKeys.scope) private var libraryScope = LibraryScope.all.storageValue
     /// Whether first-launch onboarding has been completed.
     ///
@@ -158,6 +160,25 @@ struct HomeView: View {
                     onOpenSection(.profiles)
                 }
             }
+            if ReleaseTrain.isAvailable(.signingPresets) || signingQueuePresentation.isAvailable {
+                HStack(spacing: ZSpacing.sm) {
+                    if ReleaseTrain.isAvailable(.signingPresets) {
+                        HomeActionButton(title: "Presets", icon: "rectangle.stack", color: .teal) {
+                            showPresets = true
+                        }
+                        .accessibilityHint("Opens saved signing presets. Choosing one does not sign.")
+                    }
+                    if signingQueuePresentation.isAvailable {
+                        HomeActionButton(title: "Signing Queue", icon: "tray.full", color: .indigo) {
+                            signingQueuePresentation.present()
+                        }
+                        .accessibilityHint("Opens the signing queue dashboard.")
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showPresets) {
+            PresetsView()
         }
     }
 

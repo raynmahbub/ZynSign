@@ -160,21 +160,27 @@ struct ProvisioningProfileSummary: Equatable, Hashable, Identifiable, Sendable, 
     /// the given bundle identifier. Wildcard suffixes (`com.example.*`)
     /// are matched.
     func covers(bundleIdentifier: String) -> Bool {
-        for pattern in bundleIdentifierPatterns {
-            if matches(pattern: pattern, value: bundleIdentifier) { return true }
+        bundleIdentifierPatterns.contains { pattern in
+            Self.pattern(pattern, covers: bundleIdentifier)
         }
-        return false
     }
 
-    private func matches(pattern: String, value: String) -> Bool {
-        // A team-wide profile covers any nonempty bundle identifier.
-        if pattern == "*" { return !value.isEmpty }
+    /// Whether one declared pattern covers `bundleIdentifier`.
+    ///
+    /// `*` covers every nonempty bundle identifier. A trailing `.*` covers
+    /// the exact prefix and any identifier under that prefix (`com.example.*`
+    /// covers `com.example` and `com.example.app`, but not `com.examplar.app`).
+    /// Anything else is an exact match. A team-prefixed pattern such as
+    /// `TEAM123456.com.example.*` does not match a plain bundle identifier.
+    /// Preset matching calls this helper so the two rules cannot drift.
+    static func pattern(_ pattern: String, covers bundleIdentifier: String) -> Bool {
+        if pattern == "*" { return !bundleIdentifier.isEmpty }
         if pattern.hasSuffix(".*") {
-            // Keep the same component-boundary rule as the policy validator:
-            // com.example.* does not also cover the exact com.example ID.
-            return value.hasPrefix(String(pattern.dropLast()))
+            let prefix = String(pattern.dropLast(2))
+            guard !prefix.isEmpty else { return false }
+            return bundleIdentifier == prefix || bundleIdentifier.hasPrefix(prefix + ".")
         }
-        return pattern == value
+        return pattern == bundleIdentifier
     }
 
     /// Sort: soonest-to-expire first; expired profiles sink to the end.

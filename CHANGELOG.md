@@ -12,6 +12,14 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — 0.1.0-alpha.2 · Step 15: Intelligent Signing Presets
+
+- **Signing presets** — reusable templates (Personal Development, Testing Device, Enterprise Workflow, Custom) store a certificate fingerprint, a provisioning-profile reference, team, entitlements slot, verification preference, and export behavior. They do not store a private key, a password, profile bytes, or an output path. Schema 1 catalogs still decode.
+- **Preset library and builder** — Settings and Home open the library. Cards show name, certificate, profile, team, last used, and live compatibility. Create, edit, duplicate, rename, delete, and set default. The builder can go back without losing the draft. Templates do not fill a certificate or a profile.
+- **Recommendation, not execution** — opening an app ranks presets by bundle identifier, team, certificate, profile, expiration, and previous success. "Sign with Recommended Preset" and the import "Ready to Sign" offer open a confirmation screen. Confirm and Sign is hidden unless preflight passed, and confirming enqueues the job rather than signing on that screen. The signing wizard remains available.
+- **Preset signing uses the professional queue** — confirming a preset, or planning a library selection, adds jobs to `SigningQueue` after the app lock. Compatible apps only. Apps that need manual attention are listed and are not queued. Usage counts update when a job settles, not when it is added.
+- **Reserved future fields** — scope, revision, schedule, and an automation label are stored and never run. See `docs/architecture/signing-presets.md`.
+
 ### Added — 0.1.0-alpha.2 · Step 14: Professional Signing Queue
 
 - **Job queue manager**: `SigningQueue` turns every signing request into its

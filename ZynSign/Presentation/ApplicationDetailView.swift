@@ -108,6 +108,7 @@ struct ApplicationDetailView: View {
                 signingHealthCard
                 signingStatusCard
                 quickActionsCard
+                RecommendedPresetCard(entry: entry)
                 profileSuggestionCard
 
                 if model.isRefreshing, model.report != nil {

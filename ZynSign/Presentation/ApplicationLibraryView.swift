@@ -36,6 +36,7 @@ struct ApplicationLibraryView: View {
     /// The applications awaiting a signing-queue configuration, when the
     /// user asked to queue one or several.
     @State private var queueConfiguration: SigningQueueConfigurationRequest?
+    @State private var presetQueue: PresetQueuePresentation?
     @State private var path: [LibraryRoute] = []
     @State private var sheet: LibrarySheet? = nil
     @State private var entryPendingRemoval: LibraryEntry? = nil
@@ -177,6 +178,9 @@ struct ApplicationLibraryView: View {
                 onOpenQueue: { signingQueuePresentation.present() },
                 onDone: { queueConfiguration = nil }
             )
+        }
+        .sheet(item: $presetQueue) { request in
+            ProfessionalSigningQueueView(lockedEntries: request.entries)
         }
         .sheet(item: verificationBinding) { report in
             LibraryVerificationReportView(report: report)
@@ -553,6 +557,15 @@ struct ApplicationLibraryView: View {
         presentQueueConfiguration(for: model.selectedEntries, origin: .bulkSelection)
     }
 
+    /// Opens preset planning for the current selection. Incompatible apps
+    /// stay visible there and are not queued.
+    private func presentPresetQueue() {
+        let signable = model.selectedEntries.filter(\.isArtifactAvailable)
+        guard !signable.isEmpty else { return }
+        ZHaptics.tap()
+        presetQueue = PresetQueuePresentation(entries: signable)
+    }
+
     @ViewBuilder
     private func trailingSwipeActions(_ entry: LibraryEntry) -> some View {
         if !model.isSelecting {
@@ -921,7 +934,8 @@ struct ApplicationLibraryView: View {
                 features: features,
                 onMove: { presentCollectionPicker(for: model.selectedIDs) },
                 onDelete: { selectionPendingRemoval = model.selectedEntries },
-                onQueue: isQueueAvailable ? { queueSelection() } : nil
+                onQueue: isQueueAvailable ? { queueSelection() } : nil,
+                onSignWithPreset: ReleaseTrain.isAvailable(.signingPresets) ? { presentPresetQueue() } : nil
             )
             .transition(.move(edge: .bottom).combined(with: .opacity))
         } else if let progress = model.progress {
@@ -1584,4 +1598,11 @@ struct SigningQueueToolbarButton: View {
         .accessibilityLabel("Signing Queue")
         .accessibilityValue(activeCount == 0 ? "No active jobs" : "\(activeCount) active job\(activeCount == 1 ? "" : "s")")
     }
+}
+
+/// The selection handed to the preset planner. Identifiable so the library
+/// can present it as a sheet without signing anything itself.
+private struct PresetQueuePresentation: Identifiable {
+    let id = UUID()
+    let entries: [LibraryEntry]
 }

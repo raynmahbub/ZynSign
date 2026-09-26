@@ -137,6 +137,12 @@ struct ApplicationEnvironment {
     /// composed; treated as read-only after construction.
     var appIcons: AppIconExtraction? = nil
 
+    /// Recommendation, confirmation, and usage recording for signing presets.
+    /// `nil` in tests that do not install presets. Production composition
+    /// installs it. One-tap and bulk preset signing enqueue through
+    /// `signingQueue`; this workflow does not sign.
+    var signingPresetWorkflow: SigningPresetWorkflow? = nil
+
     /// Shared read-only analyzer for import, per-app health and signing.
     /// Profile/entitlement evidence stays in memory; only redacted issue
     /// codes enter its bounded on-device journal.

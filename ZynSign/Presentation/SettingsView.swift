@@ -112,6 +112,14 @@ struct SettingsView: View {
                 }
                 .accessibilityHint("Opens the signing queue dashboard.")
             }
+            if ReleaseTrain.isAvailable(.signingPresets) {
+                NavigationLink {
+                    PresetsView(embedsNavigationStack: false)
+                } label: {
+                    Label("Signing Presets", systemImage: "rectangle.stack")
+                }
+                .accessibilityHint("Opens saved signing presets. Choosing one does not sign.")
+            }
             NavigationLink { ArchiveSettingsView() } label: {
                 Label("Archive & Extraction", systemImage: "doc.zipper")
             }

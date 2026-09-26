@@ -262,7 +262,12 @@ struct ImportHubView: View {
             if !finishedItems.isEmpty {
                 Section("Finished") {
                     ForEach(finishedItems) { item in
-                        queueRow(for: item)
+                        VStack(alignment: .leading, spacing: ZSpacing.xs) {
+                            queueRow(for: item)
+                            if let settlement = item.settlement, settlement.kind.isAccepted, let record = settlement.record {
+                                ImportReadyToSignOffer(record: record)
+                            }
+                        }
                     }
                 }
             }

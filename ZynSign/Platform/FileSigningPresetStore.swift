@@ -18,7 +18,12 @@ import Foundation
 actor FileSigningPresetStore: SigningPresetStore {
 
     /// The schema version this build reads and writes.
-    static let currentSchemaVersion = 1
+    ///
+    /// Version 2 adds kind, team, verification, export, usage, and
+    /// distribution fields on each preset. Version 1 catalogs remain
+    /// readable: missing keys decode as the defaults a new preset uses.
+    /// This build still refuses a catalog newer than `currentSchemaVersion`.
+    static let currentSchemaVersion = 2
 
     /// The location of the catalog file.
     let catalogLocation: URL
