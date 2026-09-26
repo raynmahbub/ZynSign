@@ -57,16 +57,24 @@ final class ReleaseTrainTests: XCTestCase {
     }
 
     func testFeatureRolloutMatchesThePlan() {
-        XCTAssertEqual(ReleaseStage.alpha1.features, [.certificateStudio])
-        XCTAssertEqual(ReleaseStage.alpha2.features, [.certificateStudio, .smartSign])
-        XCTAssertEqual(ReleaseStage.alpha3.features, [.certificateStudio, .smartSign, .appStore, .downloads])
-        XCTAssertEqual(ReleaseStage.beta1.features, Set(ReleaseFeature.allCases))
+        XCTAssertEqual(ReleaseStage.alpha1.features, [.certificateStudio, .libraryPowerFeatures])
+        XCTAssertEqual(ReleaseStage.alpha2.features, [.certificateStudio, .libraryPowerFeatures, .smartSign, .provisioningProfileManager])
+        XCTAssertEqual(ReleaseStage.alpha3.introducedFeatures, [.appStore, .downloads, .entitlementsStudio])
+        XCTAssertEqual(ReleaseStage.beta1.introducedFeatures, [.missionControl, .deliveryHandoff, .activityJournal, .signingPresets])
+        XCTAssertEqual(ReleaseStage.stable.features, Set(ReleaseFeature.allCases))
     }
 
-    func testFeatureCompleteFromBetaOnwards() {
-        for stage in ReleaseStage.allCases where stage >= .beta1 {
-            XCTAssertEqual(stage.features, Set(ReleaseFeature.allCases), "\(stage) must be feature complete")
-        }
+    func testLaterPlannedFeaturesRemainStaged() {
+        XCTAssertFalse(ReleaseStage.beta1.features.contains(.batchSigning))
+        XCTAssertTrue(ReleaseStage.beta3.features.contains(.batchSigning))
+        XCTAssertFalse(ReleaseStage.rc3.features.contains(.signingHealthScore))
+        XCTAssertTrue(ReleaseStage.stable.features.contains(.signingHealthScore))
+    }
+
+    func testEntitlementsStudioShipsAtAlphaThree() {
+        XCTAssertFalse(ReleaseGate(stage: .alpha2, exposesEverything: false).isAvailable(.entitlementsStudio))
+        XCTAssertTrue(ReleaseGate(stage: .alpha3, exposesEverything: false).isAvailable(.entitlementsStudio))
+        XCTAssertTrue(ReleaseGate(stage: .horizon, exposesEverything: true).isAvailable(.entitlementsStudio))
     }
 
     func testFeaturesOnlyAccumulate() {

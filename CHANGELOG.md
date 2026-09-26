@@ -12,6 +12,22 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — Alpha 3 · Step 17: Entitlements Studio
+
+- Read-only App Details workspace with capability-grouped cards, dashboard counts,
+  instant search/status filters, side-by-side values, technical inspectors, and
+  actionable Smart Diagnostics from a shared compatibility analysis.
+- Bounded embedded-entitlement inspection per main-executable architecture;
+  conservative profile/team/bundle checks keep missing and unsupported facts
+  explicit. Unknown keys stay visible; no platform-acceptance claim is made.
+- Shared certificate/profile/DER context with automatic cached-analysis invalidation,
+  stale-result protection and signing preflight blockers across inspected architectures.
+- Timestamped JSON report export with credential-free projection and privacy omissions;
+  semantic styles, spoken statuses, Dynamic Type layouts and large actions.
+- Synthetic XCTest coverage and [scope/validation documentation](docs/architecture/entitlements-studio.md).
+  Feature entry points ship at Alpha 3 without promoting the current release.
+
+
 ### Added — 0.1.0-alpha.1 · Step 2: Production-Grade IPA Import
 
 - **Import queue** — `PackageImportQueue` accepts packages from every entry

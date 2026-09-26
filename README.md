@@ -26,6 +26,7 @@ Sideloading on iOS is a maze of certificates, entitlements, provisioning profile
 | Users want | ZynSign answers with |
 |---|---|
 | **Effortless signing** | **Smart Sign** — `SigningView` + `ZProgressRing` + 9-stage `ZSigningStatusMachine`, profile-derived entitlements, `DER 0x20400` toggle |
+| **Entitlement clarity** | **[Entitlements Studio](docs/architecture/entitlements-studio.md)** — read-only app claims, capability cards, profile comparisons, Smart Diagnostics and JSON reports; no platform-acceptance prediction |
 | **Certificate clarity** | **Certificate Studio** — `CertificatesView` lists Keychain identities with `WhenUnlockedThisDeviceOnly` + `ZStatusBadge`/`Health` + **Export public JSON** (private key never leaves) |
 | **Apple-quality UI** | **Design Language (ZDL v1.0)** — `ZCard`/`ZSkeleton`/`ZProgressRing`/`ZToast`/`ZBottomSheet` + `DesignTokens` + liquid glass, spring + haptics, Dark Mode |
 | **Plain diagnostics** | **Human errors** — `CERT_002 → “Wrong provisioning profile.”` via `ZynSignError` + `DiagnosticCategory` + `ZToast` |
@@ -45,7 +46,7 @@ Features are finished and compiled in. `ReleaseTrain.current` in [`ReleaseTrain.
 | **`v0.1.0`** ◀ current | Home Dashboard · Import · Library (grid/list, search, sort, favourites) · Bundle Explorer · Certificates · Profiles · Settings |
 | `v0.1.0-alpha.1` | Certificate Studio |
 | `v0.1.0-alpha.2` | Smart Sign (+ Signing Options, Installation screen) |
-| `v0.1.0-alpha.3` | App Store + Repository Health · Background Downloads |
+| `v0.1.0-alpha.3` | Entitlements Studio · App Store + Repository Health · Background Downloads |
 | `v0.9.0-beta.1` | Mission Control · Delivery Hand-off · Activity Journal — **feature complete** |
 | `v0.9.0-beta.2…4` → `v1.0.0-rc.1…3` → `v1.0.0` | Fixes only |
 
@@ -67,6 +68,7 @@ The **Ships in** column is the first release that shows the feature.
 | **Library** <br/><sub>Ships in `v0.1.0`</sub> | Durable `FileApplicationRecordStore` + `FileLibraryArtifactStore`, `isArtifactAvailable`, `BundleExplorerView` read-only, row `⋯ → Sign`; **grid/list cards** with extracted icons (`AppIconExtraction`, cached, honest monogram fallback), search by name/bundle ID, sort by recency/name/version, **favourite** + **Details** + **Delete** swipe actions, **multi-selection** bulk delete, signing-status badge from the on-device journal | Survives relaunch, duplicate SHA-256, missing-artifact badge. Catalog schema 2 (favourites); schema 1 converts on read |
 | **Certificates** <br/><sub>Ships in `v0.1.0-alpha.1`</sub> | **Certificates tab** → `CertificatesView` + `CertificateDetailView` | `.p12/.pfx` 10 MiB, `ApplePKCS12Importer` → `SecureIdentityStore` (`WhenUnlockedThisDeviceOnly`, non-extractable), `ZStatusBadge` readiness, **Export public JSON** (`CertificateExportService` `tmp/ZynSign-Export/*.json` via share sheet) — private key never exported |
 | **Profiles** <br/><sub>Ships in `v0.1.0`</sub> | **Profiles tab** (`ProfilesView`): import `.mobileprovision` (`ProvisioningProfileImporter`), list with team + expiry countdown + semantic badges, detail with bundle-identifier patterns + entitlement keys, delete | Summaries read from each profile's own declarations; original files kept beside the catalog for signing |
+| **Entitlements Studio** <br/><sub>Ships in `v0.1.0-alpha.3`</sub> | `Library → App Details → Entitlements Studio` (also inside Signing) | Capability cards, counts, instant search/status filters, read-only inspectors, App/Profile comparison, shared selections, Smart Diagnostics and JSON export. Main-executable XML claims per architecture; unsupported checks stay explicit. [Scope and validation](docs/architecture/entitlements-studio.md) |
 | **Smart Sign** <br/><sub>Ships in `v0.1.0-alpha.2`</sub> | `Library → ⋯ → Sign` / `Detail → Sign` → `SigningView` | 9 stages: integrity → profile → discovery → extraction → nested → sealing → main → packaging → verification. Profile-derived `CodeSigningEntitlements` (CMS `CMSStructureReader` + `PropertyListProvisioningProfileParser`), **DER toggle** `0x20200` `slot 5` ↔ `0x20400` `slot 5+7` (`DEREntitlementsSerializer` `0xFADE7172`), **Live Activity** (`LiveActivityService` `ActivityKit` on 16.1+ else `ZStatusBadge`) → `Documents/Signed/*_signed.ipa` + Share |
 | **Repository browser** <br/><sub>Ships in `v0.1.0-alpha.3`</sub> | `App Store` (`AppStoreView`) AltSource feed, Featured + All, add/remove sources | **Health** `Fast` (<800 ms) / `Slow` (<3000 ms) / `Offline` (`RepositoryHealthProbe` 3 s, JSON validation, `ZStatusBadge` + `Check Health`) |
 | **Downloads** <br/><sub>Ships in `v0.1.0-alpha.3`</sub> | `Downloads` (`DownloadsView`) `https` / `itms-services` / `manifest.plist` | **BackgroundURLSession** `com.zynsign.downloads` (resumeData, 600 s, retry ×3, checksum), `Pause`/`Resume`/`Cancel`, progress, survives backgrounding (foreground on Simulator) |

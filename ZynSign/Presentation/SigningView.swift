@@ -3,15 +3,18 @@ import UniformTypeIdentifiers
 import UIKit
 
 /// Signing screen — Smart Sign with real entitlements, DER (0x20400) and Live Activities.
+@MainActor
 struct SigningView: View {
     let entry: LibraryEntry
+    @StateObject private var studio: EntitlementsStudioModel
+
+    init(entry: LibraryEntry, studio: EntitlementsStudioModel? = nil) {
+        self.entry = entry
+        _studio = StateObject(wrappedValue: studio ?? EntitlementsStudioModel())
+    }
     @Environment(\.applicationEnvironment) private var env
-    @State private var identities: [SigningIdentity] = []
-    @State private var selectedIdentityID: SigningIdentityIdentifier?
     @State private var isLoadingIdentities = true
     @State private var identitiesError: String?
-    @State private var profileData: Data?
-    @State private var profileFileName: String?
     @State private var profileError: String?
     @State private var showProfileImporter = false
     @State private var isSigning = false
@@ -23,14 +26,16 @@ struct SigningView: View {
     @State private var showSigningOptions = false
     @State private var showSuccessToast = false
     @State private var showErrorToast = false
-    @State private var emitDEREntitlements = false
     @StateObject private var liveActivity = LiveActivityService()
 
     private var selectedIdentity: SigningIdentity? {
-        guard let id = selectedIdentityID else { return nil }
-        return identities.first { $0.id == id }
+        guard let id = studio.selectedIdentityID else { return nil }
+        return studio.identities.first { $0.id == id }
     }
-    private var canSign: Bool { !isSigning && selectedIdentityID != nil && profileData != nil && entry.isArtifactAvailable }
+    private var studioReadyForSigning: Bool {
+        !ReleaseTrain.isAvailable(.entitlementsStudio) || (studio.analysis != nil && !studio.signingBlocked)
+    }
+    private var canSign: Bool { !isSigning && studio.selectedIdentityID != nil && studio.profileData != nil && studio.signingEntitlements != nil && entry.isArtifactAvailable && !studio.isParsingProfile && studioReadyForSigning }
 
     var body: some View {
         List {
@@ -46,10 +51,14 @@ struct SigningView: View {
             }
             helpSection
         }
+        .disabled(isSigning)
         .listStyle(.insetGrouped)
         .navigationTitle("Sign \(entry.record.displayName ?? "Application")")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await loadIdentities() }
+        .task {
+            await loadIdentities()
+            if ReleaseTrain.isAvailable(.entitlementsStudio) { await studio.load(entry: entry, inspection: env.bundleInspection) }
+        }
         .refreshable { await loadIdentities() }
         .fileImporter(isPresented: $showProfileImporter, allowedContentTypes: [.data, .item], allowsMultipleSelection: false) { result in handleProfilePicker(result) }
         .sheet(item: $shareItem) { item in ShareSheet(url: item.url) }
@@ -81,13 +90,13 @@ struct SigningView: View {
         Section {
             if isLoadingIdentities { ZSkeleton(rows: 2) }
             else if let err = identitiesError { Label(err, systemImage: "exclamationmark.triangle").foregroundStyle(.orange); Button("Retry") { Task { await loadIdentities() } } }
-            else if identities.isEmpty {
+            else if studio.identities.isEmpty {
                 ContentUnavailableView { Label("No Certificates", systemImage: "signature") } description: { Text("Import a .p12 identity in the Certificates tab to sign.") } actions: { NavigationLink { CertificatesView() } label: { Label("Open Certificates", systemImage: "key.fill") }.buttonStyle(.bordered) }
                 .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
             } else {
-                Picker("Signing Identity", selection: $selectedIdentityID) {
+                Picker("Signing Identity", selection: $studio.selectedIdentityID) {
                     Text("Select Identity").tag(nil as SigningIdentityIdentifier?)
-                    ForEach(identities, id: \.id) { idt in VStack(alignment: .leading) { Text(idt.displayName); Text(idt.certificate.subject.displayName).font(.caption).foregroundStyle(.secondary) }.tag(Optional(idt.id)) }
+                    ForEach(studio.identities, id: \.id) { idt in VStack(alignment: .leading) { Text(idt.displayName); Text(idt.certificate.subject.displayName).font(.caption).foregroundStyle(.secondary) }.tag(Optional(idt.id)) }
                 }.pickerStyle(.navigationLink)
                 if let idt = selectedIdentity {
                     LabeledContent("Key", value: idt.keyAvailability.rawValue)
@@ -103,34 +112,42 @@ struct SigningView: View {
 
     private var profileSection: some View {
         Section {
-            if let name = profileFileName, let data = profileData {
+            if let name = studio.profileFileName, let data = studio.profileData {
                 LabeledContent("Profile", value: name)
                 LabeledContent("Size", value: ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file))
-                Button("Remove Profile", role: .destructive) { profileData = nil; profileFileName = nil; profileError = nil }
+                Button("Remove Profile", role: .destructive) { studio.removeProfile(); profileError = nil }
             } else {
                 Button { showProfileImporter = true } label: { Label("Choose Provisioning Profile…", systemImage: "doc.badge.ellipsis") }
                 Text("A .mobileprovision file that authorizes the target bundle identifier and contains the signing certificate. The file is read only for this signing run and is not persisted.").font(.caption).foregroundStyle(.secondary)
             }
+            if studio.isParsingProfile { ProgressView("Reading profile…") }
+            if let error = studio.profileError { Text(error).foregroundStyle(.orange) }
             if let err = profileError { Label(err, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.footnote) }
             Button("Choose from Files") { showProfileImporter = true }.font(.footnote)
         } header: { Text("Provisioning Profile") }
     }
 
     private var derivedEntitlements: CodeSigningEntitlements? {
-        guard let data = profileData else { return nil }
-        return try? Self.entitlements(fromProvisioningProfile: data)
+        studio.signingEntitlements
     }
-    private var derivedEntitlementsDiagnostic: String? {
-        guard let data = profileData else { return nil }
-        do { _ = try Self.entitlements(fromProvisioningProfile: data); return nil }
-        catch let e as ZynSignError { return e.userMessage }
-        catch let e as EntitlementsError { return "Entitlements error: \(String(describing: e))" }
-        catch { return "The profile's entitlements could not be derived." }
-    }
+    private var derivedEntitlementsDiagnostic: String? { studio.profileError }
 
     private var entitlementsSection: some View {
         Section {
-            if profileData == nil {
+            if ReleaseTrain.isAvailable(.entitlementsStudio) {
+                NavigationLink {
+                    EntitlementsStudioView(entry: entry, studio: studio)
+                } label: { Label("Entitlements Studio", systemImage: "checklist") }
+                if let analysis = studio.analysis {
+                    EntitlementStatusLabel(status: analysis.status)
+                    Text(analysis.summary).font(.footnote)
+                    NavigationLink("Smart Diagnostics") { EntitlementDiagnosticsView(studio: studio) }
+                } else { ProgressView("Analyzing entitlements…") }
+                Text("The Studio inspects embedded app requests. The current signing pipeline separately derives its output claims from the profile; these are not the same source.")
+                    .font(.caption).foregroundStyle(.secondary)
+
+            }
+            if studio.profileData == nil {
                 LabeledContent("Entitlements", value: "Choose a profile first")
                 Text("Choose a provisioning profile to derive its entitlements. The signing pipeline validates the set against the profile before any code is signed.").font(.caption).foregroundStyle(.secondary)
             } else if let entitlements = derivedEntitlements {
@@ -142,16 +159,16 @@ struct SigningView: View {
                     Text("Derived directly from the profile's Entitlements dictionary and preserved verbatim (unknown keys kept, ordering canonicalized on serialization). The pipeline holds this set against the profile's policy before signing.").font(.caption).foregroundStyle(.secondary)
                 }
             } else {
-                HStack { LabeledContent("Entitlements", value: "Derivation failed — empty will be tried"); Spacer(); ZStatusBadge("Not derived", systemImage: "exclamationmark.triangle", kind: .error) }
+                HStack { LabeledContent("Entitlements", value: "Unavailable — signing disabled"); Spacer(); ZStatusBadge("Not derived", systemImage: "exclamationmark.triangle", kind: .error) }
                 if let diag = derivedEntitlementsDiagnostic { Text(diag).font(.caption).foregroundStyle(.orange) }
-                Text("ZynSign could not read entitlements from this profile. Signing will proceed with an empty set and the pipeline's profile stage will refuse if the profile requires claims.").font(.caption).foregroundStyle(.secondary)
+                Text("ZynSign could not derive signing claims from this profile. Choose a readable profile with a supported entitlement dictionary; no empty set will be substituted.").font(.caption).foregroundStyle(.secondary)
             }
-            Toggle(isOn: $emitDEREntitlements) { Label("DER entitlements (iOS 15+ • 0x20400)", systemImage: "doc.text.image") }.tint(.blue)
+            Toggle(isOn: $studio.emitDEREntitlements) { Label("DER entitlements (iOS 15+ • 0x20400)", systemImage: "doc.text.image") }.tint(.blue)
             HStack(spacing: ZSpacing.xs) {
-                ZStatusBadge(emitDEREntitlements ? "0x20400" : "0x20200", systemImage: "cpu", kind: emitDEREntitlements ? .info : .neutral)
-                ZStatusBadge(emitDEREntitlements ? "Slot 5 + 7" : "Slot 5", systemImage: "square.stack.3d.up", kind: .neutral)
+                ZStatusBadge(studio.emitDEREntitlements ? "0x20400" : "0x20200", systemImage: "cpu", kind: studio.emitDEREntitlements ? .info : .neutral)
+                ZStatusBadge(studio.emitDEREntitlements ? "Slot 5 + 7" : "Slot 5", systemImage: "square.stack.3d.up", kind: .neutral)
             }
-            Text(emitDEREntitlements ? "DER is on — emits XML blob (slot 5, 0xFADE7171) and deterministic DER SET (slot 7, 0xFADE7172, v0x20400). iOS 15+ validates slot 7; older validates slot 5." : "DER is off — XML entitlements only (slot 5, v0x20200). Turn on for iOS 15+ DER enforcement.").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(studio.emitDEREntitlements ? "DER is on — emits XML blob (slot 5, 0xFADE7171) and deterministic DER SET (slot 7, 0xFADE7172, v0x20400). iOS 15+ validates slot 7; older validates slot 5." : "DER is off — XML entitlements only (slot 5, v0x20200). Turn on for iOS 15+ DER enforcement.").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if liveActivity.isActive, let state = liveActivity.currentState {
                 HStack(spacing: ZSpacing.xs) { ZStatusBadge(state.stage, systemImage: "livephoto", kind: .info); ZStatusBadge("\(Int(state.progress*100))%", systemImage: "percent", kind: .neutral) }
                 Text(state.detail).font(.caption2).foregroundStyle(.secondary)
@@ -182,7 +199,7 @@ struct SigningView: View {
                                 VStack(alignment: .leading, spacing: ZSpacing.xxs) {
                                     Text("Smart Sign in progress").font(.headline)
                                     Text("Running integrity → profile → discovery → extraction → sealing → signing → packaging → verification").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                                    HStack(spacing: ZSpacing.xs) { ZStatusBadge("Signing", systemImage: "hammer.fill", kind: .info); ZStatusBadge("9 stages", systemImage: "list.number", kind: .neutral); if emitDEREntitlements { ZStatusBadge("DER 0x20400", systemImage: "cpu", kind: .info) } }
+                                    HStack(spacing: ZSpacing.xs) { ZStatusBadge("Signing", systemImage: "hammer.fill", kind: .info); ZStatusBadge("9 stages", systemImage: "list.number", kind: .neutral); if studio.emitDEREntitlements { ZStatusBadge("DER 0x20400", systemImage: "cpu", kind: .info) } }
                                     if liveActivity.isActive { ZStatusBadge("Live Activity", systemImage: "livephoto", kind: .success) }
                                 }
                                 Spacer()
@@ -202,7 +219,7 @@ struct SigningView: View {
                                     Text(result.status == .signed ? "Completed" : "Refused at \(result.failure?.stage.rawValue ?? "—")").font(.headline).foregroundStyle(result.status == .signed ? .green : .red)
                                     Text(result.status == .signed ? "Signed container verified and ready in Documents/Signed." : result.failure?.detail ?? "No container delivered — working copy discarded.").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                                     HStack(spacing: ZSpacing.xs) {
-                                        if result.status == .signed { ZStatusBadge("Signed", systemImage: "checkmark.seal.fill", kind: .success); if let c = result.stages?.discovery.nestedItemCount { ZStatusBadge("\(c) nested", systemImage: "internaldrive", kind: .neutral) }; if emitDEREntitlements { ZStatusBadge("DER", systemImage: "doc.text.image", kind: .info) } }
+                                        if result.status == .signed { ZStatusBadge("Signed", systemImage: "checkmark.seal.fill", kind: .success); if let c = result.stages?.discovery.nestedItemCount { ZStatusBadge("\(c) nested", systemImage: "internaldrive", kind: .neutral) }; if studio.emitDEREntitlements { ZStatusBadge("DER", systemImage: "doc.text.image", kind: .info) } }
                                         else { ZStatusBadge("Refused", systemImage: "xmark.shield.fill", kind: .error); if let cat = result.failure?.category { ZStatusBadge(String(describing: cat), kind: .neutral) } }
                                     }
                                 }
@@ -218,8 +235,11 @@ struct SigningView: View {
     }
 
     private var whyDisabled: String {
-        if selectedIdentityID == nil { return "Select a signing identity." }
-        if profileData == nil { return "Choose a provisioning profile." }
+        if studio.selectedIdentityID == nil { return "Select a signing identity." }
+        if studio.profileData == nil { return "Choose a provisioning profile." }
+        if studio.isParsingProfile || (ReleaseTrain.isAvailable(.entitlementsStudio) && studio.analysis == nil) { return "Waiting for entitlement analysis." }
+        if ReleaseTrain.isAvailable(.entitlementsStudio) && studio.signingBlocked { return "Resolve the blocking mismatches in Entitlements Studio before signing." }
+        if studio.signingEntitlements == nil { return "The profile has no supported signing entitlement dictionary. Choose another profile." }
         if isSigning { return "A signing run is already in progress." }
         return "Resolve the requirements above to sign."
     }
@@ -267,9 +287,9 @@ struct SigningView: View {
         isLoadingIdentities = true
         defer { isLoadingIdentities = false }
         do {
-            identities = try env.identityStore.listIdentities()
+            studio.identities = try env.identityStore.listIdentities()
             identitiesError = nil
-            if selectedIdentityID == nil, let first = identities.first(where: { $0.isUsableForSigning }) ?? identities.first { selectedIdentityID = first.id }
+            if studio.selectedIdentityID == nil, let first = studio.identities.first(where: { $0.isUsableForSigning }) ?? studio.identities.first { studio.selectedIdentityID = first.id }
         } catch let e as ZynSignError { identitiesError = e.userMessage } catch { identitiesError = "Secure identity storage could not be accessed." }
     }
 
@@ -277,12 +297,8 @@ struct SigningView: View {
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
-            let accessing = url.startAccessingSecurityScopedResource()
-            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
-            let ext = url.pathExtension.lowercased()
-            guard ext == "mobileprovision" || ext == "provisionprofile" else { profileError = "The selected file is not a provisioning profile. Choose a .mobileprovision file."; return }
-            guard let data = try? Data(contentsOf: url), !data.isEmpty, data.count <= 10 * 1024 * 1024 else { profileError = "The profile could not be read or is too large."; return }
-            profileData = data; profileFileName = url.lastPathComponent; profileError = nil
+            studio.selectProfileFile(url)
+            profileError = nil
         case .failure(let error):
             let ns = error as NSError
             if ns.domain == NSCocoaErrorDomain && ns.code == NSUserCancelledError { return }
@@ -291,18 +307,21 @@ struct SigningView: View {
     }
 
     private func sign() async {
-        guard let identityID = selectedIdentityID, let profile = profileData else { signingError = "Select an identity and a provisioning profile."; return }
+        guard studioReadyForSigning, !studio.isParsingProfile else {
+            signingError = "Review Entitlements Studio before signing. Detected blocking mismatches must be resolved."
+            return
+        }
+        guard let identityID = studio.selectedIdentityID, let profile = studio.profileData else { signingError = "Select an identity and a provisioning profile."; return }
         guard entry.isArtifactAvailable else { signingError = "The package file is not available."; return }
         let sourceURL = env.artifactFileURL(for: entry.record.artifact.artifactID)
         guard FileManager.default.fileExists(atPath: sourceURL.path) else { signingError = "The package file could not be found in ZynSign's storage."; return }
         isSigning = true; signingResult = nil; signingError = nil; outputURL = nil
         await liveActivity.start(stage: "Signing", detail: "Integrity → Profile → Discovery…")
-        let entitlements: CodeSigningEntitlements
-        if let derived = derivedEntitlements { entitlements = derived }
-        else if let data = profileData, let fallback = try? Self.entitlements(fromProvisioningProfile: data) { entitlements = fallback }
-        else {
-            do { entitlements = try CodeSigningEntitlements(values: [:]) }
-            catch { signingError = "The entitlement set could not be created."; isSigning = false; await liveActivity.end(success: false); return }
+        guard let entitlements = studio.signingEntitlements else {
+            signingError = "The profile has no supported signing entitlement dictionary. No empty set was substituted."
+            isSigning = false
+            await liveActivity.end(success: false)
+            return
         }
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
         let signedDir = docs.appendingPathComponent("Signed", isDirectory: true)
@@ -311,7 +330,7 @@ struct SigningView: View {
         let output = signedDir.appendingPathComponent("\(base)_signed.ipa")
         try? FileManager.default.removeItem(at: output)
         var options = SignApplicationOptions()
-        if emitDEREntitlements { options = SignApplicationOptions(emitDEREntitlements: true) }
+        if studio.emitDEREntitlements { options = SignApplicationOptions(emitDEREntitlements: true) }
         let request = SignApplicationRequest(sourceURL: sourceURL, profile: profile, identityID: identityID, entitlements: entitlements, outputURL: output, options: options)
         do {
             await liveActivity.update(progress: 0.2, detail: "Discovery → Extraction…")
@@ -346,22 +365,6 @@ private struct ShareSheet: UIViewControllerRepresentable {
 }
 
 extension SigningView {
-    fileprivate static func entitlements(fromProvisioningProfile data: Data) throws -> CodeSigningEntitlements {
-        let payload: Data
-        if let cms = try? CMSStructureReader.read(data), let content = cms.encapsulatedContent { payload = content }
-        else if let r = data.range(of: Data("<?xml".utf8)) { payload = data.subdata(in: r.lowerBound..<data.endIndex) }
-        else if let r = data.range(of: Data("bplist00".utf8)) { payload = data.subdata(in: r.lowerBound..<data.endIndex) }
-        else { payload = data }
-        let parser = PropertyListProvisioningProfileParser()
-        do {
-            let profile = try parser.parse(ProvisioningProfilePayload(plistData: payload))
-            if let ent = profile.entitlements { return try CodeSigningEntitlements(profileEntitlements: ent) }
-            return try CodeSigningEntitlements(values: [:])
-        } catch {
-            if let direct = try? EntitlementsPlistParser.parse(payload) { return direct }
-            throw error
-        }
-    }
     fileprivate static func entitlementValueSummary(_ value: ProvisioningProfileValue?) -> String {
         guard let value else { return "—" }
         switch value {

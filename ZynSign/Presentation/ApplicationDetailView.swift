@@ -17,9 +17,11 @@ import SwiftUI
 /// explorer, which lists the bundle's contents read-only. The offer follows
 /// the entry's availability as the library derived it; the screen does not
 /// re-examine storage to decide whether to show it.
+@MainActor
 struct ApplicationDetailView: View {
 
     let entry: LibraryEntry
+    @StateObject private var studio = EntitlementsStudioModel()
     private let bundleInspection: IPABundleContentsInspection
 
     /// Creates the screen for `entry`, with the inspection use case the
@@ -53,7 +55,7 @@ struct ApplicationDetailView: View {
                     }
                     .accessibilityHint("Lists the files and folders inside the application bundle.")
                     if ReleaseTrain.isAvailable(.smartSign) {
-                        NavigationLink { SigningView(entry: entry) } label: {
+                        NavigationLink { SigningView(entry: entry, studio: studio) } label: {
                             Label("Sign Application…", systemImage: "signature")
                         }
                         .accessibilityHint("Sign this imported package with a certificate and provisioning profile.")
@@ -72,6 +74,19 @@ struct ApplicationDetailView: View {
                     Text(ReleaseTrain.isAvailable(.smartSign)
                          ? "Exploring lists the files and folders inside the application bundle. It reads the package's own records of them and does not open, run, or change any file. Signing runs the nine-stage pipeline end to end and delivers a signed IPA to Documents/Signed."
                          : "Exploring lists the files and folders inside the application bundle. It reads the package's own records of them and does not open, run, or change any file.")
+                }
+            }
+            if ReleaseTrain.isAvailable(.entitlementsStudio) {
+                Section("Entitlements") {
+                    NavigationLink {
+                        EntitlementsStudioView(entry: entry, studio: studio)
+                    } label: {
+                        Label("Entitlements Studio", systemImage: "checklist")
+                    }
+                    .disabled(!content.canExploreBundle)
+                    .accessibilityHint("Inspect app claims and compare a selected provisioning profile, read only.")
+                    Text("Understand requested capabilities before signing. Inspection does not edit entitlements or predict platform acceptance.")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
             }
             Section("Library Record") {

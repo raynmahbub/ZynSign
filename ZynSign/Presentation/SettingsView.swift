@@ -474,6 +474,12 @@ private struct DiagnosticsView: View {
             Section("Diagnostics") {
                 Text("ZynSign redacts diagnostics: no key material, profile bodies, file paths, or device identifiers in user-facing messages. Full `debugDescription` is written only where the security rules permit.").font(.footnote).foregroundStyle(.secondary)
             }
+            if ReleaseTrain.isAvailable(.entitlementsStudio) {
+                Section("App Compatibility") {
+                    Text("For actionable entitlement findings, open Library → App Details → Entitlements Studio → Smart Diagnostics. Those findings update with the selected certificate, profile and signing configuration; they are not persisted in logs.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
             Section("Build") {
                 LabeledContent("Marketing version", value: env.applicationInfo.marketingVersion)
                 LabeledContent("Build version", value: env.applicationInfo.buildVersion)
