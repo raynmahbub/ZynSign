@@ -895,7 +895,21 @@ enum CompositionRoot {
                 directory: libraryArtifactDirectory,
                 fileExtension: intake.fileExtension,
                 limits: limits
-            )
+            ),
+            entitlementReaderProvider: DirectoryArtifactArchiveReaderProvider(
+                directory: libraryArtifactDirectory,
+                fileExtension: intake.fileExtension,
+                limits: ArchiveLimits(
+                    maximumEntryCount: limits.maximumEntryCount,
+                    maximumEntryNameLength: limits.maximumEntryNameLength,
+                    maximumPathDepth: limits.maximumPathDepth,
+                    maximumEntryBytes: limits.maximumEntryBytes,
+                    maximumTotalUncompressedBytes: limits.maximumTotalUncompressedBytes,
+                    maximumCompressionRatio: limits.maximumCompressionRatio,
+                    maximumInspectionReadBytes: EntitlementsStudioInspection.maximumExecutableBytes
+                )
+            ),
+            machOParser: ReadOnlyMachOParser()
         )
     }
 

@@ -196,7 +196,10 @@ enum ProvisioningEntitlementComparator {
         authorized: [ProvisioningProfileValue]
     ) -> ProvisioningEntitlementComparisonOutcome {
         if requested == authorized { return .claimMatchesAuthorization }
-        for element in requested where !authorized.contains(element) {
+        // Membership must remain linear for large Studio allowlists. This
+        // preserves the existing ordering/multiplicity uncertainty below.
+        let authorizedElements = Set(authorized)
+        for element in requested where !authorizedElements.contains(element) {
             return .claimValueConflicts
         }
         return .cannotBeEvaluated

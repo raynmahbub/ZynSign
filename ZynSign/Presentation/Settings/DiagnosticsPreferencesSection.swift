@@ -30,6 +30,7 @@ struct DiagnosticsPreferencesSection: View {
     var body: some View {
         List {
             analysisSection
+            appCompatibilitySection
             loggingSection
             developerSection
             logSection
@@ -64,6 +65,18 @@ struct DiagnosticsPreferencesSection: View {
             Text("History")
         } footer: {
             Text("With history off, nothing new is recorded and what is already there is left alone — a cleared log stays cleared. Whether the signing screen assesses a configuration before you sign is a Signing preference, because that is the screen it acts on.")
+        }
+    }
+
+    // MARK: - Compatibility
+
+    @ViewBuilder
+    private var appCompatibilitySection: some View {
+        if ReleaseTrain.isAvailable(.entitlementsStudio) {
+            Section("App Compatibility") {
+                Text("For actionable entitlement findings, open Library → App Details → Entitlements Studio → Smart Diagnostics. Those findings update with the selected certificate, profile and signing configuration; they are not persisted in logs.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
         }
     }
 

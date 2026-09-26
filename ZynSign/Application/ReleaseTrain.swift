@@ -17,6 +17,8 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
     /// The nine-stage signing pipeline: `Sign Application…`, Signing Options,
     /// the Library “Signed” segment, Settings → Installation.
     case smartSign
+    /// Alpha 3: read-only app entitlements and profile compatibility workspace.
+    case entitlementsStudio
     /// The App Store tab: AltSource feeds and repository health.
     case appStore
     /// The Downloads tab: background downloads with pause / resume / retry.
@@ -62,6 +64,7 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         switch self {
         case .certificateStudio: return []
         case .smartSign: return [.certificateStudio]
+        case .entitlementsStudio: return [.smartSign]
         case .appStore: return [.downloads]      // “Get” hands off to Downloads
         case .downloads: return []
         case .missionControl: return [.appStore] // refreshes sources
@@ -81,6 +84,7 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         switch self {
         case .certificateStudio: return "Certificate Studio"
         case .smartSign: return "Smart Sign"
+        case .entitlementsStudio: return "Entitlements Studio"
         case .appStore: return "App Store & Repository Health"
         case .downloads: return "Background Downloads"
         case .missionControl: return "Mission Control"
@@ -151,7 +155,7 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
         case .horizon: return []
         case .alpha1: return [.certificateStudio, .libraryPowerFeatures]
         case .alpha2: return [.smartSign, .provisioningProfileManager, .signingQueue, .signingPresets]
-        case .alpha3: return [.appStore, .downloads]
+        case .alpha3: return [.appStore, .downloads, .entitlementsStudio]
         case .beta1: return [.missionControl, .deliveryHandoff, .activityJournal]
         case .beta2: return []
         case .beta3: return [.batchSigning]

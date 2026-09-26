@@ -6,9 +6,11 @@ import SwiftUI
 /// archive structure, component summaries, and diagnostics are presented as
 /// expandable cards so the screen remains responsive on large packages. No
 /// control edits the IPA or any value declared by its Info.plist.
+@MainActor
 struct ApplicationDetailView: View {
 
     let entry: LibraryEntry
+    @StateObject private var studio = EntitlementsStudioModel()
     private let bundleInspection: IPABundleContentsInspection
     private let detailsInspection: IPAApplicationDetailsInspection
 
@@ -90,6 +92,31 @@ struct ApplicationDetailView: View {
         }
     }
 
+    @ViewBuilder
+    private var entitlementsStudioCard: some View {
+        if ReleaseTrain.isAvailable(.entitlementsStudio) {
+            DetailSectionCard(
+                title: "Entitlements Studio",
+                subtitle: "App requests & compatibility analysis",
+                symbol: "checklist",
+                isExpanded: .constant(true)
+            ) {
+                NavigationLink {
+                    EntitlementsStudioView(entry: entry, studio: studio)
+                } label: {
+                    Label("Open Entitlements Studio", systemImage: "arrow.up.right.square")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .disabled(!entry.isArtifactAvailable)
+                .accessibilityHint("Inspect app claims and compare a selected provisioning profile, read only.")
+                Text("Understand requested capabilities before signing. Inspection does not edit entitlements or predict platform acceptance.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
     private var recordContent: ApplicationDetailContent {
         ApplicationDetailContent(entry: entry)
     }
@@ -110,6 +137,7 @@ struct ApplicationDetailView: View {
                 quickActionsCard
                 RecommendedPresetCard(entry: entry)
                 profileSuggestionCard
+                entitlementsStudioCard
 
                 if model.isRefreshing, model.report != nil {
                     HStack(spacing: ZSpacing.xs) {
@@ -345,7 +373,7 @@ struct ApplicationDetailView: View {
 
                 if canSign {
                     NavigationLink {
-                        SigningView(entry: entry)
+                        SigningView(entry: entry, studio: studio)
                     } label: {
                         Label("Continue to Signing", systemImage: "arrow.right.circle.fill")
                             .font(.subheadline.weight(.semibold))
@@ -369,7 +397,7 @@ struct ApplicationDetailView: View {
                 SectionHeading(title: "Quick Actions", symbol: "bolt.fill")
                 LazyVGrid(columns: actionColumns, alignment: .center, spacing: ZSpacing.sm) {
                     NavigationLink {
-                        SigningView(entry: entry)
+                        SigningView(entry: entry, studio: studio)
                     } label: {
                         QuickActionTile(
                             title: "Sign App",
@@ -428,6 +456,22 @@ struct ApplicationDetailView: View {
                     .buttonStyle(.plain)
                     .disabled(!entry.isArtifactAvailable)
                     .accessibilityLabel("Export original IPA")
+
+                    if ReleaseTrain.isAvailable(.entitlementsStudio) {
+                        NavigationLink {
+                            EntitlementsStudioView(entry: entry, studio: studio)
+                        } label: {
+                            QuickActionTile(
+                                title: "Entitlements",
+                                subtitle: "Inspect claims & profile",
+                                symbol: "checklist",
+                                tint: .purple
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!entry.isArtifactAvailable)
+                        .accessibilityHint("Inspect app claims and compare a selected provisioning profile, read only.")
+                    }
 
                     NavigationLink {
                         BundleExplorerView(inspection: bundleInspection, entry: entry)

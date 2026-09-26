@@ -65,11 +65,15 @@ final class ReleaseTrainTests: XCTestCase {
         XCTAssertEqual(ReleaseStage.alpha3.features, [
             .certificateStudio, .libraryPowerFeatures,
             .smartSign, .provisioningProfileManager, .signingQueue, .signingPresets,
-            .appStore, .downloads,
+            .appStore, .downloads, .entitlementsStudio,
         ])
         XCTAssertEqual(
             ReleaseStage.alpha2.introducedFeatures,
             [.smartSign, .provisioningProfileManager, .signingQueue, .signingPresets]
+        )
+        XCTAssertEqual(
+            ReleaseStage.alpha3.introducedFeatures,
+            [.appStore, .downloads, .entitlementsStudio]
         )
         XCTAssertEqual(
             ReleaseStage.beta1.introducedFeatures,
@@ -94,6 +98,14 @@ final class ReleaseTrainTests: XCTestCase {
         XCTAssertFalse(ReleaseStage.alpha1.features.contains(.signingPresets))
         XCTAssertFalse(ReleaseStage.beta1.introducedFeatures.contains(.signingPresets))
         XCTAssertEqual(ReleaseFeature.signingPresets.displayName, "Intelligent Signing Presets")
+    }
+
+    func testEntitlementsStudioShipsAtAlphaThree() {
+        XCTAssertFalse(ReleaseGate(stage: .alpha2, exposesEverything: false).isAvailable(.entitlementsStudio))
+        XCTAssertTrue(ReleaseGate(stage: .alpha3, exposesEverything: false).isAvailable(.entitlementsStudio))
+        XCTAssertTrue(ReleaseGate(stage: .horizon, exposesEverything: true).isAvailable(.entitlementsStudio))
+        XCTAssertEqual(ReleaseFeature.entitlementsStudio.prerequisites, [.smartSign])
+        XCTAssertEqual(ReleaseFeature.entitlementsStudio.displayName, "Entitlements Studio")
     }
 
     func testFeatureCompleteFromTheFinalRelease() {

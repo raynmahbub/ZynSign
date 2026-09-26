@@ -15,8 +15,15 @@ import UIKit
 /// Every value rendered here is text the engine produced. Nothing on this
 /// screen is a trust, authorization, or installability claim about the result.
 /// Read-only Signing Health checks the selected inputs before the engine starts.
+@MainActor
 struct SigningView: View {
     let entry: LibraryEntry
+    @StateObject private var studio: EntitlementsStudioModel
+
+    init(entry: LibraryEntry, studio: EntitlementsStudioModel? = nil) {
+        self.entry = entry
+        _studio = StateObject(wrappedValue: studio ?? EntitlementsStudioModel())
+    }
     @Environment(\.applicationEnvironment) private var env
     @Environment(\.dismiss) private var dismiss
     @Environment(\.settingsCenter) private var settings
@@ -122,7 +129,12 @@ struct SigningView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("Sign \(entry.record.displayName ?? "Application")")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await loadIdentities() }
+        .task {
+            await loadIdentities()
+            if ReleaseTrain.isAvailable(.entitlementsStudio) {
+                await studio.load(entry: entry, inspection: env.bundleInspection)
+            }
+        }
         .task { await loadSavedProfiles() }
         .task(id: scanKey) {
             guard !scanKey.isLoading else { return }
@@ -383,6 +395,16 @@ struct SigningView: View {
 
     private var entitlementsSection: some View {
         Section {
+            if ReleaseTrain.isAvailable(.entitlementsStudio) {
+                NavigationLink {
+                    EntitlementsStudioView(entry: entry, studio: studio)
+                } label: {
+                    Label("Entitlements Studio", systemImage: "checklist")
+                }
+                .disabled(isSigning)
+                Text("Inspect embedded app claims and compare with profile declarations. The current signing pipeline derives its output claims from the profile; these are not the same source.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if profileData == nil {
                 LabeledContent("Entitlements", value: "Choose a profile first")
                 Text("Only claims from an authenticated profile will be prepared for signing.")

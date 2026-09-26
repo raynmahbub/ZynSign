@@ -37,12 +37,18 @@ struct IPABundleContentsInspection {
 
     private let library: ApplicationLibrary
     private let readerProvider: any ArtifactArchiveReaderProvider
+    private let entitlementReaderProvider: (any ArtifactArchiveReaderProvider)?
+    private let machOParser: (any MachOParsing)?
 
     /// Creates the use case over the library and the archive boundary the
     /// composition root selected.
-    init(library: ApplicationLibrary, readerProvider: any ArtifactArchiveReaderProvider) {
+    init(library: ApplicationLibrary, readerProvider: any ArtifactArchiveReaderProvider,
+         entitlementReaderProvider: (any ArtifactArchiveReaderProvider)? = nil,
+         machOParser: (any MachOParsing)? = nil) {
         self.library = library
         self.readerProvider = readerProvider
+        self.entitlementReaderProvider = entitlementReaderProvider
+        self.machOParser = machOParser
     }
 
     /// Describes the bundle of the application recorded under `id`.
@@ -99,6 +105,19 @@ struct IPABundleContentsInspection {
         } catch {
             throw Self.normalized(error)
         }
+    }
+
+    /// Bounded content inspection for Entitlements Studio. Unlike `inspect`,
+    /// this reads one executable; it retains only the decoded claim sets.
+    func inspectEntitlements(recordWithID id: ApplicationRecordIdentifier) async throws -> [EntitlementStudioTarget] {
+        try Task.checkCancellation()
+        guard let entry = try await library.entry(withID: id), entry.isArtifactAvailable else {
+            throw ZynSignError.bundleArtifactMissing(diagnosticDetail: "The Studio requires an available library artifact.")
+        }
+        guard let machOParser else { throw EntitlementsError.notRepresentable }
+        let reader = try (entitlementReaderProvider ?? readerProvider).archiveReader(for: entry.record.artifact.artifactID)
+        defer { reader.close() }
+        return try EntitlementsStudioInspection.inspect(reader: reader, executableName: entry.record.executableName, parser: machOParser)
     }
 
     /// Passes ZynSign's own errors and cancellation through unchanged and
