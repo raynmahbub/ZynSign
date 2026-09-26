@@ -6,14 +6,23 @@ import SwiftUI
 /// archive structure, component summaries, and diagnostics are presented as
 /// expandable cards so the screen remains responsive on large packages. No
 /// control edits the IPA or any value declared by its Info.plist.
+@MainActor
 struct ApplicationDetailView: View {
 
     let entry: LibraryEntry
+    @StateObject private var studio = EntitlementsStudioModel()
     private let bundleInspection: IPABundleContentsInspection
     private let detailsInspection: IPAApplicationDetailsInspection
 
     @Environment(\.applicationEnvironment) private var environment
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.signingQueuePresentation) private var signingQueuePresentation
+    @State private var queueConfiguration: SigningQueueConfigurationRequest?
+    @State private var health: SigningDiagnosticsAnalysis?
+    @State private var isAnalyzingHealth = true
+    @State private var healthError: String?
+    @State private var healthGeneration = 0
     @StateObject private var model: ApplicationDetailsModel
     @State private var isGeneralExpanded = true
     @State private var isBundleInfoExpanded = false
@@ -24,6 +33,13 @@ struct ApplicationDetailView: View {
     @State private var isLibraryRecordExpanded = false
     @State private var areDiagnosticsExpanded = true
     @State private var infoPlistMode: InfoPlistDisplayMode = .friendly
+
+    /// The profile-suggestion state for this app. Loading while the
+    /// library and the compatibility engine are consulted.
+    @State private var profilePhase: ProfileSuggestionPhase = .loading
+
+    /// Every profile in the library, kept for the "Change…" menu.
+    @State private var allProfiles: [ProvisioningProfileSummary] = []
 
     init(
         entry: LibraryEntry,
@@ -37,6 +53,68 @@ struct ApplicationDetailView: View {
             inspection: detailsInspection,
             recordID: entry.record.id
         ))
+    }
+
+    /// What the Provisioning Profile card currently shows.
+    private enum ProfileSuggestionPhase {
+        case loading
+        /// No compatibility use case in this composition.
+        case unavailable
+        /// The library holds no profiles yet.
+        case noProfiles
+        /// Profiles exist, but none suits this app.
+        case noneSuitable
+        /// A profile was chosen: automatically, from the pinned "Use for
+        /// Signing" profile, or by the user's manual override.
+        case resolved(Suggestion)
+        /// The user's manual override names a profile that is not eligible
+        /// for this app. Shown honestly, with its own report.
+        case overriddenIneligible(
+            profile: ProvisioningProfileSummary,
+            report: ProfileCompatibilityReport
+        )
+    }
+
+    /// The chosen profile plus everything the card needs to present it.
+    private struct Suggestion {
+        let match: ProfileMatch
+        let source: Source
+        /// Every eligible profile, best-first, for the change menu.
+        let ranked: [ProfileMatch]
+
+        enum Source: Equatable {
+            /// The highest-ranked eligible profile.
+            case automatic
+            /// The profile pinned by "Use for Signing", when it ranks.
+            case pinned
+            /// The user's manual override for this app.
+            case `override`
+        }
+    }
+
+    @ViewBuilder
+    private var entitlementsStudioCard: some View {
+        if ReleaseTrain.isAvailable(.entitlementsStudio) {
+            DetailSectionCard(
+                title: "Entitlements Studio",
+                subtitle: "App requests & compatibility analysis",
+                symbol: "checklist",
+                isExpanded: .constant(true)
+            ) {
+                NavigationLink {
+                    EntitlementsStudioView(entry: entry, studio: studio)
+                } label: {
+                    Label("Open Entitlements Studio", systemImage: "arrow.up.right.square")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .disabled(!entry.isArtifactAvailable)
+                .accessibilityHint("Inspect app claims and compare a selected provisioning profile, read only.")
+                Text("Understand requested capabilities before signing. Inspection does not edit entitlements or predict platform acceptance.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private var recordContent: ApplicationDetailContent {
@@ -54,8 +132,12 @@ struct ApplicationDetailView: View {
             LazyVStack(alignment: .leading, spacing: ZSpacing.md) {
                 hero
                 overviewCard
+                signingHealthCard
                 signingStatusCard
                 quickActionsCard
+                RecommendedPresetCard(entry: entry)
+                profileSuggestionCard
+                entitlementsStudioCard
 
                 if model.isRefreshing, model.report != nil {
                     HStack(spacing: ZSpacing.xs) {
@@ -106,7 +188,84 @@ struct ApplicationDetailView: View {
             }
         }
         .task { await model.load() }
-        .refreshable { await model.refresh() }
+        .task { await loadProfileSuggestion() }
+        .task(id: entry.record.id.rawValue) { await analyzeHealth() }
+        .task {
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(60)) } catch { break }
+                guard !Task.isCancelled else { break }
+                await analyzeHealth()
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await analyzeHealth(force: true) } }
+        }
+        .refreshable {
+            await model.refresh()
+            await analyzeHealth(force: true)
+            await loadProfileSuggestion()
+        }
+        .sheet(item: $queueConfiguration) { request in
+            SigningQueueConfigurationView(
+                entries: request.entries,
+                origin: request.origin,
+                onOpenQueue: { signingQueuePresentation.present() },
+                onDone: { queueConfiguration = nil }
+            )
+        }
+    }
+
+    /// Diagnostics and the richer app-detail inspection use separate read-only
+    /// boundaries; neither a structural detail verdict nor a saved profile
+    /// summary is promoted into a signing authorization.
+    private var signingHealthCard: some View {
+        VStack(alignment: .leading, spacing: ZSpacing.sm) {
+            SigningHealthCard(report: health?.report, isAnalyzing: isAnalyzingHealth, error: healthError)
+            if let health {
+                NavigationLink {
+                    SigningDiagnosticsView(report: health.report, history: health.history,
+                                           changes: health.changes,
+                                           historyUnavailable: health.historyUnavailable)
+                } label: {
+                    Label("Issues, recommendations & scan history", systemImage: "doc.text.magnifyingglass")
+                        .font(.subheadline)
+                }
+                .accessibilityHint("Opens the read-only local diagnostics inspector")
+            }
+            if healthError != nil {
+                Button("Retry signing health check") { Task { await analyzeHealth(force: true) } }
+            }
+            Text("No signing identity or profile is selected here. Open Sign App to check your actual configuration. A local score does not establish iOS acceptance.")
+                .font(.footnote).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @MainActor private func analyzeHealth(force: Bool = false) async {
+        healthGeneration += 1
+        let generation = healthGeneration
+        guard let diagnostics = environment.signingDiagnostics else {
+            isAnalyzingHealth = false
+            healthError = "Signing diagnostics are unavailable in this build."
+            return
+        }
+        isAnalyzingHealth = true
+        health = nil
+        healthError = nil
+        defer {
+            if generation == healthGeneration { isAnalyzingHealth = false }
+        }
+        do {
+            let result = try await diagnostics.analyze(recordWithID: entry.record.id, force: force)
+            guard !Task.isCancelled, generation == healthGeneration else { return }
+            health = result
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled, generation == healthGeneration else { return }
+            healthError = (error as? SigningDiagnosticsError)?.userMessage
+                ?? "The app could not be analyzed. Please try again."
+        }
     }
 
     // MARK: - Overview
@@ -226,7 +385,7 @@ struct ApplicationDetailView: View {
 
                 if canSign {
                     NavigationLink {
-                        SigningView(entry: entry)
+                        SigningView(entry: entry, studio: studio)
                     } label: {
                         Label("Continue to Signing", systemImage: "arrow.right.circle.fill")
                             .font(.subheadline.weight(.semibold))
@@ -250,7 +409,7 @@ struct ApplicationDetailView: View {
                 SectionHeading(title: "Quick Actions", symbol: "bolt.fill")
                 LazyVGrid(columns: actionColumns, alignment: .center, spacing: ZSpacing.sm) {
                     NavigationLink {
-                        SigningView(entry: entry)
+                        SigningView(entry: entry, studio: studio)
                     } label: {
                         QuickActionTile(
                             title: "Sign App",
@@ -262,6 +421,29 @@ struct ApplicationDetailView: View {
                     .buttonStyle(.plain)
                     .disabled(!canSign)
                     .accessibilityHint(signingUnavailableMessage)
+
+                    if signingQueuePresentation.isAvailable {
+                        Button {
+                            ZHaptics.tap()
+                            queueConfiguration = SigningQueueConfigurationRequest(
+                                entry: entry,
+                                origin: .applicationDetails
+                            )
+                        } label: {
+                            QuickActionTile(
+                                title: "Add to Queue",
+                                subtitle: canSign ? "Sign in the background" : signActionSubtitle,
+                                symbol: "tray.and.arrow.down",
+                                tint: .purple
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!canSign)
+                        .accessibilityLabel("Add to Signing Queue")
+                        .accessibilityHint(canSign
+                            ? "Queues this application to be signed in the background while you keep using ZynSign."
+                            : signingUnavailableMessage)
+                    }
 
                     Button {} label: {
                         QuickActionTile(
@@ -287,6 +469,22 @@ struct ApplicationDetailView: View {
                     .disabled(!entry.isArtifactAvailable)
                     .accessibilityLabel("Export original IPA")
 
+                    if ReleaseTrain.isAvailable(.entitlementsStudio) {
+                        NavigationLink {
+                            EntitlementsStudioView(entry: entry, studio: studio)
+                        } label: {
+                            QuickActionTile(
+                                title: "Entitlements",
+                                subtitle: "Inspect claims & profile",
+                                symbol: "checklist",
+                                tint: .purple
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!entry.isArtifactAvailable)
+                        .accessibilityHint("Inspect app claims and compare a selected provisioning profile, read only.")
+                    }
+
                     NavigationLink {
                         BundleExplorerView(inspection: bundleInspection, entry: entry)
                     } label: {
@@ -299,7 +497,7 @@ struct ApplicationDetailView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(!entry.isArtifactAvailable)
-                    .accessibilityHint("Shows the bundle's recorded files and folders without opening or changing them.")
+                    .accessibilityHint("Opens the read-only IPA explorer. Previews read a chosen file without changing it.")
 
                     if let binaryInspection = environment.binaryInspection {
                         NavigationLink {
@@ -412,6 +610,256 @@ struct ApplicationDetailView: View {
             return "An ARM device slice is present. Certificate, profile, and device compatibility are not evaluated yet."
         }
         return "Not evaluated — choose a certificate and profile in the signing workflow."
+    }
+
+    // MARK: - Provisioning profile suggestion
+
+    /// The "Provisioning Profile" card. It stays expanded so the suggestion
+    /// is visible the moment the app opens, in whatever phase it is in.
+    private var profileSuggestionCard: some View {
+        ZCard {
+            VStack(alignment: .leading, spacing: ZSpacing.md) {
+                SectionHeading(title: "Provisioning Profile", symbol: "shippingbox")
+                profileSuggestionContent
+                Text("Suggestions rank saved display summaries by bundle ID, team, certificates, and declared dates. They do not authenticate the stored file or grant signing authority; Sign App verifies the original bytes before a run. You can pick a different profile for this app.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var profileSuggestionContent: some View {
+        switch profilePhase {
+        case .loading:
+            HStack(spacing: ZSpacing.xs) {
+                ProgressView()
+                Text("Finding the best profile…")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        case .unavailable:
+            Label(
+                "Profile suggestions are not part of this build's composition.",
+                systemImage: "questionmark.circle"
+            )
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+        case .noProfiles:
+            Label(
+                "No profiles yet. Import a .mobileprovision file in the Profiles tab, then return here for a suggestion.",
+                systemImage: "person.text.rectangle"
+            )
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+        case .noneSuitable:
+            VStack(alignment: .leading, spacing: ZSpacing.xs) {
+                ZStatusBadge(
+                    ProfileDiagnosticSeverity.error.displayName,
+                    systemImage: ProfileDiagnosticSeverity.error.systemImage,
+                    kind: .error
+                )
+                Text("Profile not suitable for this app")
+                    .font(.subheadline.weight(.semibold))
+                Text("None of your imported profiles covers \(entry.record.bundleIdentifier.rawValue). Import a profile whose App ID matches this app, then reopen its details.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.vertical, 2)
+            .accessibilityElement(children: .combine)
+        case .overriddenIneligible(let profile, let report):
+            overriddenContent(profile: profile, report: report)
+        case .resolved(let suggestion):
+            resolvedContent(suggestion)
+        }
+    }
+
+    private func resolvedContent(_ suggestion: Suggestion) -> some View {
+        let profile = suggestion.match.profile
+        return VStack(alignment: .leading, spacing: ZSpacing.sm) {
+            HStack(spacing: ZSpacing.xs) {
+                Text(sourceLabel(for: suggestion.source))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                if environment.profileSelections != nil {
+                    Menu {
+                        ForEach(allProfiles, id: \.id) { candidate in
+                            Button {
+                                Task { await chooseProfile(candidate) }
+                            } label: {
+                                if candidate.id == profile.id {
+                                    Label(candidate.name, systemImage: "checkmark")
+                                } else {
+                                    Text(candidate.name)
+                                }
+                            }
+                        }
+                        if suggestion.source == .override {
+                            Button {
+                                Task { await useBestMatch() }
+                            } label: {
+                                Label("Use Best Match", systemImage: "wand.and.stars")
+                            }
+                        }
+                    } label: {
+                        Label("Change…", systemImage: "ellipsis.circle")
+                    }
+                    .accessibilityHint("Manually pick a different profile for this app.")
+                }
+            }
+            Text(profile.name)
+                .font(.body.weight(.medium))
+                .lineLimit(1)
+            HStack(spacing: ZSpacing.xs) {
+                ProfileTypeBadge(type: profile.resolvedProfileType)
+                ProfileExpirationBadge(profile.expirationAssessment())
+                ProfileCompatibilityBadge(outcome: suggestion.match.report.overall)
+            }
+            if !suggestion.match.reasons.isEmpty {
+                Text(suggestion.match.reasons.joined(separator: " · "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            ProfileCompatibilitySummaryView(report: suggestion.match.report)
+            NavigationLink {
+                ProfileDetailView(summary: profile) {
+                    Task { await loadProfileSuggestion() }
+                }
+            } label: {
+                Label("View Profile Details", systemImage: "info.circle")
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Provisioning profile suggestion")
+    }
+
+    private func overriddenContent(
+        profile: ProvisioningProfileSummary,
+        report: ProfileCompatibilityReport
+    ) -> some View {
+        VStack(alignment: .leading, spacing: ZSpacing.sm) {
+            HStack(spacing: ZSpacing.xs) {
+                Text("Your choice")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                if environment.profileSelections != nil {
+                    Button {
+                        Task { await useBestMatch() }
+                    } label: {
+                        Label("Use Best Match", systemImage: "wand.and.stars")
+                    }
+                    .font(.caption)
+                }
+            }
+            Text(profile.name)
+                .font(.body.weight(.medium))
+                .lineLimit(1)
+            HStack(spacing: ZSpacing.xs) {
+                ZStatusBadge(
+                    "Not suitable for this app",
+                    systemImage: "exclamationmark.triangle.fill",
+                    kind: .warning
+                )
+                ProfileExpirationBadge(profile.expirationAssessment())
+            }
+            ProfileCompatibilitySummaryView(report: report)
+            NavigationLink {
+                ProfileDetailView(summary: profile) {
+                    Task { await loadProfileSuggestion() }
+                }
+            } label: {
+                Label("View Profile Details", systemImage: "info.circle")
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func sourceLabel(for source: Suggestion.Source) -> String {
+        switch source {
+        case .automatic: return "Suggested for this app"
+        case .pinned: return "Your pinned profile"
+        case .override: return "Your choice for this app"
+        }
+    }
+
+    /// Re-reads the library and recomputes the suggestion for this app:
+    /// manual override first, then the pinned "Use for Signing" profile
+    /// when it ranks, then the best match.
+    private func loadProfileSuggestion() async {
+        guard let compatibility = environment.profileCompatibility else {
+            profilePhase = .unavailable
+            return
+        }
+        let profiles: [ProvisioningProfileSummary]
+        if let library = environment.provisioningProfiles {
+            do {
+                profiles = try await library.allProfiles()
+            } catch {
+                profiles = []
+            }
+        } else {
+            profiles = []
+        }
+        allProfiles = profiles
+        guard !profiles.isEmpty else {
+            profilePhase = .noProfiles
+            return
+        }
+
+        let bundle = entry.record.bundleIdentifier.rawValue
+        let ranked = compatibility.rank(profiles: profiles, targetBundleIdentifier: bundle)
+
+        // The user's manual override wins, even when it is ineligible —
+        // but an ineligible override is shown with its honest report and
+        // an obvious way back to the best match.
+        if let overrideID = environment.profileSelections?.selection(forApplication: entry.record.id),
+           let overridden = profiles.first(where: { $0.id == overrideID }) {
+            if let match = ranked.first(where: { $0.profile.id == overrideID }) {
+                profilePhase = .resolved(Suggestion(match: match, source: .override, ranked: ranked))
+            } else {
+                profilePhase = .overriddenIneligible(
+                    profile: overridden,
+                    report: compatibility.evaluate(profile: overridden, targetBundleIdentifier: bundle)
+                )
+            }
+            return
+        }
+
+        if let preferredID = environment.profileSelections?.preferredProfileID(),
+           let pinned = ranked.first(where: { $0.profile.id == preferredID }) {
+            profilePhase = .resolved(Suggestion(match: pinned, source: .pinned, ranked: ranked))
+            return
+        }
+
+        if let best = ranked.first {
+            profilePhase = .resolved(Suggestion(match: best, source: .automatic, ranked: ranked))
+            return
+        }
+
+        profilePhase = .noneSuitable
+    }
+
+    /// Remembers the user's manual override for this app.
+    private func chooseProfile(_ profile: ProvisioningProfileSummary) async {
+        environment.profileSelections?.setSelection(
+            profile.id,
+            forApplication: entry.record.id
+        )
+        ZHaptics.tap()
+        await loadProfileSuggestion()
+    }
+
+    /// Clears the override so the automatic ranking decides again.
+    private func useBestMatch() async {
+        environment.profileSelections?.setSelection(nil, forApplication: entry.record.id)
+        ZHaptics.tap()
+        await loadProfileSuggestion()
     }
 
     // MARK: - Metadata sections

@@ -1,27 +1,26 @@
 import SwiftUI
 
-/// The bundle explorer: a read-only browser of the files and folders inside
-/// a library application's bundle.
+/// The IPA explorer: a read-only browser of a library application's package.
 ///
 /// The screen is reached from the application detail screen when the
 /// record's package is available. It reads the bundle's structure once,
-/// through the inspection use case, and then browses the resulting value:
-/// every folder the user descends into is answered from memory, and no
-/// screen in the explorer reads the package again. The phases mirror the
-/// library screen — loading, loaded, empty, failed — so an empty bundle is
-/// never shown while the package is still being read and a failure is
-/// never silently dropped.
+/// through the inspection use case, and then browses that value. Opening a
+/// file asks the separate entry-preview use case for one bounded read. The
+/// phases mirror the library screen — loading, loaded, empty, failed — so an
+/// empty bundle is never shown while the package is still being read and a
+/// failure is never silently dropped.
 ///
-/// The explorer describes; it does not act. There is no control here that
-/// opens, previews, exports, verifies, signs, or changes anything, and the
-/// screen says so where a user might otherwise assume it.
+/// Nothing on this screen writes, extracts, signs, or runs the package.
 struct BundleExplorerView: View {
 
     @StateObject private var model: BundleExplorerModel
+    private let recordID: ApplicationRecordIdentifier
 
     /// Creates the explorer for `entry`, over the inspection use case the
-    /// composition root supplied.
+    /// composition root supplied. Previews use the entry-inspection use case
+    /// from the application environment.
     init(inspection: IPABundleContentsInspection, entry: LibraryEntry) {
+        recordID = entry.record.id
         _model = StateObject(
             wrappedValue: BundleExplorerModel(inspection: inspection, recordID: entry.record.id)
         )
@@ -42,7 +41,7 @@ struct BundleExplorerView: View {
         case .loading:
             BundleExplorerLoadingView()
         case .loaded(let contents):
-            BundleDirectoryView(contents: contents, directory: .root)
+            IPAExplorerScreen(contents: contents, recordID: recordID)
         case .empty:
             BundleExplorerEmptyView()
         case .failed(let message):
@@ -153,6 +152,13 @@ private enum PreviewFixtures {
             declaredExecutableName: "Example"
         )
     }()
+}
+
+#Preview("IPA Explorer") {
+    IPAExplorerScreen(
+        contents: PreviewFixtures.contents,
+        recordID: ApplicationRecordIdentifier()
+    )
 }
 
 #Preview("Bundle Root") {

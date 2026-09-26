@@ -18,30 +18,36 @@ struct ApplicationEnvironment {
     /// Facts about the running application, shown by the shell.
     let applicationInfo: ApplicationInfo
 
-    /// The package-import use case: one package, imported once. It is
-    /// composed once and handed to the import queue, which is the only path
-    /// the interface imports through; a caller that needs the capability
-    /// without scheduling — a test, or a future single-shot import — reaches
-    /// it here rather than constructing a second pipeline.
+    /// The one-shot package-import use case: one package, imported once,
+    /// asking about duplicates as it goes. The interface imports through
+    /// `importHub` instead; a caller that needs the single-shot capability —
+    /// a test, or a future automation — reaches it here rather than
+    /// constructing a second pipeline.
     let packageImport: IPAPackageImport
 
-    /// The import queue: the entry point every screen, share-sheet hand-off,
-    /// and drop lands on. It owns scheduling, per-job progress and
-    /// cancellation, retries, the duplicate question, and the batch summary,
-    /// and it runs imports through `packageImport`.
-    let packageImportQueue: PackageImportQueue
+    /// The Smart Import Hub: the single entry point every screen, share-sheet
+    /// hand-off, Open In request, and drop lands on. It owns the multi-item
+    /// queue, archive handling, analysis, the preview, the Duplicate
+    /// Resolution Center, the summary, the history, and interrupted-import
+    /// recovery.
+    let importHub: ImportHub
 
     /// The library use case: lists, admits, and removes the application
     /// records behind the Applications area.
     let library: ApplicationLibrary
 
     /// The bundle contents inspection use case: describes, read-only, the
-    /// structure of a library application's bundle for the explorer.
+    /// structure of a library application's bundle for the explorer. It reads
+    /// the entry table and no file bytes.
     let bundleInspection: IPABundleContentsInspection
 
     /// The comprehensive, bounded inspection use case for the App Details
     /// metadata, archive summary, nested-code summary, and diagnostics.
     let applicationDetailsInspection: IPAApplicationDetailsInspection
+
+    /// On-demand preview of one entry. Used only when the user opens a file,
+    /// framework, or extension. It never writes the package.
+    let bundleEntryInspection: IPABundleEntryInspection
 
     /// The signing-identity store. The certificate list and signing capability
     /// are resolved through this port; private-key bytes never leave Platform.
@@ -55,6 +61,13 @@ struct ApplicationEnvironment {
     /// user explicitly signs an imported package with a chosen identity and
     /// provisioning profile.
     let signingPipeline: SignApplicationPipeline
+
+    /// The signing engine: the coordinator that executes one complete signing
+    /// run — isolated working copy, pre-signing bundle validation, inner-first
+    /// nested signing, application signing, independent verification, and
+    /// packaging — behind one entry point and one progress stream. The
+    /// Signing screen drives this and nothing below it directly.
+    let signingEngine: SigningEngineCoordinator
 
     /// The local activity journal: on-device-only analytics the Settings
     /// → Analytics screen reads. Recording goes through
@@ -76,16 +89,106 @@ struct ApplicationEnvironment {
     /// `signingPresets`.
     let provisioningProfiles: ProvisioningProfileLibrary?
 
+    /// The Export Center: the signed artifacts ZynSign produced, each with the
+    /// current availability of the file behind it. It owns naming, recording,
+    /// verification results, and the removal of exported artifacts — and it
+    /// cannot reach the library's own artifacts, which is why deleting signed
+    /// output can never delete the application it came from.
+    let exportCenter: ExportCenter
+
+    /// The signing operation runner: the one path that signs an application
+    /// and delivers the result to the Export Center. It records the run's
+    /// timeline, its failure when it fails, and its artifact when it
+    /// succeeds, so the signing history is written by the operation that
+    /// happened rather than assembled by an interface.
+    let signingOperations: SigningOperationCenter
+
+    /// The signing queue: the job orchestration every queued signing runs
+    /// through. It owns scheduling, priorities, per-job progress,
+    /// cancellation, retries, notices, and persistence, and it runs each job
+    /// through `signingOperations` — so a queued job is isolated, exported,
+    /// verified, and journaled exactly like any other signing operation.
+    /// Screens enqueue through it and observe it; none of them owns a
+    /// signing task of its own once a job is queued.
+    let signingQueue: SigningQueue
+
+    /// The storage use case: what ZynSign is using, and the cleanups the
+    /// storage screen may run. It never removes an imported application.
+    let storageManagement: StorageManagement
+
     /// Imports `.mobileprovision` files into the provisioning-profile
     /// library. Presented by the Profiles tab; `nil` where the composition
     /// root supplies no profile storage, and treated as read-only after
     /// construction.
     var provisioningProfileImporter: ProvisioningProfileImporter? = nil
 
+    /// The Smart Compatibility Engine and Profile Matching use case: the
+    /// pre-sign checks, the Compatibility Summary, and the automatic
+    /// profile suggestion for an app. Optional so older composition paths
+    /// and tests can omit it; production paths supply it.
+    var profileCompatibility: ProfileCompatibilityUseCase? = nil
+
+    /// The profile-selection store behind "Use for Signing" and the
+    /// per-app manual override. Optional for the same reason.
+    var profileSelections: (any ProfileSelectionStore)? = nil
+
     /// Extracts application icons from the packages the library holds, for
     /// the Home and Library cards. `nil` where no reader provider is
     /// composed; treated as read-only after construction.
     var appIcons: AppIconExtraction? = nil
+
+    /// Recommendation, confirmation, and usage recording for signing presets.
+    /// `nil` in tests that do not install presets. Production composition
+    /// installs it. One-tap and bulk preset signing enqueue through
+    /// `signingQueue`; this workflow does not sign.
+    var signingPresetWorkflow: SigningPresetWorkflow? = nil
+
+    /// Shared read-only analyzer for import, per-app health and signing.
+    /// Profile/entitlement evidence stays in memory; only redacted issue
+    /// codes enter its bounded on-device journal.
+    var signingDiagnostics: SigningDiagnosticsService? = nil
+
+    /// The local-only annotation store behind the Certificates area.
+    var identityAnnotations: (any IdentityAnnotationsStore)? = nil
+
+    /// The user's preferences: one document, loaded once at launch and
+    /// written whole whenever a setting changes. The Settings Control Center
+    /// reads and writes through this port, and the shell reads it once to
+    /// decide where ZynSign stages its work.
+    let preferencesStore: any PreferencesStore
+
+    /// The boundary through which ZynSign asks the user to authenticate. The
+    /// platform implementation owns LocalAuthentication and nothing else
+    /// does; the application learns only whether an attempt succeeded.
+    let biometricAuthenticator: any BiometricAuthenticating
+
+    /// The library-organization use case: collections and usage. `nil`
+    /// where no organization storage is composed, in which case the library
+    /// offers no collections; treated as read-only after construction.
+    var libraryOrganizer: LibraryOrganizer? = nil
+
+    /// Reads the developer and team each library package declares, for
+    /// search and the Team filter. `nil` where no reader provider is
+    /// composed; treated as read-only after construction.
+    var applicationProvenance: ApplicationProvenanceExtraction? = nil
+
+    /// Prepares library package files for the share sheet under readable
+    /// names. `nil` where no export location is composed, in which case the
+    /// library offers no Export; treated as read-only after construction.
+    var libraryExport: LibraryExportPreparation? = nil
+
+    /// Receives files dropped onto ZynSign into a ZynSign-owned inbox, from
+    /// which they are handed to `importHub`. `nil` where drops are not
+    /// supported; treated as read-only after construction.
+    var droppedFiles: (any DroppedFileReceiving)? = nil
+
+    /// The local-notification boundary for settled signing jobs, held as
+    /// the port. Optional: `nil` means the queue posts in-app notices only.
+    /// The composition root installs the platform notifier, which is
+    /// observable; the Settings screen that binds the user's notification
+    /// preference reaches the concrete type through a presentation-side
+    /// cast.
+    var queueNotifier: (any SigningQueueNotifying)? = nil
 
     /// The Binary & Signature Inspector use case: inspects, read-only, every
     /// executable in a library application's bundle — Mach-O structure,

@@ -17,6 +17,8 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
     /// The nine-stage signing pipeline: `Sign Application…`, Signing Options,
     /// the Library “Signed” segment, Settings → Installation.
     case smartSign
+    /// Alpha 3: read-only app entitlements and profile compatibility workspace.
+    case entitlementsStudio
     /// The App Store tab: AltSource feeds and repository health.
     case appStore
     /// The Downloads tab: background downloads with pause / resume / retry.
@@ -36,8 +38,13 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
     /// expiration warnings, compatibility diagnostics.
     case provisioningProfileManager
 
-    /// Beta 1: Professional signing — signing presets, signing queue,
-    /// advanced signing options, verification summary.
+    /// Alpha 2: Professional Signing Queue — the job-based signing system:
+    /// queue dashboard, priorities, per-job controls, live stage progress,
+    /// failure recovery, persistence, and bulk queue operations.
+    case signingQueue
+
+    /// Alpha 2: Intelligent signing presets — library, builder, matching,
+    /// one-tap confirmation, and bulk planning into the signing queue.
     case signingPresets
 
     /// Beta 3: Productivity — batch signing and signing history.
@@ -57,6 +64,7 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         switch self {
         case .certificateStudio: return []
         case .smartSign: return [.certificateStudio]
+        case .entitlementsStudio: return [.smartSign]
         case .appStore: return [.downloads]      // “Get” hands off to Downloads
         case .downloads: return []
         case .missionControl: return [.appStore] // refreshes sources
@@ -64,6 +72,7 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .activityJournal: return []
         case .libraryPowerFeatures: return []
         case .provisioningProfileManager: return [.smartSign]
+        case .signingQueue: return [.smartSign]
         case .signingPresets: return [.smartSign, .certificateStudio]
         case .batchSigning: return [.signingPresets]
         case .signingHealthScore: return [.smartSign, .signingPresets]
@@ -75,6 +84,7 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         switch self {
         case .certificateStudio: return "Certificate Studio"
         case .smartSign: return "Smart Sign"
+        case .entitlementsStudio: return "Entitlements Studio"
         case .appStore: return "App Store & Repository Health"
         case .downloads: return "Background Downloads"
         case .missionControl: return "Mission Control"
@@ -82,7 +92,8 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .activityJournal: return "Local Activity Journal"
         case .libraryPowerFeatures: return "Library Power Features"
         case .provisioningProfileManager: return "Provisioning Profile Manager"
-        case .signingPresets: return "Signing Presets"
+        case .signingQueue: return "Professional Signing Queue"
+        case .signingPresets: return "Intelligent Signing Presets"
         case .batchSigning: return "Batch Signing"
         case .signingHealthScore: return "Signing Health Score"
         }
@@ -143,9 +154,9 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
         switch self {
         case .horizon: return []
         case .alpha1: return [.certificateStudio, .libraryPowerFeatures]
-        case .alpha2: return [.smartSign, .provisioningProfileManager]
-        case .alpha3: return [.appStore, .downloads]
-        case .beta1: return [.missionControl, .deliveryHandoff, .activityJournal, .signingPresets]
+        case .alpha2: return [.smartSign, .provisioningProfileManager, .signingQueue, .signingPresets]
+        case .alpha3: return [.appStore, .downloads, .entitlementsStudio]
+        case .beta1: return [.missionControl, .deliveryHandoff, .activityJournal]
         case .beta2: return []
         case .beta3: return [.batchSigning]
         case .beta4: return []

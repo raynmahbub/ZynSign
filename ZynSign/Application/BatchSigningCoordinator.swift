@@ -51,6 +51,9 @@ actor BatchSigningCoordinator {
         let presetID: PresetIdentifier?
         let entries: [LibraryEntry]
         let outputDirectory: URL
+        /// Options from the preset or the caller. Applied to every step so a
+        /// DER preference is not dropped when the output URL is rewritten.
+        let options: SignApplicationOptions
 
         init(
             identityID: SigningIdentityIdentifier,
@@ -58,7 +61,8 @@ actor BatchSigningCoordinator {
             profile: Data,
             presetID: PresetIdentifier? = nil,
             entries: [LibraryEntry],
-            outputDirectory: URL
+            outputDirectory: URL,
+            options: SignApplicationOptions = SignApplicationOptions()
         ) {
             self.identityID = identityID
             self.certificateFingerprint = certificateFingerprint
@@ -66,6 +70,7 @@ actor BatchSigningCoordinator {
             self.presetID = presetID
             self.entries = entries
             self.outputDirectory = outputDirectory
+            self.options = options
         }
     }
 
@@ -79,6 +84,9 @@ actor BatchSigningCoordinator {
         let outputFileName: String?
         let outputByteCount: Int?
         let duration: TimeInterval
+        /// A user-presentable failure, when the step failed. Nil on success
+        /// and cancellation. Distinct from `errorCode`, which is diagnostic.
+        let userMessage: String?
     }
 
     /// The aggregate result of a batch run: each step plus the total
@@ -119,7 +127,8 @@ actor BatchSigningCoordinator {
                     entry: entry,
                     identityID: request.identityID,
                     profile: request.profile,
-                    outputDirectory: request.outputDirectory
+                    outputDirectory: request.outputDirectory,
+                    optionsOverride: request.options
                 )
                 let duration = Date().timeIntervalSince(startMonotonic)
                 let byteCount: Int?
@@ -138,7 +147,8 @@ actor BatchSigningCoordinator {
                     outputFileName: url.lastPathComponent,
                     outputByteCount: byteCount,
                     startedAt: startedAt,
-                    duration: duration
+                    duration: duration,
+                    sourceRecordIdentifier: entry.record.id.rawValue
                 )
                 try? await history.append(record)
                 step = StepResult(
@@ -148,7 +158,8 @@ actor BatchSigningCoordinator {
                     errorCode: nil,
                     outputFileName: url.lastPathComponent,
                     outputByteCount: record.outputByteCount,
-                    duration: duration
+                    duration: duration,
+                    userMessage: nil
                 )
             } catch is CancellationError {
                 let duration = Date().timeIntervalSince(startMonotonic)
@@ -162,7 +173,8 @@ actor BatchSigningCoordinator {
                     outputFileName: nil,
                     outputByteCount: nil,
                     startedAt: startedAt,
-                    duration: duration
+                    duration: duration,
+                    sourceRecordIdentifier: entry.record.id.rawValue
                 )
                 try? await history.append(record)
                 step = StepResult(
@@ -172,13 +184,15 @@ actor BatchSigningCoordinator {
                     errorCode: nil,
                     outputFileName: nil,
                     outputByteCount: nil,
-                    duration: duration
+                    duration: duration,
+                    userMessage: nil
                 )
             } catch {
                 let duration = Date().timeIntervalSince(startMonotonic)
                 let zynsignError = error as? ZynSignError
                 let stage: String? = zynsignError?.diagnosticDetail
                 let code: String? = zynsignError.map { String(describing: $0) }
+                let userMessage = zynsignError?.userMessage ?? "Signing failed."
                 let record = SigningRecord(
                     presetID: request.presetID,
                     certificateFingerprint: request.certificateFingerprint,
@@ -189,7 +203,8 @@ actor BatchSigningCoordinator {
                     outputFileName: nil,
                     outputByteCount: nil,
                     startedAt: startedAt,
-                    duration: duration
+                    duration: duration,
+                    sourceRecordIdentifier: entry.record.id.rawValue
                 )
                 try? await history.append(record)
                 step = StepResult(
@@ -199,7 +214,8 @@ actor BatchSigningCoordinator {
                     errorCode: code,
                     outputFileName: nil,
                     outputByteCount: nil,
-                    duration: duration
+                    duration: duration,
+                    userMessage: userMessage
                 )
             }
             results.append(step)
@@ -213,13 +229,120 @@ actor BatchSigningCoordinator {
         entry: LibraryEntry,
         identityID: SigningIdentityIdentifier,
         profile: Data,
-        outputDirectory: URL
+        outputDirectory: URL,
+        optionsOverride: SignApplicationOptions
     ) async throws -> URL {
         let safeName = Self.safeOutputName(for: entry)
         let outputURL = outputDirectory.appendingPathComponent(safeName)
-        let request = try requestFactory(entry, identityID, profile).with(outputURL: outputURL)
+        let request = try requestFactory(entry, identityID, profile)
+            .with(outputURL: outputURL, options: optionsOverride)
         _ = try await pipeline.sign(request)
         return outputURL
+    }
+
+    /// Signs one already-built request and records it. The professional
+    /// signing queue uses this so a preset's options, entitlements, and
+    /// output location are the ones the queue prepared — not a second
+    /// factory that could drop them.
+    ///
+    /// Does not throw for a signing refusal. Cancellation and failure are
+    /// step outcomes, so the queue can continue with the next compatible
+    /// app. `CancellationError` is still reported as `.cancelled`.
+    func runOne(
+        entry: LibraryEntry,
+        request: SignApplicationRequest,
+        presetID: PresetIdentifier?,
+        certificateFingerprint: CertificateFingerprint?
+    ) async -> StepResult {
+        let startedAt = now()
+        let startMonotonic = Date()
+        do {
+            try Task.checkCancellation()
+            let signed = try await pipeline.sign(request)
+            guard signed.status == .signed else {
+                throw ZynSignError(
+                    category: .invalidInput,
+                    userMessage: signed.failure?.detail ?? "Signing was refused. Nothing was delivered.",
+                    diagnosticDetail: signed.failure.map { "Refused at \($0.stage.rawValue)." }
+                )
+            }
+            let duration = Date().timeIntervalSince(startMonotonic)
+            let byteCount = (try? request.outputURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+            let record = SigningRecord(
+                presetID: presetID,
+                certificateFingerprint: certificateFingerprint,
+                sourceBundleIdentifier: entry.record.bundleIdentifier.rawValue,
+                sourceDisplayName: entry.record.displayName,
+                stoppingStage: "verification",
+                errorCode: nil,
+                outputFileName: request.outputURL.lastPathComponent,
+                outputByteCount: byteCount,
+                startedAt: startedAt,
+                duration: duration
+            )
+            try? await history.append(record)
+            return StepResult(
+                entry: entry,
+                outcome: .succeeded,
+                stoppingStage: "verification",
+                errorCode: nil,
+                outputFileName: request.outputURL.lastPathComponent,
+                outputByteCount: byteCount,
+                duration: duration,
+                userMessage: nil
+            )
+        } catch is CancellationError {
+            let duration = Date().timeIntervalSince(startMonotonic)
+            let record = SigningRecord(
+                presetID: presetID,
+                certificateFingerprint: certificateFingerprint,
+                sourceBundleIdentifier: entry.record.bundleIdentifier.rawValue,
+                sourceDisplayName: entry.record.displayName,
+                stoppingStage: nil,
+                errorCode: nil,
+                outputFileName: nil,
+                outputByteCount: nil,
+                startedAt: startedAt,
+                duration: duration
+            )
+            try? await history.append(record)
+            return StepResult(
+                entry: entry,
+                outcome: .cancelled,
+                stoppingStage: nil,
+                errorCode: nil,
+                outputFileName: nil,
+                outputByteCount: nil,
+                duration: duration,
+                userMessage: nil
+            )
+        } catch {
+            let duration = Date().timeIntervalSince(startMonotonic)
+            let zynsignError = error as? ZynSignError
+            let record = SigningRecord(
+                presetID: presetID,
+                certificateFingerprint: certificateFingerprint,
+                sourceBundleIdentifier: entry.record.bundleIdentifier.rawValue,
+                sourceDisplayName: entry.record.displayName,
+                stoppingStage: zynsignError?.diagnosticDetail,
+                errorCode: zynsignError.map { String(describing: $0) },
+                outputFileName: nil,
+                outputByteCount: nil,
+                startedAt: startedAt,
+                duration: duration
+            )
+            try? await history.append(record)
+            return StepResult(
+                entry: entry,
+                outcome: .failed,
+                stoppingStage: zynsignError?.diagnosticDetail,
+                errorCode: zynsignError.map { String(describing: $0) },
+                outputFileName: nil,
+                outputByteCount: nil,
+                duration: duration,
+                userMessage: zynsignError?.userMessage ?? "Signing failed."
+            )
+        }
     }
 
     /// The output filename for a batch-signed entry: the bundle identifier
@@ -233,14 +356,17 @@ actor BatchSigningCoordinator {
 }
 
 private extension SignApplicationRequest {
-    /// Returns a copy of this request with `outputURL` replaced.
-    func with(outputURL: URL) -> SignApplicationRequest {
+    /// Returns a copy of this request with the output location and options
+    /// replaced. Options are replaced, not dropped: a preset's DER and team
+    /// preferences have to survive the coordinator rewriting the file name.
+    func with(outputURL: URL, options: SignApplicationOptions) -> SignApplicationRequest {
         SignApplicationRequest(
             sourceURL: sourceURL,
             profile: profile,
             identityID: identityID,
             entitlements: entitlements,
-            outputURL: outputURL
+            outputURL: outputURL,
+            options: options
         )
     }
 }
