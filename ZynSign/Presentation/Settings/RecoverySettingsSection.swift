@@ -1,17 +1,8 @@
 import SwiftUI
 
-/// Recovery — the safe ways back.
-///
-/// Four actions restore ZynSign to a known-good state without taking anything
-/// the user imported: preferences, cache, scratch files, and the library
-/// index. Each asks first, each reports what it did, and each is reversible in
-/// the sense that matters — nothing here removes a package the library holds.
-///
-/// The fifth action is the exception, it is labelled as such, and it is the
-/// only destructive reset in the application. It asks twice: once with a
-/// confirmation that names exactly what will be deleted, and once through
-/// authentication when the user asked for authentication before sensitive
-/// actions.
+/// Settings entry for Backup & Recovery and the existing reset tools.
+/// Backup and restore use a separate guided flow; the reset controls retain
+/// their explicit confirmations and sensitive-action authorization.
 struct RecoverySettingsSection: View {
 
     @Environment(\.settingsCenter) private var settings
@@ -20,15 +11,24 @@ struct RecoverySettingsSection: View {
 
     static let descriptor = SettingsSectionDescriptor(
         identifier: .recovery,
-        title: "Recovery",
-        symbolName: "arrow.clockwise.circle",
-        summary: "Reset preferences, cache, workspace, or the library index.",
-        footer: "None of the recovery actions removes an imported application. The library reset is the exception, and it says so before it asks.",
+        title: "Recovery Center",
+        symbolName: "externaldrive.badge.timemachine",
+        summary: "Encrypted backups, selective restore, and workspace recovery.",
+        footer: "Restore replaces only selected categories after a preview. Reset Library is destructive and asks before deleting imported applications.",
         isDestructive: true
     )
 
     var body: some View {
         List {
+            Section {
+                NavigationLink {
+                    RecoveryCenterView()
+                } label: {
+                    Label("Open Backup & Recovery", systemImage: "lock.shield")
+                }
+            } header: { Text("Backup & Recovery") } footer: {
+                Text("Backups are encrypted with your passphrase. Keys and provisioning profiles are never exported.")
+            }
             safeSection
             destructiveSection
         }

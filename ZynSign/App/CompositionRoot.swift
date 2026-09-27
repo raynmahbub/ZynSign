@@ -23,7 +23,14 @@ enum CompositionRoot {
     /// signing pipeline are composed here as well so the Certificates and
     /// Library signing screens act on the same Keychain registrations and
     /// the same cryptographic machinery that the tests cover.
+    static func makeRecoveryStore() -> RecoveryStore { RecoveryStore(root: libraryRootDirectory) }
+
+    static func backupFileURL(for item: BackupHistoryItem) -> URL {
+        libraryRootDirectory.appendingPathComponent("Recovery/Backups/" + item.fileName)
+    }
+
     static func makeApplicationEnvironment() -> ApplicationEnvironment {
+        RecoveryStore.applyPending(at: libraryRootDirectory)
         // The preferences are read before anything else is built, because the
         // working-directory choice decides where staging happens and the
         // storage screen measures what the choice covers.
