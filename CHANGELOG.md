@@ -12,6 +12,20 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — Alpha 3 · Step 20: Release Readiness Center
+
+- Local release dashboard with transparent weighted scoring, blocking/warning
+  centers, explicit unsupported checks, validation history and redacted report sharing.
+- Full validation composes signing diagnostics, Entitlements Studio, independent
+  exported-IPA inspection and binary signature verification. Output fingerprints
+  are checked before/after scanning against the export record.
+- Entry points and historical summaries in Settings, Home, Library, App Details,
+  Smart Sign and Export Details; cancellable validation and spoken completion summaries.
+- Bounded atomic history, scoring/history XCTest coverage and
+  [scope and acceptance checklist](docs/development/release-readiness.md).
+  Existing platform/resource-seal/DER limitations remain explicit; this change does
+  not declare Beta readiness or promote the release train.
+
 ### Added — Alpha 3 · Step 16: Developer Identity Center
 
 - **Identity Dashboard**: one workspace for all signing identities — Teams, Certificates, Profiles, Healthy, and Needs Attention counts, an overall status, and a spoken summary — reached from Settings → **Developer Identity** and from toolbar links on the Certificates and Profiles tabs.
@@ -839,7 +853,6 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   reinforces), dark mode throughout, and an adaptive grid that gives the
   iPad the same content in a wider layout.
 
->>>>>>> origin/main
 ### Added — 0.1.0-alpha.1 · Step 2: Production-Grade IPA Import
 
 - **Import queue** — `PackageImportQueue` accepts packages from every entry

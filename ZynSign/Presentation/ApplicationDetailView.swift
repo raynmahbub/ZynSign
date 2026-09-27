@@ -295,6 +295,7 @@ struct ApplicationDetailView: View {
     /// summary is promoted into a signing authorization.
     private var signingHealthCard: some View {
         VStack(alignment: .leading, spacing: ZSpacing.sm) {
+            ReleaseReadinessLink(recordID: entry.record.id)
             SigningHealthCard(report: health?.report, isAnalyzing: isAnalyzingHealth, error: healthError)
             if let health {
                 NavigationLink {
