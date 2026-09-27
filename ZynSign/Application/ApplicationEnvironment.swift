@@ -15,6 +15,9 @@ import Foundation
 /// composition root and surfaced here, which keeps dependency substitution
 /// and testing straightforward.
 struct ApplicationEnvironment {
+    /// App-owned Store services survive navigation between Store and Downloads.
+    var storeBrowser: StoreBrowserModel? = nil
+
     /// Facts about the running application, shown by the shell.
     let applicationInfo: ApplicationInfo
 

@@ -117,6 +117,10 @@ enum CompositionRoot {
         environment.droppedFiles = droppedFiles
         environment.queueNotifier = queueNotifier
         environment.binaryInspection = makeBinaryInspection(intake: intake, library: library)
+        environment.storeBrowser = StoreBrowserModel(
+            repository: StoreRepository(storage: FileStoreCache(directory: FileStoreCache.root)),
+            downloads: StoreDownloadQueue(directory: FileStoreCache.root.appendingPathComponent("Quarantine"))
+        )
         return environment
     }
 

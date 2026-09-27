@@ -12,6 +12,25 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — Beta 1 · Step 21: Store Browser & Repository Ecosystem
+
+- Independent Store storefront with source-aware catalog search, category filters,
+  featured/recent/new shelves, local browsing history, rich app details, screenshots,
+  zoomable full-screen gallery, and structured release notes.
+- Dedicated Sources manager with strict HTTPS/manifest validation, duplicate detection,
+  enable/disable, individual/incremental conditional refresh, health and offline snapshots.
+- Source-locked Library version comparisons, ignore-version controls, explicit preferred
+  sources, and Update All confirmation; no inferred installation or publisher trust.
+- App-owned, persisted Store transfer jobs with bounded scheduling, progress, live-session
+  pause, cancel/retry, isolated package storage and explicit Import Hub handoff. Removes
+  the prototype's duplicate download/notification path. Resumable/background orchestration
+  and stronger integrity checks remain Step 22 work.
+- Bounded artwork caching, preserved prototype-source migration candidates, native
+  accessibility controls, synthetic XCTest suites, and architecture/device-test checklists.
+  Native build, XCTest and accessibility acceptance remain to be run with Xcode.
+- See [scope, boundaries and limits](docs/architecture/store-browser.md). This implementation
+  does not promote the current release train.
+
 ### Added — Alpha 3 · Step 17: Entitlements Studio
 
 - Read-only App Details workspace with capability-grouped cards, dashboard counts,

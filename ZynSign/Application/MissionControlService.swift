@@ -4,7 +4,7 @@ import Combine
 /// Mission Control — "Refresh Everything" orchestration.
 ///
 /// One tap executes:
-/// 1. Repository refresh (AppStoreViewModel.refresh)
+/// 1. Repository refresh (StoreRepository.refresh)
 /// 2. Library update checks (re-read entries, re-validate availability)
 /// 3. Eligible re-sign (no-op placeholder — pipeline invoked only when user confirms)
 /// 4. Cache cleanup (prune tmp, expired downloads)
@@ -46,7 +46,7 @@ final class MissionControlService: ObservableObject {
         defer { isRunning = false }
         let start = Date()
         let repoCount = await refreshRepositories()
-        let repoReport = MissionControlReport.StepReport(status: repoCount >= 0 ? "Completed" : "Unavailable", detail: repoCount >= 0 ? "\(repoCount) sources refreshed" : "No sources", count: max(0, repoCount))
+        let repoReport = MissionControlReport.StepReport(status: repoCount >= 0 ? "Completed" : "Unavailable", detail: repoCount >= 0 ? "\(repoCount) sources refreshed" : "Source refresh unavailable; review Store → Sources.", count: max(0, repoCount))
 
         let libCount = await checkLibrary()
         let libReport = MissionControlReport.StepReport(status: "Completed", detail: "\(libCount) apps in library", count: libCount)

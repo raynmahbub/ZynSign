@@ -22,6 +22,11 @@ struct DownloadsView: View {
     var body: some View {
         NavigationStack {
             List {
+                if let store = environment.storeBrowser {
+                    Section("Store") {
+                        NavigationLink("Store Download Jobs") { StoreDownloadsView(queue: store.downloads) }
+                    }
+                }
                 if !filteredActive.isEmpty {
                     Section(header: Label("Downloading", systemImage: "arrow.down.circle.dotted")) {
                         ForEach(filteredActive) { item in
@@ -63,7 +68,6 @@ struct DownloadsView: View {
                 environment.recordAnalyticsEvent(category: .download, name: ok ? "download.completed" : "download.failed", succeeded: ok)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .zynSignRequestDownload)) { note in if let s = note.userInfo?["url"] as? String { model.startDownload(from: s) } }
     }
 }
 private struct DownloadRow: View {

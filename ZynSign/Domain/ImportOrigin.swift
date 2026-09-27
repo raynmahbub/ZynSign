@@ -12,6 +12,9 @@
 /// import journal, so they must never be renamed.
 enum ImportOrigin: String, CaseIterable, Hashable, Sendable, Codable {
 
+    /// An isolated Store download explicitly offered for inspection.
+    case storeDownload
+
     /// The user chose the file in the system document picker, from any
     /// screen that offers one.
     case documentPicker
@@ -37,6 +40,7 @@ enum ImportOrigin: String, CaseIterable, Hashable, Sendable, Codable {
     /// The short name shown on a queued import.
     var displayName: String {
         switch self {
+        case .storeDownload: return "Store Download"
         case .documentPicker: return "Files"
         case .shareSheet: return "Shared"
         case .dragAndDrop: return "Dropped"
@@ -48,6 +52,7 @@ enum ImportOrigin: String, CaseIterable, Hashable, Sendable, Codable {
     /// The sentence shown when an item needs explaining in full.
     var explanation: String {
         switch self {
+        case .storeDownload: return "Downloaded from a user-configured source; not yet trusted."
         case .documentPicker: return "Chosen from Files."
         case .shareSheet: return "Handed to ZynSign by another application."
         case .dragAndDrop: return "Dropped into ZynSign."
@@ -59,6 +64,7 @@ enum ImportOrigin: String, CaseIterable, Hashable, Sendable, Codable {
     /// The SF Symbol shown beside the origin label.
     var symbolName: String {
         switch self {
+        case .storeDownload: return "arrow.down.circle"
         case .documentPicker: return "folder"
         case .shareSheet: return "square.and.arrow.down"
         case .dragAndDrop: return "hand.point.up.left"
