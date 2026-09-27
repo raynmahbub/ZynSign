@@ -66,8 +66,23 @@ struct RootView: View {
     /// so work in flight stays visible wherever the user navigates.
     @State private var activeSigningJobBadge = 0
 
+    /// Active downloads, shown on the Downloads tab when that feature is on.
+    @State private var activeDownloadBadge = 0
+
+    /// The download notice currently shown as a toast, if any.
+    @State private var visibleDownloadNotice: DownloadNotice?
+    @State private var isShowingDownloadToast = false
+
     /// Ticks while the shell is open, so a lapsed session can be noticed.
     private let inactivityTimer = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
+
+    /// The one thumbnail pipeline every icon view draws through, so a
+    /// decoded icon is shared by every row and card that shows it.
+    @StateObject private var thumbnailPipeline: ThumbnailPipeline
+
+    /// The order launch work runs in. Nothing in it precedes the first
+    /// frame; see `StartupWorkPlan`.
+    private let startupPlan = StartupWorkPlan.standard
 
     /// Builds the shell over one environment.
     ///
@@ -83,11 +98,16 @@ struct RootView: View {
             preferences: { model.preferences }
         ))
         _selected = State(initialValue: model.preferences.general.landingTab.shellSection)
+        _thumbnailPipeline = StateObject(wrappedValue: ThumbnailPipeline(
+            engine: environment.performanceEngine,
+            icons: environment.appIcons
+        ))
+        environment.performanceEngine?.launch.mark(LaunchTimeline.Milestone.environmentReady)
     }
 
     var body: some View {
         TabView(selection: $selected) {
-            ForEach(ShellSection.primaryTabs) { section in
+            ForEach(visibleTabs) { section in
                 tabContent(section)
                     .tabItem {
                         Label(
@@ -96,12 +116,21 @@ struct RootView: View {
                         )
                     }
                     .tag(section)
-                    .badge(section == .library ? activeSigningJobBadge : 0)
+                    .badge(badgeCount(for: section))
             }
         }
         .tint(.primary)
+        .environment(\.thumbnailPipeline, thumbnailPipeline)
+        .environment(
+            \.zMotion,
+            ZMotion(reduceMotion: systemReduceMotion, preference: settings.preferences.general.animationPreference)
+        )
         .environment(\.settingsCenter, settings)
         .environment(\.appLock, appLock)
+        .environment(\.downloadNavigation, DownloadNavigation(
+            openLibrary: { selected = .library },
+            openSigningQueue: { presentSigningQueue() }
+        ))
         .preferredColorScheme(settings.preferences.appearance.appearanceMode.resolvedColorScheme)
         .environment(
             \.colorSchemeContrast,
@@ -189,6 +218,24 @@ struct RootView: View {
                 ? jobs.filter { $0.isActive }.count
                 : 0
         }
+        .background {
+            if let center = environment.downloadCenter {
+                DownloadNoticeBridge(center: center, badge: $activeDownloadBadge) { notices in
+                    showNextDownloadNotice(from: notices)
+                }
+            }
+        }
+        .zToast(
+            isPresented: $isShowingDownloadToast,
+            message: visibleDownloadNotice.map { "\($0.title) — \($0.message)" } ?? "",
+            style: visibleDownloadNotice?.kind == .validationFailed ? .error : (visibleDownloadNotice?.kind == .updateAvailable ? .info : .success),
+            duration: .seconds(4)
+        )
+        .onChange(of: isShowingDownloadToast) { _, isShowing in
+            guard !isShowing else { return }
+            visibleDownloadNotice = nil
+            showNextDownloadNotice(from: environment.downloadCenter?.pendingNotices ?? [])
+        }
         .zToast(
             isPresented: $isShowingQueueToast,
             message: visibleQueueNotice.map { "\($0.title) — \($0.message)" } ?? "",
@@ -214,24 +261,98 @@ struct RootView: View {
             reportOutcomes(of: items)
         }
         .task {
-            // Tidying scratch files at launch happens only when the user's
-            // policy allows it, and it finishes before the hub restores
-            // interrupted imports: the restoration then sees exactly the
-            // working copies the policy kept (cleanup removes only data
-            // older than an hour), rather than racing it.
-            await settings.cleanTemporaryWorkspaceIfPolicyAllows()
-            if let droppedFiles = environment.droppedFiles {
-                await Task.detached(priority: .utility) { droppedFiles.sweep() }.value
+            await runStartupWork()
+        }
+    }
+
+    // MARK: - Launch
+
+    /// Runs the launch work the plan defers past the first frame.
+    ///
+    /// The Home screen is already on screen when this starts: `.task`
+    /// fires once the view is attached, the first frame is marked, and
+    /// the plan's deferral delay then keeps the initial layout and tab bar
+    /// animation from competing with restoration. Items that touch main-
+    /// actor state run here in order; sweeps and cache work go to the
+    /// background scheduler at maintenance priority.
+    ///
+    /// The order is the one the earlier shell used and for the same
+    /// reasons: tidying scratch files happens only when the user's policy
+    /// allows it and finishes before the hub restores interrupted imports,
+    /// so the restoration sees exactly the working copies the policy kept;
+    /// the signing queue is restored after that, and only in a build that
+    /// shows it, so no queued run starts behind the user's back. The
+    /// repository directory and Download Center follow once the plan's
+    /// items are done, as they did before.
+    private func runStartupWork() async {
+        let engine = environment.performanceEngine
+        engine?.launch.mark(LaunchTimeline.Milestone.firstFrame)
+        engine?.launch.mark(LaunchTimeline.Milestone.essentialWorkDone)
+        try? await Task.sleep(for: startupPlan.deferralDelay)
+        engine?.launch.mark(LaunchTimeline.Milestone.deferredWorkStarted)
+        for item in startupPlan.deferred {
+            switch item {
+            case .temporaryCleanup:
+                await settings.cleanTemporaryWorkspaceIfPolicyAllows()
+            case .restoreInterruptedImports:
+                await environment.importHub.restoreInterruptedImports()
+            case .sweepDropInbox:
+                guard let droppedFiles = environment.droppedFiles else { continue }
+                if let engine {
+                    await engine.scheduler.schedule(key: "startup.sweepDropInbox", priority: .maintenance) {
+                        droppedFiles.sweep()
+                    }
+                } else {
+                    await Task.detached(priority: .utility) { droppedFiles.sweep() }.value
+                }
+            case .restoreSigningQueue:
+                if SigningQueueAvailability.isAvailable {
+                    await environment.signingQueue.restore()
+                }
+            case .reconcileIndexes:
+                // The library model reconciles the metadata index as it
+                // loads; at launch the persisted index is warmed so the
+                // first read is a memory read.
+                guard let engine else { continue }
+                await engine.scheduler.schedule(key: "startup.warmMetadataIndex", priority: .maintenance) {
+                    _ = await engine.metadata.current()
+                }
+            case .enforceCachePolicies:
+                await engine?.scheduleMaintenance()
+            case .startMemoryObservation:
+                await engine?.startMemoryObservation()
             }
-            await environment.importHub.restoreInterruptedImports()
-            // Restore the persisted signing queue once per launch, after the
-            // temporary-workspace cleanup has finished, so no queued run
-            // starts while scratch data is being tidied. Restoration is
-            // gated with the feature: a build that does not show the queue
-            // never runs queued work behind the user's back.
-            if SigningQueueAvailability.isAvailable {
-                await environment.signingQueue.restore()
-            }
+        }
+        environment.repositoryDirectory?.load()
+        environment.repositoryDirectory?.onCatalogsChanged = { [environment] in
+            Task { await environment.downloadCenter?.refreshUpdates() }
+        }
+        environment.downloadCenter?.startObservingTransfers()
+        await environment.downloadCenter?.restore()
+        await environment.downloadCenter?.refreshUpdates()
+        engine?.launch.mark(LaunchTimeline.Milestone.deferredWorkDone)
+        if let engine, let firstFrame = engine.launch.timeToFirstFrame {
+            await engine.benchmarks.record(kind: .launch, duration: firstFrame, itemCount: 1)
+        }
+    }
+
+    /// Tabs the user can select. Downloads is added when that feature is
+    /// available, immediately before Settings, without removing the five-tab
+    /// foundation the other sections are built on.
+    private var visibleTabs: [ShellSection] {
+        var tabs = ShellSection.primaryTabs
+        guard ReleaseTrain.isAvailable(.downloads), let settings = tabs.firstIndex(of: .settings) else {
+            return tabs
+        }
+        tabs.insert(.downloads, at: settings)
+        return tabs
+    }
+
+    private func badgeCount(for section: ShellSection) -> Int {
+        switch section {
+        case .library: return activeSigningJobBadge
+        case .downloads: return activeDownloadBadge
+        default: return 0
         }
     }
 
@@ -354,7 +475,8 @@ struct RootView: View {
                 signingHistory: environment.signingHistory,
                 organizer: environment.libraryOrganizer,
                 provenance: environment.applicationProvenance,
-                exporter: environment.libraryExport
+                exporter: environment.libraryExport,
+                performanceEngine: environment.performanceEngine
             )
         case .certificates:
             NavigationStack {
@@ -382,11 +504,62 @@ struct RootView: View {
             SettingsView()
         case .presets:
             PresetsView()
-        case .files, .appStore, .downloads:
+        case .downloads:
+            DownloadsView()
+        case .install:
             // Secondary sections are linked from Settings → Browse; they are
             // not tabs. Each carries its own NavigationStack where presented.
             EmptyView()
+        case .files, .appStore:
+            // Files and the App Store are linked from Settings → Browse.
+            // Each carries its own NavigationStack where presented.
+            EmptyView()
         }
+    }
+
+    private func showNextDownloadNotice(from notices: [DownloadNotice]) {
+        guard ReleaseTrain.isAvailable(.downloads) else { return }
+        guard visibleDownloadNotice == nil, let next = notices.first else { return }
+        visibleDownloadNotice = next
+        environment.downloadCenter?.acknowledgeNotice(next.id)
+        AccessibilityNotification.Announcement(DownloadCenterRendering.announcement(for: next)).post()
+        let name: String
+        switch next.kind {
+        case .downloadCompleted: name = "download.completed"
+        case .validationFailed: name = "download.failed"
+        case .updateAvailable: name = "download.updateAvailable"
+        case .queueFinished: name = "download.queueFinished"
+        }
+        environment.recordAnalyticsEvent(
+            category: .download,
+            name: name,
+            succeeded: next.kind != .validationFailed
+        )
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            isShowingDownloadToast = true
+        }
+    }
+}
+
+private struct DownloadNoticeBridge: View {
+    @ObservedObject var center: DownloadCenter
+    @Binding var badge: Int
+    var onNotices: ([DownloadNotice]) -> Void
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .onChange(of: center.pendingNotices) { _, notices in
+                onNotices(notices)
+            }
+            .onChange(of: center.jobs) { _, jobs in
+                badge = jobs.filter(\.isTransferring).count
+            }
+            .onAppear {
+                badge = center.jobs.filter(\.isTransferring).count
+                onNotices(center.pendingNotices)
+            }
     }
 }
 

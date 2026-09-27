@@ -42,6 +42,7 @@ enum CompositionRoot {
         let diagnosticHistory = makeSigningDiagnosticsHistoryStore()
         let library = makeApplicationLibrary(intake: intake, diagnosticHistory: diagnosticHistory)
         let identityStore = makeIdentityStore()
+        let identityAnnotationsStore = makeIdentityAnnotationsStore()
         let diagnostics = makeSigningDiagnostics(
             library: library, intake: intake, identities: identityStore,
             history: diagnosticHistory
@@ -117,14 +118,360 @@ enum CompositionRoot {
         environment.appIcons = appIcons
         environment.signingPresetWorkflow = signingPresetWorkflow
         environment.signingDiagnostics = diagnostics
-        environment.identityAnnotations = makeIdentityAnnotationsStore()
+        environment.identityAnnotations = identityAnnotationsStore
+        // The Identity Center reads the same stores the tabs read — one
+        // identity store, one profile library, one library, one
+        // annotation store, one journal — so its snapshot can never
+        // disagree with what those tabs show.
+        environment.identityCenter = IdentityCenterService(
+            identityStore: identityStore,
+            profiles: profiles,
+            library: library,
+            annotations: identityAnnotationsStore,
+            history: history
+        )
         environment.libraryOrganizer = makeLibraryOrganizer()
         environment.applicationProvenance = makeApplicationProvenanceExtraction()
         environment.libraryExport = makeLibraryExportPreparation()
         environment.droppedFiles = droppedFiles
         environment.queueNotifier = queueNotifier
         environment.binaryInspection = makeBinaryInspection(intake: intake, library: library)
+        environment.storeBrowser = StoreBrowserModel(
+            repository: StoreRepository(storage: FileStoreCache(directory: FileStoreCache.root)),
+            downloads: StoreDownloadQueue(directory: FileStoreCache.root.appendingPathComponent("Quarantine"))
+        )
+        let resourceReader = cachingLibraryReaderProvider()
+        environment.resourceInspection = makeResourceStudioInspection(library: library, readerProvider: resourceReader)
+        if let binary = environment.binaryInspection {
+            let historyURL = libraryRootDirectory.appendingPathComponent("ReleaseReadiness.json")
+            environment.releaseReadiness = ReleaseReadinessService(
+                diagnostics: diagnostics, exports: exports, operations: signingOperations,
+                binary: binary, history: ReleaseReadinessHistory(location: historyURL),
+                bundles: environment.bundleInspection, library: library, identities: identityStore)
+        }
+        let downloadNotifier = LocalDownloadNotifier()
+        let repositoryDirectory = makeRepositoryDirectory()
+        let downloadCenter = makeDownloadCenter(
+            library: library,
+            importHub: environment.importHub,
+            notifier: downloadNotifier,
+            catalogs: { @MainActor in repositoryDirectory.catalogs }
+        )
+        environment.downloadNotifier = downloadNotifier
+        environment.repositoryDirectory = repositoryDirectory
+        environment.downloadCenter = downloadCenter
+        environment.installationWorkspace = makeInstallationWorkspace(
+            library: library,
+            history: history,
+            exports: exports
+        )
+        environment.performanceEngine = makePerformanceEngine(
+            appIcons: appIcons,
+            preferences: preferences.snapshot
+        )
         return environment
+    }
+
+    // MARK: - Performance Engine
+
+    /// The one entry-table cache every read-only inspector of library
+    /// packages shares, so the explorer, App Details, the binary inspector,
+    /// provenance, and icons each scan a package's central directory once
+    /// between them rather than once each.
+    private static let sharedEntryTables = InspectionResultCache<[ArchiveEntry]>()
+
+    /// The background scheduler the engine, the thumbnail cache, and the
+    /// metadata index run on. One per process.
+    private static let sharedScheduler = BackgroundWorkScheduler()
+
+    /// Wraps a library-directory reader provider in the shared entry-table
+    /// cache. Only read-only inspectors of *library* packages use this;
+    /// import and staging paths open their archives uncached, because a
+    /// staged file is expected to change.
+    static func cachingLibraryReaderProvider(
+        fileExtension: String = "ipa",
+        limits: ArchiveLimits = .default
+    ) -> any ArtifactArchiveReaderProvider {
+        CachingArtifactArchiveReaderProvider(
+            underlying: DirectoryArtifactArchiveReaderProvider(
+                directory: libraryArtifactDirectory,
+                fileExtension: fileExtension,
+                limits: limits
+            ),
+            entryTables: sharedEntryTables,
+            stamps: FileArtifactStampProvider(directories: [libraryArtifactDirectory], fileExtension: fileExtension)
+        )
+    }
+
+    /// Builds the Performance Engine: the scheduler, the thumbnail cache
+    /// over the icon extractor, the metadata index, the memory manager over
+    /// the system's pressure source, the cache manager with one store per
+    /// category, the benchmark runner, the launch recorder, and the store
+    /// manifest cache. Every cache lives under Caches — the system may
+    /// reclaim it — and none of them is anywhere near the library's
+    /// artifacts, so no cache policy can ever remove an imported
+    /// application. Registration with the managers runs asynchronously;
+    /// until it finishes the engine reports empty statistics rather than
+    /// blocking composition.
+    static func makePerformanceEngine(
+        appIcons: AppIconExtraction,
+        preferences: ZynSignPreferences = ZynSignPreferences.shippedDefault
+    ) -> PerformanceEngine {
+        let scheduler = sharedScheduler
+        let caches = cachesDirectory
+        let metadataDirectory = caches.appendingPathComponent("ZynSignMetadata", isDirectory: true)
+        let diagnosticsDirectory = caches.appendingPathComponent("ZynSignDiagnostics", isDirectory: true)
+        let thumbnails = ThumbnailCache(
+            renderer: ImageIOThumbnailRenderer(),
+            sourceProvider: AppIconThumbnailSource(icons: appIcons),
+            directory: caches.appendingPathComponent("ZynSignThumbnails", isDirectory: true),
+            scheduler: scheduler
+        )
+        let metadata = MetadataIndexService(
+            store: FileMetadataIndexStore(location: metadataDirectory.appendingPathComponent("MetadataIndex.json", isDirectory: false)),
+            scheduler: scheduler
+        )
+        let storeManifests = StoreManifestCache(
+            directory: caches.appendingPathComponent("ZynSignStoreManifests", isDirectory: true)
+        )
+        let memory = MemoryManager(observer: SystemMemoryPressureObserver())
+        let cacheManager = CacheManager()
+        let info = ApplicationInfo.current(bundle: .main)
+        let benchmarks = PerformanceBenchmarkRunner(
+            store: FilePerformanceBaselineStore(directory: diagnosticsDirectory),
+            buildIdentifier: "\(info.marketingVersion) (\(info.buildVersion))"
+        )
+        let engine = PerformanceEngine(
+            scheduler: scheduler,
+            thumbnails: thumbnails,
+            metadata: metadata,
+            entryTables: sharedEntryTables,
+            memory: memory,
+            caches: cacheManager,
+            benchmarks: benchmarks,
+            launch: LaunchPerformanceRecorder(),
+            storeManifests: storeManifests,
+            state: UserDefaultsPerformanceStateStore()
+        )
+        let temporaryData = FileTemporaryStorage(directories: temporaryDirectories(preferences: preferences))
+        Task {
+            await cacheManager.register(CompositeCacheStore(cacheCategory: .metadata, stores: [
+                DirectoryCacheStore(
+                    category: .metadata,
+                    directories: [metadataDirectory],
+                    // The index document is rebuilt, not evicted: it is the
+                    // reason the list opens without reading a package.
+                    protectedFileNames: ["MetadataIndex.json"]
+                ),
+                StoreManifestCacheStore(cache: storeManifests),
+            ]))
+            await cacheManager.register(DirectoryCacheStore(
+                category: .diagnostics,
+                directories: [diagnosticsDirectory],
+                // The accepted baseline is the standard later runs are held
+                // to; clearing it is an explicit action on the page.
+                protectedFileNames: ["Baseline.json"]
+            ))
+            await cacheManager.register(TemporaryFilesCacheStore(temporaryData: temporaryData))
+            await engine.start()
+        }
+        return engine
+    }
+
+    /// The benchmark suite the Performance page runs. Each benchmark
+    /// measures real work over the user's own data where that is safe and
+    /// read-only, and synthetic work in a scratch location where it is not:
+    /// the library is read, indexed, and searched as it is; store loading
+    /// decodes and indexes a generated manifest; import speed writes a
+    /// generated package to the temporary directory and reads it back the
+    /// way intake does; signing preparation reads the identities and
+    /// profiles a signing session would choose from; thumbnail generation
+    /// renders the first library icon it finds. Nothing signs, imports,
+    /// or writes to the library.
+    static func makePerformanceBenchmarks(environment: ApplicationEnvironment) -> [PerformanceBenchmark] {
+        let library = environment.library
+        let provenance = environment.applicationProvenance
+        let organizer = environment.libraryOrganizer
+        let identities = environment.identityStore
+        let profiles = environment.provisioningProfiles
+        let icons = environment.appIcons
+        var suite: [PerformanceBenchmark] = []
+
+        suite.append(PerformanceBenchmark(kind: .libraryLoad) {
+            let entries = try await library.entries()
+            let organization = (try? await organizer?.organization()) ?? .empty
+            let known = await provenance?.knownProvenance() ?? [:]
+            let index = LibraryIndex(entries: entries, organization: organization, provenance: known)
+            return index.count
+        })
+        suite.append(PerformanceBenchmark(kind: .indexBuild) {
+            let entries = try await library.entries()
+            let known = await provenance?.knownProvenance() ?? [:]
+            let index = LibraryIndex(entries: entries, provenance: known)
+            return index.searchIndex.count
+        })
+        suite.append(PerformanceBenchmark(kind: .searchLatency) {
+            let entries = try await library.entries()
+            let known = await provenance?.knownProvenance() ?? [:]
+            let index = LibraryIndex(entries: entries, provenance: known)
+            let queries = ["a", "com", "app 1", "2.0", "xyzzy"]
+            var total = 0
+            for text in queries {
+                total += index.results(for: LibraryQuery(searchText: text, filters: [], sort: .name), in: .all, now: Date()).count
+            }
+            _ = total
+            return max(1, index.count) * queries.count
+        })
+        suite.append(PerformanceBenchmark(kind: .storeLoading) {
+            let count = 500
+            let apps = (0..<count).map { offset in
+                "{\"name\":\"Sample App \(offset)\",\"bundleIdentifier\":\"com.example.sample\(offset)\",\"version\":\"1.\(offset % 20)\",\"subtitle\":\"Benchmark entry\"}"
+            }.joined(separator: ",")
+            let data = Data("{\"name\":\"Benchmark\",\"apps\":[\(apps)]}".utf8)
+            guard let manifest = StoreManifestCache.decodeFeed(
+                data, sourceID: "benchmark", url: URL(string: "https://example.invalid/apps.json")!,
+                entityTag: nil, lastModified: nil, fetchedAt: Date()
+            ) else { throw ZynSignError.packagingFailure(diagnosticDetail: "The benchmark manifest did not decode.") }
+            let catalog = StoreCatalog(manifests: [manifest])
+            _ = catalog.matching("sample 4")
+            return catalog.count
+        })
+        suite.append(PerformanceBenchmark(kind: .importSpeed) {
+            let scratch = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ZynSignBenchmark", isDirectory: true)
+            try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: scratch) }
+            let package = scratch.appendingPathComponent("Benchmark.ipa", isDirectory: false)
+            let payload = Data(repeating: 0x5A, count: 64 * 1_024)
+            var entries: [ArchiveWriteEntry] = []
+            for offset in 0..<200 {
+                guard let path = ArchivePath(rawValue: "Payload/Benchmark.app/Resources/file\(offset).bin") else { continue }
+                entries.append(ArchiveWriteEntry(path: path, kind: .regularFile(isExecutable: false), content: payload))
+            }
+            var bytes = Data()
+            try ZipArchiveWriter().writeArchive(entries: entries, policy: .default) { bytes.append($0) }
+            try bytes.write(to: package, options: .atomic)
+            // Intake copies the file into its own directory, then reads
+            // the entry table; the benchmark does the same.
+            let staged = scratch.appendingPathComponent("Staged.ipa", isDirectory: false)
+            try FileManager.default.copyItem(at: package, to: staged)
+            let table = try ZipArchiveReader(location: staged).readEntryTable()
+            return table.count
+        })
+        suite.append(PerformanceBenchmark(kind: .signingPreparation) {
+            let identityCount = (try? identities.listIdentities().count) ?? 0
+            let profileCount = (try? await profiles?.allProfiles().count) ?? 0
+            let entries = try await library.entries()
+            return max(1, identityCount + profileCount + entries.count)
+        })
+        if let icons {
+            suite.append(PerformanceBenchmark(kind: .thumbnailGeneration) {
+                let entries = try await library.entries()
+                var source: Data?
+                for entry in entries where entry.isArtifactAvailable {
+                    if let data = await icons.iconData(for: entry.record.artifact.artifactID) {
+                        source = data
+                        break
+                    }
+                }
+                guard let source else {
+                    throw ZynSignError.packagingFailure(diagnosticDetail: "No library icon is available to render.")
+                }
+                let renderer = ImageIOThumbnailRenderer()
+                var rendered = 0
+                for variant in ThumbnailVariant.allCases where renderer.renderThumbnail(from: source, maximumPixelSize: variant.maximumPixelSize) != nil {
+                    rendered += 1
+                }
+                return max(1, rendered)
+            })
+        }
+        return suite
+    }
+
+    /// Builds the installed-applications store at the canonical Application
+    /// Support location. It announces every change it completes, so the
+    /// workspace re-reads the catalog after an attempt, a confirmation, or a
+    /// cleanup, whichever screen made the change.
+    static func makeInstalledApplicationStore() -> any InstalledApplicationStore {
+        NotifyingInstalledApplicationStore(
+            wrapping: FileInstalledApplicationStore(
+                catalogLocation: installedApplicationsCatalogLocation(),
+                capacity: 1000
+            )
+        )
+    }
+
+    /// The on-disk location of the installed-applications catalog. It lives
+    /// beside the signing history and the export catalog: a record of what
+    /// ZynSign did and what the user confirmed, not a file the user works
+    /// with.
+    static func installedApplicationsCatalogLocation() -> URL {
+        libraryRootDirectory.appendingPathComponent("InstalledApplications.json", isDirectory: false)
+    }
+
+    /// Builds the Installation Workspace over the library, the signing
+    /// journal, the export catalog, the installed-applications store, and
+    /// the same independent verifier the signing pipeline uses — so a
+    /// verification the workspace records is the verification every other
+    /// screen reads.
+    static func makeInstallationWorkspace(
+        library: ApplicationLibrary,
+        history: any SigningHistoryStore,
+        exports: ExportCenter
+    ) -> InstallationWorkspace {
+        let installed = makeInstalledApplicationStore()
+        return InstallationWorkspace(
+            library: library,
+            history: history,
+            exports: exports,
+            installed: installed,
+            verification: makeVerifyExportedArtifact(),
+            installedByteCount: { [installed] in
+                await installed.storedByteCount()
+            }
+        )
+    }
+
+    /// The Download Center and the repository directory it trusts only after
+    /// metadata validation. Transfers are foreground URLSession tasks. Resume
+    /// is reported only when resume data is captured.
+    static func makeDownloadCenter(
+        library: ApplicationLibrary,
+        importHub: ImportHub,
+        notifier: (any DownloadNotifying)?,
+        catalogs: @escaping @MainActor () -> [RepositoryCatalog]
+    ) -> DownloadCenter {
+        let client = URLSessionRepositoryClient()
+        let center = DownloadCenter(
+            transfer: URLSessionDownloadTransfer(),
+            validator: IPADownloadValidator(),
+            store: FileDownloadCenterStore(rootDirectory: downloadCenterRoot),
+            importer: ImportHubDownloadImporter(hub: importHub),
+            notifier: notifier,
+            manifestResolver: client,
+            installedApplications: { @MainActor in
+                let entries = (try? await library.entries()) ?? []
+                return entries.map { entry in
+                    InstalledApplication(
+                        bundleIdentifier: entry.record.bundleIdentifier.rawValue,
+                        name: entry.record.displayName ?? entry.record.bundleIdentifier.rawValue,
+                        version: entry.record.identity.shortVersionString,
+                        build: entry.record.identity.buildVersion,
+                        recordID: entry.record.id.rawValue
+                    )
+                }
+            },
+            catalogs: catalogs
+        )
+        return center
+    }
+
+    static func makeRepositoryDirectory() -> RepositoryDirectory {
+        RepositoryDirectory(
+            storeURL: repositorySourceStoreURL,
+            cacheDirectory: downloadCenterRoot.appendingPathComponent("Catalogs", isDirectory: true),
+            fetcher: URLSessionRepositoryClient()
+        )
     }
 
     /// Builds the signing queue: the job orchestration every queued signing
@@ -244,7 +591,7 @@ enum CompositionRoot {
     /// — the right durability for values derived from immutable bytes.
     static func makeApplicationProvenanceExtraction() -> ApplicationProvenanceExtraction {
         ApplicationProvenanceExtraction(
-            readerProvider: DirectoryArtifactArchiveReaderProvider(directory: libraryArtifactDirectory),
+            readerProvider: cachingLibraryReaderProvider(),
             cacheLocation: cachesDirectory.appendingPathComponent("ZynSignProvenance.json", isDirectory: false),
             profilePayload: { data in
                 (try? CMSStructureReader.read(data))?.encapsulatedContent
@@ -303,11 +650,7 @@ enum CompositionRoot {
         let digest = makeMessageDigest()
         return IPABinaryInspection(
             library: library,
-            readerProvider: DirectoryArtifactArchiveReaderProvider(
-                directory: libraryArtifactDirectory,
-                fileExtension: intake.fileExtension,
-                limits: readerLimits
-            ),
+            readerProvider: cachingLibraryReaderProvider(fileExtension: intake.fileExtension, limits: readerLimits),
             makePackageReader: { ZipArchiveReader(location: $0, limits: readerLimits) },
             signedPackagesDirectory: exportArtifactDirectory(),
             parser: ReadOnlyMachOParser(),
@@ -318,6 +661,21 @@ enum CompositionRoot {
             ),
             digest: digest,
             limits: inspectionLimits
+        )
+    }
+
+    /// Builds the Resource & Asset Studio inspection use case: inspects app
+    /// icons, launch assets, images, fonts, media, and localization tables in
+    /// an imported IPA bundle, completely read-only.
+    static func makeResourceStudioInspection(
+        library: ApplicationLibrary,
+        readerProvider: any ArtifactArchiveReaderProvider,
+        limits: ArchiveLimits = .default
+    ) -> IPAResourceStudioInspection {
+        IPAResourceStudioInspection(
+            library: library,
+            readerProvider: readerProvider,
+            limits: limits
         )
     }
 
@@ -358,9 +716,7 @@ enum CompositionRoot {
     /// durability a derived image deserves.
     static func makeAppIconExtraction() -> AppIconExtraction {
         AppIconExtraction(
-            readerProvider: DirectoryArtifactArchiveReaderProvider(
-                directory: libraryArtifactDirectory
-            ),
+            readerProvider: cachingLibraryReaderProvider(),
             cacheDirectory: cachesDirectory.appendingPathComponent("ZynSignAppIcons", isDirectory: true)
         )
     }
@@ -578,7 +934,11 @@ enum CompositionRoot {
                 importedApplicationsDirectory: libraryArtifactDirectory,
                 exportedArtifactsDirectory: exportArtifactDirectory(),
                 temporaryDirectories: temporaryDirectories(preferences: preferences),
-                historyFiles: [signingHistoryJournalLocation(), exportCatalogLocation()]
+                historyFiles: [
+                    signingHistoryJournalLocation(),
+                    exportCatalogLocation(),
+                    installedApplicationsCatalogLocation(),
+                ]
             ),
             temporaryData: FileTemporaryStorage(
                 directories: temporaryDirectories(preferences: preferences)
@@ -944,11 +1304,7 @@ enum CompositionRoot {
     ) -> IPABundleEntryInspection {
         IPABundleEntryInspection(
             library: library,
-            readerProvider: DirectoryArtifactArchiveReaderProvider(
-                directory: libraryArtifactDirectory,
-                fileExtension: intake.fileExtension,
-                limits: limits
-            ),
+            readerProvider: cachingLibraryReaderProvider(fileExtension: intake.fileExtension, limits: limits),
             limits: limits
         )
     }
@@ -968,11 +1324,7 @@ enum CompositionRoot {
     ) -> IPABundleContentsInspection {
         IPABundleContentsInspection(
             library: library,
-            readerProvider: DirectoryArtifactArchiveReaderProvider(
-                directory: libraryArtifactDirectory,
-                fileExtension: intake.fileExtension,
-                limits: limits
-            ),
+            readerProvider: cachingLibraryReaderProvider(fileExtension: intake.fileExtension, limits: limits),
             entitlementReaderProvider: DirectoryArtifactArchiveReaderProvider(
                 directory: libraryArtifactDirectory,
                 fileExtension: intake.fileExtension,
@@ -1014,11 +1366,7 @@ enum CompositionRoot {
         )
         return IPAApplicationDetailsInspection(
             library: library,
-            readerProvider: DirectoryArtifactArchiveReaderProvider(
-                directory: libraryArtifactDirectory,
-                fileExtension: intake.fileExtension,
-                limits: readerLimits
-            ),
+            readerProvider: cachingLibraryReaderProvider(fileExtension: intake.fileExtension, limits: readerLimits),
             limits: limits,
             maximumExecutableReadBytes: maximumExecutableReadBytes
         )
@@ -1324,6 +1672,17 @@ enum CompositionRoot {
     }
 
     /// The document holding the library's collections and usage.
+    private static var downloadCenterRoot: URL {
+        libraryRootDirectory.appendingPathComponent("DownloadCenter", isDirectory: true)
+    }
+
+    private static var repositorySourceStoreURL: URL {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Documents", isDirectory: true)
+        return documents.appendingPathComponent("ZynSignSources.json")
+    }
+
     private static var libraryOrganizationLocation: URL {
         libraryRootDirectory.appendingPathComponent("Organization.json", isDirectory: false)
     }

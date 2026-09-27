@@ -69,6 +69,19 @@ struct InstallationDeliveryPackage: Equatable {
         self.buildVersion = record.identity.buildVersion
     }
 
+    /// Builds the delivery description of an export for the workspace's
+    /// delivery flow. The identity fields are the ones the export captured
+    /// when the artifact was committed, so delivering stays possible after
+    /// the library entry is gone.
+    init(export: ExportRecord, fileURL: URL) {
+        self.fileName = export.fileName
+        self.fileURL = fileURL
+        self.displayName = export.displayName
+        self.bundleIdentifier = export.bundleIdentifier
+        self.bundleVersion = export.shortVersion ?? export.buildVersion ?? "1.0"
+        self.buildVersion = export.buildVersion
+    }
+
     /// The size of the signed container in bytes, or `nil` when the file
     /// cannot currently be reached.
     var fileSizeBytes: Int64? {

@@ -15,6 +15,9 @@ import Foundation
 /// composition root and surfaced here, which keeps dependency substitution
 /// and testing straightforward.
 struct ApplicationEnvironment {
+    /// App-owned Store services survive navigation between Store and Downloads.
+    var storeBrowser: StoreBrowserModel? = nil
+
     /// Facts about the running application, shown by the shell.
     let applicationInfo: ApplicationInfo
 
@@ -148,8 +151,17 @@ struct ApplicationEnvironment {
     /// codes enter its bounded on-device journal.
     var signingDiagnostics: SigningDiagnosticsService? = nil
 
+    var releaseReadiness: ReleaseReadinessService? = nil
+
     /// The local-only annotation store behind the Certificates area.
     var identityAnnotations: (any IdentityAnnotationsStore)? = nil
+
+    /// The Developer Identity Center: one read of each store per snapshot,
+    /// every signing relationship answered from it. The dashboard, the
+    /// team workspace, the health center, the conflict list, the forecast,
+    /// the timeline, and the signing screen's recommendation all read this
+    /// one service. Optional for the same reasons as its peers.
+    var identityCenter: IdentityCenterService? = nil
 
     /// The user's preferences: one document, loaded once at launch and
     /// written whole whenever a setting changes. The Settings Control Center
@@ -166,6 +178,15 @@ struct ApplicationEnvironment {
     /// where no organization storage is composed, in which case the library
     /// offers no collections; treated as read-only after construction.
     var libraryOrganizer: LibraryOrganizer? = nil
+
+    /// The Installation Workspace use case: joins the library, the signing
+    /// journal, the export catalog, and the installed-applications records
+    /// into candidates, evaluates readiness, runs verification on demand,
+    /// and records the attempts and confirmations behind the Installed Apps
+    /// Library. `nil` where no composition supplies it, in which case the
+    /// interface does not offer the workspace; treated as read-only after
+    /// construction.
+    var installationWorkspace: InstallationWorkspace? = nil
 
     /// Reads the developer and team each library package declares, for
     /// search and the Team filter. `nil` where no reader provider is
@@ -190,6 +211,19 @@ struct ApplicationEnvironment {
     /// cast.
     var queueNotifier: (any SigningQueueNotifying)? = nil
 
+    /// The Download Center: queue, validation, updates, and import handoff.
+    /// `nil` where a composition does not install it. Production installs it.
+    /// Screens observe it; they do not own transfers.
+    var downloadCenter: DownloadCenter? = nil
+
+    /// Configured repositories and the catalogs last validated from them.
+    /// Shared by the App Store and the update engine.
+    var repositoryDirectory: RepositoryDirectory? = nil
+
+    /// Local notifications for download outcomes. Optional. In-app notices
+    /// are posted either way. Off unless the user turns them on.
+    var downloadNotifier: (any DownloadNotifying)? = nil
+
     /// The Binary & Signature Inspector use case: inspects, read-only, every
     /// executable in a library application's bundle — Mach-O structure,
     /// load commands, and code signature — and verifies each signature on
@@ -197,6 +231,21 @@ struct ApplicationEnvironment {
     /// interface does not offer the inspector; treated as read-only after
     /// construction.
     var binaryInspection: IPABinaryInspection? = nil
+
+    /// The Resource & Asset Studio inspection use case: inspects app icons,
+    /// launch assets, images, fonts, media, and localization tables in an
+    /// imported IPA bundle. `nil` where no composition supplies it; treated
+    /// as read-only after construction.
+    var resourceInspection: IPAResourceStudioInspection? = nil
+
+    /// The Performance Engine: the background scheduler, thumbnail and
+    /// metadata caches, memory manager, cache policies, benchmarks, and
+    /// launch timeline behind Settings → Advanced → Performance. `nil` in
+    /// compositions that do not measure themselves (most tests), in which
+    /// case every screen falls back to uncached reads and the Performance
+    /// page says the engine is not composed; treated as read-only after
+    /// construction.
+    var performanceEngine: PerformanceEngine? = nil
 
     /// Records one local activity event when the journal preference allows.
     ///

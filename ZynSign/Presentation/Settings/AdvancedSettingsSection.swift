@@ -33,6 +33,9 @@ struct AdvancedSettingsSection: View {
             workingDirectorySection
             cleanupSection
             verificationSection
+            if ReleaseTrain.isAvailable(.performanceDashboard) {
+                performanceSection
+            }
             experimentalSection
         }
         .listStyle(.insetGrouped)
@@ -113,6 +116,34 @@ struct AdvancedSettingsSection: View {
             Text("Verification")
         } footer: {
             Text("Standard reports every finding and leaves the decision to you. Strict additionally asks for confirmation before signing when the compatibility assessment carries any finding — including informational ones. Strict never refuses to sign; it only makes you confirm.")
+        }
+    }
+
+    // MARK: - Performance
+
+    /// The hidden Performance page. Listed only when the release exposes
+    /// it; the page itself says so when the engine is not composed.
+    private var performanceSection: some View {
+        Section {
+            NavigationLink {
+                PerformanceDashboardSection(
+                    model: PerformanceDashboardModel(
+                        engine: settings.environment.performanceEngine,
+                        benchmarkSuite: { CompositionRoot.makePerformanceBenchmarks(environment: settings.environment) }
+                    )
+                )
+            } label: {
+                ZSettingsLabel(
+                    title: "Performance",
+                    subtitle: "Library index, caches, memory, and benchmarks.",
+                    symbol: "gauge.with.dots.needle.33percent"
+                )
+            }
+            .accessibilityHint("Opens the Performance page")
+        } header: {
+            Text("Performance")
+        } footer: {
+            Text("What the Performance Engine is doing: how many applications are indexed, what the caches hold, and how fast the library, search, import, signing preparation, and store loading are on this device.")
         }
     }
 

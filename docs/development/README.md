@@ -61,3 +61,8 @@ Version control actions are performed by the developer. See
 - [continuous-integration.md](continuous-integration.md) — the CI workflow
   definition, what each job establishes, what it explicitly does not claim,
   and how to run the same checks locally.
+
+## Release readiness
+
+See [Release Readiness Center](release-readiness.md) for validation scope, scoring,
+privacy, performance boundaries and the remaining simulator/device acceptance checklist.

@@ -12,6 +12,9 @@
 /// import journal, so they must never be renamed.
 enum ImportOrigin: String, CaseIterable, Hashable, Sendable, Codable {
 
+    /// An isolated Store download explicitly offered for inspection.
+    case storeDownload
+
     /// The user chose the file in the system document picker, from any
     /// screen that offers one.
     case documentPicker
@@ -34,36 +37,46 @@ enum ImportOrigin: String, CaseIterable, Hashable, Sendable, Codable {
     /// over a copy.
     case openIn
 
+    /// A validated download the user asked to import from the Download Center.
+    /// The file is still untrusted input: this origin is a label, not trust.
+    case downloadCenter
+
     /// The short name shown on a queued import.
     var displayName: String {
         switch self {
+        case .storeDownload: return "Store Download"
         case .documentPicker: return "Files"
         case .shareSheet: return "Shared"
         case .dragAndDrop: return "Dropped"
         case .retry: return "Retried"
         case .openIn: return "Opened In"
+        case .downloadCenter: return "Download"
         }
     }
 
     /// The sentence shown when an item needs explaining in full.
     var explanation: String {
         switch self {
+        case .storeDownload: return "Downloaded from a user-configured source; not yet trusted."
         case .documentPicker: return "Chosen from Files."
         case .shareSheet: return "Handed to ZynSign by another application."
         case .dragAndDrop: return "Dropped into ZynSign."
         case .retry: return "Attempted again."
         case .openIn: return "Opened in ZynSign from another application."
+        case .downloadCenter: return "Downloaded and validated, then handed to Import."
         }
     }
 
     /// The SF Symbol shown beside the origin label.
     var symbolName: String {
         switch self {
+        case .storeDownload: return "arrow.down.circle"
         case .documentPicker: return "folder"
         case .shareSheet: return "square.and.arrow.down"
         case .dragAndDrop: return "hand.point.up.left"
         case .retry: return "arrow.clockwise"
         case .openIn: return "arrow.up.forward.app"
+        case .downloadCenter: return "arrow.down.circle"
         }
     }
 }

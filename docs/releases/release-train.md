@@ -15,9 +15,10 @@ cherry-picks, and no deleted code to restore later.
 | **Horizon** | `v0.1.0` | Core | Files · Import (`ipa`/`tipa`) · Library · Bundle Explorer · Home · Settings (About, Archive, Pairing/Analytics honesty, Appearance, Storage, Diagnostics) |
 | Alpha 1 | `v0.1.0-alpha.1` | Certificate Studio | Settings → Certificates (`.p12`/`.pfx` import, detail, public JSON export) |
 | Alpha 2 | `v0.1.0-alpha.2` | Smart Sign, Professional Signing Queue, Intelligent Signing Presets | `Sign Application…` (Library menu + detail), 9-stage pipeline, DER toggle, Live Activity, Signing Options, Library “Signed” segment, Settings → Installation, Settings → Signing Queue, Settings → Presets, recommended preset with a required confirmation that enqueues on the signing queue |
-| Alpha 3 | `v0.1.0-alpha.3` | App Store + Downloads | App Store tab (sources, repository health) and Downloads tab (background, pause/resume/retry) |
+| Alpha 3 | `v0.1.0-alpha.3` | App Store + Downloads | App Store (validated sources, repository health) and the Download Center (queue, validation, updates). Resume is reported only when resume data was captured. |
 | Beta 1 | `v0.9.0-beta.1` | Mission Control, Delivery Hand-off, Activity Journal | Home → Refresh Everything · Sign → Deliver… (OTA manifest, link, QR) · Settings → Analytics → Local Activity Journal. **Feature complete.** |
-| Beta 2–4 | `v0.9.0-beta.2…4` | — | Fixes only |
+| Beta 2 | `v0.9.0-beta.2` | Installation Workspace | Settings → Browse → Install · Home → Install · signing success → Installation Workspace… (readiness checklists, Installed Apps Library, confirmed deliveries and history, bulk preparation, storage) |
+| Beta 3–4 | `v0.9.0-beta.3…4` | Batch Signing (Beta 3) | Fixes plus the batch signing workspace |
 | RC 1–3 | `v1.0.0-rc.1…3` | — | Fixes only |
 | Stable | `v1.0.0` | — | Everything |
 
@@ -46,7 +47,7 @@ Gated entry points:
 | `certificateStudio` | `SettingsView` → Certificates row |
 | `smartSign` | `ApplicationDetailView` + `LibraryTabView` “Sign Application…”, “Signed” segment, Settings → Signing Options / Installation, Home “Signed” stat |
 | `appStore` | `RootView` App Store tab, Home “Sources” stat and tip |
-| `downloads` | `RootView` Downloads tab, Home tip, Library empty-state copy |
+| `downloads` | `RootView` Downloads tab, Settings → Browse, Home source refresh |
 | `missionControl` | `HomeView` Mission Control card |
 | `deliveryHandoff` | `SigningView` “Deliver…”, Settings → Installation hand-off section |
 | `activityJournal` | Settings → Analytics journal sections, **and** `ApplicationEnvironment.recordAnalyticsEvent`, so nothing is recorded before users can see and clear it |

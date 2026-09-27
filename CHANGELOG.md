@@ -12,6 +12,268 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — Beta 2 · Step 25: Performance Engine & Large Library Optimization
+
+- `PerformanceEngine` façade (Application) over a `BackgroundWorkScheduler`
+  (keyed, priority-ordered, bounded concurrency), a two-tier `ThumbnailCache`
+  (ImageIO downsampling into small/medium/large variants; memory tier trimmed
+  under pressure; disk tier under the thumbnails/screenshots policies), a
+  persisted `MetadataIndex` (name, version, bundle ID, developer, import date,
+  signing state — the list never opens a package), a shared entry-table
+  `InspectionResultCache` behind `CachingArtifactArchiveReaderProvider` keyed by
+  file stamp (read-only library inspectors only; import/staging stay uncached),
+  a `MemoryManager` over the system pressure source, a `CacheManager` with one
+  `CachePolicy` per category (thumbnails, screenshots, metadata, diagnostics,
+  temporary files; LRU + age eviction; imported apps are never a cache), a
+  `PerformanceBenchmarkRunner` with baseline + `PerformanceRegressionDetector`,
+  a `LaunchPerformanceRecorder` and `StartupWorkPlan`, and a `StoreManifestCache`
+  with conditional (ETag/Last-Modified) refresh and a paged, indexed `StoreCatalog`
+  (used by the benchmark suite and cache accounting; the Store Browser keeps its
+  own `StoreRepository` cache from Step 21).
+- Generic trigram `SearchIndex<ID, Field>` adopted by `LibraryIndex`: name,
+  bundle ID, version, file name, developer, team, and collection are indexed
+  incrementally and searched in a few set intersections instead of a scan.
+- Hidden **Performance** page under Settings → Advanced (`ReleaseFeature.
+  performanceDashboard`, introduced in `0.9.0-beta.2`): Library Items, Indexed
+  Apps, Cache Size, Thumbnail Cache, Search Index Status, Last Optimization,
+  memory pressure, background work, launch timeline, per-category cache clearing,
+  Optimize Now, and a benchmark table (library load, index build, search latency,
+  import speed, signing preparation, store loading, thumbnail generation, launch)
+  with Stable / Improved / Regressed verdicts against an accepted baseline.
+- Library: `IncrementalRenderWindow` materialises 120 rows/cards at a time with
+  skeleton rows and "Show all"; `ApplicationIconView` draws through the shared
+  `ThumbnailPipeline` (synchronous memory hit, otherwise monogram → icon).
+- Signing Queue: `ProgressCoalescer` folds sub-1 % progress reports so a run
+  publishes only visible changes; stage changes and completions always pass.
+- Launch: the shell marks first frame, runs every startup item after a 350 ms
+  deferral in plan order, and records launch-to-first-frame as a benchmark.
+- `ZMotion` design-system helper honouring Reduce Motion and the animation
+  preference; skeleton placeholders keep accessibility hidden.
+- Foundation-only XCTest coverage for the index (2,000 documents under a frame),
+  eviction planner, cache/memory managers, scheduler, coalescer, render window,
+  regression detector, benchmark runner, launch plan, store catalog/manifest
+  cache, inspection cache, and the engine façade. Design record:
+  [`docs/architecture/performance-engine.md`](docs/architecture/performance-engine.md).
+
+### Added — 0.9.0-beta.2 · Step 24: Installation Workspace
+
+- **A dedicated Install section** — Settings → Browse → Install, a Home
+  quick action, and "Installation Workspace…" on the signing success
+  screen. The dashboard shows Ready to Install · Installed · Updates
+  Available counts, deliveries awaiting confirmation, the preparation
+  queue, recent installs, history, and storage. This is the hub the
+  flow reaches after signing.
+- **Readiness cards and the pre-install checklist** — every signed app
+  gets a report over the six checks ZynSign actually performs: signed
+  artifact exists, verification passed, package readable (bytes held at
+  the recorded size), export completed (size + fingerprint), signing
+  assets current (recorded profile/certificate expiry), and required
+  metadata present. States are `passed` / `attention` / `blocked` /
+  `notPerformed` — a check with no evidence reads as *not performed*,
+  never as a pass. Unverified blocks; expired assets block; blocked
+  checks disable delivery entirely rather than offer a button that
+  cannot work.
+- **Compatibility guidance that stays inside the boundary** — fixed
+  language: "Verification completed successfully. The package appears
+  ready." and, always, "Whether the platform accepts the delivery is
+  the platform's decision, which ZynSign cannot see." No screen implies
+  a guarantee about platform acceptance.
+- **The Installed Apps Library** — one user-confirmed record per bundle
+  identifier with events, not observations: app name and monogram,
+  installed version, source channel, last installation, and update
+  status. Search, scopes (All · Updates Available · Recently Installed ·
+  Needs Attention), three orders, multi-select, per-app detail with the
+  record's own history. Installed apps are visually distinct from
+  imported-only apps — different mark, different card, different words.
+- **Delivery attempts** — starting a delivery records a *pending
+  attempt* (channel, artifact, intent). Attempts persist across
+  relaunches and resolve only by the user: **Mark Installed** appends
+  the event, **Not Installed** resolves silently, **Deliver Now**
+  re-opens the hand-off. Nothing in ZynSign confirms, completes, or
+  discards an attempt on its own authority, so an interrupted attempt
+  is never marked successful. The signed IPA, its export, and every
+  earlier event are preserved.
+- **Update & reinstall actions** — the update state compares the
+  recorded install against the newest held export with
+  `DeclaredVersionOrder`: **Update** offers the newer artifact's
+  hand-off, **Reinstall** re-delivers the recorded one, **Verify Again**
+  runs real verification, **View Details** explains what ZynSign knows.
+  Equal versions under a new export are a re-sign, not an update;
+  incomparable versions read *unknown* — no claim either way.
+- **Installation History** — events flattened across records, newest
+  first, paged (25 at a time). A row opens the app, version, timestamp,
+  verification result at the time, and the artifact used, with the line
+  that keeps it honest: ZynSign did not observe the delivery.
+- **Artifact relationship view** — Imported → Signed → Exported →
+  Delivery → Installed, drawn only from recorded links; a missing step
+  reads as missing, never as invented completion.
+- **Bulk preparation through the workspace's job queue** — Verify All,
+  Prepare All, Queue Selected, Retry Failed, and Clear Completed on
+  `InstallationPreparationQueue`: one job at a time, readiness plus
+  independent verification through the same verifier the pipeline uses,
+  cancelling one job never stalls the queue, and retries are fresh
+  runs. Preparation is bulk; **delivery never is** — every delivery is
+  a deliberate, readiness-gated act.
+- **Storage awareness** — installed records, signed IPAs (export
+  storage), and temporary data with safe cleanups. Removing records or
+  artifacts never touches imported source applications.
+- **Recovery semantics** — the installed-applications catalog
+  (`InstalledApplications.json`, schema 1, atomic writes) restores
+  records and attempts exactly as they were; nothing expires them, and
+  a never-confirmed attempt stays visibly open.
+- **Accessibility** — spoken readiness summaries on cards, the
+  checklist's on-appear announcement, and per-row spoken sentences;
+  VoiceOver announcements on confirmations; Dynamic Type, Dark Mode,
+  large controls, and ⌘⇧P for Prepare All on iPad.
+- **Performance** — readiness reports are evaluated once per fact
+  change, the update-state pass reads the export catalog once for the
+  whole list, filtering and ordering are in-memory projections, and an
+  installed-applications change patches the installed rows without a
+  library rescan.
+- **Release train** — `ReleaseFeature.installationWorkspace`,
+  introduced in `v0.9.0-beta.2`, requiring `.deliveryHandoff`. The
+  release-train table now names Beta 2.
+- Docs: `docs/architecture/installation-workspace.md`, plus the
+  workspace's boundary note in `installation-compatibility.md` and the
+  updated honest-limits row.
+- Tests: `InstallationReadinessTests`,
+  `InstalledApplicationRecordTests`, `InstallationWorkspaceTests`,
+  `FileInstalledApplicationStoreTests`,
+  `InstallationPreparationQueueTests`, `InstallationWorkspaceModelTests`,
+  `InstallationPresentationTests`, and the release-train additions.
+
+### Added — Beta 1 · Step 22: Download Center & Update Engine
+
+- **Download Center** — downloads are jobs (`queued → connecting → downloading → validating → import ready`, or `failed → retry`) owned by `DownloadCenter`, not by a screen. The dashboard sections are Active, Queued, Paused, Completed, Failed, and Available Updates. Cards show source, stage, measured progress, speed, and remaining size. A percentage is shown only when the server declared a size.
+- **Queue** — several downloads, individual progress, High / Normal / Low insertion, Move Up, Move Down, and Send to Top for waiting jobs. A transfer that has started is not preempted. Waiting jobs reorder without touching running ones.
+- **Validation before import** — archive readability, expected package layout, extraction readiness, and declared metadata. A declared SHA-256 must match. Failure keeps the original file isolated and does not import it. A configured source is not trust.
+- **Import handoff** — Import Now, Queue for Signing, and Keep Downloaded are separate. Queue for Signing imports the file and does not start or enqueue signing. Imported apps are never deleted by download cleanup.
+- **Duplicates** — same downloaded version, same imported version, a newer copy, or another source asks Replace / Keep Both / Skip. Nothing is overwritten silently. Replace applies to a previous download only after the new file validates.
+- **Updates** — installed versus latest from configured, already-validated repositories only. Update, Update All, View Changes, and Ignore Version. Release notes show what changed, history, date, and source.
+- **Recovery** — queue state and completed files survive a restart. An in-flight transfer is restored as interrupted, never completed. Resume is offered only when resume data was captured, and the interface says the server may still refuse it.
+- **Storage** — Downloaded IPAs, completed downloads, and temporary data are accounted separately from the library. Clear Completed and Clear Temporary Data cannot reach imported apps.
+- See [download-center.md](docs/architecture/download-center.md).
+
+### Added — Beta 1 · Step 21: Store Browser & Repository Ecosystem
+
+- Independent Store storefront with source-aware catalog search, category filters,
+  featured/recent/new shelves, local browsing history, rich app details, screenshots,
+  zoomable full-screen gallery, and structured release notes.
+- Dedicated Sources manager with strict HTTPS/manifest validation, duplicate detection,
+  enable/disable, individual/incremental conditional refresh, health and offline snapshots.
+- Source-locked Library version comparisons, ignore-version controls, explicit preferred
+  sources, and Update All confirmation; no inferred installation or publisher trust.
+- App-owned, persisted Store transfer jobs with bounded scheduling, progress, live-session
+  pause, cancel/retry, isolated package storage and explicit Import Hub handoff. Removes
+  the prototype's duplicate download/notification path. Resumable/background orchestration
+  and stronger integrity checks remain Step 22 work.
+- Bounded artwork caching, preserved prototype-source migration candidates, native
+  accessibility controls, synthetic XCTest suites, and architecture/device-test checklists.
+  Native build, XCTest and accessibility acceptance remain to be run with Xcode.
+- See [scope, boundaries and limits](docs/architecture/store-browser.md). This implementation
+  does not promote the current release train.
+
+### Added — Alpha 3 · Step 20: Release Readiness Center
+
+- Local release dashboard with transparent weighted scoring, blocking/warning
+  centers, explicit unsupported checks, validation history and redacted report sharing.
+- Full validation composes signing diagnostics, Entitlements Studio, independent
+  exported-IPA inspection and binary signature verification. Output fingerprints
+  are checked before/after scanning against the export record.
+- Entry points and historical summaries in Settings, Home, Library, App Details,
+  Smart Sign and Export Details; cancellable validation and spoken completion summaries.
+- Bounded atomic history, scoring/history XCTest coverage and
+  [scope and acceptance checklist](docs/development/release-readiness.md).
+  Existing platform/resource-seal/DER limitations remain explicit; this change does
+  not declare Beta readiness or promote the release train.
+
+### Added — Alpha 3 · Step 16: Developer Identity Center
+
+- **Identity Dashboard**: one workspace for all signing identities — Teams, Certificates, Profiles, Healthy, and Needs Attention counts, an overall status, and a spoken summary — reached from Settings → **Developer Identity** and from toolbar links on the Certificates and Profiles tabs.
+- **Team Workspace**: certificates and profiles grouped by the Team ID they declare (case-insensitive, first spelling preserved), with expand/collapse, team summaries, an Ungrouped bucket for identities with no recognisable Team ID, and per-team compatible-app counts.
+- **Certificate Inspector**: name, team, issuer, validity, algorithm, key size, purpose, fingerprint, key availability, and the full health check list — with Set Default, Refresh Validation, Copy Team ID, View Linked Profiles, View Compatible Apps, and Remove. Private keys are never displayed; removing a registration never deletes a key.
+- **Provisioning Profile Manager (center view)**: name, team, bundle identifier, expiration, type, devices, entitlement keys, linked certificates, and compatible apps — with **Ready / Expiring / Expired / Conflict** status badges and the health checks behind them.
+- **Relationship Graph**: a read-only, team-by-team visualization of certificate–profile relationships (embedded fingerprints and shared teams), with individually accessible nodes, a spoken summary per team, and lazy rendering of expanded teams.
+- **Identity Health Center**: per-identity checks — Certificate Valid, Key Available, Profile Valid, Team Match, Expiration, Bundle Compatible — folded into 🟢 Healthy / 🟡 Warning / 🔴 Blocked, with fixed-language detail sentences and full spoken summaries. Computed once per snapshot and cached with it.
+- **Smart Conflict Detection**: duplicate certificates, multiple matching certificates without a default, team mismatch between a profile and an embedded certificate, missing profile for a team with a usable certificate, expired profiles, and orphaned profiles — each with severity, fixed-language findings, and a remedy the center never applies on its own.
+- **Expiration Forecast**: Expired → Critical (≤7 days) → Important (≤14 days) → Warning (≤30 days) → Watch, sorted most-urgent first, aligned with the certificate manager's and profile library's existing 30-day language.
+- **Smart Recommendations**: the signing screen now proposes a **Recommended Identity** — scored from previous successful signing of that app, usable keys, profile compatibility, team match, and the user's default — with its reasons shown. Applying it sets the pickers; the user's Sign tap remains the only confirmation.
+- **Identity Timeline**: recent identity events — imports, profile additions, signed and failed runs, and the most urgent expiration observations — grouped Today / Yesterday / date, most recent first, capped and composed of fixed language only.
+- **Quick Actions & Context Menus**: Set Default, Copy Team ID, View Linked Profiles, View Compatible Apps, Refresh Validation, Remove — on every identity card and inspector; removal asks for confirmation and, where supported, authentication (`removeIdentity` sensitive action).
+- **Security & Performance**: private keys stay in the iOS Keychain; snapshots carry metadata and composed language only; one read per store per snapshot; cached health; lazy rendering; efficient single-pass team grouping.
+- **Accessibility**: Dynamic Type, VoiceOver labels and spoken health/overall summaries, accessible graph nodes, Dark Mode, and large touch targets.
+- Synthetic XCTest coverage for every engine and the service/model assembly
+  ([scope and boundaries](docs/architecture/developer-identity-center.md)). Feature ships at Alpha 3 via `ReleaseFeature.identityCenter`.
+
+### Added — Alpha 3 · Step 19: Resource & Asset Studio
+
+- **Asset Dashboard**: Summary count cards for Icons, Launch Assets, Images, Fonts, Audio, Videos, and Localization Files with zero-I/O structural preview on the Application Details screen.
+- **App Icon Studio**: Discovers primary and alternate icons, multiple resolutions (@1x, @2x, @3x, 60x60, 76x76, 83.5x83.5, 1024x1024), full-screen zoom preview, copy filename, and reveal in bundle. Strictly read-only.
+- **Launch Screen Preview**: Active launch configuration detection (Storyboard, NIB, Info.plist, or Static Launch Images) with storyboard/xib details and launch image gallery.
+- **Image Gallery**: Responsive grid view, interactive pinch-to-zoom full-screen preview, format filters (PNG, JPEG, WebP, GIF, HEIC, SVG, ICNS, CAR), and image dimensions/file size badges.
+- **Font Explorer**: Discovers bundled fonts (.ttf, .otf, .ttc, .dfont) with PostScript name, family, style, file size, live in-process font registration with CoreText, size slider, and preview sentence: "The quick brown fox jumps over the lazy dog."
+- **Localization Studio**: Detects `.lproj` directories, previews `.strings` and `.stringsdict` key-value tables with instant search, and provides side-by-side language comparison.
+- **Audio Explorer**: Bundled audio player supporting MP3, WAV, M4A, AAC, CAF, AIFF, OGG, and FLAC with play/pause, scrub slider, elapsed time, duration, and channel metadata.
+- **Video Explorer**: Bundled video player for MP4, MOV, and M4V with thumbnail preview, timescale/duration extraction, resolution dimensions, and lazy playback via native VideoPlayer.
+- **Resource Search & Filters**: High-performance in-memory search index across filenames, extensions, localization keys/values, fonts, and media formats, combining with filter chips (Images, Icons, Fonts, Audio, Video, Localization, Large Files).
+- **File Inspector**: Read-only inspector panel showing Overview (filename, path, size, type), Metadata (dimensions, duration, language, resolution, format), Bundle Location, and Copy buttons.
+- **Duplicate Resource Detection**: Informational analysis detecting redundant images, duplicate fonts, identical localization tables, and same-size duplicate files across directories with total wasted space estimation.
+- **Asset Relationships**: Logically groups assets into App Icon Sets, Launch Assets, String Tables, and Font Families.
+- **Performance & Accessibility**: Lazy thumbnail loading, bounded prefix reads for dimensions and metadata headers, Dynamic Type, VoiceOver announcements, and Dark Mode support.
+
+### Added — Alpha 3 · Step 18: Binary & Signature Inspector
+
+- Read-only **Binary & Signature Inspector** opened from IPA Explorer for
+  library packages and signed packages: a dashboard card per executable —
+  main app first, then frameworks, dylibs, app extensions, and nested
+  bundles — with per-target status, live verification progress, and a
+  bundle health summary that states exactly what a signature does and does
+  not prove.
+- **Architecture and structure inspection**: friendly labels for CPU
+  type/subtype, file offset, and size; load commands grouped into
+  Executable, Dynamic Libraries, Security, Linking, and Metadata, with raw
+  values collapsed behind Advanced Details; tappable linked libraries with
+  their origin explained.
+- **Code Signature inspector**: SuperBlob listing, CodeDirectory viewer
+  (version, identifier, team, hash algorithm, page size and count, with
+  plain-language explanations), CMS state without raw blobs, decoded
+  requirement set, entitlement keys (values never leave the boundary),
+  special slots, and page-hash results.
+- **On-device verification**: every code page re-hashed with the
+  CodeDirectory's own algorithm and page size; bound special-slot content
+  re-hashed against recorded digests; the CMS digest bound to the
+  CodeDirectory and the signature checked against the embedded signer's
+  public key. Certificate trust is shown as "not evaluated", never claimed;
+  a check that cannot run is "Not Performed" with the reason, never a
+  silent pass; unsigned code is reported as Unsigned, not failed.
+- **Signature timeline** (executable → CodeDirectory → page hashes →
+  signature applied → verification) with the signer-declared signing time
+  labelled as not a trusted timestamp, a verification details screen for
+  every check, and on-demand re-hashing of every file the resource seal
+  lists.
+- **Binary comparison** against another library record or signed package:
+  size, architectures, signature, CodeDirectory, entitlement keys, linked
+  libraries, build version, and verification differences — meaningful
+  changes only, with same-states stated as identical.
+- **Report export** (text or JSON) through the share sheet with an explicit
+  exclusion statement: no private keys or credentials, no certificate data,
+  serial numbers, or fingerprints, no entitlement values, no raw hash
+  bytes, nothing outside the bundle.
+- **Instant search** across load commands, libraries, architecture fields,
+  and signature fields — case- and diacritic-insensitive, every-word
+  matching, scoped to the current page.
+- **Bounded and read-only**: per-executable, bundle-information, seal, and
+  sealed-file read bounds enforced before reading; structure streamed
+  before verification; readers closed on every outcome; signed packages
+  accepted only from the permitted directory; no binary modification.
+- Dynamic Type, VoiceOver labels with spoken verification summaries, Dark
+  Mode, and large touch targets.
+- Synthetic XCTest coverage for the use case, verifier outcomes,
+  comparison, search, timeline, export, health, and discovery, plus
+  [scope/validation documentation](docs/architecture/binary-signature-inspector.md).
+  Feature entry points ship at Alpha 3 without promoting the current
+  release.
+
 ### Added — Alpha 3 · Step 17: Entitlements Studio
 
 - Read-only App Details workspace with capability-grouped cards, dashboard counts,
@@ -752,7 +1014,6 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   reinforces), dark mode throughout, and an adaptive grid that gives the
   iPad the same content in a wider layout.
 
->>>>>>> origin/main
 ### Added — 0.1.0-alpha.1 · Step 2: Production-Grade IPA Import
 
 - **Import queue** — `PackageImportQueue` accepts packages from every entry

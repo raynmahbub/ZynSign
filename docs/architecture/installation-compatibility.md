@@ -108,6 +108,31 @@ Configurator). Its boundaries are the record's boundaries:
   an installing device could never reach it, and producing a link that
   silently fails off-device would be a dishonest artifact.
 
+## The Installation Workspace (0.9.0-beta.2)
+
+The workspace (see [installation-workspace.md](installation-workspace.md))
+is built *inside* this record's boundaries, and changes none of them:
+
+- `InstallationCapabilityAssessment.deliveryMechanismAvailable` stays
+  `false` on every path the workspace touches. The workspace prepares,
+  gates on its own readiness report, and hands off — it never installs.
+- The **Installed Apps Library** is a ledger the user maintains. A
+  record exists because the user confirmed a delivery or recorded one
+  after the fact; every screen says so. ZynSign cannot see a device's
+  application list, so nothing in the workspace is an observation of
+  one.
+- A **pending delivery attempt** is the honest representation of
+  "delivery started, outcome unknown". Attempts persist as pending
+  across relaunches and are resolved only by the user — confirming or
+  abandoning — so an interrupted delivery is never silently promoted to
+  an installation.
+- The readiness report's language stays inside statement 1–3 territory
+  (artifact, signature, provisioning-recorded facts) plus the workspace
+  facts (export held, metadata present). Statements 4–6 — device
+  compatibility, installation capability, platform acceptance — are
+  never asserted by a passing report, and the report's own guidance
+  says exactly that.
+
 ## Compatibility Notes
 
 - Supported artifact categories are exactly those the inspection and

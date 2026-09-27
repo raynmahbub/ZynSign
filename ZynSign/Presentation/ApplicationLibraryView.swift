@@ -68,7 +68,8 @@ struct ApplicationLibraryView: View {
         signingHistory: (any SigningHistoryStore)? = nil,
         organizer: LibraryOrganizer? = nil,
         provenance: ApplicationProvenanceExtraction? = nil,
-        exporter: LibraryExportPreparation? = nil
+        exporter: LibraryExportPreparation? = nil,
+        performanceEngine: PerformanceEngine? = nil
     ) {
         _model = StateObject(wrappedValue: ApplicationLibraryModel(
             library: library,
@@ -76,7 +77,8 @@ struct ApplicationLibraryView: View {
             signingHistory: signingHistory,
             organizer: organizer,
             provenance: provenance,
-            exporter: exporter
+            exporter: exporter,
+            performanceEngine: performanceEngine
         ))
         self.bundleInspection = bundleInspection
         self.detailsInspection = detailsInspection
@@ -95,6 +97,7 @@ struct ApplicationLibraryView: View {
                     prompt: Text(features.powerFeatures ? "Name, Bundle ID, Developer, Team…" : "Name or Bundle ID")
                 )
                 .toolbar { toolbarContent }
+                .safeAreaInset(edge: .top) { ReleaseReadinessLink().padding(.horizontal).padding(.vertical, 6) }
                 .safeAreaInset(edge: .bottom) { floatingBar }
                 .disabled(model.isRemovingSelection)
                 // Files dropped anywhere on the Library go to the Import Hub.
@@ -287,8 +290,14 @@ struct ApplicationLibraryView: View {
                 .listRowBackground(Color.clear)
             } else {
                 Section {
-                    ForEach(model.visibleIDs, id: \.self) { id in
+                    ForEach(model.renderedIDs, id: \.self) { id in
                         libraryRow(id)
+                            .onAppear { model.rowDidAppear(id) }
+                    }
+                    if model.unrenderedCount > 0 {
+                        LibraryRenderMoreRow(remaining: model.unrenderedCount) {
+                            model.showAllRows()
+                        }
                     }
                 } header: {
                     if features.powerFeatures {
@@ -320,11 +329,18 @@ struct ApplicationLibraryView: View {
                         columns: [GridItem(.adaptive(minimum: gridMinimumWidth), spacing: ZSpacing.sm)],
                         spacing: ZSpacing.sm
                     ) {
-                        ForEach(model.visibleIDs, id: \.self) { id in
+                        ForEach(model.renderedIDs, id: \.self) { id in
                             gridCard(id)
+                                .onAppear { model.rowDidAppear(id) }
                         }
                     }
                     .padding(.horizontal, ZSpacing.sm)
+                    if model.unrenderedCount > 0 {
+                        LibraryRenderMoreRow(remaining: model.unrenderedCount) {
+                            model.showAllRows()
+                        }
+                        .padding(.horizontal, ZSpacing.md)
+                    }
                 }
             }
             .padding(.vertical, ZSpacing.sm)
@@ -1386,6 +1402,54 @@ struct ApplicationLibraryRowContent: Equatable {
     }
 }
 
+// MARK: - Incremental rendering
+
+/// The tail of a long list: skeleton rows standing for the results the
+/// window has not materialised yet, and a way to show them all. Scrolling
+/// into it grows the window on its own; the button is for people who
+/// would rather not scroll, and for VoiceOver, which reads the count.
+struct LibraryRenderMoreRow: View {
+    let remaining: Int
+    let onShowAll: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: ZSpacing.sm) {
+            ForEach(0..<min(3, remaining), id: \.self) { _ in
+                LibrarySkeletonRow()
+            }
+            Button {
+                onShowAll()
+            } label: {
+                Text("Show all \(ApplicationLibraryModel.applicationCount(remaining)) remaining")
+                    .font(.footnote.weight(.medium))
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.vertical, ZSpacing.xxs)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(ApplicationLibraryModel.applicationCount(remaining)) more, loading as you scroll")
+    }
+}
+
+/// One placeholder in the shape of a library row.
+struct LibrarySkeletonRow: View {
+    var body: some View {
+        HStack(spacing: ZSpacing.sm) {
+            RoundedRectangle(cornerRadius: ZRadius.icon)
+                .fill(Color(.tertiarySystemFill))
+                .frame(width: 52, height: 52)
+            VStack(alignment: .leading, spacing: ZSpacing.xxs) {
+                RoundedRectangle(cornerRadius: 3).fill(Color(.tertiarySystemFill)).frame(height: 14)
+                RoundedRectangle(cornerRadius: 3).fill(Color(.tertiarySystemFill)).frame(height: 10).padding(.trailing, 60)
+                RoundedRectangle(cornerRadius: 3).fill(Color(.tertiarySystemFill)).frame(height: 10).padding(.trailing, 120)
+            }
+            Spacer()
+        }
+        .redacted(reason: .placeholder)
+        .accessibilityHidden(true)
+    }
+}
+
 // MARK: - Loading and failure
 
 /// The loading state: skeletons in the shape of the rows that will replace
@@ -1395,20 +1459,9 @@ struct ApplicationLibraryLoadingView: View {
         ScrollView {
             VStack(spacing: ZSpacing.sm) {
                 ForEach(0..<6, id: \.self) { _ in
-                    HStack(spacing: ZSpacing.sm) {
-                        RoundedRectangle(cornerRadius: ZRadius.icon)
-                            .fill(Color(.tertiarySystemFill))
-                            .frame(width: 52, height: 52)
-                        VStack(alignment: .leading, spacing: ZSpacing.xxs) {
-                            RoundedRectangle(cornerRadius: 3).fill(Color(.tertiarySystemFill)).frame(height: 14)
-                            RoundedRectangle(cornerRadius: 3).fill(Color(.tertiarySystemFill)).frame(height: 10).padding(.trailing, 60)
-                            RoundedRectangle(cornerRadius: 3).fill(Color(.tertiarySystemFill)).frame(height: 10).padding(.trailing, 120)
-                        }
-                        Spacer()
-                    }
-                    .redacted(reason: .placeholder)
-                    .padding(.horizontal)
-                    .padding(.vertical, ZSpacing.xxs)
+                    LibrarySkeletonRow()
+                        .padding(.horizontal)
+                        .padding(.vertical, ZSpacing.xxs)
                 }
             }
             .padding(.top, ZSpacing.sm)

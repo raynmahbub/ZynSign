@@ -21,7 +21,7 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
     case entitlementsStudio
     /// The App Store tab: AltSource feeds and repository health.
     case appStore
-    /// The Downloads tab: background downloads with pause / resume / retry.
+    /// The Downloads tab: Download Center queue, validation, and updates.
     case downloads
     /// Home → Mission Control (Refresh Everything).
     case missionControl
@@ -38,6 +38,12 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
     /// expiration warnings, compatibility diagnostics.
     case provisioningProfileManager
 
+    /// Alpha 3: the Developer Identity Center — the unified dashboard,
+    /// team workspace, certificate and profile inspectors, relationship
+    /// graph, health center, conflict detection, expiration forecast,
+    /// identity timeline, and the signing screen's recommended identity.
+    case identityCenter
+
     /// Alpha 2: Professional Signing Queue — the job-based signing system:
     /// queue dashboard, priorities, per-job controls, live stage progress,
     /// failure recovery, persistence, and bulk queue operations.
@@ -50,10 +56,23 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
     /// Beta 3: Productivity — batch signing and signing history.
     case batchSigning
 
+    /// Beta 2: The Installation Workspace — readiness checklists, the
+    /// Installed Apps Library, delivery attempts and confirmations,
+    /// installation history, the artifact relationship view, bulk
+    /// preparation, and storage awareness.
+    case installationWorkspace
+
     /// v1.0.0 distinguishing feature: pre-sign compatibility assessment
     /// that predicts whether a (identity, profile, bundle) combination
     /// will succeed before the pipeline runs.
     case signingHealthScore
+
+    /// Beta 2 distinguishing feature: the hidden Performance page under
+    /// Settings → Advanced, backed by the Performance Engine — library and
+    /// index counts, cache statistics by category, the search-index
+    /// status, benchmarks with regression detection, and manual
+    /// optimization.
+    case performanceDashboard
 
     /// Features that must already be available for this one to make sense.
     ///
@@ -72,10 +91,13 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .activityJournal: return []
         case .libraryPowerFeatures: return []
         case .provisioningProfileManager: return [.smartSign]
+        case .identityCenter: return [.certificateStudio, .smartSign, .provisioningProfileManager]
         case .signingQueue: return [.smartSign]
         case .signingPresets: return [.smartSign, .certificateStudio]
         case .batchSigning: return [.signingPresets]
+        case .installationWorkspace: return [.deliveryHandoff]
         case .signingHealthScore: return [.smartSign, .signingPresets]
+        case .performanceDashboard: return [.libraryPowerFeatures]
         }
     }
 
@@ -86,16 +108,19 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .smartSign: return "Smart Sign"
         case .entitlementsStudio: return "Entitlements Studio"
         case .appStore: return "App Store & Repository Health"
-        case .downloads: return "Background Downloads"
+        case .downloads: return "Download Center"
         case .missionControl: return "Mission Control"
         case .deliveryHandoff: return "Installation Delivery Hand-off"
         case .activityJournal: return "Local Activity Journal"
         case .libraryPowerFeatures: return "Library Power Features"
         case .provisioningProfileManager: return "Provisioning Profile Manager"
+        case .identityCenter: return "Developer Identity Center"
         case .signingQueue: return "Professional Signing Queue"
         case .signingPresets: return "Intelligent Signing Presets"
         case .batchSigning: return "Batch Signing"
+        case .installationWorkspace: return "Installation Workspace"
         case .signingHealthScore: return "Signing Health Score"
+        case .performanceDashboard: return "Performance Engine"
         }
     }
 }
@@ -155,9 +180,9 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
         case .horizon: return []
         case .alpha1: return [.certificateStudio, .libraryPowerFeatures]
         case .alpha2: return [.smartSign, .provisioningProfileManager, .signingQueue, .signingPresets]
-        case .alpha3: return [.appStore, .downloads, .entitlementsStudio]
+        case .alpha3: return [.appStore, .downloads, .entitlementsStudio, .identityCenter]
         case .beta1: return [.missionControl, .deliveryHandoff, .activityJournal]
-        case .beta2: return []
+        case .beta2: return [.installationWorkspace, .performanceDashboard]
         case .beta3: return [.batchSigning]
         case .beta4: return []
         case .rc1, .rc2, .rc3: return []

@@ -277,3 +277,24 @@ recorded in the signing history like any other. Queueing is authorized
 through the app lock. After an interruption, a job that was running is restored as
 failed, never as completed. The decision record is
 [signing-queue.md](signing-queue.md).
+
+## Installation Workspace
+
+The space between "signed" and "on the device" is now a workspace.
+`InstallationWorkspace` joins the library, the signing journal, the
+export catalog, and a new installed-applications catalog into
+candidates; `InstallationReadinessReport` evaluates the six checks
+ZynSign actually performs (signed, verified, package, export, identity
+currency, metadata) from evidence those stores already hold, reporting
+missing evidence as *not performed* rather than a pass. The Installed
+Apps Library keeps one user-confirmed record per bundle identifier with
+bounded events; deliveries the user starts stay **pending attempts**
+until the user confirms or abandons them — across relaunches, never
+auto-resolved — so interrupted work is never mistaken for a success.
+Bulk preparation runs through `InstallationPreparationQueue`
+(readiness + independent verification, read-only, one job at a time);
+bulk delivery does not exist, because every delivery is a deliberate,
+readiness-gated act. The decision record is
+[installation-workspace.md](installation-workspace.md); the
+installation boundary it operates inside is
+[installation-compatibility.md](installation-compatibility.md).

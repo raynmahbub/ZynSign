@@ -108,6 +108,14 @@ final class ReleaseTrainTests: XCTestCase {
         XCTAssertEqual(ReleaseFeature.entitlementsStudio.displayName, "Entitlements Studio")
     }
 
+    func testInstallationWorkspaceShipsAtBetaTwo() {
+        XCTAssertFalse(ReleaseStage.beta1.features.contains(.installationWorkspace))
+        XCTAssertTrue(ReleaseStage.beta2.introducedFeatures.contains(.installationWorkspace))
+        XCTAssertTrue(ReleaseGate(stage: .beta2, exposesEverything: false).isAvailable(.installationWorkspace))
+        XCTAssertEqual(ReleaseFeature.installationWorkspace.prerequisites, [.deliveryHandoff])
+        XCTAssertEqual(ReleaseFeature.installationWorkspace.displayName, "Installation Workspace")
+    }
+
     func testFeatureCompleteFromTheFinalRelease() {
         for stage in ReleaseStage.allCases where stage >= .stable {
             XCTAssertEqual(stage.features, Set(ReleaseFeature.allCases), "\(stage) must be feature complete")

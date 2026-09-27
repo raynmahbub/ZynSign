@@ -12,6 +12,7 @@ enum SensitiveAction: String, CaseIterable, Sendable {
     case clearStorage
     case exportDiagnostics
     case changeSecuritySettings
+    case removeIdentity
 
     /// The action's name, for the Security Center's list.
     var title: String {
@@ -21,6 +22,7 @@ enum SensitiveAction: String, CaseIterable, Sendable {
         case .clearStorage: return "Clear stored files"
         case .exportDiagnostics: return "Export a diagnostic report"
         case .changeSecuritySettings: return "Change security settings"
+        case .removeIdentity: return "Remove a signing identity"
         }
     }
 
@@ -32,6 +34,7 @@ enum SensitiveAction: String, CaseIterable, Sendable {
         case .clearStorage: return "Authenticate to remove files ZynSign keeps."
         case .exportDiagnostics: return "Authenticate to export a diagnostic report."
         case .changeSecuritySettings: return "Authenticate to change ZynSign's security settings."
+        case .removeIdentity: return "Authenticate to remove a signing identity's registration. The key itself stays in the Keychain."
         }
     }
 }
