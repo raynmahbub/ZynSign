@@ -12,6 +12,64 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — RC 1 · Step 27: Production Hardening & Compatibility Lab
+
+**No user-facing features.** This step promotes the release train to
+`v1.0.0-rc.1` (market `1.0.0`, build `5`), which switches on every staged
+feature, and adds the validation a release candidate is judged by.
+Notes: [`docs/releases/notes-v1.0.0-rc.1.md`](docs/releases/notes-v1.0.0-rc.1.md) ·
+pack: [`docs/hardening/README.md`](docs/hardening/README.md).
+
+- **Compatibility Lab** *(Debug and internal builds only)* —
+  `Settings → Compatibility Lab`. Ten suites: signing scenarios, iOS
+  compatibility, device compatibility, store and downloads, resources, crash
+  resilience, performance, security posture, accessibility, regressions. Six
+  dashboard rows, four further categories, a deterministic JSON report, and a
+  browsable page from `Scripts/generate_hardening_report.py`. A run imports
+  nothing, signs nothing, exports nothing and cleans nothing up — it builds
+  synthetic packages in a scratch directory and removes them.
+- **Signing Scenario Lab** — eight package shapes (simple, frameworks,
+  extensions, multiple bundles, unsigned, already signed, large, edge-case
+  layout) built from nothing, read back through the production pipeline, and
+  run twice each so a result has to reproduce. Nothing is signed: the lab
+  verifies preparation, and says so.
+- **Regression suite** — eleven frozen behaviours, each naming the tests that
+  keep it frozen; nine asserted in the running app, two deferred to the test
+  target and reported as not run rather than claimed.
+- **Crash hardening** — ten crash-surface constructs across nine sites became
+  five, all preview-fixture helpers. Fixed: an `as!` on a resolved `SecKey`,
+  two force-unwrapped release-stage indices, a force-unwrapped executable
+  path, a force-unwrapped modification date, three `URL(string:)…!` links, and
+  an implicitly-unwrapped `URLSession` property that is now a `let`.
+  `Scripts/audit_crash_surface.py` refuses a build in which the code and
+  `CrashSurfaceBaseline.swift` disagree.
+- **Error recovery** — `ErrorRecoveryAdvisor` gives every failure the same
+  three answers: what happened, what was verified, and what to do next, mapped
+  over ZynSign's own typed failure vocabularies with the category as the
+  fallback.
+- **Host audits** — `audit_crash_surface.py`, `audit_accessibility.py` (with
+  reviewed waivers) and `audit_regression_coverage.py` run in CI.
+
+### Changed
+
+- `RepositoryHealthProbe` fetches through an injectable
+  `RepositoryHealthTransport`, so offline, slow, failing, malformed and
+  truncated responses are reproduced rather than waited for.
+- A transport failure is reduced to one word from a closed vocabulary
+  (`timeout`, `offline`, `connection lost`, `cancelled`, `host not found`,
+  `tls`, `bad response`, `transport`) instead of the platform's own error
+  text, which can carry a host name.
+- Settings sections can be `isValidationOnly`, so a section a build cannot run
+  is withheld from its lists without being unregistered.
+
+### Known limitations
+
+Carried in `ReleaseBlockerRecord.registry` and shown in the Lab: in-app
+installation has no available mechanism *(Low, accepted)*; the device and iOS
+matrices need physical-device confirmation *(Medium, open)*; signing scenarios
+stop at preparation without signing material *(Medium, open)*; simulator
+performance figures are not device figures *(Low, accepted)*.
+
 ### Added — Beta 2 · Step 25: Performance Engine & Large Library Optimization
 
 - `PerformanceEngine` façade (Application) over a `BackgroundWorkScheduler`

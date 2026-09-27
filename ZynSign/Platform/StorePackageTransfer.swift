@@ -3,8 +3,8 @@ import Foundation
 /// One foreground transfer. Suspension is supported only during this process;
 /// relaunches become explicit interrupted jobs, not a false promise of resumption.
 final class StorePackageTransfer: NSObject, URLSessionDownloadDelegate, StoreTransferring, @unchecked Sendable {
-    private var session: URLSession!
-    private var task: URLSessionDownloadTask!
+    private var session: URLSession?
+    private var task: URLSessionDownloadTask?
     private let destination: URL
     private let expectedSize: Int64?
     private let progress: @Sendable (Double?) -> Void
@@ -22,13 +22,14 @@ final class StorePackageTransfer: NSObject, URLSessionDownloadDelegate, StoreTra
         config.httpCookieStorage = nil; config.urlCredentialStorage = nil
         config.timeoutIntervalForRequest = 60; config.timeoutIntervalForResource = 3600
         let delegateQueue = OperationQueue(); delegateQueue.maxConcurrentOperationCount = 1
-        session = URLSession(configuration: config, delegate: self, delegateQueue: delegateQueue)
-        task = session.downloadTask(with: url)
+        let session = URLSession(configuration: config, delegate: self, delegateQueue: delegateQueue)
+        self.session = session
+        self.task = session.downloadTask(with: url)
     }
-    func start() { task.resume() }
-    func pause() { task.suspend() }
-    func resume() { task.resume() }
-    func cancel() { task.cancel() }
+    func start() { task?.resume() }
+    func pause() { task?.suspend() }
+    func resume() { task?.resume() }
+    func cancel() { task?.cancel() }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {

@@ -63,7 +63,8 @@ actor RecoveryStore {
         let file = try await archive.create(categories: categories, password: password)
         do {
             let manifest = try await archive.inspect(file, password: password)
-            let item = BackupHistoryItem(id: UUID(uuidString: file.deletingPathExtension().lastPathComponent)!,
+            let itemID = UUID(uuidString: file.deletingPathExtension().lastPathComponent) ?? UUID()
+            let item = BackupHistoryItem(id: itemID,
                 name: "Manual Backup", createdAt: manifest.createdAt,
                 bytes: Int64((try file.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? 0),
                 categories: BackupCategory.allCases.filter { manifest.categories.contains($0) })

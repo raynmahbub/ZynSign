@@ -37,7 +37,7 @@ enum ExpirationForecastBand: Int, Comparable, CaseIterable, Equatable, Hashable,
     static func band(forDaysRemaining days: Int) -> ExpirationForecastBand {
         if days < 0 { return .expired }
         for band in [.critical, .important, .warning] {
-            if days <= thresholds[band]! { return band }
+            if let threshold = thresholds[band], days <= threshold { return band }
         }
         return .watch
     }

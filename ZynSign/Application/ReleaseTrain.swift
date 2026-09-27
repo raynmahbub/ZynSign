@@ -206,7 +206,14 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
 
     static func < (lhs: ReleaseStage, rhs: ReleaseStage) -> Bool {
         let all = ReleaseStage.allCases
-        return all.firstIndex(of: lhs)! < all.firstIndex(of: rhs)!
+        // Both stages are declared in `allCases`, so both indices exist.
+        // The guard keeps that a fact the compiler checks rather than an
+        // assumption a trap would enforce: ordering two stages that are not
+        // on the train as equal leaves the comparator total.
+        guard let left = all.firstIndex(of: lhs), let right = all.firstIndex(of: rhs) else {
+            return false
+        }
+        return left < right
     }
 
     /// Looks a stage up by its raw name (`alpha1`) or its version (`0.1.0-alpha.1` / `v0.1.0-alpha.1`).
@@ -231,7 +238,7 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
 enum ReleaseTrain {
 
     /// The release this build is cut for. Edited by `Scripts/release_train.py`.
-    static let current: ReleaseStage = .horizon
+    static let current: ReleaseStage = .rc1
 
     /// `UserDefaults` / launch-argument key for the Debug-only preview override.
     static let previewDefaultsKey = "ZynSignReleaseStage"

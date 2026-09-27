@@ -15,3 +15,7 @@ __pycache__/
 
 # External validation output from local runs (regenerated on every run)
 .external-validation/
+
+# Hardening report output from Scripts/generate_hardening_report.py
+# (regenerated on every run; CI uploads it as an artifact)
+build/

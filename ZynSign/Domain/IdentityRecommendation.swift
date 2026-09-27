@@ -184,7 +184,7 @@ struct IdentityRecommender: Sendable {
                     certificateCount: certificates.count,
                     referenceDate: referenceDate
                 )
-                if best == nil || scoring.score > best!.score {
+                if best.map({ scoring.score > $0.score }) ?? true {
                     best = (scoring.candidate, scoring.score)
                 }
             } else if eligibleProfiles.isEmpty && bundleIdentifier == nil {
@@ -201,7 +201,7 @@ struct IdentityRecommender: Sendable {
                     certificateCount: certificates.count,
                     referenceDate: referenceDate
                 )
-                if best == nil || scoring.score > best!.score {
+                if best.map({ scoring.score > $0.score }) ?? true {
                     best = (scoring.candidate, scoring.score)
                 }
             }

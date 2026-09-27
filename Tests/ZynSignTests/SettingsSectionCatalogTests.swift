@@ -94,7 +94,16 @@ final class SettingsSectionCatalogTests: XCTestCase {
     func testOnlyAdvancedIsMarkedForExperiencedUsers() {
         let advanced = SettingsSectionCatalog.all.filter(\\.descriptor.isAdvanced)
 
-        XCTAssertEqual(advanced.map(\\.descriptor.identifier), [.advanced])
+        // Advanced and the Compatibility Lab: both are kept apart from
+        // everyday settings, the Lab because it validates a release rather
+        // than configures the app.
+        XCTAssertEqual(Set(advanced.map(\\.descriptor.identifier)), [.advanced, .compatibilityLab])
+    }
+
+    func testTheValidationSectionIsTheOnlyOneMarkedValidationOnly() {
+        let validationOnly = SettingsSectionCatalog.all.filter(\\.descriptor.isValidationOnly)
+
+        XCTAssertEqual(validationOnly.map(\\.descriptor.identifier), [.compatibilityLab])
     }
 
     func testDescriptorsAreUniqueAndHashable() {

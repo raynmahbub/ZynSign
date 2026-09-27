@@ -825,4 +825,65 @@ identifiers, or user data. See [SECURITY.md](../../SECURITY.md).
 
 ## Index
 
-No documents yet.
+- [RC hardening pack](../hardening/README.md) — the Compatibility Lab, the
+  matrices, and every check a release candidate is judged by.
+- [Continuous integration](../development/continuous-integration.md) — what
+  each job establishes, and what it refuses.
+
+## RC 1 · Compatibility Lab and hardening tests
+
+Six test types were added with the RC 1 hardening work. They run in the
+existing Xcode unit-test target alongside everything above:
+
+| Test type | What it asserts |
+|---|---|
+| `CompatibilityLabScenarioTests` | Every one of the eight signing scenarios runs twice with the same result, meets its declared expectation, produces a check that answers all three questions, and leaves no file behind. Also that the synthetic Mach-O image parses as thin `arm64`, and that every fixture identifier sits under `com.zynsign.lab`. |
+| `CompatibilityLabReportTests` | The rollup takes the worst outcome and lets an unrun check outrank a pass; the JSON round-trips and is deterministic; an overlay fills only a check that did not run and never overturns a measurement; the checklist and the readiness verdict reduce from evidence. |
+| `CompatibilityLabIntegrationTests` | A whole Lab run produces a check in every reported category, leaves its scratch directory gone, says what it does not claim, and fills the checklist. |
+| `ErrorRecoveryAdvisorTests` | Every case of every typed failure vocabulary — identity, profile, CMS, crypto — and every category produces all three answers; advice never restates a diagnostic detail or a host name. |
+| `StoreResilienceTests` | Offline, slow, failing, malformed and truncated responses each end in a health state; no transport failure escapes as an error; the failure category is reduced to a fixed word. |
+| `DownloadsResilienceTests` | Transferred packages land inside Documents; the directory exists when asked for; pausing or cancelling an identifier the service is not tracking is a no-op, not a trap. |
+
+Two of them matter more than they look:
+
+- `testARunLeavesNoFilesInItsScratchDirectory` is the reason the Lab is safe to
+  run on a device somebody cares about. A validation tool that leaves working
+  copies behind is how a library gets corrupted.
+- `testAnOverlayFillsOnlyACheckThatDidNotRun` is the reason an imported result
+  can be trusted. An overlay that could overturn a measurement would make every
+  row suspect.
+
+### Execution status
+
+**These tests have not been executed in the environment where they were
+written** — that environment has no Swift compiler or Xcode. They are written
+to run in the `ZynSignTests` target with Xcode's test runner, and CI's
+`Build and test (Xcode)` job is the judge. This document claims nothing about
+their results until that job has run.
+
+What *was* executed on the host that wrote them, and is reproducible from this
+repository:
+
+```bash
+python3 Scripts/audit_crash_surface.py         # 5 constructs, every one justified
+python3 Scripts/audit_accessibility.py         # 0 findings; 2 waived; 5 to review
+python3 Scripts/audit_regression_coverage.py   # 11 behaviours; every named test exists
+python3 Scripts/generate_hardening_report.py   # the browsable page
+```
+
+The third of those is the check that keeps the regression catalogue honest: it
+reads the catalogue out of the Swift file that owns it and refuses a name that
+does not exist in the test target.
+
+### What the Lab never does
+
+The Lab runs inside the application, so the tests hold it to a stronger
+standard than "it does not crash". A Lab run:
+
+- imports nothing into the library;
+- signs nothing;
+- exports no artifact;
+- runs no cleanup;
+- writes only to its own scratch directory, and removes it afterwards.
+
+If a future change makes any of those false, the tests above fail — by design.

@@ -32,10 +32,50 @@ struct RepositoryProbeResult: Equatable {
     let probedAt: Date
 }
 
+/// The boundary through which one health probe fetches a source document.
+///
+/// A probe is a bounded, credential-free GET, and that is all this port
+/// offers. It exists so the network's failure modes — offline, slow, broken,
+/// partial — can be reproduced in a test and in the Compatibility Lab
+/// without reaching a real host, and so the probe itself contains no
+/// transport policy of its own.
+protocol RepositoryHealthTransport: Sendable {
+
+    /// Performs one request, or throws the transport's own failure.
+    func fetch(_ request: URLRequest) async throws -> (Data, URLResponse)
+}
+
+/// The transport ZynSign uses: the shared session, with no credential and no
+/// customisation beyond what the request itself asks for.
+struct URLSessionRepositoryHealthTransport: RepositoryHealthTransport {
+
+    func fetch(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        try await URLSession.shared.data(for: request)
+    }
+}
+
 /// Bounded health probe for a source URL.
 /// Single GET, 3s timeout, validates that body is JSON and parses as AltSource.
+///
+/// The transport is injectable so a failure can be reproduced rather than
+/// waited for: the Compatibility Lab probes through transports that never
+/// reach a network, and asserts that every one of them still ends in a state
+/// the interface can render.
 struct RepositoryHealthProbe {
-    private let timeout: TimeInterval = 3.0
+
+    /// How long one probe waits before it gives up.
+    let timeout: TimeInterval
+
+    /// The transport the probe fetches through.
+    let transport: any RepositoryHealthTransport
+
+    init(
+        transport: any RepositoryHealthTransport = URLSessionRepositoryHealthTransport(),
+        timeout: TimeInterval = 3.0
+    ) {
+        self.transport = transport
+        self.timeout = timeout
+    }
 
     func probe(url: URL) async -> RepositoryProbeResult {
         let start = Date()
@@ -43,7 +83,7 @@ struct RepositoryHealthProbe {
         req.timeoutInterval = timeout
         req.cachePolicy = .reloadIgnoringLocalCacheData
         do {
-            let (data, response) = try await URLSession.shared.data(for: req)
+            let (data, response) = try await transport.fetch(req)
             let ms = Int(Date().timeIntervalSince(start) * 1000)
             guard let http = response as? HTTPURLResponse else {
                 return RepositoryProbeResult(health: .offline, latencyMilliseconds: ms, httpStatus: nil, errorCategory: "no http", probedAt: Date())
@@ -60,7 +100,40 @@ struct RepositoryHealthProbe {
             return RepositoryProbeResult(health: health, latencyMilliseconds: ms, httpStatus: http.statusCode, errorCategory: nil, probedAt: Date())
         } catch {
             let ms = Int(Date().timeIntervalSince(start) * 1000)
-            return RepositoryProbeResult(health: .offline, latencyMilliseconds: ms, httpStatus: nil, errorCategory: error.localizedDescription, probedAt: Date())
+            return RepositoryProbeResult(
+                health: .offline,
+                latencyMilliseconds: ms,
+                httpStatus: nil,
+                errorCategory: Self.transportErrorCategory(error),
+                probedAt: Date()
+            )
+        }
+    }
+
+    /// Reduces a transport failure to one of a few fixed words.
+    ///
+    /// A platform error's own text can carry a host name, a path, or a
+    /// credential-ish fragment, and the probe's result is shown in the
+    /// interface and written to reports. The category is therefore chosen
+    /// from a closed vocabulary: enough to tell an offline device from a
+    /// timeout, never enough to leak what the network said.
+    static func transportErrorCategory(_ error: Error) -> String {
+        let failure = error as NSError
+        guard failure.domain == NSURLErrorDomain else { return "transport" }
+        switch failure.code {
+        case NSURLErrorTimedOut: return "timeout"
+        case NSURLErrorNotConnectedToInternet, NSURLErrorCannotConnectToHost, NSURLErrorCallIsActive:
+            return "offline"
+        case NSURLErrorNetworkConnectionLost: return "connection lost"
+        case NSURLErrorCancelled, NSURLErrorUserCancelledAuthentication: return "cancelled"
+        case NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed: return "host not found"
+        case NSURLErrorSecureConnectionFailed,
+             NSURLErrorServerCertificateUntrusted,
+             NSURLErrorServerCertificateHasBadDate,
+             NSURLErrorServerCertificateNotYetValid:
+            return "tls"
+        case NSURLErrorBadServerResponse, NSURLErrorCannotParseResponse: return "bad response"
+        default: return "transport"
         }
     }
 }

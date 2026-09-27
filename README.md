@@ -43,13 +43,15 @@ Features are finished and compiled in. `ReleaseTrain.current` in [`ReleaseTrain.
 
 | Release | Switches on |
 |---|---|
-| **`v0.1.0`** ◀ current | Home Dashboard · Import · Library (grid/list, search, sort, favourites) · Bundle Explorer · Certificates · Profiles · Settings |
+| `v0.1.0` | Home Dashboard · Import · Library (grid/list, search, sort, favourites) · Bundle Explorer · Certificates · Profiles · Settings |
 | `v0.1.0-alpha.1` | Certificate Studio · Advanced Library (collections, smart collections, stackable filters, statistics, bulk and quick actions) |
 | `v0.1.0-alpha.2` | Smart Sign (+ Signing Options, Installation screen) · Professional Signing Queue · Intelligent Signing Presets |
 | `v0.1.0-alpha.3` | Entitlements Studio · App Store + Repository Health · Download Center |
 | `v0.9.0-beta.1` | Mission Control · Delivery Hand-off · Activity Journal — **feature complete** |
-| `v0.9.0-beta.2` | Installation Workspace (readiness, Installed Apps Library, confirmed deliveries, history) |
-| `v0.9.0-beta.3…4` → `v1.0.0-rc.1…3` → `v1.0.0` | Batch Signing, then fixes |
+| `v0.9.0-beta.2` | Installation Workspace (readiness, Installed Apps Library, confirmed deliveries, history) · Performance Engine |
+| `v0.9.0-beta.3…4` | Batch Signing, then fixes |
+| **`v1.0.0-rc.1`** ◀ current | Fixes only — plus the **Compatibility Lab** (Debug and internal builds only): validation apparatus, never a user feature |
+| `v1.0.0-rc.2…3` → `v1.0.0` | Fixes only, then the Signing Health Score |
 
 ```sh
 python3 Scripts/release_train.py status     # what's visible now, what's next
@@ -126,10 +128,11 @@ docs/
   product/                 UNIQUE_VALUE_PROPOSITION.md, WHAT_DOES_NOT_EXIST.md (9 wired · 3 never — the three nevers are narrower than 0.1.0's)
   design/                  zynsign-design-language.md (ZDL v1.0)
   security/                provisioning-profiles, signing-identities, release-review
-  releases/                version-strategy (0.1.0 Horizon), history
+  releases/                version-strategy (0.1.0 Horizon), history, notes, documentation freeze
+  hardening/               RC validation: compatibility lab, matrices, performance, accessibility, release blockers
   development/             CI, toolchain
 .github/
-  workflows/ci.yml         Build + test (simulator) + host vector + external validation (non-gating)
+  workflows/ci.yml         Build + test (simulator) + host vector + external validation (non-gating) + RC audits
 ```
 
 ---
@@ -163,6 +166,33 @@ Details: `docs/security/signing-identities.md` · `docs/security/provisioning-pr
 
 ---
 
+## Release readiness
+
+A release candidate is judged in one place: the **Compatibility Lab**
+(`Settings → Compatibility Lab`, Debug and internal builds only). It runs ten
+suites against the running app and the device, and reduces the outcome to a
+report, a checklist, and a verdict — `Ready`, `Incomplete`, or `Blocked`.
+
+Its rules, which are the ones this project holds itself to:
+
+- A check that did not run is an **open question**, not a pass, and it
+  outranks a pass whenever results roll up.
+- Every check answers **what happened, what was verified, and what to do
+  next**.
+- The Lab imports nothing, signs nothing, exports nothing and cleans nothing
+  up. It builds synthetic packages in a scratch directory and removes them.
+- Results that only a human can produce — VoiceOver, a frame rate, another
+  device — are reported as not run and named, never filled in.
+
+```sh
+python3 Scripts/generate_hardening_report.py --input <report>.json \
+    --output build/hardening/index.html   # the browsable page
+```
+
+Full pack: [`docs/hardening/README.md`](docs/hardening/README.md).
+
+---
+
 ## Development
 
 ZynSign is built in small, explicitly scoped increments:
@@ -173,13 +203,19 @@ ZynSign is built in small, explicitly scoped increments:
 - **Verifiable** — build / test / explicit “no check applies”.
 - **Human-controlled Git** — commits/pushes/tags/releases by the developer; work lands on `main` through reviewed `arena/<id>-zynsign` branches.
 
-Current release: `0.1.0` Horizon on the release train (market `0.1.0`, build `4`; public tag `v0.1.0` after the private matrix is green). Next: `v0.1.0-alpha.1` (Certificate Studio) via `python3 Scripts/release_train.py promote`.
+Current release: `v1.0.0-rc.1` on the release train (market `1.0.0`, build `5`), which switches on every staged feature. Next: `v1.0.0-rc.2` via `python3 Scripts/release_train.py promote`. RC 1 adds no user-facing feature — it adds the [RC hardening pack](docs/hardening/README.md): a Compatibility Lab that runs on the device, a crash-surface inventory CI enforces, an error-recovery answer for every failure, and documentation that says what was actually checked.
 
 ```sh
 git clone https://github.com/raynmahbub/ZynSign.git
 cd ZynSign
 open ZynSign.xcodeproj # Xcode 16+, iOS 17+ simulator
 # Tests: Product → Test (⌘U) — domain + import + library + certs + provisioning + MachO + signing metadata
+
+# RC audits, without Xcode:
+python3 Scripts/audit_crash_surface.py        # the crash-surface inventory
+python3 Scripts/audit_accessibility.py        # colours, touch targets, text scaling
+python3 Scripts/audit_regression_coverage.py  # the regression catalogue names real tests
+python3 Scripts/generate_hardening_report.py  # the browsable hardening page
 # Host vectors: Tests/Host/external_validation.py run  (macOS codesign/otool/openssl, non-gating)
 ```
 

@@ -328,8 +328,9 @@ enum CompositionRoot {
                 "{\"name\":\"Sample App \(offset)\",\"bundleIdentifier\":\"com.example.sample\(offset)\",\"version\":\"1.\(offset % 20)\",\"subtitle\":\"Benchmark entry\"}"
             }.joined(separator: ",")
             let data = Data("{\"name\":\"Benchmark\",\"apps\":[\(apps)]}".utf8)
-            guard let manifest = StoreManifestCache.decodeFeed(
-                data, sourceID: "benchmark", url: URL(string: "https://example.invalid/apps.json")!,
+            guard let benchmarkURL = URL(string: "https://example.invalid/apps.json"),
+                  let manifest = StoreManifestCache.decodeFeed(
+                data, sourceID: "benchmark", url: benchmarkURL,
                 entityTag: nil, lastModified: nil, fetchedAt: Date()
             ) else { throw ZynSignError.packagingFailure(diagnosticDetail: "The benchmark manifest did not decode.") }
             let catalog = StoreCatalog(manifests: [manifest])
@@ -1652,7 +1653,7 @@ enum CompositionRoot {
     /// container's Application Support directory: a location the system
     /// does not purge, private to the application, and covered by the
     /// container's default file protection.
-    private static var libraryRootDirectory: URL {
+    static var libraryRootDirectory: URL {
         let applicationSupport = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first

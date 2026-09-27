@@ -12,7 +12,7 @@ there by design, as it does everywhere without
 
 | Job | Runner | Steps |
 | --- | --- | --- |
-| Repository hygiene | `ubuntu-latest` | Refuse private-key material anywhere; refuse certificate text outside `Tests/`; refuse generated artifacts and machine state (`DerivedData/`, `xcuserdata/`, `*.xcresult`, `*.xcuserstate`, `.DS_Store`); run the host vector scripts and the external validation harness self-test |
+| Repository hygiene | `ubuntu-latest` | Refuse private-key material anywhere; refuse certificate text outside `Tests/`; refuse generated artifacts and machine state (`DerivedData/`, `xcuserdata/`, `*.xcresult`, `*.xcuserstate`, `.DS_Store`); check the release train is consistent; run the host vector scripts and the external validation harness self-test; **refuse a crash surface that disagrees with its baseline; refuse an accessibility finding in the sources; refuse a regression catalogue that names a test which does not exist; build and upload the hardening report** |
 | Build and test (Xcode) | `macos-15` | Select the newest stable Xcode, record the toolchain versions, build the application target for the generic iOS Simulator platform, run the `ZynSign` scheme's unit-test target on an iPhone simulator |
 | External validation (Apple tooling) | `macos-15` | Run `ExternalValidationExportTests` with `TEST_RUNNER_ZYNSIGN_EXPORT_DIR` set, judge the exported artifacts with `Tests/Host/external_validation.py run` (`codesign`, `otool`, `ditto`, `unzip`, OpenSSL, ad hoc reference signing), publish the report to the job summary, upload the report and the exports as the `external-validation` artifact, and emit one notice per artifact |
 
@@ -36,6 +36,20 @@ matching outside `Tests/` fails the job.
   fails only when the harness cannot run, never because `codesign` rejects
   an artifact. See
   [external-validation.md](../architecture/external-validation.md).
+- **That the crash surface still matches its inventory.** Every `try!`,
+  `as!`, force unwrap, `fatalError`, `preconditionFailure`, `precondition`,
+  `assertionFailure`, `unowned` and implicitly-unwrapped property in the
+  application's sources must be absent or named in
+  `CrashSurfaceBaseline.swift` with a reason. A new one fails the job.
+- **That no hard-coded colour or undersized control was introduced.** The
+  accessibility source audit runs with `--strict`, so a finding fails the
+  job; a `review` item (text that may shrink below 0.75 scale) is reported
+  and does not.
+- **That every behaviour the regression catalogue freezes names a test that
+  exists.** A name nobody keeps is worse than no name.
+- **That the hardening report builds**, and is uploaded as an artifact. With
+  no device report available on the runner, every device row is reported as
+  not run rather than filled in.
 
 ## What CI Does Not Claim
 
@@ -77,15 +91,26 @@ python3 Tests/Host/external_validation.py run \
   --report-dir .external-validation/report
 ```
 
-Without Xcode, only the host vectors, the harness self-test, and the
-hygiene greps apply:
+Without Xcode, only the host vectors, the harness self-test, the RC audits,
+and the hygiene greps apply:
 
 ```
 python3 Tests/Host/verify_macho_signing_vector.py
 python3 Tests/Host/verify_nested_code_signing_vector.py
 python3 Tests/Host/verify_zip_writer_vectors.py
 python3 Tests/Host/external_validation.py self-test
+
+python3 Scripts/release_train.py check
+python3 Scripts/audit_crash_surface.py
+python3 Scripts/audit_accessibility.py --strict
+python3 Scripts/audit_regression_coverage.py
+python3 Scripts/generate_hardening_report.py --output build/hardening/index.html
 ```
 
 A clean exit from the host scripts is not an executed test run of the Swift
 suites. Report it as what it is.
+
+The RC audits have a `--json` flag each for a machine-readable result, and
+`audit_accessibility.py` can write a Compatibility Lab overlay with
+`--overlay-out`. The crash-surface audit takes `--list` to show every line it
+matched. See [the hardening pack](../hardening/README.md).

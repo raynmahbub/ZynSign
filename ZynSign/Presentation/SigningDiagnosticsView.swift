@@ -123,9 +123,12 @@ struct SigningCompatibilitySummary: View {
 /// A full, per-app inspector; history contains status/codes only and can never
 /// reconstruct or display old profile values, keys, paths or identifiers.
 struct SigningDiagnosticsView: View {
+    /// Where the independent validation record lives. Optional because a URL
+    /// is built from text: the two call sites guard it, and a link that
+    /// cannot be built is simply not shown rather than a trap.
     static let validationRecordURL = URL(string:
         "https://github.com/raynmahbub/ZynSign/blob/main/docs/architecture/external-validation.md"
-    )!
+    )
 
     let report: SigningDiagnosticsReport
     let history: [SigningDiagnosticSnapshot]
@@ -184,7 +187,9 @@ struct SigningDiagnosticsView: View {
             Section("Platform Boundary") {
                 Text(SigningDiagnostic.platformBoundary)
                     .font(.footnote).foregroundStyle(.secondary)
-                Link("Read the independent validation record", destination: Self.validationRecordURL)
+                if let validationRecordURL = Self.validationRecordURL {
+                    Link("Read the independent validation record", destination: validationRecordURL)
+                }
                     .font(.footnote)
             }
         }
@@ -265,7 +270,9 @@ struct SigningDiagnosticIssueView: View {
             Section("ZynSign's local check") { Text(issue.whatWasVerified) }
             Section("What still depends on iOS") {
                 Text(SigningDiagnostic.platformBoundary)
-                Link("Read the independent validation record", destination: SigningDiagnosticsView.validationRecordURL)
+                if let validationRecordURL = SigningDiagnosticsView.validationRecordURL {
+                    Link("Read the independent validation record", destination: validationRecordURL)
+                }
                     .font(.footnote)
             }
             Section("Recommended next step") {

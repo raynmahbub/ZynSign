@@ -14,6 +14,10 @@ enum SettingsSectionIdentifier: String, CaseIterable, Hashable, Sendable {
     case advanced
     case recovery
     case about
+
+    /// The Compatibility Lab: validation apparatus, present in Debug and
+    /// internal builds.
+    case compatibilityLab
 }
 
 /// What the Control Center knows about a section before it opens it.
@@ -46,6 +50,12 @@ struct SettingsSectionDescriptor: Identifiable, Hashable, Sendable {
     /// apart from everyday settings.
     var isAdvanced: Bool = false
 
+    /// Whether the section exists to validate a release rather than to
+    /// configure the app. A validation-only section is compiled into Debug
+    /// and internal builds, and is kept out of the lists any other build
+    /// shows.
+    var isValidationOnly: Bool = false
+
     var id: String { identifier.rawValue }
 }
 
@@ -63,6 +73,14 @@ struct SettingsSectionScreen: Identifiable {
     let destination: @MainActor () -> AnyView
 
     var id: String { descriptor.id }
+
+    /// Whether this section's page can do anything in this build. A
+    /// validation-only section is registered like any other — so the catalog
+    /// is the same list in every build — and is withheld from the lists a
+    /// build that cannot run it would show.
+    var isAvailable: Bool {
+        !descriptor.isValidationOnly || CompatibilityLabAvailability.isCompiledIn
+    }
 }
 
 /// Every settings section, in the order the Control Center lists them.
@@ -103,6 +121,9 @@ enum SettingsSectionCatalog {
         },
         SettingsSectionScreen(descriptor: AboutSettingsSection.descriptor) {
             AnyView(AboutSettingsSection())
+        },
+        SettingsSectionScreen(descriptor: CompatibilityLabSection.descriptor) {
+            AnyView(CompatibilityLabSection())
         }
     ]
 
@@ -114,13 +135,18 @@ enum SettingsSectionCatalog {
     /// The everyday sections, in display order.
     static var everyday: [SettingsSectionScreen] {
         all.filter {
-            !$0.descriptor.isAdvanced && !$0.descriptor.isDestructive && $0.descriptor.identifier != .about
+            !$0.descriptor.isAdvanced
+                && !$0.descriptor.isDestructive
+                && $0.descriptor.identifier != .about
+                && $0.isAvailable
         }
     }
 
     /// The sections kept apart from everyday settings.
     static var separated: [SettingsSectionScreen] {
-        all.filter { $0.descriptor.isAdvanced || $0.descriptor.isDestructive }
+        all.filter {
+            ($0.descriptor.isAdvanced || $0.descriptor.isDestructive) && $0.isAvailable
+        }
     }
 
     /// About, on its own at the end.
