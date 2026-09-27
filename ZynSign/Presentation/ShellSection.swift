@@ -21,6 +21,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
     case appStore
     case downloads
     case presets
+    case install
 
     var id: Self { self }
 
@@ -41,6 +42,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
         case .appStore: return "App Store"
         case .downloads: return "Downloads"
         case .presets: return "Presets"
+        case .install: return "Install"
         }
     }
 
@@ -56,6 +58,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
         case .appStore: return "bag.fill"
         case .downloads: return "arrow.down.circle.fill"
         case .presets: return "rectangle.stack.fill"
+        case .install: return "arrow.down.app.fill"
         }
     }
 
@@ -71,6 +74,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
         case .appStore: return "bag"
         case .downloads: return "arrow.down.circle"
         case .presets: return "rectangle.stack"
+        case .install: return "arrow.down.app"
         }
     }
 
@@ -98,6 +102,8 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
             return "Download packages from URLs, track progress, and import them into the library when finished."
         case .presets:
             return "Reusable signing presets — certificate and profile references, options, and live compatibility. Presets do not store secrets."
+        case .install:
+            return "The Installation Workspace — readiness checklists, the Installed Apps Library, delivery attempts you confirm yourself, history, and storage. ZynSign validates and records; delivery is yours."
         }
     }
 }

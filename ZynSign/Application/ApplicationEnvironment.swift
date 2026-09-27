@@ -198,6 +198,15 @@ struct ApplicationEnvironment {
     /// construction.
     var binaryInspection: IPABinaryInspection? = nil
 
+    /// The Installation Workspace use case: joins the library, the signing
+    /// journal, the export catalog, and the installed-applications records
+    /// into candidates, evaluates readiness, runs verification on demand,
+    /// and records the attempts and confirmations behind the Installed Apps
+    /// Library. `nil` where no composition supplies it, in which case the
+    /// interface does not offer the workspace; treated as read-only after
+    /// construction.
+    var installationWorkspace: InstallationWorkspace? = nil
+
     /// Records one local activity event when the journal preference allows.
     ///
     /// This is the only recording path the presentation layer uses. It

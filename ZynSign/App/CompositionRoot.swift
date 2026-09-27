@@ -117,7 +117,56 @@ enum CompositionRoot {
         environment.droppedFiles = droppedFiles
         environment.queueNotifier = queueNotifier
         environment.binaryInspection = makeBinaryInspection(intake: intake, library: library)
+        environment.installationWorkspace = makeInstallationWorkspace(
+            library: library,
+            history: history,
+            exports: exports
+        )
         return environment
+    }
+
+    /// Builds the installed-applications store at the canonical Application
+    /// Support location. It announces every change it completes, so the
+    /// workspace re-reads the catalog after an attempt, a confirmation, or a
+    /// cleanup, whichever screen made the change.
+    static func makeInstalledApplicationStore() -> any InstalledApplicationStore {
+        NotifyingInstalledApplicationStore(
+            wrapping: FileInstalledApplicationStore(
+                catalogLocation: installedApplicationsCatalogLocation(),
+                capacity: 1000
+            )
+        )
+    }
+
+    /// The on-disk location of the installed-applications catalog. It lives
+    /// beside the signing history and the export catalog: a record of what
+    /// ZynSign did and what the user confirmed, not a file the user works
+    /// with.
+    static func installedApplicationsCatalogLocation() -> URL {
+        libraryRootDirectory.appendingPathComponent("InstalledApplications.json", isDirectory: false)
+    }
+
+    /// Builds the Installation Workspace over the library, the signing
+    /// journal, the export catalog, the installed-applications store, and
+    /// the same independent verifier the signing pipeline uses — so a
+    /// verification the workspace records is the verification every other
+    /// screen reads.
+    static func makeInstallationWorkspace(
+        library: ApplicationLibrary,
+        history: any SigningHistoryStore,
+        exports: ExportCenter
+    ) -> InstallationWorkspace {
+        let installed = makeInstalledApplicationStore()
+        return InstallationWorkspace(
+            library: library,
+            history: history,
+            exports: exports,
+            installed: installed,
+            verification: makeVerifyExportedArtifact(),
+            installedByteCount: { [installed] in
+                await installed.storedByteCount()
+            }
+        )
     }
 
     /// Builds the signing queue: the job orchestration every queued signing
@@ -571,7 +620,11 @@ enum CompositionRoot {
                 importedApplicationsDirectory: libraryArtifactDirectory,
                 exportedArtifactsDirectory: exportArtifactDirectory(),
                 temporaryDirectories: temporaryDirectories(preferences: preferences),
-                historyFiles: [signingHistoryJournalLocation(), exportCatalogLocation()]
+                historyFiles: [
+                    signingHistoryJournalLocation(),
+                    exportCatalogLocation(),
+                    installedApplicationsCatalogLocation(),
+                ]
             ),
             temporaryData: FileTemporaryStorage(
                 directories: temporaryDirectories(preferences: preferences)

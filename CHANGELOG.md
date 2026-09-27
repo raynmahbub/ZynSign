@@ -12,6 +12,93 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — 0.9.0-beta.2 · Step 24: Installation Workspace
+
+- **A dedicated Install section** — Settings → Browse → Install, a Home
+  quick action, and "Installation Workspace…" on the signing success
+  screen. The dashboard shows Ready to Install · Installed · Updates
+  Available counts, deliveries awaiting confirmation, the preparation
+  queue, recent installs, history, and storage. This is the hub the
+  flow reaches after signing.
+- **Readiness cards and the pre-install checklist** — every signed app
+  gets a report over the six checks ZynSign actually performs: signed
+  artifact exists, verification passed, package readable (bytes held at
+  the recorded size), export completed (size + fingerprint), signing
+  assets current (recorded profile/certificate expiry), and required
+  metadata present. States are `passed` / `attention` / `blocked` /
+  `notPerformed` — a check with no evidence reads as *not performed*,
+  never as a pass. Unverified blocks; expired assets block; blocked
+  checks disable delivery entirely rather than offer a button that
+  cannot work.
+- **Compatibility guidance that stays inside the boundary** — fixed
+  language: "Verification completed successfully. The package appears
+  ready." and, always, "Whether the platform accepts the delivery is
+  the platform's decision, which ZynSign cannot see." No screen implies
+  a guarantee about platform acceptance.
+- **The Installed Apps Library** — one user-confirmed record per bundle
+  identifier with events, not observations: app name and monogram,
+  installed version, source channel, last installation, and update
+  status. Search, scopes (All · Updates Available · Recently Installed ·
+  Needs Attention), three orders, multi-select, per-app detail with the
+  record's own history. Installed apps are visually distinct from
+  imported-only apps — different mark, different card, different words.
+- **Delivery attempts** — starting a delivery records a *pending
+  attempt* (channel, artifact, intent). Attempts persist across
+  relaunches and resolve only by the user: **Mark Installed** appends
+  the event, **Not Installed** resolves silently, **Deliver Now**
+  re-opens the hand-off. Nothing in ZynSign confirms, completes, or
+  discards an attempt on its own authority, so an interrupted attempt
+  is never marked successful. The signed IPA, its export, and every
+  earlier event are preserved.
+- **Update & reinstall actions** — the update state compares the
+  recorded install against the newest held export with
+  `DeclaredVersionOrder`: **Update** offers the newer artifact's
+  hand-off, **Reinstall** re-delivers the recorded one, **Verify Again**
+  runs real verification, **View Details** explains what ZynSign knows.
+  Equal versions under a new export are a re-sign, not an update;
+  incomparable versions read *unknown* — no claim either way.
+- **Installation History** — events flattened across records, newest
+  first, paged (25 at a time). A row opens the app, version, timestamp,
+  verification result at the time, and the artifact used, with the line
+  that keeps it honest: ZynSign did not observe the delivery.
+- **Artifact relationship view** — Imported → Signed → Exported →
+  Delivery → Installed, drawn only from recorded links; a missing step
+  reads as missing, never as invented completion.
+- **Bulk preparation through the workspace's job queue** — Verify All,
+  Prepare All, Queue Selected, Retry Failed, and Clear Completed on
+  `InstallationPreparationQueue`: one job at a time, readiness plus
+  independent verification through the same verifier the pipeline uses,
+  cancelling one job never stalls the queue, and retries are fresh
+  runs. Preparation is bulk; **delivery never is** — every delivery is
+  a deliberate, readiness-gated act.
+- **Storage awareness** — installed records, signed IPAs (export
+  storage), and temporary data with safe cleanups. Removing records or
+  artifacts never touches imported source applications.
+- **Recovery semantics** — the installed-applications catalog
+  (`InstalledApplications.json`, schema 1, atomic writes) restores
+  records and attempts exactly as they were; nothing expires them, and
+  a never-confirmed attempt stays visibly open.
+- **Accessibility** — spoken readiness summaries on cards, the
+  checklist's on-appear announcement, and per-row spoken sentences;
+  VoiceOver announcements on confirmations; Dynamic Type, Dark Mode,
+  large controls, and ⌘⇧P for Prepare All on iPad.
+- **Performance** — readiness reports are evaluated once per fact
+  change, the update-state pass reads the export catalog once for the
+  whole list, filtering and ordering are in-memory projections, and an
+  installed-applications change patches the installed rows without a
+  library rescan.
+- **Release train** — `ReleaseFeature.installationWorkspace`,
+  introduced in `v0.9.0-beta.2`, requiring `.deliveryHandoff`. The
+  release-train table now names Beta 2.
+- Docs: `docs/architecture/installation-workspace.md`, plus the
+  workspace's boundary note in `installation-compatibility.md` and the
+  updated honest-limits row.
+- Tests: `InstallationReadinessTests`,
+  `InstalledApplicationRecordTests`, `InstallationWorkspaceTests`,
+  `FileInstalledApplicationStoreTests`,
+  `InstallationPreparationQueueTests`, `InstallationWorkspaceModelTests`,
+  `InstallationPresentationTests`, and the release-train additions.
+
 ### Added — Alpha 3 · Step 17: Entitlements Studio
 
 - Read-only App Details workspace with capability-grouped cards, dashboard counts,

@@ -50,6 +50,12 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
     /// Beta 3: Productivity — batch signing and signing history.
     case batchSigning
 
+    /// Beta 2: The Installation Workspace — readiness checklists, the
+    /// Installed Apps Library, delivery attempts and confirmations,
+    /// installation history, the artifact relationship view, bulk
+    /// preparation, and storage awareness.
+    case installationWorkspace
+
     /// v1.0.0 distinguishing feature: pre-sign compatibility assessment
     /// that predicts whether a (identity, profile, bundle) combination
     /// will succeed before the pipeline runs.
@@ -75,6 +81,7 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .signingQueue: return [.smartSign]
         case .signingPresets: return [.smartSign, .certificateStudio]
         case .batchSigning: return [.signingPresets]
+        case .installationWorkspace: return [.deliveryHandoff]
         case .signingHealthScore: return [.smartSign, .signingPresets]
         }
     }
@@ -95,6 +102,7 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .signingQueue: return "Professional Signing Queue"
         case .signingPresets: return "Intelligent Signing Presets"
         case .batchSigning: return "Batch Signing"
+        case .installationWorkspace: return "Installation Workspace"
         case .signingHealthScore: return "Signing Health Score"
         }
     }
@@ -157,7 +165,7 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
         case .alpha2: return [.smartSign, .provisioningProfileManager, .signingQueue, .signingPresets]
         case .alpha3: return [.appStore, .downloads, .entitlementsStudio]
         case .beta1: return [.missionControl, .deliveryHandoff, .activityJournal]
-        case .beta2: return []
+        case .beta2: return [.installationWorkspace]
         case .beta3: return [.batchSigning]
         case .beta4: return []
         case .rc1, .rc2, .rc3: return []

@@ -17,7 +17,8 @@ cherry-picks, and no deleted code to restore later.
 | Alpha 2 | `v0.1.0-alpha.2` | Smart Sign, Professional Signing Queue, Intelligent Signing Presets | `Sign Application…` (Library menu + detail), 9-stage pipeline, DER toggle, Live Activity, Signing Options, Library “Signed” segment, Settings → Installation, Settings → Signing Queue, Settings → Presets, recommended preset with a required confirmation that enqueues on the signing queue |
 | Alpha 3 | `v0.1.0-alpha.3` | App Store + Downloads | App Store tab (sources, repository health) and Downloads tab (background, pause/resume/retry) |
 | Beta 1 | `v0.9.0-beta.1` | Mission Control, Delivery Hand-off, Activity Journal | Home → Refresh Everything · Sign → Deliver… (OTA manifest, link, QR) · Settings → Analytics → Local Activity Journal. **Feature complete.** |
-| Beta 2–4 | `v0.9.0-beta.2…4` | — | Fixes only |
+| Beta 2 | `v0.9.0-beta.2` | Installation Workspace | Settings → Browse → Install · Home → Install · signing success → Installation Workspace… (readiness checklists, Installed Apps Library, confirmed deliveries and history, bulk preparation, storage) |
+| Beta 3–4 | `v0.9.0-beta.3…4` | Batch Signing (Beta 3) | Fixes plus the batch signing workspace |
 | RC 1–3 | `v1.0.0-rc.1…3` | — | Fixes only |
 | Stable | `v1.0.0` | — | Everything |
 
