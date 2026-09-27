@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 500" role="img" aria-label="ZynSign — professional iOS sideloading platform">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6D6AF0"/>
+      <stop offset="1" stop-color="#4B48C4"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#6D6AF0" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#6D6AF0" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1500" height="500" rx="28" fill="#F5F5F7"/>
+  <ellipse cx="250" cy="90" rx="420" ry="230" fill="url(#glow)"/>
+  <ellipse cx="1380" cy="440" rx="420" ry="230" fill="url(#glow)"/>
+
+  <!-- Mark -->
+  <g transform="translate(102 128) scale(1.91)">
+    <rect x="4" y="4" width="120" height="120" rx="30" fill="url(#tile)"/>
+    <rect x="4.75" y="4.75" width="118.5" height="118.5" rx="29.25" fill="none" stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="1.5"/>
+    <g stroke="#FFFFFF" stroke-width="11" stroke-linecap="round" fill="none">
+      <path d="M41 43 H 87"/>
+      <path d="M85 45 C 74 57 61 70 45 84"/>
+      <path d="M41 85 H 87"/>
+    </g>
+    <circle cx="100" cy="94" r="6.5" fill="#30D158"/>
+  </g>
+
+  <!-- Wordmark + tagline -->
+  <text x="408" y="252" font-family="-apple-system, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="104" font-weight="700" letter-spacing="-3" fill="#1D1D1F">ZynSign</text>
+  <text x="412" y="312" font-family="-apple-system, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="34" fill="#6E6E73">Professional iOS sideloading platform</text>
+
+  <!-- Chips -->
+  <g font-family="-apple-system, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="24" fill="#3A3A3F">
+    <rect x="412" y="346" width="122" height="48" rx="24" fill="#FFFFFF" stroke="#D6D6DB"/>
+    <text x="473" y="377" text-anchor="middle">iOS 17+</text>
+    <rect x="550" y="346" width="122" height="48" rx="24" fill="#FFFFFF" stroke="#D6D6DB"/>
+    <text x="611" y="377" text-anchor="middle">SwiftUI</text>
+    <rect x="688" y="346" width="136" height="48" rx="24" fill="#FFFFFF" stroke="#D6D6DB"/>
+    <text x="756" y="377" text-anchor="middle">On-device</text>
+  </g>
+</svg>

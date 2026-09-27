@@ -71,6 +71,7 @@ turning those changes into a release.
 
 ## Index
 
+- [Checklist.md](Checklist.md) — the release gate, in order: train consistency, bookkeeping, the private matrix, publish, post-tag. An unchecked step blocks.
 - [release-train.md](release-train.md) — which features each release switches on, and how to promote / check / tag.
 
 - [version-strategy.md](version-strategy.md) — the development → alpha →

@@ -34,6 +34,11 @@ on:
 permissions:
   contents: write
 
+# Two releases at once is a mistake by definition; the second run waits.
+concurrency:
+  group: release-${{ github.event_name }}-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   changelog-and-release:
     runs-on: ubuntu-latest

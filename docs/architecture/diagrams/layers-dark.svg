@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 520" role="img" aria-label="ZynSign four-layer architecture: Presentation, Application, Domain, Platform, composed by CompositionRoot">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7C7C85"/>
+    </marker>
+  </defs>
+
+  <!-- Composition rail -->
+  <rect x="36" y="64" width="136" height="392" rx="18" fill="none" stroke="#4A4A55" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="104" y="248" text-anchor="middle" font-family="-apple-system, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="22" font-weight="600" fill="#F5F5F7">App</text>
+  <text x="104" y="276" text-anchor="middle" font-family="-apple-system, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14.5" fill="#A1A1AA">CompositionRoot</text>
+
+  <!-- Rail connectors -->
+  <g stroke="#4A4A55" stroke-width="1.5" stroke-dasharray="4 4">
+    <line x1="172" y1="119" x2="250" y2="119"/>
+    <line x1="172" y1="260" x2="250" y2="260"/>
+    <line x1="172" y1="401" x2="250" y2="401"/>
+  </g>
+
+  <!-- Presentation -->
+  <rect x="250" y="64" width="400" height="110" rx="16" fill="#1D1D26" stroke="#35353F"/>
+  <text x="278" y="112" font-family="-apple-system, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="24" font-weight="600" fill="#F5F5F7">Presentation</text>
+  <text x="278" y="142" font-family="-apple-system, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="15.5" fill="#A1A1AA">SwiftUI · the DesignSystem primitives</text>
+
+  <!-- Application -->
+  <rect x="250" y="205" width="400" height="110" rx="16" fill="#1D1D26" stroke="#35353F"/>
+  <text x="278" y="253" font-family="-apple-system, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="24" font-weight="600" fill="#F5F5F7">Application</text>
+  <text x="278" y="283" font-family="-apple-system, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="15.5" fill="#A1A1AA">Use cases &amp; ports — orchestration only</text>
+
+  <!-- Domain -->
+  <rect x="250" y="346" width="400" height="110" rx="16" fill="#262550" stroke="#8B88E8"/>
+  <text x="278" y="394" font-family="-apple-system, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="24" font-weight="600" fill="#C9C7FF">Domain</text>
+  <text x="278" y="424" font-family="-apple-system, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="15.5" fill="#A5A3E0">Pure models &amp; policies</text>
+
+  <!-- Platform -->
+  <rect x="710" y="346" width="174" height="110" rx="16" fill="#1D1D26" stroke="#35353F"/>
+  <text x="738" y="394" font-family="-apple-system, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="24" font-weight="600" fill="#F5F5F7">Platform</text>
+  <text x="738" y="424" font-family="-apple-system, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="15.5" fill="#A1A1AA">Apple frameworks</text>
+
+  <!-- Dependency arrows -->
+  <g stroke="#7C7C85" stroke-width="2" fill="none">
+    <line x1="450" y1="176" x2="450" y2="200" marker-end="url(#arrow)"/>
+    <line x1="450" y1="317" x2="450" y2="341" marker-end="url(#arrow)"/>
+    <line x1="706" y1="401" x2="655" y2="401" marker-end="url(#arrow)"/>
+  </g>
+  <text x="742" y="330" font-family="-apple-system, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="13.5" fill="#7C7C85">implements ports</text>
+
+  <!-- Layer rule -->
+  <text x="460" y="506" text-anchor="middle" font-family="-apple-system, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" fill="#7C7C85">A layer reaches only one layer down — no reach-through. ZAS v1.0.</text>
+</svg>

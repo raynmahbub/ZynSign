@@ -1,0 +1,68 @@
+name: Feature request
+description: Suggest an improvement or new capability
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature requests are reviewed for fit and feasibility, but submitting a request does not guarantee implementation.
+        Do not include passwords, private keys, certificates containing sensitive material, provisioning profiles containing sensitive information, authentication tokens, or other secrets.
+        In-app installation on stock iOS, Pairing/JIT/Mux, and off-device analytics are recorded decisions — see [WHAT_DOES_NOT_EXIST.md](https://github.com/raynmahbub/ZynSign/blob/main/docs/product/WHAT_DOES_NOT_EXIST.md) before requesting them.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Feature Description
+      description: Describe the requested feature.
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Use Case
+      description: What problem would this solve, or what workflow would it improve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should users be able to do if this exists?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed Behavior
+      description: Describe how you think the feature should work.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Related area
+      options:
+        - Import / Library / Bundle Explorer
+        - Certificates / Profiles
+        - Smart Sign / Signing Queue / Presets
+        - Entitlements Studio
+        - Store / Downloads
+        - Delivery / Installation Workspace
+        - Settings / Analytics / Mission Control
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: List other approaches or workarounds you considered.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Add any other context, examples, or references.

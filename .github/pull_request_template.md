@@ -2,11 +2,16 @@
 
 What changed and why.
 
+# Related Issues
+
+Link the issue(s) this closes or relates to, if any.
+
 # Changes
 
 List the important changes.
 
 - <!-- Add an important change. -->
+
 
 # Testing
 

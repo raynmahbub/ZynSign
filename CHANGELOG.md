@@ -12,6 +12,41 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — Repository Modernization: brand, documentation hub, and contributor surfaces
+
+- **Brand system (`Assets/`)** — one identity system for every public surface:
+  the Z-stroke tile mark with seal dot, wordmark lockup, README hero banner,
+  master app-icon artwork, favicon, and the GitHub social preview card —
+  each in light and dark variants where a surface renders both
+  (`Assets/Brand/`), under written brand rules (`Assets/README.md`).
+- **Documentation hub (`docs/README.md`)** — visual entry page for `docs/`:
+  section table, diagram index, three reading paths, and the house rules for
+  documentation pages. `design/`, `product/`, and `audits/` gain index READMEs
+  of their own; `architecture/` gains a Diagrams section.
+- **Architecture diagrams** — the four layers and the nine-stage signing run
+  drawn once as SVG (`docs/architecture/diagrams/`, light and dark), rendered
+  in the README via `<picture>` so GitHub's theme switches the variant.
+- **README 2.0** — restructured as a landing page: banner, one-line statement,
+  status cards, a four-row "Why ZynSign" grid, the release train kept intact,
+  a compact "What's shipped" table pointing into `docs/`, tightened Quick
+  Start, Documentation, Security, Release readiness, Development, Honest
+  limitations, and a repository-layout summary. All strings maintained by
+  `Scripts/update_readme.py` are preserved (script check passes).
+- **Developer guides (`docs/development/`)** — QuickStart, Build, Testing,
+  Debugging, and Troubleshooting, documenting the workflows CI and the release
+  gate already exercise; the development README indexes them.
+- **Release checklist (`docs/releases/Checklist.md`)** — the visible gate:
+  train consistency, bookkeeping, the private matrix, publish, and post-tag
+  steps, each phrased so an unchecked step blocks rather than defaults to pass.
+- **Issue forms (`.github/ISSUE_TEMPLATE/`)** — bug and feature requests as
+  YAML forms with severity and affected-area dropdowns, screenshot and
+  redaction guidance, and a `config.yml` that routes security reports,
+  documentation questions, and the recorded *never* capabilities away from the
+  issue tracker. Supersedes the markdown templates.
+- **CI hardening** — explicit least-privilege `permissions` and `concurrency`
+  groups on the workflows: CI cancels superseded pushes, Release serializes,
+  README Hygiene serializes per branch.
+
 ### Added — RC 2 · Step 28: Final Polish & UX Refinement
 
 - **Unified Design System (`ZynSignTokens`)** — Standardized typography scale (`ZTypography`), spacing scale (`ZSpacing`, 4pt grid), corner radius scale (`ZRadius`), elevation shadows (`ZShadow`), and semantic color tokens (`ZColors`) used consistently across all screens.
