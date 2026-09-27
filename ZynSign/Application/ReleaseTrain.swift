@@ -238,7 +238,7 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
 enum ReleaseTrain {
 
     /// The release this build is cut for. Edited by `Scripts/release_train.py`.
-    static let current: ReleaseStage = .rc1
+    static let current: ReleaseStage = .rc2
 
     /// `UserDefaults` / launch-argument key for the Debug-only preview override.
     static let previewDefaultsKey = "ZynSignReleaseStage"

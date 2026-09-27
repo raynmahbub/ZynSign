@@ -6,13 +6,13 @@
 </p>
 
 <p align="center">
-  <a href="docs/releases/version-strategy.md"><img alt="Version" src="https://img.shields.io/badge/version-0.1.0-orange"></a>
+  <a href="docs/releases/version-strategy.md"><img alt="Version" src="https://img.shields.io/badge/version-1.0.0-orange"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <a href="docs/architecture/architecture.md"><img alt="Architecture" src="https://img.shields.io/badge/architecture-ZAS%20v1.0-lightgrey"></a>
   <a href="docs/product/WHAT_DOES_NOT_EXIST.md"><img alt="Honest" src="https://img.shields.io/badge/honest-10%20wired%20·%203%20never-green"></a>
 </p>
 
-> **0.1.0 Horizon (2026-09-25) — release train**  
+> **1.0.0 Horizon (2026-09-25) — release train**  
 > The whole app is built: import, inspection, library, **Certificate Studio**, **Smart Sign (engine run · 9 stages · independent verification · DER 0x20400 · Live Activity)**, **Repository Health**, **Download Center**, **Mission Control**, **Installation Delivery Hand-off (OTA manifest + QR + operator guides)**, and a **Local Activity Journal (on-device, never transmitted)**. It ships **one release at a time**: `0.1.0` shows Files, Import, Library and Bundle Explorer, and each alpha switches on more (see [Release train](#release-train)). In-app installation remains a platform fact (`noDeliveryMechanism`); Pairing/JIT/Mux stays **never** (ADR-recorded); off-device analytics stays **off**.
 
 ---
@@ -90,7 +90,7 @@ The **Ships in** column is the first release that shows the feature.
 
 ### Sideload the build
 
-The `0.1.0` build is **not App Store** — install via sideloading, TestFlight (if enrolled), or direct `Documents/Signed` delivery. See [`CHANGELOG.md`](CHANGELOG.md) and [`docs/releases/`](docs/releases/).
+The `1.0.0` build is **not App Store** — install via sideloading, TestFlight (if enrolled), or direct `Documents/Signed` delivery. See [`CHANGELOG.md`](CHANGELOG.md) and [`docs/releases/`](docs/releases/).
 
 ---
 
@@ -128,7 +128,7 @@ docs/
   product/                 UNIQUE_VALUE_PROPOSITION.md, WHAT_DOES_NOT_EXIST.md (9 wired · 3 never — the three nevers are narrower than 0.1.0's)
   design/                  zynsign-design-language.md (ZDL v1.0)
   security/                provisioning-profiles, signing-identities, release-review
-  releases/                version-strategy (0.1.0 Horizon), history, notes, documentation freeze
+  releases/                version-strategy (1.0.0 Horizon), history, notes, documentation freeze
   hardening/               RC validation: compatibility lab, matrices, performance, accessibility, release blockers
   development/             CI, toolchain
 .github/

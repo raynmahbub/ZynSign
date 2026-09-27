@@ -255,17 +255,8 @@ struct ApplicationLibraryView: View {
     }
 
     private var emptyContent: some View {
-        ContentUnavailableView {
-            Label("No Applications", systemImage: ShellSection.library.symbolName)
-        } description: {
-            Text("Applications you import appear here. Importing reads a package's structure and the information its application declares, and keeps the package in ZynSign's library. Import does not sign or install anything.")
-        } actions: {
-            Button("Import Package…") {
-                importPresentation.present()
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!importPresentation.isAvailable)
-            .importDropTarget(.button)
+        ZEmptyState.noApps {
+            importPresentation.present()
         }
     }
 
@@ -624,34 +615,31 @@ struct ApplicationLibraryView: View {
     private func emptyResults(_ reason: ApplicationLibraryModel.EmptyReason) -> some View {
         switch reason {
         case .noResults:
-            ContentUnavailableView {
-                Label("No Search Results", systemImage: "magnifyingglass")
-            } description: {
-                Text("Try a different name, bundle ID, or filter.")
-            } actions: {
-                if model.isNarrowing {
-                    Button("Clear Search and Filters") {
-                        model.clearFiltersAndSearch()
-                    }
-                }
+            ZEmptyState.noSearchResults(query: model.searchText) {
+                model.clearFiltersAndSearch()
             }
         case .smartCollection(let smart):
-            ContentUnavailableView {
-                Label(smart.emptyTitle, systemImage: smart.systemImage)
-            } description: {
-                Text(smart.ruleDescription)
-            }
+            ZEmptyState(
+                title: smart.emptyTitle,
+                message: smart.ruleDescription,
+                systemImage: smart.systemImage,
+                tint: .blue,
+                primaryActionTitle: "View All Apps",
+                primaryAction: { model.scope = .all }
+            )
         case .emptyCollection(let name):
-            ContentUnavailableView {
-                Label("“\(name)” Is Empty", systemImage: "folder")
-            } description: {
-                Text("Add apps from All Apps with Add to Collection — from an app's menu, or from a selection.")
-            } actions: {
-                Button("Choose Apps to Add") {
+            ZEmptyState(
+                title: "“\(name)” Is Empty",
+                message: "Add apps from All Apps with Add to Collection from an app's menu or selection.",
+                systemImage: "folder",
+                tint: .indigo,
+                badgeSymbol: "plus",
+                primaryActionTitle: "Choose Apps to Add",
+                primaryAction: {
                     model.scope = .all
                     model.setSelecting(true)
                 }
-            }
+            )
         }
     }
 
@@ -1459,7 +1447,7 @@ struct ApplicationLibraryLoadingView: View {
         ScrollView {
             VStack(spacing: ZSpacing.sm) {
                 ForEach(0..<6, id: \.self) { _ in
-                    LibrarySkeletonRow()
+                    ZSkeletonAppRow()
                         .padding(.horizontal)
                         .padding(.vertical, ZSpacing.xxs)
                 }
@@ -1477,14 +1465,13 @@ struct ApplicationLibraryFailureView: View {
     let retry: () -> Void
 
     var body: some View {
-        ContentUnavailableView {
-            Label("Library Unavailable", systemImage: "exclamationmark.triangle")
-        } description: {
-            Text(message)
-        } actions: {
-            Button("Retry") { retry() }
-                .buttonStyle(.borderedProminent)
-        }
+        ZErrorView(
+            title: "Library Unavailable",
+            explanation: message,
+            suggestedAction: "Check device storage or restart ZynSign if the library database is locked.",
+            technicalDetails: "ApplicationLibrary database read failure: \(message)",
+            onRetry: { retry() }
+        )
     }
 }
 

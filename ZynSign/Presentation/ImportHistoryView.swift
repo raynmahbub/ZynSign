@@ -27,12 +27,9 @@ struct ImportHistoryView: View {
                 }
             }
             if hub.history.isEmpty {
-                ContentUnavailableView(
-                    "No Import History",
-                    systemImage: "clock.arrow.circlepath",
-                    description: Text("Finished imports are listed here, newest first. The history stays on this device.")
-                )
-                .listRowBackground(Color.clear)
+                ZEmptyState.noHistory()
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
             }
             ForEach(hub.history) { entry in
                 Section {

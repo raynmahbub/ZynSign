@@ -10,6 +10,7 @@ struct GeneralSettingsSection: View {
 
     @Environment(\.settingsCenter) private var settings
     @State private var isConfirmingOnboardingReset = false
+    @State private var isShowingWalkthrough = false
 
     static let descriptor = SettingsSectionDescriptor(
         identifier: .general,
@@ -37,6 +38,12 @@ struct GeneralSettingsSection: View {
             }
         } message: {
             Text("The welcome card will appear on Home the next time you look at it. Nothing you have imported is affected.")
+        }
+        .sheet(isPresented: $isShowingWalkthrough) {
+            ZOnboardingView(
+                isPresented: $isShowingWalkthrough,
+                onComplete: {}
+            )
         }
     }
 
@@ -128,6 +135,12 @@ struct GeneralSettingsSection: View {
 
     private var onboardingSection: some View {
         Section {
+            ZSettingsButtonRow(
+                title: "View Onboarding Walkthrough",
+                subtitle: "Review the 6-step guided setup walkthrough.",
+                symbol: "sparkles",
+                action: { isShowingWalkthrough = true }
+            )
             ZSettingsButtonRow(
                 title: "Reset Onboarding",
                 subtitle: "Show the welcome card on Home again.",

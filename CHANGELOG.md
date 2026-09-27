@@ -12,6 +12,20 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — RC 2 · Step 28: Final Polish & UX Refinement
+
+- **Unified Design System (`ZynSignTokens`)** — Standardized typography scale (`ZTypography`), spacing scale (`ZSpacing`, 4pt grid), corner radius scale (`ZRadius`), elevation shadows (`ZShadow`), and semantic color tokens (`ZColors`) used consistently across all screens.
+- **Card & Border Refinement (`ZCard`)** — Material, filled, and outlined variants now include subtle dark-mode edge definition strokes (`Color.primary.opacity(0.06)`), ensuring clear card boundaries against OLED black backgrounds without harsh lines.
+- **Button System (`ZButtonStyles`)** — Added `ZPrimaryButtonStyle`, `ZSecondaryButtonStyle`, `ZDestructiveButtonStyle`, and `ZLargeProminentButtonStyle` with interactive spring scale press animations, minimum 44×44 pt touch targets, and tactile haptic feedback.
+- **Bespoke Empty States (`ZEmptyState`)** — Replaced generic system placeholders with layered circular gradient illustrations, human-friendly explanations, and clear primary action buttons across All Apps, Certificates, Profiles, Background Downloads, Collections, Presets, History, and Search results.
+- **6-Step Guided Onboarding Walkthrough (`ZOnboardingView`)** — Added a first-launch onboarding flow covering Welcome (privacy & local Keychain architecture), Import Apps (drag & drop, preflight validation), Add Certificate (hardware Keychain security), Add Profile (automatic App ID pattern matching), Explore Library (binary inspection & presets), and You’re Ready. Supports skipping from any step, back/continue navigation, page indicators, and revisitation via Settings → General ("View Onboarding Walkthrough").
+- **Adaptive iPad & Landscape Layout** — `RootView` now detects regular horizontal size class on iPad and wide landscape screens to render a native `NavigationSplitView` with an organized sidebar and responsive detail workspaces. Grid columns adapt with comfortable minimum widths (140pt on iPad vs 108pt on iPhone) to eliminate stretched phone layouts.
+- **Actionable Error Experience (`ZErrorView`)** — Replaced cryptic system-style alerts with structured error views presenting what happened, why it happened, a highlighted "What to do next" recommendation, and an expandable technical details drawer with one-tap diagnostic report copying.
+- **Perceived Performance & Skeletons (`ZSkeleton`)** — Added shimmering skeleton placeholders for application rows (`ZSkeletonAppRow`), certificate items (`ZSkeletonCertificateRow`), profile rows (`ZSkeletonProfileRow`), and app grids (`ZSkeletonAppGrid`), eliminating blank loading states.
+- **Microcopy Polish** — Audited all user-facing strings; replaced vague notices with concrete, actionable guidance (e.g. detailed provisioning profile expiration warnings instructing users on developer portal renewal).
+- **Subtle Haptics (`ZHaptics`)** — Calibrated light impacts, selection feedback, warnings, and success notifications across import completion, signing milestones, filter changes, and toggle updates, respecting the user's global haptics preference.
+- **Internal UX Checklist (`docs/audits/rc2-ux-refinement-checklist.md`)** — Documented verification of all 16 polish criteria for the RC 2 milestone gate.
+
 ### Added — RC 1 · Step 27: Production Hardening & Compatibility Lab
 
 **No user-facing features.** This step promotes the release train to

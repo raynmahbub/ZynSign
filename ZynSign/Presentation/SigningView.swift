@@ -1002,7 +1002,7 @@ struct SigningView: View {
             defer { if accessing { url.stopAccessingSecurityScopedResource() } }
             let ext = url.pathExtension.lowercased()
             guard ext == "mobileprovision" || ext == "provisionprofile" else {
-                profileError = "Choose a .mobileprovision file."
+                profileError = "Choose an Apple provisioning profile (.mobileprovision). Other file formats cannot authorize iOS application signing."
                 return
             }
             do {
@@ -1012,7 +1012,7 @@ struct SigningView: View {
                 // limit the CMS pipeline enforces. No full-file fallback.
                 let bytes = try handle.read(upToCount: ProvisioningProfileInput.maximumByteCount + 1) ?? Data()
                 guard !bytes.isEmpty, bytes.count <= ProvisioningProfileInput.maximumByteCount else {
-                    profileError = "The profile is empty or exceeds the inspection limit."
+                    profileError = "This profile is empty or exceeds the 10 MB inspection limit. Choose a valid .mobileprovision file."
                     return
                 }
                 profileData = bytes
@@ -1020,12 +1020,12 @@ struct SigningView: View {
                 profileError = nil
                 profileRevision += 1
             } catch {
-                profileError = "The selected profile could not be read."
+                profileError = "The selected profile could not be read. Check file permissions or choose another file."
             }
         case .failure(let error):
             let ns = error as NSError
             if ns.domain == NSCocoaErrorDomain && ns.code == NSUserCancelledError { return }
-            profileError = "The file picker could not provide the selected profile."
+            profileError = "The file picker could not provide the selected profile. Make sure the file is stored locally in Files."
         }
     }
 
@@ -1093,7 +1093,13 @@ struct SigningView: View {
         analyzedFor = requestedKey
         guard preflight.report.status != .blocked,
               let entitlements = preflight.entitlements else {
-            preflightError = "Signing is blocked by updated diagnostics. Review the issues."
+            if preflight.report.issues.contains(where: { $0.id == .profileExpired }) {
+                preflightError = "This provisioning profile has expired. Choose another profile before signing."
+            } else if let issue = preflight.report.issues.first(where: { $0.severity == .error }) {
+                preflightError = "\(issue.title). \(issue.suggestedAction)"
+            } else {
+                preflightError = "Signing is blocked by updated diagnostics. Review the issues above."
+            }
             return
         }
         let sourceURL = env.artifactFileURL(for: entry.record.artifact.artifactID)

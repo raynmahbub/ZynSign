@@ -116,16 +116,8 @@ struct SigningQueueView: View {
     }
 
     private var emptyContent: some View {
-        ContentUnavailableView {
-            Label("No Signing Jobs", systemImage: "tray")
-        } description: {
-            Text("Queue applications from the Library — one at a time from a row's actions, or several at once with Select → Queue. Each job runs as its own signing operation, in an isolated workspace, and adds its verified artifact to Exports. The queue keeps working while you use the rest of ZynSign.")
-        } actions: {
-            Button("Open Library") {
-                ZHaptics.tap()
-                onOpenLibrary()
-            }
-            .buttonStyle(.borderedProminent)
+        ZEmptyState.noQueueJobs {
+            onOpenLibrary()
         }
     }
 

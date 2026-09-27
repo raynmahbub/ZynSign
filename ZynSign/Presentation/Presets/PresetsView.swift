@@ -107,11 +107,12 @@ struct PresetsView: View {
 
     private var emptyState: some View {
         Section {
-            ContentUnavailableView {
-                Label("No Presets", systemImage: "rectangle.stack")
-            } description: {
-                Text("Save a certificate, a profile, and the options you reuse. Presets store references, not secrets.")
+            ZEmptyState.noPresets {
+                model.builder = .create(.custom)
             }
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+
             ForEach(PresetTemplate.allCases) { template in
                 Button {
                     model.builder = .create(template)

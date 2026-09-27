@@ -138,19 +138,26 @@ struct ProfilesView: View {
     private var content: some View {
         switch model.phase {
         case .loading:
-            ScrollView { ZSkeleton(rows: 4).padding() }
-                .accessibilityLabel("Loading profiles")
+            ScrollView {
+                VStack(spacing: ZSpacing.sm) {
+                    ForEach(0..<4, id: \.self) { _ in
+                        ZSkeletonProfileRow()
+                            .padding(.horizontal)
+                    }
+                }
+                .padding(.top, ZSpacing.sm)
+            }
+            .accessibilityLabel("Loading profiles")
         case .empty:
             emptyContent
         case .failed(let message):
-            ContentUnavailableView {
-                Label("Profiles Unavailable", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(message)
-            } actions: {
-                Button("Retry") { Task { await model.load() } }
-                    .buttonStyle(.borderedProminent)
-            }
+            ZErrorView(
+                title: "Profiles Unavailable",
+                explanation: message,
+                suggestedAction: "Verify local storage access or re-import the profile.",
+                technicalDetails: "ProvisioningProfiles error: \(message)",
+                onRetry: { Task { await model.load() } }
+            )
         case .loaded:
             profileContent
         }
@@ -159,24 +166,9 @@ struct ProfilesView: View {
     /// The friendly empty state: an illustration, an explanation in plain
     /// words, and the one action that matters.
     private var emptyContent: some View {
-        ContentUnavailableView {
-            VStack(spacing: ZSpacing.sm) {
-                ProfilesEmptyIllustration()
-                Text("No Profiles Yet")
-                    .font(.title3.weight(.semibold))
-            }
-        } description: {
-            Text("A profile tells iOS which apps your certificates may sign. Import a .mobileprovision file — ZynSign reads it, keeps the original safe on this device, and helps you choose the right profile for each app.")
-        } actions: {
+        ZEmptyState.noProfiles {
             if model.canImport {
-                Button("Import Profile…") {
-                    model.showImporter()
-                }
-                .buttonStyle(.borderedProminent)
-            } else {
-                Text("Profile importing is not available in this build.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                model.showImporter()
             }
         }
     }
@@ -187,19 +179,24 @@ struct ProfilesView: View {
     private var profileContent: some View {
         let summaries = model.visibleProfiles()
         if summaries.isEmpty && hasActiveQuery {
-            ContentUnavailableView.search(Text(model.searchText))
+            ZEmptyState.noSearchResults(query: model.searchText) {
+                model.searchText = ""
+                model.typeFilter = .all
+                model.expirationFilter = .all
+            }
         } else if summaries.isEmpty {
-            ContentUnavailableView {
-                Label("No Matching Profiles", systemImage: ShellSection.profiles.symbolName)
-            } description: {
-                Text("Every profile is filtered out by the current search or filters.")
-            } actions: {
-                Button("Clear Search and Filters") {
+            ZEmptyState(
+                title: "No Matching Profiles",
+                message: "Every profile is filtered out by the current search or filters.",
+                systemImage: ShellSection.profiles.symbolName,
+                tint: .orange,
+                primaryActionTitle: "Clear Search and Filters",
+                primaryAction: {
                     model.searchText = ""
                     model.typeFilter = .all
                     model.expirationFilter = .all
                 }
-            }
+            )
         } else if showsGrid {
             profileGrid(summaries)
         } else {
