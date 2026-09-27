@@ -76,6 +76,14 @@ struct RootView: View {
     /// Ticks while the shell is open, so a lapsed session can be noticed.
     private let inactivityTimer = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
 
+    /// The one thumbnail pipeline every icon view draws through, so a
+    /// decoded icon is shared by every row and card that shows it.
+    @StateObject private var thumbnailPipeline: ThumbnailPipeline
+
+    /// The order launch work runs in. Nothing in it precedes the first
+    /// frame; see `StartupWorkPlan`.
+    private let startupPlan = StartupWorkPlan.standard
+
     /// Builds the shell over one environment.
     ///
     /// The settings model and the lock are created here, once, from that
@@ -90,6 +98,11 @@ struct RootView: View {
             preferences: { model.preferences }
         ))
         _selected = State(initialValue: model.preferences.general.landingTab.shellSection)
+        _thumbnailPipeline = StateObject(wrappedValue: ThumbnailPipeline(
+            engine: environment.performanceEngine,
+            icons: environment.appIcons
+        ))
+        environment.performanceEngine?.launch.mark(LaunchTimeline.Milestone.environmentReady)
     }
 
     var body: some View {
@@ -107,6 +120,11 @@ struct RootView: View {
             }
         }
         .tint(.primary)
+        .environment(\.thumbnailPipeline, thumbnailPipeline)
+        .environment(
+            \.zMotion,
+            ZMotion(reduceMotion: systemReduceMotion, preference: settings.preferences.general.animationPreference)
+        )
         .environment(\.settingsCenter, settings)
         .environment(\.appLock, appLock)
         .environment(\.downloadNavigation, DownloadNavigation(
@@ -243,31 +261,78 @@ struct RootView: View {
             reportOutcomes(of: items)
         }
         .task {
-            // Tidying scratch files at launch happens only when the user's
-            // policy allows it, and it finishes before the hub restores
-            // interrupted imports: the restoration then sees exactly the
-            // working copies the policy kept (cleanup removes only data
-            // older than an hour), rather than racing it.
-            await settings.cleanTemporaryWorkspaceIfPolicyAllows()
-            if let droppedFiles = environment.droppedFiles {
-                await Task.detached(priority: .utility) { droppedFiles.sweep() }.value
+            await runStartupWork()
+        }
+    }
+
+    // MARK: - Launch
+
+    /// Runs the launch work the plan defers past the first frame.
+    ///
+    /// The Home screen is already on screen when this starts: `.task`
+    /// fires once the view is attached, the first frame is marked, and
+    /// the plan's deferral delay then keeps the initial layout and tab bar
+    /// animation from competing with restoration. Items that touch main-
+    /// actor state run here in order; sweeps and cache work go to the
+    /// background scheduler at maintenance priority.
+    ///
+    /// The order is the one the earlier shell used and for the same
+    /// reasons: tidying scratch files happens only when the user's policy
+    /// allows it and finishes before the hub restores interrupted imports,
+    /// so the restoration sees exactly the working copies the policy kept;
+    /// the signing queue is restored after that, and only in a build that
+    /// shows it, so no queued run starts behind the user's back. The
+    /// repository directory and Download Center follow once the plan's
+    /// items are done, as they did before.
+    private func runStartupWork() async {
+        let engine = environment.performanceEngine
+        engine?.launch.mark(LaunchTimeline.Milestone.firstFrame)
+        engine?.launch.mark(LaunchTimeline.Milestone.essentialWorkDone)
+        try? await Task.sleep(for: startupPlan.deferralDelay)
+        engine?.launch.mark(LaunchTimeline.Milestone.deferredWorkStarted)
+        for item in startupPlan.deferred {
+            switch item {
+            case .temporaryCleanup:
+                await settings.cleanTemporaryWorkspaceIfPolicyAllows()
+            case .restoreInterruptedImports:
+                await environment.importHub.restoreInterruptedImports()
+            case .sweepDropInbox:
+                guard let droppedFiles = environment.droppedFiles else { continue }
+                if let engine {
+                    await engine.scheduler.schedule(key: "startup.sweepDropInbox", priority: .maintenance) {
+                        droppedFiles.sweep()
+                    }
+                } else {
+                    await Task.detached(priority: .utility) { droppedFiles.sweep() }.value
+                }
+            case .restoreSigningQueue:
+                if SigningQueueAvailability.isAvailable {
+                    await environment.signingQueue.restore()
+                }
+            case .reconcileIndexes:
+                // The library model reconciles the metadata index as it
+                // loads; at launch the persisted index is warmed so the
+                // first read is a memory read.
+                guard let engine else { continue }
+                await engine.scheduler.schedule(key: "startup.warmMetadataIndex", priority: .maintenance) {
+                    _ = await engine.metadata.current()
+                }
+            case .enforceCachePolicies:
+                await engine?.scheduleMaintenance()
+            case .startMemoryObservation:
+                await engine?.startMemoryObservation()
             }
-            await environment.importHub.restoreInterruptedImports()
-            // Restore the persisted signing queue once per launch, after the
-            // temporary-workspace cleanup has finished, so no queued run
-            // starts while scratch data is being tidied. Restoration is
-            // gated with the feature: a build that does not show the queue
-            // never runs queued work behind the user's back.
-            if SigningQueueAvailability.isAvailable {
-                await environment.signingQueue.restore()
-            }
-            environment.repositoryDirectory?.load()
-            environment.repositoryDirectory?.onCatalogsChanged = { [environment] in
-                Task { await environment.downloadCenter?.refreshUpdates() }
-            }
-            environment.downloadCenter?.startObservingTransfers()
-            await environment.downloadCenter?.restore()
-            await environment.downloadCenter?.refreshUpdates()
+        }
+        environment.repositoryDirectory?.load()
+        environment.repositoryDirectory?.onCatalogsChanged = { [environment] in
+            Task { await environment.downloadCenter?.refreshUpdates() }
+        }
+        environment.downloadCenter?.startObservingTransfers()
+        await environment.downloadCenter?.restore()
+        await environment.downloadCenter?.refreshUpdates()
+        engine?.launch.mark(LaunchTimeline.Milestone.deferredWorkDone)
+        if let engine, let firstFrame = engine.launch.timeToFirstFrame {
+            await engine.benchmarks.record(kind: .launch, duration: firstFrame, itemCount: 1)
         }
     }
 
@@ -410,7 +475,8 @@ struct RootView: View {
                 signingHistory: environment.signingHistory,
                 organizer: environment.libraryOrganizer,
                 provenance: environment.applicationProvenance,
-                exporter: environment.libraryExport
+                exporter: environment.libraryExport,
+                performanceEngine: environment.performanceEngine
             )
         case .certificates:
             NavigationStack {

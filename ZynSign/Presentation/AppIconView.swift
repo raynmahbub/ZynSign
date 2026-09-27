@@ -4,13 +4,17 @@ import UIKit
 /// The icon of a library application, shown on cards and rows.
 ///
 /// The image is the application's own icon, extracted read-only from the
-/// package the library holds (`AppIconExtraction`) and cached, so cards
-/// never re-open an archive while scrolling. Until — or unless — the bytes
-/// arrive, the view shows a derived mark: the application's initials on a
-/// colour pair chosen deterministically from the bundle identifier. The
-/// fallback is honest by design — it never pretends to be the real icon,
-/// it labels the application while the package's own artwork is being read,
-/// and it stays when the package simply carries no readable icon.
+/// package the library holds (`AppIconExtraction`), downsampled once per
+/// size by the thumbnail cache, and decoded once by the thumbnail
+/// pipeline — so cards never re-open an archive, never re-decode an image,
+/// and never draw a home-screen icon into a row-sized frame while
+/// scrolling. When the decoded image is already in memory the view draws
+/// it in the same frame it appears; otherwise it shows a derived mark —
+/// the application's initials on a colour pair chosen deterministically
+/// from the bundle identifier — until the bytes arrive. The fallback is
+/// honest by design: it never pretends to be the real icon, it labels the
+/// application while the package's own artwork is being read, and it
+/// stays when the package simply carries no readable icon.
 ///
 /// The view is decorative: the row or card it sits in carries the
 /// accessibility label.
@@ -28,10 +32,16 @@ struct ApplicationIconView: View {
     /// The square side length.
     var size: CGFloat = 52
 
-    @Environment(\.applicationEnvironment) private var environment
-    @State private var iconData: Data?
+    @Environment(\.thumbnailPipeline) private var pipeline
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var image: UIImage?
 
     var body: some View {
+        // A synchronous hit draws immediately; the state only carries what
+        // had to be loaded.
+        let key = thumbnailKey
+        let drawn = image ?? pipeline.cachedImage(for: key)
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(LinearGradient(
@@ -39,10 +49,11 @@ struct ApplicationIconView: View {
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 ))
-            if let data = iconData, let image = UIImage(data: data) {
-                Image(uiImage: image)
+            if let drawn {
+                Image(uiImage: drawn)
                     .resizable()
                     .scaledToFill()
+                    .transition(reduceMotion ? .identity : .opacity)
             } else {
                 Text(initials)
                     .font(.system(size: size * 0.36, weight: .bold))
@@ -55,9 +66,25 @@ struct ApplicationIconView: View {
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .accessibilityHidden(true)
-        .task(id: artifactID) {
-            iconData = await environment.appIcons?.iconData(for: artifactID)
+        .task(id: key) {
+            guard drawn == nil else { return }
+            let loaded = await pipeline.image(for: key)
+            guard !Task.isCancelled else { return }
+            if reduceMotion {
+                image = loaded
+            } else {
+                withAnimation(.easeOut(duration: 0.15)) { image = loaded }
+            }
         }
+    }
+
+    /// The thumbnail that serves this size on this screen.
+    private var thumbnailKey: ThumbnailKey {
+        ThumbnailKey(
+            artifactID: artifactID,
+            source: .icon,
+            variant: ThumbnailVariant.serving(points: Double(size), scale: Double(displayScale))
+        )
     }
 
     private var cornerRadius: CGFloat {

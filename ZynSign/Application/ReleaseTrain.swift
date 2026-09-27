@@ -67,6 +67,13 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
     /// will succeed before the pipeline runs.
     case signingHealthScore
 
+    /// Beta 2 distinguishing feature: the hidden Performance page under
+    /// Settings → Advanced, backed by the Performance Engine — library and
+    /// index counts, cache statistics by category, the search-index
+    /// status, benchmarks with regression detection, and manual
+    /// optimization.
+    case performanceDashboard
+
     /// Features that must already be available for this one to make sense.
     ///
     /// A release that exposes a feature without its prerequisites would show
@@ -90,6 +97,7 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .batchSigning: return [.signingPresets]
         case .installationWorkspace: return [.deliveryHandoff]
         case .signingHealthScore: return [.smartSign, .signingPresets]
+        case .performanceDashboard: return [.libraryPowerFeatures]
         }
     }
 
@@ -112,6 +120,7 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .batchSigning: return "Batch Signing"
         case .installationWorkspace: return "Installation Workspace"
         case .signingHealthScore: return "Signing Health Score"
+        case .performanceDashboard: return "Performance Engine"
         }
     }
 }
@@ -173,7 +182,7 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
         case .alpha2: return [.smartSign, .provisioningProfileManager, .signingQueue, .signingPresets]
         case .alpha3: return [.appStore, .downloads, .entitlementsStudio, .identityCenter]
         case .beta1: return [.missionControl, .deliveryHandoff, .activityJournal]
-        case .beta2: return [.installationWorkspace]
+        case .beta2: return [.installationWorkspace, .performanceDashboard]
         case .beta3: return [.batchSigning]
         case .beta4: return []
         case .rc1, .rc2, .rc3: return []

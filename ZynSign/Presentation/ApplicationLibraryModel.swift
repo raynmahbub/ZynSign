@@ -256,7 +256,14 @@ final class ApplicationLibraryModel: ObservableObject {
     private let organizer: LibraryOrganizer?
     private let provenanceSource: ApplicationProvenanceExtraction?
     private let exporter: LibraryExportPreparation?
+    private let performanceEngine: PerformanceEngine?
     private let now: () -> Date
+
+    /// The incremental render window over `visibleIDs`: how many rows the
+    /// list materialises right now. It grows as the user scrolls and
+    /// resets when the query changes, so a 1,000-entry library costs the
+    /// first screen and a little more, not a thousand rows at once.
+    @Published private(set) var renderWindow = IncrementalRenderWindow()
 
     private var isReadingLibrary = false
     private var hasPendingRead = false
@@ -287,6 +294,7 @@ final class ApplicationLibraryModel: ObservableObject {
         organizer: LibraryOrganizer? = nil,
         provenance: ApplicationProvenanceExtraction? = nil,
         exporter: LibraryExportPreparation? = nil,
+        performanceEngine: PerformanceEngine? = nil,
         now: @escaping () -> Date = { Date() }
     ) {
         self.library = library
@@ -295,6 +303,7 @@ final class ApplicationLibraryModel: ObservableObject {
         self.organizer = organizer
         self.provenanceSource = provenance
         self.exporter = exporter
+        self.performanceEngine = performanceEngine
         self.now = now
 
         // The hub publishes on the main actor, so each delivery is handed
@@ -376,6 +385,7 @@ final class ApplicationLibraryModel: ObservableObject {
                 phase = .loading
             }
             do {
+                let started = ContinuousClock.now
                 let entries = try await library.entries()
                 let organization = await readOrganization()
                 let signingFacts = await readSigningFacts()
@@ -388,6 +398,7 @@ final class ApplicationLibraryModel: ObservableObject {
                 )
                 phase = entries.isEmpty ? .empty : .loaded(entries)
                 indexDidChange()
+                recordBenchmark(.libraryLoad, since: started, itemCount: entries.count)
                 resolveProvenance(for: entries)
             } catch {
                 if showLoadingState {
@@ -479,6 +490,7 @@ final class ApplicationLibraryModel: ObservableObject {
         updated.mergeProvenance(additions)
         index = updated
         teams = index.teams()
+        reportToPerformanceEngine()
         recomputeResults()
     }
 
@@ -491,6 +503,7 @@ final class ApplicationLibraryModel: ObservableObject {
         statistics = index.statistics()
         teams = index.teams()
         scopeCounts = computeScopeCounts()
+        reportToPerformanceEngine()
         if let collectionID = scope.collectionID, index.collection(withID: collectionID) == nil {
             scope = .all
         }
@@ -522,9 +535,18 @@ final class ApplicationLibraryModel: ObservableObject {
     /// they changed. Entries that are no longer visible leave the selection.
     private func recomputeResults() {
         let query = LibraryQuery(searchText: searchText, filters: filters, sort: sortOrder)
+        let started = ContinuousClock.now
         let results = index.results(for: query, in: scope, now: now())
+        if !query.foldedSearchTerms.isEmpty {
+            recordBenchmark(.searchLatency, since: started, itemCount: index.count)
+        }
         if results != visibleIDs {
             visibleIDs = results
+            var window = renderWindow
+            window.reset()
+            if window != renderWindow {
+                renderWindow = window
+            }
         }
         if !selection.isEmpty {
             let pruned = selection.intersection(results)
@@ -532,6 +554,96 @@ final class ApplicationLibraryModel: ObservableObject {
                 selection = pruned
             }
         }
+    }
+
+    // MARK: - Performance
+
+    /// The identifiers the list materialises right now: the visible
+    /// results, cut to the render window.
+    var renderedIDs: [ApplicationRecordIdentifier] {
+        renderWindow.rendered(of: visibleIDs)
+    }
+
+    /// How many visible results the window has not materialised yet.
+    var unrenderedCount: Int {
+        renderWindow.remainingCount(of: visibleIDs.count)
+    }
+
+    /// Tells the window a row appeared; the window grows when the row is
+    /// near its end. Called from the row's `onAppear`, so it is cheap and
+    /// publishes only when the limit actually moves.
+    func rowDidAppear(_ id: ApplicationRecordIdentifier) {
+        guard renderWindow.isTruncating(visibleIDs.count),
+              let position = renderedIDs.lastIndex(of: id) else { return }
+        var window = renderWindow
+        if window.rowDidAppear(at: position, total: visibleIDs.count) {
+            renderWindow = window
+        }
+    }
+
+    /// Materialises every visible row at once.
+    func showAllRows() {
+        guard renderWindow.isTruncating(visibleIDs.count) else { return }
+        var window = renderWindow
+        window.showAll()
+        renderWindow = window
+    }
+
+    /// The readiness of the search index as the Performance page reports
+    /// it: ready once every entry is indexed, building while provenance is
+    /// still being resolved for available packages.
+    var searchIndexStatus: SearchIndexStatus {
+        let indexed = index.searchIndex.count
+        if indexed == 0 { return .empty }
+        let awaitingProvenance = provenanceSource == nil ? 0 : index.entriesByID.values.filter {
+            $0.isArtifactAvailable && !index.hasResolvedProvenance(for: $0.record.artifact.artifactID)
+        }.count
+        if awaitingProvenance > 0 {
+            return .building(indexed: indexed - awaitingProvenance, total: indexed)
+        }
+        return .ready(indexed: indexed)
+    }
+
+    private func reportToPerformanceEngine() {
+        guard let performanceEngine else { return }
+        let count = index.count
+        let status = searchIndexStatus
+        let indexed: Int
+        switch status {
+        case .empty: indexed = 0
+        case .building(let done, _): indexed = done
+        case .ready(let done), .stale(let done): indexed = done
+        }
+        // The metadata index — the facts the list shows without opening a
+        // package — is reconciled off the main actor; it diffs against what
+        // it holds, so a report that changed nothing writes nothing.
+        let entries = Array(index.entriesByID.values)
+        let provenance = index.provenanceByArtifact
+        let facts = index.signingFacts
+        Task.detached(priority: .utility) {
+            await performanceEngine.reportLibrary(itemCount: count, indexed: indexed, status: status)
+            await performanceEngine.metadata.reconcile(entries: entries, provenance: provenance, signingFacts: facts)
+        }
+    }
+
+    /// Drops everything the engine derived from a removed application —
+    /// thumbnails, cached entry tables, its metadata row — so nothing
+    /// refers to a package the library no longer holds.
+    private func forgetDerivedData(for entry: LibraryEntry) {
+        guard let performanceEngine else { return }
+        let artifactID = entry.record.artifact.artifactID
+        let recordID = entry.record.id
+        Task.detached(priority: .utility) {
+            await performanceEngine.forget(artifactID: artifactID)
+            await performanceEngine.metadata.forget([recordID])
+        }
+    }
+
+    private func recordBenchmark(_ kind: BenchmarkKind, since started: ContinuousClock.Instant, itemCount: Int) {
+        guard let performanceEngine else { return }
+        let elapsed = ContinuousClock.now - started
+        let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+        Task { await performanceEngine.benchmarks.record(kind: kind, duration: seconds, itemCount: itemCount) }
     }
 
     // MARK: - Reading for the view
@@ -1094,6 +1206,7 @@ final class ApplicationLibraryModel: ObservableObject {
         for entry in entries {
             do {
                 try await library.remove(recordWithID: entry.record.id)
+                forgetDerivedData(for: entry)
             } catch {
                 failures += 1
             }
@@ -1133,6 +1246,7 @@ final class ApplicationLibraryModel: ObservableObject {
         defer { removingRecordID = nil }
         do {
             try await library.remove(recordWithID: entry.record.id)
+            forgetDerivedData(for: entry)
         } catch {
             notice = Notice(
                 title: Self.removalFailureTitle,

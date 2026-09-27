@@ -238,6 +238,15 @@ struct ApplicationEnvironment {
     /// as read-only after construction.
     var resourceInspection: IPAResourceStudioInspection? = nil
 
+    /// The Performance Engine: the background scheduler, thumbnail and
+    /// metadata caches, memory manager, cache policies, benchmarks, and
+    /// launch timeline behind Settings → Advanced → Performance. `nil` in
+    /// compositions that do not measure themselves (most tests), in which
+    /// case every screen falls back to uncached reads and the Performance
+    /// page says the engine is not composed; treated as read-only after
+    /// construction.
+    var performanceEngine: PerformanceEngine? = nil
+
     /// Records one local activity event when the journal preference allows.
     ///
     /// This is the only recording path the presentation layer uses. It
