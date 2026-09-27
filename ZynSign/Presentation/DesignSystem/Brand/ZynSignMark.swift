@@ -2,30 +2,32 @@ import SwiftUI
 
 // MARK: - ZynSign Brand Mark
 
-/// The canonical ZynSign mark — the Z with integrated fountain-pen nib + signature swash on the indigo tile.
+/// The canonical ZynSign mark — the Z with integrated fountain-pen nib + signature swash on the indigo **Liquid Glass** tile.
 ///
-/// This is the single source of truth for the mark's geometry. Every in-app
-/// appearance of the logo (Settings summary, About, Home welcome header, onboarding,
-/// empty states) renders through this view. Its proportions are taken from
+/// This is the single source of truth for the mark's geometry and material. Every
+/// in-app appearance of the logo (Settings, About, Home header, onboarding, empty
+/// states) renders through this view. Its proportions are taken from
 /// `Assets/Brand/Logo/logo-mark.svg` (128 viewBox, tile 120 at 4/4, rx 30) and from
-/// `Assets/Brand/AppIcon/app-icon.svg` (1024 full-bleed tile). The mark is the bold
-/// white Z whose diagonal is the pen barrel ending in a detailed fountain nib at the
-/// lower-left (shoulder, breather hole, slit, collar gap) with a thin cursive swash
-/// underline — as in the reference `IMG_6007.jpeg` (dark outer frame → inner indigo
-/// rounded square `#6B5BDB→#4B48C4` with white Z+pen) but modernized for Apple HIG
-/// (full-bleed 1024, continuous corner radius, flat `#6D6AF0→#4B48C4` gradient, no
-/// outer shadow). A change to the brand geometry happens here first, then the SVGs,
-/// then the derived PNGs are re-rendered from the same numbers.
+/// `Assets/Brand/AppIcon/app-icon.svg` (1024 full-bleed). The mark is the bold white
+/// Z whose diagonal is the pen barrel ending in a detailed fountain nib at the
+/// lower-left (shoulder, breather hole, slit, collar ring) with the elegant cursive
+/// swash — as in the reference `IMG_6007.jpeg` but re-imagined for **iOS 26 Liquid
+/// Glass** (translucent indigo glass, specular top highlight, curved refraction band,
+/// subtle inner border, continuous corner radius, full-bleed 1024 for App Store).
+/// A change to the brand geometry happens here first, then the SVGs, then the
+/// derived PNGs are re-rendered from the same numbers.
 ///
 /// Rules:
-/// - The Z+pen is white: bold top bar, thick diagonal pen barrel/collar with a 1–2 px
-///   gap before the nib, detailed nib (shoulder taper, circular breather hole, centre
-///   slit), short bottom bar, and the 3-hump cursive swash — the same artwork that
-///   ships as `PenMark` (transparent white Z+pen) in the asset catalog.
-/// - The tile gradient is the light variant `#6D6AF0 → #4B48C4` on light and
-///   `#7C79F5 → #5A57D6` on dark, matching `logo-mark.svg` / `logo-mark-dark.svg`.
-/// - The view is vector-tiled with a raster Z+pen that is supersampled (4×) and
-///   Lanczos-downsampled from the 1024 master, so it stays crisp from 16 pt to 512 pt.
+/// - The Z+pen is white: bold top bar, long barrel with collar gap and ring, detailed
+///   nib (shoulder taper, circular breather hole, centre slit), short bottom bar, and
+///   the flowing swash with right loop — the same artwork that ships as `PenMark`
+///   (transparent white Z+pen, `zpen_liquid_only_clean_1024`) in the asset catalog.
+/// - The tile is **Liquid Glass**: gradient `#6D6AF0 → #4B48C4` (light) / `#7C79F5 → #5A57D6`
+///   (dark) with a curved translucent refraction band (white 8–9%), a crisp top-edge
+///   specular line (white 35–55%), and a soft inner glass border (white 14–18%),
+///   matching `logo-mark.svg` / `logo-mark-dark.svg` and the 1024 `zpen_liquid_1024` master.
+/// - The view is vector-tiled with a raster Z+pen supersampled 4× and Lanczos-downsampled
+///   from the 1024 liquid master, so it stays crisp from 16 pt to 512 pt.
 /// - `showsSealDot` is kept for source compatibility — the Z+pen has no seal dot.
 struct ZynSignMark: View {
 
@@ -78,9 +80,54 @@ struct ZynSignMark: View {
     private var tile: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(tileGradient)
+            // Curved refraction band — the glass lens highlight across the upper half
+            .overlay(
+                Ellipse()
+                    .fill(Color.white.opacity(useDarkTile ? 0.08 : 0.09))
+                    .frame(width: size * 1.6, height: size * 0.85)
+                    .offset(y: -size * 0.38)
+                    .blur(radius: size * 0.015)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            )
+            // Crisp top-edge specular highlight — the thin glass sheen at the very top
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.white.opacity(useDarkTile ? 0.18 : 0.14), lineWidth: max(1, size * 0.012))
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.white.opacity(useDarkTile ? 0.32 : 0.42), Color.white.opacity(0)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(height: size * 0.085)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                    .opacity(0.95)
+            )
+            // Subtle bottom-edge glow
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.clear, Color.white.opacity(0.07)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(height: size * 0.06)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            )
+            // Inner glass border — the thin translucent edge that defines the glass thickness
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Color.white.opacity(useDarkTile ? 0.18 : 0.16), lineWidth: max(1, size * 0.01))
+            )
+            // Outer soft border for legibility on both light/dark canvases
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Color.white.opacity(useDarkTile ? 0.10 : 0.14), lineWidth: max(1, size * 0.012))
+                    .blur(radius: 0.2)
             )
     }
 

@@ -34,17 +34,20 @@ needs a raster.
 ## Brand identity
 
 The mark is the **Z with integrated fountain-pen nib + signature swash on the
-indigo tile** — white **Z** (bold top bar + diagonal stem that becomes the pen
-barrel/collar + short bottom bar) whose diagonal terminates in a detailed
-fountain-pen nib at the lower-left (shoulder, breather hole, slit) and an
-under-line cursive swash — on a `120×120 rx 30` tile at `4,4` within the
-`128×128` viewBox (full-bleed `1024×1024` for the app icon). The tile gradient
-is `#6D6AF0 → #4B48C4` (light) and `#7C79F5 → #5A57D6` (dark surfaces). The
-system renders the same Z+pen artwork everywhere: the SVG masters in `Brand/`
-(embedded high-res raster of the Z+pen for pixel-accurate fidelity), the Xcode
-app icon, the favicon suite, the social preview, and the SwiftUI `ZynSignMark`
-(`PenMark` image in the asset catalog — now the transparent white Z+pen) in
-`Presentation/DesignSystem/Brand/ZynSignMark.swift`.
+indigo Liquid Glass tile** — white **Z** (bold top bar + long diagonal pen
+barrel with collar ring + short bottom bar) whose diagonal terminates in a
+detailed fountain-pen nib at the lower-left (shoulder taper, breather hole,
+centre slit) and an elegant cursive swash with right loop — on a `120×120
+rx 30` tile at `4,4` within the `128×128` viewBox (full-bleed `1024×1024` for
+the app icon). The tile is **iOS 26 Liquid Glass**: translucent indigo gradient
+`#6D6AF0 → #4B48C4` (light) / `#7C79F5 → #5A57D6` (dark) with a crisp top-edge
+specular highlight (≈35–42% white), a large curved refraction band (white 8–9%
+across the upper half), and a soft inner glass border (white 14–18%). The system
+renders the same liquid-glass Z+pen everywhere: the SVG masters in `Brand/`
+(embedded high-res raster of the 1024 liquid master for pixel accuracy), the
+Xcode app icon, the favicon suite, the social preview, and the SwiftUI
+`ZynSignMark` (`PenMark` transparent white Z+pen + SwiftUI Liquid Glass tile)
+in `Presentation/DesignSystem/Brand/ZynSignMark.swift`.
 
 | Asset | File | Size / variant | Use |
 |---|---|---|---|
@@ -71,11 +74,13 @@ app icon, the favicon suite, the social preview, and the SwiftUI `ZynSignMark`
 | ICO | `Brand/Favicon/favicon.ico` | 16/32/48 multi | Legacy browsers |
 | Manifest | `Brand/Favicon/site.webmanifest` | JSON | `link rel="manifest"` |
 
-All rasters are rendered from the same Z+pen artwork (white Z+pen on
-transparent, supersampled 4× and Lanczos-downsampled from the 1024 master
-`/tmp/zpen_modern_1024.png`) composited onto the gradient tile, so the Z bars,
-pen barrel/collar, nib shoulder, breather hole, slit and signature swash stay
-identical from the 32 px favicon to the 1024 px App Store icon.
+All rasters are rendered from the same **Liquid Glass** Z+pen master
+(`white Z+pen on transparent`, cleaned mask `/tmp/zpen_liquid_only_clean_1024.png`
+from the AI 1024 liquid-glass full-bleed `/tmp/zpen_liquid_1024.png`),
+supersampled 4× and Lanczos-downsampled and composited onto the liquid-glass
+tile, so the Z bars, barrel/collar/nib details (shoulder, hole, slit, ring) and
+the flowing swash stay identical from the 16 px favicon to the 1024 px App Store
+icon.
 
 ## Brand rules
 
@@ -88,29 +93,34 @@ identical from the 32 px favicon to the 1024 px App Store icon.
 | Type | System stack (`-apple-system, SF Pro, Segoe UI, Roboto, …`) in SVG; tight tracking on display sizes |
 | Screenshots | One device frame, one background, one language — identical treatment for every capture |
 | Type of asset | Vectors wherever possible; rasters only where a raster is required (social preview, favicon, app icon) |
-| Rendering | Rasters are the white Z+pen on transparent (1024 master), supersampled 4× and Lanczos-downsampled, composited onto the gradient; the same artwork scales from 16 px to 1024 px |
+| Rendering | Rasters are the white Liquid-Glass Z+pen on transparent (1024 liquid master), supersampled 4× and Lanczos-downsampled, composited onto the Liquid Glass tile (gradient + curved band + specular); the same artwork scales from 16 px to 1024 px |
 
-The master geometry is the 1024 full-bleed raster `/tmp/zpen_modern_1024.png`
-(white Z+pen on gradient `#6D6AF0→#4B48C4`, Apple HIG modern flat) and its
-transparent mask `/tmp/zpen_only_1024.png`. SVGs in `Brand/` embed that raster
-for pixel accuracy; if the mark ever changes, it changes from a new 1024 master
+The master geometry is the 1024 full-bleed **Liquid Glass** raster
+`/tmp/zpen_liquid_1024.png` (white Z+pen on indigo Liquid Glass `#6D6AF0→#4B48C4`
+with specular highlight + curved refraction band) and its cleaned transparent mask
+`/tmp/zpen_liquid_only_clean_1024.png`. SVGs in `Brand/` embed that raster for
+pixel accuracy; if the mark ever changes, it changes from a new 1024 liquid master
 first, every derived PNG is re-rendered from it, and the SwiftUI `ZynSignMark`
-is updated to the same numbers. No hand-edited PNG is the source of truth.
+(Liquid Glass tile) is updated to the same numbers. No hand-edited PNG is the
+source of truth.
 
 ## In-app usage
 
-The app never ships an SVG. It draws the same Z+pen with SwiftUI
+The app never ships an SVG. It draws the same **Liquid Glass** Z+pen with SwiftUI
 (`ZynSignMark` in `Presentation/DesignSystem/Brand/ZynSignMark.swift`):
-a `LinearGradient` tile clipped to `RoundedRectangle(cornerRadius: size*0.234)`,
-with an `Image("PenMark")` (white Z+pen on transparent, 1×/2×/3× in the catalog)
-centered and padded by `size*0.06`. The same `PenMark` supplies every derived PNG.
+a `LinearGradient` tile (`#6D6AF0→#4B48C4` / `#7C79F5→#5A57D6`) with Liquid Glass
+overlays (curved refraction band 8–9% white, top specular 32–42% white, bottom glow,
+inner glass border 16–18% white) clipped to `RoundedRectangle(cornerRadius:
+size*0.234)`,
+with an `Image("PenMark")` (white Z+pen on transparent, 1×/2×/3×
+from the liquid mask) centered and padded by `size*0.06`. The same `PenMark` supplies every derived PNG.
 `ZynSignAppMark` is a typealias of `ZynSignMark` so every existing call site
-(`About`, `Settings` summary, `Home` welcome header) shows the authentic Z+pen
-without duplicating the artwork.
+(`About`, `Settings` summary, `Home` welcome header)
+shows the authentic Liquid Glass Z+pen without duplicating the artwork.
 
 ## Regeneration
 
 ```sh
-python3 /tmp/generate_zpen_all.py   # supersampled PIL renderer from /tmp/zpen_only_1024.png → AppIcon, favicons, logo PNGs, social previews
+python3 /tmp/generate_liquid_all.py   # supersampled PIL renderer from /tmp/zpen_liquid_only_clean_1024.png (liquid glass) → AppIcon, favicons, logo PNGs, social previews
 # SVGs embed the PNG for pixel accuracy. Do not hand-edit a PNG to fix geometry — regenerate from the 1024 master and re-run.
 ```
