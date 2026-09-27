@@ -20,6 +20,8 @@ struct ProfilesView: View {
 
     @StateObject private var model: ProvisioningProfilesModel
 
+    @Environment(\.applicationEnvironment) private var env
+
     @AppStorage("zynsign.profiles.showsGrid") private var showsGrid = false
 
     /// Creates the tab over the profile library, importer, compatibility
@@ -334,6 +336,18 @@ struct ProfilesView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            if ReleaseTrain.isAvailable(.identityCenter),
+               let identityCenter = env.identityCenter {
+                NavigationLink {
+                    IdentityCenterView(service: identityCenter)
+                } label: {
+                    Label("Identity Center", systemImage: "person.badge.key.fill")
+                }
+                .accessibilityLabel("Developer Identity Center")
+                .accessibilityHint("Opens teams, health, conflicts, and the expiration forecast.")
+            }
+        }
         ToolbarItemGroup(placement: .topBarTrailing) {
             sortMenu
             filterMenu

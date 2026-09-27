@@ -21,6 +21,7 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 summarySection
+                Section { ReleaseReadinessLink() }
                 browseSection
                 preferencesSection
                 workflowSection
@@ -119,6 +120,14 @@ struct SettingsView: View {
                     Label("Signing Presets", systemImage: "rectangle.stack")
                 }
                 .accessibilityHint("Opens saved signing presets. Choosing one does not sign.")
+            }
+            if ReleaseTrain.isAvailable(.identityCenter), let identityCenter = environment.identityCenter {
+                NavigationLink {
+                    IdentityCenterView(service: identityCenter)
+                } label: {
+                    Label("Developer Identity", systemImage: "person.badge.key.fill")
+                }
+                .accessibilityHint("Opens the Developer Identity Center: teams, certificates, profiles, health, and conflicts.")
             }
             NavigationLink { ArchiveSettingsView() } label: {
                 Label("Archive & Extraction", systemImage: "doc.zipper")

@@ -31,6 +31,107 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 - See [scope, boundaries and limits](docs/architecture/store-browser.md). This implementation
   does not promote the current release train.
 
+### Added — Alpha 3 · Step 20: Release Readiness Center
+
+- Local release dashboard with transparent weighted scoring, blocking/warning
+  centers, explicit unsupported checks, validation history and redacted report sharing.
+- Full validation composes signing diagnostics, Entitlements Studio, independent
+  exported-IPA inspection and binary signature verification. Output fingerprints
+  are checked before/after scanning against the export record.
+- Entry points and historical summaries in Settings, Home, Library, App Details,
+  Smart Sign and Export Details; cancellable validation and spoken completion summaries.
+- Bounded atomic history, scoring/history XCTest coverage and
+  [scope and acceptance checklist](docs/development/release-readiness.md).
+  Existing platform/resource-seal/DER limitations remain explicit; this change does
+  not declare Beta readiness or promote the release train.
+
+### Added — Alpha 3 · Step 16: Developer Identity Center
+
+- **Identity Dashboard**: one workspace for all signing identities — Teams, Certificates, Profiles, Healthy, and Needs Attention counts, an overall status, and a spoken summary — reached from Settings → **Developer Identity** and from toolbar links on the Certificates and Profiles tabs.
+- **Team Workspace**: certificates and profiles grouped by the Team ID they declare (case-insensitive, first spelling preserved), with expand/collapse, team summaries, an Ungrouped bucket for identities with no recognisable Team ID, and per-team compatible-app counts.
+- **Certificate Inspector**: name, team, issuer, validity, algorithm, key size, purpose, fingerprint, key availability, and the full health check list — with Set Default, Refresh Validation, Copy Team ID, View Linked Profiles, View Compatible Apps, and Remove. Private keys are never displayed; removing a registration never deletes a key.
+- **Provisioning Profile Manager (center view)**: name, team, bundle identifier, expiration, type, devices, entitlement keys, linked certificates, and compatible apps — with **Ready / Expiring / Expired / Conflict** status badges and the health checks behind them.
+- **Relationship Graph**: a read-only, team-by-team visualization of certificate–profile relationships (embedded fingerprints and shared teams), with individually accessible nodes, a spoken summary per team, and lazy rendering of expanded teams.
+- **Identity Health Center**: per-identity checks — Certificate Valid, Key Available, Profile Valid, Team Match, Expiration, Bundle Compatible — folded into 🟢 Healthy / 🟡 Warning / 🔴 Blocked, with fixed-language detail sentences and full spoken summaries. Computed once per snapshot and cached with it.
+- **Smart Conflict Detection**: duplicate certificates, multiple matching certificates without a default, team mismatch between a profile and an embedded certificate, missing profile for a team with a usable certificate, expired profiles, and orphaned profiles — each with severity, fixed-language findings, and a remedy the center never applies on its own.
+- **Expiration Forecast**: Expired → Critical (≤7 days) → Important (≤14 days) → Warning (≤30 days) → Watch, sorted most-urgent first, aligned with the certificate manager's and profile library's existing 30-day language.
+- **Smart Recommendations**: the signing screen now proposes a **Recommended Identity** — scored from previous successful signing of that app, usable keys, profile compatibility, team match, and the user's default — with its reasons shown. Applying it sets the pickers; the user's Sign tap remains the only confirmation.
+- **Identity Timeline**: recent identity events — imports, profile additions, signed and failed runs, and the most urgent expiration observations — grouped Today / Yesterday / date, most recent first, capped and composed of fixed language only.
+- **Quick Actions & Context Menus**: Set Default, Copy Team ID, View Linked Profiles, View Compatible Apps, Refresh Validation, Remove — on every identity card and inspector; removal asks for confirmation and, where supported, authentication (`removeIdentity` sensitive action).
+- **Security & Performance**: private keys stay in the iOS Keychain; snapshots carry metadata and composed language only; one read per store per snapshot; cached health; lazy rendering; efficient single-pass team grouping.
+- **Accessibility**: Dynamic Type, VoiceOver labels and spoken health/overall summaries, accessible graph nodes, Dark Mode, and large touch targets.
+- Synthetic XCTest coverage for every engine and the service/model assembly
+  ([scope and boundaries](docs/architecture/developer-identity-center.md)). Feature ships at Alpha 3 via `ReleaseFeature.identityCenter`.
+
+### Added — Alpha 3 · Step 19: Resource & Asset Studio
+
+- **Asset Dashboard**: Summary count cards for Icons, Launch Assets, Images, Fonts, Audio, Videos, and Localization Files with zero-I/O structural preview on the Application Details screen.
+- **App Icon Studio**: Discovers primary and alternate icons, multiple resolutions (@1x, @2x, @3x, 60x60, 76x76, 83.5x83.5, 1024x1024), full-screen zoom preview, copy filename, and reveal in bundle. Strictly read-only.
+- **Launch Screen Preview**: Active launch configuration detection (Storyboard, NIB, Info.plist, or Static Launch Images) with storyboard/xib details and launch image gallery.
+- **Image Gallery**: Responsive grid view, interactive pinch-to-zoom full-screen preview, format filters (PNG, JPEG, WebP, GIF, HEIC, SVG, ICNS, CAR), and image dimensions/file size badges.
+- **Font Explorer**: Discovers bundled fonts (.ttf, .otf, .ttc, .dfont) with PostScript name, family, style, file size, live in-process font registration with CoreText, size slider, and preview sentence: "The quick brown fox jumps over the lazy dog."
+- **Localization Studio**: Detects `.lproj` directories, previews `.strings` and `.stringsdict` key-value tables with instant search, and provides side-by-side language comparison.
+- **Audio Explorer**: Bundled audio player supporting MP3, WAV, M4A, AAC, CAF, AIFF, OGG, and FLAC with play/pause, scrub slider, elapsed time, duration, and channel metadata.
+- **Video Explorer**: Bundled video player for MP4, MOV, and M4V with thumbnail preview, timescale/duration extraction, resolution dimensions, and lazy playback via native VideoPlayer.
+- **Resource Search & Filters**: High-performance in-memory search index across filenames, extensions, localization keys/values, fonts, and media formats, combining with filter chips (Images, Icons, Fonts, Audio, Video, Localization, Large Files).
+- **File Inspector**: Read-only inspector panel showing Overview (filename, path, size, type), Metadata (dimensions, duration, language, resolution, format), Bundle Location, and Copy buttons.
+- **Duplicate Resource Detection**: Informational analysis detecting redundant images, duplicate fonts, identical localization tables, and same-size duplicate files across directories with total wasted space estimation.
+- **Asset Relationships**: Logically groups assets into App Icon Sets, Launch Assets, String Tables, and Font Families.
+- **Performance & Accessibility**: Lazy thumbnail loading, bounded prefix reads for dimensions and metadata headers, Dynamic Type, VoiceOver announcements, and Dark Mode support.
+
+### Added — Alpha 3 · Step 18: Binary & Signature Inspector
+
+- Read-only **Binary & Signature Inspector** opened from IPA Explorer for
+  library packages and signed packages: a dashboard card per executable —
+  main app first, then frameworks, dylibs, app extensions, and nested
+  bundles — with per-target status, live verification progress, and a
+  bundle health summary that states exactly what a signature does and does
+  not prove.
+- **Architecture and structure inspection**: friendly labels for CPU
+  type/subtype, file offset, and size; load commands grouped into
+  Executable, Dynamic Libraries, Security, Linking, and Metadata, with raw
+  values collapsed behind Advanced Details; tappable linked libraries with
+  their origin explained.
+- **Code Signature inspector**: SuperBlob listing, CodeDirectory viewer
+  (version, identifier, team, hash algorithm, page size and count, with
+  plain-language explanations), CMS state without raw blobs, decoded
+  requirement set, entitlement keys (values never leave the boundary),
+  special slots, and page-hash results.
+- **On-device verification**: every code page re-hashed with the
+  CodeDirectory's own algorithm and page size; bound special-slot content
+  re-hashed against recorded digests; the CMS digest bound to the
+  CodeDirectory and the signature checked against the embedded signer's
+  public key. Certificate trust is shown as "not evaluated", never claimed;
+  a check that cannot run is "Not Performed" with the reason, never a
+  silent pass; unsigned code is reported as Unsigned, not failed.
+- **Signature timeline** (executable → CodeDirectory → page hashes →
+  signature applied → verification) with the signer-declared signing time
+  labelled as not a trusted timestamp, a verification details screen for
+  every check, and on-demand re-hashing of every file the resource seal
+  lists.
+- **Binary comparison** against another library record or signed package:
+  size, architectures, signature, CodeDirectory, entitlement keys, linked
+  libraries, build version, and verification differences — meaningful
+  changes only, with same-states stated as identical.
+- **Report export** (text or JSON) through the share sheet with an explicit
+  exclusion statement: no private keys or credentials, no certificate data,
+  serial numbers, or fingerprints, no entitlement values, no raw hash
+  bytes, nothing outside the bundle.
+- **Instant search** across load commands, libraries, architecture fields,
+  and signature fields — case- and diacritic-insensitive, every-word
+  matching, scoped to the current page.
+- **Bounded and read-only**: per-executable, bundle-information, seal, and
+  sealed-file read bounds enforced before reading; structure streamed
+  before verification; readers closed on every outcome; signed packages
+  accepted only from the permitted directory; no binary modification.
+- Dynamic Type, VoiceOver labels with spoken verification summaries, Dark
+  Mode, and large touch targets.
+- Synthetic XCTest coverage for the use case, verifier outcomes,
+  comparison, search, timeline, export, health, and discovery, plus
+  [scope/validation documentation](docs/architecture/binary-signature-inspector.md).
+  Feature entry points ship at Alpha 3 without promoting the current
+  release.
+
 ### Added — Alpha 3 · Step 17: Entitlements Studio
 
 - Read-only App Details workspace with capability-grouped cards, dashboard counts,
@@ -771,7 +872,6 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   reinforces), dark mode throughout, and an adaptive grid that gives the
   iPad the same content in a wider layout.
 
->>>>>>> origin/main
 ### Added — 0.1.0-alpha.1 · Step 2: Production-Grade IPA Import
 
 - **Import queue** — `PackageImportQueue` accepts packages from every entry

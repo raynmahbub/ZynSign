@@ -35,6 +35,7 @@ enum CompositionRoot {
         let diagnosticHistory = makeSigningDiagnosticsHistoryStore()
         let library = makeApplicationLibrary(intake: intake, diagnosticHistory: diagnosticHistory)
         let identityStore = makeIdentityStore()
+        let identityAnnotationsStore = makeIdentityAnnotationsStore()
         let diagnostics = makeSigningDiagnostics(
             library: library, intake: intake, identities: identityStore,
             history: diagnosticHistory
@@ -110,7 +111,18 @@ enum CompositionRoot {
         environment.appIcons = appIcons
         environment.signingPresetWorkflow = signingPresetWorkflow
         environment.signingDiagnostics = diagnostics
-        environment.identityAnnotations = makeIdentityAnnotationsStore()
+        environment.identityAnnotations = identityAnnotationsStore
+        // The Identity Center reads the same stores the tabs read — one
+        // identity store, one profile library, one library, one
+        // annotation store, one journal — so its snapshot can never
+        // disagree with what those tabs show.
+        environment.identityCenter = IdentityCenterService(
+            identityStore: identityStore,
+            profiles: profiles,
+            library: library,
+            annotations: identityAnnotationsStore,
+            history: history
+        )
         environment.libraryOrganizer = makeLibraryOrganizer()
         environment.applicationProvenance = makeApplicationProvenanceExtraction()
         environment.libraryExport = makeLibraryExportPreparation()
@@ -121,6 +133,14 @@ enum CompositionRoot {
             repository: StoreRepository(storage: FileStoreCache(directory: FileStoreCache.root)),
             downloads: StoreDownloadQueue(directory: FileStoreCache.root.appendingPathComponent("Quarantine"))
         )
+        environment.resourceInspection = makeResourceStudioInspection(library: library, readerProvider: readerProvider)
+        if let binary = environment.binaryInspection {
+            let historyURL = libraryRootDirectory.appendingPathComponent("ReleaseReadiness.json")
+            environment.releaseReadiness = ReleaseReadinessService(
+                diagnostics: diagnostics, exports: exports, operations: signingOperations,
+                binary: binary, history: ReleaseReadinessHistory(location: historyURL),
+                bundles: environment.bundleInspection, library: library, identities: identityStore)
+        }
         return environment
     }
 
@@ -315,6 +335,21 @@ enum CompositionRoot {
             ),
             digest: digest,
             limits: inspectionLimits
+        )
+    }
+
+    /// Builds the Resource & Asset Studio inspection use case: inspects app
+    /// icons, launch assets, images, fonts, media, and localization tables in
+    /// an imported IPA bundle, completely read-only.
+    static func makeResourceStudioInspection(
+        library: ApplicationLibrary,
+        readerProvider: any ArtifactArchiveReaderProvider,
+        limits: ArchiveLimits = .default
+    ) -> IPAResourceStudioInspection {
+        IPAResourceStudioInspection(
+            library: library,
+            readerProvider: readerProvider,
+            limits: limits
         )
     }
 

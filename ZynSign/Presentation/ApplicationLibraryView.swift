@@ -95,6 +95,7 @@ struct ApplicationLibraryView: View {
                     prompt: Text(features.powerFeatures ? "Name, Bundle ID, Developer, Team…" : "Name or Bundle ID")
                 )
                 .toolbar { toolbarContent }
+                .safeAreaInset(edge: .top) { ReleaseReadinessLink().padding(.horizontal).padding(.vertical, 6) }
                 .safeAreaInset(edge: .bottom) { floatingBar }
                 .disabled(model.isRemovingSelection)
                 // Files dropped anywhere on the Library go to the Import Hub.

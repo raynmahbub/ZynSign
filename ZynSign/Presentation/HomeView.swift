@@ -58,6 +58,7 @@ struct HomeView: View {
                     ImportHubStatusBanner(hub: environment.importHub) {
                         importPresentation.present()
                     }
+                    ReleaseReadinessLink()
                     quickActions
                     if onboardingNeeded {
                         onboardingCard

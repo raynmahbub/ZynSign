@@ -480,6 +480,15 @@ struct CertificateManagerView: View {
         ToolbarItem(placement: .topBarLeading) {
             if model.isImporting {
                 ProgressView().accessibilityLabel("Importing certificate")
+            } else if ReleaseTrain.isAvailable(.identityCenter),
+                      let identityCenter = env.identityCenter {
+                NavigationLink {
+                    IdentityCenterView(service: identityCenter)
+                } label: {
+                    Label("Identity Center", systemImage: "person.badge.key.fill")
+                }
+                .accessibilityLabel("Developer Identity Center")
+                .accessibilityHint("Opens teams, health, conflicts, and the expiration forecast.")
             }
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
