@@ -21,6 +21,7 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 summarySection
+                Section { ReleaseReadinessLink() }
                 browseSection
                 preferencesSection
                 workflowSection
