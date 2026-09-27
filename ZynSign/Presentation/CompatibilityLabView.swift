@@ -437,7 +437,7 @@ private struct CompatibilityCheckRow: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+                withAnimation(ZMotion.fast) { isExpanded.toggle() }
             } label: {
                 Label(isExpanded ? "Hide detail" : "Show detail", systemImage: isExpanded ? "chevron.up" : "chevron.down")
                     .font(.caption)

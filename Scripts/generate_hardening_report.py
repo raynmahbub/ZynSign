@@ -23,6 +23,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import base64
 import html
 import json
 import subprocess
@@ -202,6 +203,14 @@ def load_reports(paths: list[Path]) -> list[dict]:
 # --------------------------------------------------------------- rendering
 
 
+def brand_png_base64(relative: str) -> str:
+    """A brand raster from Assets/Brand, inlined so the report is one self-contained file."""
+    path = ROOT / "Assets" / "Brand" / relative
+    if not path.exists():
+        return ""
+    return base64.b64encode(path.read_bytes()).decode("ascii")
+
+
 def escape(text: object) -> str:
     return html.escape(str(text), quote=True)
 
@@ -368,12 +377,15 @@ def render_page(reports: list[dict], audits: list[dict]) -> str:
             "an open question, and the release checklist is incomplete."
         )
 
+    favicon_b64 = brand_png_base64("Favicon/favicon-32.png")
+    logo_b64 = brand_png_base64("Logo/logo-mark-128.png")
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ZynSign · RC hardening report</title>
+<link rel="icon" type="image/png" href="data:image/png;base64,{favicon_b64}">
 <style>
   :root {{
     --bg: #0f1115;
@@ -403,7 +415,8 @@ def render_page(reports: list[dict], audits: list[dict]) -> str:
     font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }}
   main {{ max-width: 920px; margin: 0 auto; }}
-  h1 {{ font-size: 1.6rem; margin: 0 0 .25rem; }}
+  h1 {{ font-size: 1.6rem; margin: 0 0 .25rem; display: flex; align-items: center; gap: .6rem; }}
+  h1 img {{ width: 36px; height: 36px; border-radius: 8px; }}
   h2 {{ font-size: 1.25rem; margin: 2rem 0 .25rem; }}
   h3 {{ font-size: 1.05rem; margin: 1.75rem 0 .25rem; }}
   p.lead {{ color: var(--muted); margin: 0 0 1.5rem; }}
@@ -458,7 +471,7 @@ def render_page(reports: list[dict], audits: list[dict]) -> str:
 </head>
 <body>
 <main>
-  <h1>ZynSign · RC hardening report</h1>
+  <h1><img src="data:image/png;base64,{logo_b64}" alt="">ZynSign · RC hardening report</h1>
   <p class="meta">{escape(generated)} · built by Scripts/generate_hardening_report.py</p>
   <p class="lead">{lead}</p>
   <h2>{escape(headline)}</h2>

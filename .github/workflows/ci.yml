@@ -88,6 +88,9 @@ jobs:
       - name: Check the regression catalogue names real tests
         run: python3 Scripts/audit_regression_coverage.py
 
+      - name: Check hand-written design values against the token baseline
+        run: python3 Scripts/audit_design_tokens.py --baseline Scripts/design_tokens_baseline.json --check
+
       - name: Build the hardening report
         run: python3 Scripts/generate_hardening_report.py --output build/hardening/index.html
 

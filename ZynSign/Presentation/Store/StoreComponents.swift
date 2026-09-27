@@ -29,7 +29,7 @@ struct StoreAppLink: View {
     var body: some View {
         NavigationLink { StoreAppDetailView(app: app, model: model) } label: {
             HStack(alignment: .top, spacing: 12) {
-                StoreArtwork(url: app.iconURL).frame(width: 56, height: 56).clipShape(RoundedRectangle(cornerRadius: 13))
+                StoreArtwork(url: app.iconURL).frame(width: 56, height: 56).clipShape(RoundedRectangle(cornerRadius: ZRadius.appIcon(side: 56), style: .continuous))
                 VStack(alignment: .leading, spacing: 5) {
                     Text(app.name).font(.headline)
                     Text(app.developer).font(.subheadline).foregroundStyle(.secondary)
@@ -48,7 +48,7 @@ struct StoreFeatureCard: View {
     @ScaledMetric(relativeTo: .body) private var width = 175.0
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            StoreArtwork(url: app.iconURL).frame(width: 72, height: 72).clipShape(RoundedRectangle(cornerRadius: 17))
+            StoreArtwork(url: app.iconURL).frame(width: 72, height: 72).clipShape(RoundedRectangle(cornerRadius: ZRadius.appIcon(side: 72), style: .continuous))
             Text(app.name).font(.headline)
             Text(app.subtitle ?? app.developer).font(.caption).foregroundStyle(.secondary)
             Text("v\(app.latest.version)").font(.caption.monospacedDigit())

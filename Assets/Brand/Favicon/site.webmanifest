@@ -1,7 +1,7 @@
 {
-  "name": "ZynSign — professional iOS sideloading platform",
+  "name": "ZynSign",
   "short_name": "ZynSign",
-  "description": "On-device signing, made Apple-quality. Professional iOS sideloading platform — iOS 17+, SwiftUI, on-device.",
+  "description": "On-device iOS signing, made Apple-quality.",
   "icons": [
     {
       "src": "android-chrome-192.png",

@@ -19,7 +19,6 @@ struct SigningJobDetailView: View {
     let jobID: SigningJobIdentifier
 
     @Environment(\.applicationEnvironment) private var env
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shareItem: SignedOutputShare?
 
     /// The Export Center's current view of the artifact a completed job
@@ -81,7 +80,7 @@ struct SigningJobDetailView: View {
             logSection(job)
         }
         .listStyle(.insetGrouped)
-        .animation(reduceMotion ? nil : .snappy, value: job.statusText)
+        .animation(ZMotion.fast, value: job.statusText)
     }
 
     // MARK: - Status
@@ -399,7 +398,7 @@ struct SigningJobDetailView: View {
                     }
                 }
                 Button(role: .destructive) {
-                    withAnimation(reduceMotion ? nil : .snappy) { queue.remove(job.id) }
+                    withAnimation(ZMotion.fast) { queue.remove(job.id) }
                 } label: {
                     Label("Remove from Queue", systemImage: "trash")
                 }

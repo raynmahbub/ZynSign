@@ -29,21 +29,30 @@ struct ZMotion {
         ZMotion(permitsAnimation: !reduceMotion)
     }
 
-    /// A short fade for content replacing content in place. `nil` when
-    /// animation is off, which SwiftUI treats as an immediate change.
-    var quick: Animation? {
-        permitsAnimation ? .easeOut(duration: 0.15) : nil
+    // MARK: Presets — the only curves ZynSign animates with
+
+    /// The curves, defined once. Call sites never name a duration.
+    enum Curve {
+        /// 200 ms ease-out: content replacing content, a row toggling, a chip.
+        static let fast: Animation = .easeOut(duration: 0.20)
+        /// 300 ms ease-in-out: a state change the user caused.
+        static let standard: Animation = .easeInOut(duration: 0.30)
+        /// 450 ms spring: the ribbon drawing itself, a success tick, a ring filling.
+        static let relaxed: Animation = .spring(response: 0.45, dampingFraction: 0.82)
+        /// Interactive spring: things that follow a finger or settle after a tap.
+        static let interactive: Animation = .spring(response: 0.35, dampingFraction: 0.80)
     }
 
-    /// The default for a state change the user caused.
-    var standard: Animation? {
-        permitsAnimation ? .easeInOut(duration: 0.22) : nil
-    }
+    /// `nil` when animation is off, which SwiftUI treats as an immediate change.
+    var fast: Animation? { permitsAnimation ? Curve.fast : nil }
+    var standard: Animation? { permitsAnimation ? Curve.standard : nil }
+    var relaxed: Animation? { permitsAnimation ? Curve.relaxed : nil }
+    var interactive: Animation? { permitsAnimation ? Curve.interactive : nil }
 
-    /// A settle for something arriving: a toast, a sheet's content.
-    var arrive: Animation? {
-        permitsAnimation ? .spring(response: 0.35, dampingFraction: 0.85) : nil
-    }
+    /// Older names, kept so existing call sites read the same.
+    var quick: Animation? { fast }
+    var arrive: Animation? { interactive }
+    var hero: Animation? { relaxed }
 
     /// The transition for content appearing in a list. A fade only: no
     /// offset, so a long list never lays out twice per row.
@@ -73,4 +82,29 @@ extension EnvironmentValues {
         get { self[ZMotionKey.self] }
         set { self[ZMotionKey.self] = newValue }
     }
+}
+
+// MARK: - Static access (call sites without an environment)
+
+extension ZMotion {
+
+    private static let lock = NSLock()
+    private static var storedPermitsAnimation = true
+
+    /// The policy the shell resolved — the same value it puts in the
+    /// environment. `RootView` sets it; view models, static helpers and
+    /// one-line `withAnimation` calls read it through the presets below.
+    static var permitsAnimationGlobally: Bool {
+        get { lock.withLock { storedPermitsAnimation } }
+        set { lock.withLock { storedPermitsAnimation = newValue } }
+    }
+
+    /// 200 ms ease-out, or no animation.
+    static var fast: Animation? { permitsAnimationGlobally ? Curve.fast : nil }
+    /// 300 ms ease-in-out, or no animation.
+    static var standard: Animation? { permitsAnimationGlobally ? Curve.standard : nil }
+    /// 450 ms spring, or no animation.
+    static var relaxed: Animation? { permitsAnimationGlobally ? Curve.relaxed : nil }
+    /// Interactive spring, or no animation.
+    static var interactive: Animation? { permitsAnimationGlobally ? Curve.interactive : nil }
 }

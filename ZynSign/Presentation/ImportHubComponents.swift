@@ -122,7 +122,7 @@ struct ImportItemRow: View {
                     ProgressView(value: item.fractionCompleted)
                         .progressViewStyle(.linear)
                         .tint(.accentColor)
-                        .animation(reduceMotion ? nil : .linear(duration: 0.2), value: item.fractionCompleted)
+                        .animation(ZMotion.permitsAnimationGlobally && !reduceMotion ? .linear(duration: 0.2) : nil, value: item.fractionCompleted)
                     if let remaining = ImportQueueRendering.remainingText(for: item.estimate) {
                         Text(remaining)
                             .font(.caption)

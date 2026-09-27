@@ -102,7 +102,7 @@ struct InstallationWorkspaceView: View {
             guard let notice else { return }
             toastMessage = "\(notice.title) — \(notice.message)"
             toastStyle = notice.isError ? .error : .success
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            withAnimation(ZMotion.interactive) {
                 isShowingToast = true
             }
         }

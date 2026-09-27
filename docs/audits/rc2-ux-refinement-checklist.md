@@ -70,7 +70,7 @@ Audit of every navigation flow across tabs, sheets, split views, and deep links.
 
 All animations are calibrated for 60/120 FPS fluidity and full accessibility compliance.
 
-- [x] **Spring Physics (`ZAnimation`)**:
+- [x] **Spring Physics (`ZMotion`)**:
   - Standard spring: `response: 0.35, dampingFraction: 0.8`.
   - Snappy spring: `response: 0.25, dampingFraction: 0.75` for small state toggles.
   - Card expansion: `response: 0.4, dampingFraction: 0.82` for modal transitions.

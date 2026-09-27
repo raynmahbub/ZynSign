@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// ZynSign launch splash — Liquid Glass Z+pen with fluid animation and haptics.
+/// ZynSign launch splash — the Liquid Glass Z·Pen with fluid animation and haptics.
 ///
 /// Shown once per cold launch from `ZynSignApp` over `RootView` until the
 /// first deferred startup work is underway. It reuses the canonical
-/// `ZynSignMark` (Liquid Glass tile + transparent white Z+pen) so the mark
+/// `ZynSignMark` (Liquid Glass tile + transparent white Z·Pen) so the mark
 /// the user sees at launch is pixel-identical to every later surface.
 ///
 /// Animation (when Reduce Motion is off):
@@ -48,7 +48,7 @@ struct ZynSplashView: View {
                         .fill(
                             RadialGradient(
                                 colors: [
-                                    (isDark ? Color(red: 0x7C/255.0, green: 0x79/255.0, blue: 0xF5/255.0) : Color(red: 0x6D/255.0, green: 0x6A/255.0, blue: 0xF0/255.0)).opacity(isDark ? 0.28 : 0.22),
+                                    (isDark ? ZynBrand.indigoDarkTop : ZynBrand.indigoTop).opacity(isDark ? 0.28 : 0.22),
                                     Color.clear
                                 ],
                                 center: .center,
@@ -62,7 +62,7 @@ struct ZynSplashView: View {
                         .opacity(logoAppeared ? 1 : 0)
                         .animation(reduceMotion ? nil : .easeInOut(duration: 2.0).repeatForever(autoreverses: true), value: glowPulse)
 
-                    // The canonical mark — Liquid Glass tile + white Z+pen
+                    // The canonical mark — Liquid Glass tile + white Z·Pen
                     splashMark
                 }
 
@@ -71,12 +71,12 @@ struct ZynSplashView: View {
                     Text("ZynSign")
                         .font(.system(size: 36, weight: .bold, design: .default))
                         .tracking(-1.1)
-                        .foregroundStyle(isDark ? Color.white : Color(red: 0x1D/255.0, green: 0x1D/255.0, blue: 0x1F/255.0))
+                        .foregroundStyle(isDark ? Color.white : ZynBrand.ink)
                         .opacity(wordmarkAppeared ? 1 : 0)
                         .offset(y: wordmarkAppeared ? 0 : 10)
                     Text("On-device signing, made Apple-quality.")
                         .font(.system(size: 14, weight: .medium, design: .default))
-                        .foregroundStyle(isDark ? Color.white.opacity(0.68) : Color(red: 0x6E/255.0, green: 0x6E/255.0, blue: 0x73/255.0))
+                        .foregroundStyle(isDark ? Color.white.opacity(0.68) : ZynBrand.mutedLight)
                         .opacity(taglineAppeared ? 1 : 0)
                         .offset(y: taglineAppeared ? 0 : 6)
                 }
@@ -100,7 +100,7 @@ struct ZynSplashView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             // Solid fallback for the window background while the splash is up
-            (isDark ? Color(red: 0x0E/255.0, green: 0x0E/255.0, blue: 0x13/255.0) : Color(red: 0xF5/255.0, green: 0xF5/255.0, blue: 0xF7/255.0))
+            (isDark ? Color(red: 0x0E/255.0, green: 0x0E/255.0, blue: 0x13/255.0) : ZynBrand.paper)
                 .ignoresSafeArea()
         )
         .opacity(dismissing ? 0 : 1)
@@ -116,9 +116,6 @@ struct ZynSplashView: View {
         .task {
             await runTimeline()
         }
-        .onChange(of: reduceMotion) { _, _ in
-            // If the user toggles Reduce Motion mid-splash, finish quickly.
-        }
     }
 
     // MARK: - Mark
@@ -127,7 +124,7 @@ struct ZynSplashView: View {
     private var splashMark: some View {
         let markSize: CGFloat = 116
         ZStack {
-            ZynSignMark(size: markSize, forceDarkVariant: isDark ? true : false)
+            ZynSignMark(size: markSize, forceDarkVariant: isDark)
                 .scaleEffect(logoAppeared ? 1 : (reduceMotion ? 1 : 0.82))
                 .offset(y: logoAppeared ? 0 : (reduceMotion ? 0 : 14))
                 .opacity(logoAppeared ? 1 : 0)
@@ -142,13 +139,13 @@ struct ZynSplashView: View {
                 .overlay {
                     if !reduceMotion {
                         shimmerOverlay(size: markSize)
-                            .clipShape(RoundedRectangle(cornerRadius: markSize * 0.234375, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: markSize * ZynSignMark.cornerRatio, style: .continuous))
                             .allowsHitTesting(false)
                     }
                 }
                 // Subtle drop shadow for depth against the background
                 .shadow(color: Color.black.opacity(isDark ? 0.22 : 0.14), radius: 24, x: 0, y: 12)
-                .shadow(color: (isDark ? Color(red: 0x7C/255.0, green: 0x79/255.0, blue: 0xF5/255.0) : Color(red: 0x6D/255.0, green: 0x6A/255.0, blue: 0xF0/255.0)).opacity(0.18), radius: 32, x: 0, y: 8)
+                .shadow(color: (isDark ? ZynBrand.indigoDarkTop : ZynBrand.indigoTop).opacity(0.18), radius: 32, x: 0, y: 8)
         }
         .frame(width: markSize, height: markSize)
     }
@@ -187,7 +184,7 @@ struct ZynSplashView: View {
             LinearGradient(
                 colors: isDark
                     ? [Color(red: 0x1A/255.0, green: 0x15/255.0, blue: 0x2B/255.0), Color(red: 0x0E/255.0, green: 0x0E/255.0, blue: 0x14/255.0)]
-                    : [Color(red: 0xF5/255.0, green: 0xF5/255.0, blue: 0xF7/255.0), Color(red: 0xE8/255.0, green: 0xE6/255.0, blue: 0xFF/255.0)],
+                    : [ZynBrand.paper, Color(red: 0xE8/255.0, green: 0xE6/255.0, blue: 0xFF/255.0)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -198,7 +195,7 @@ struct ZynSplashView: View {
                 .fill(
                     RadialGradient(
                         colors: [
-                            (isDark ? Color(red: 0x7C/255.0, green: 0x79/255.0, blue: 0xF5/255.0) : Color(red: 0x6D/255.0, green: 0x6A/255.0, blue: 0xF0/255.0)).opacity(isDark ? 0.22 : 0.16),
+                            (isDark ? ZynBrand.indigoDarkTop : ZynBrand.indigoTop).opacity(isDark ? 0.22 : 0.16),
                             Color.clear
                         ],
                         center: .center,
@@ -214,7 +211,7 @@ struct ZynSplashView: View {
                 .fill(
                     RadialGradient(
                         colors: [
-                            (isDark ? Color(red: 0x5A/255.0, green: 0x57/255.0, blue: 0xD6/255.0) : Color(red: 0x4B/255.0, green: 0x48/255.0, blue: 0xC4/255.0)).opacity(isDark ? 0.16 : 0.12),
+                            (isDark ? ZynBrand.indigoDarkBottom : ZynBrand.indigoBottom).opacity(isDark ? 0.16 : 0.12),
                             Color.clear
                         ],
                         center: .center,

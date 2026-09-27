@@ -327,7 +327,7 @@ struct IdentityCenterView: View {
         return ZCard {
             VStack(alignment: .leading, spacing: ZSpacing.sm) {
                 Button {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    withAnimation(ZMotion.interactive) {
                         model.toggleTeam(team.id)
                     }
                 } label: {

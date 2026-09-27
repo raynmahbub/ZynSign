@@ -28,7 +28,6 @@ struct SigningQueueView: View {
     var onDone: (() -> Void)? = nil
 
     @Environment(\.applicationEnvironment) private var env
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The bulk action awaiting the user's confirmation, when one is.
     @State private var pendingBulkAction: BulkAction?
@@ -183,7 +182,7 @@ struct SigningQueueView: View {
         .navigationDestination(for: SigningJobIdentifier.self) { jobID in
             SigningJobDetailView(queue: queue, jobID: jobID)
         }
-        .animation(reduceMotion ? nil : .snappy, value: queue.jobs.map { $0.id.rawValue + $0.statusText })
+        .animation(ZMotion.fast, value: queue.jobs.map { $0.id.rawValue + $0.statusText })
     }
 
     private func jobRow(_ job: SigningQueue.Job, waitingPosition: Int?) -> some View {
@@ -211,7 +210,7 @@ struct SigningQueueView: View {
             } else if job.canBeRemoved {
                 Button(role: .destructive) {
                     ZHaptics.tap()
-                    withAnimation(reduceMotion ? nil : .snappy) { queue.remove(job.id) }
+                    withAnimation(ZMotion.fast) { queue.remove(job.id) }
                 } label: {
                     Label("Remove", systemImage: "xmark")
                 }
@@ -221,7 +220,7 @@ struct SigningQueueView: View {
             if job.state == .queued {
                 Button {
                     ZHaptics.tap()
-                    withAnimation(reduceMotion ? nil : .snappy) { queue.sendToTop(job.id) }
+                    withAnimation(ZMotion.fast) { queue.sendToTop(job.id) }
                 } label: {
                     Label("Send to Top", systemImage: "arrow.up.to.line")
                 }
@@ -281,7 +280,7 @@ struct SigningQueueView: View {
             }
             if job.canBeRemoved {
                 Button(role: .destructive) {
-                    withAnimation(reduceMotion ? nil : .snappy) { queue.remove(job.id) }
+                    withAnimation(ZMotion.fast) { queue.remove(job.id) }
                 } label: {
                     Label("Remove", systemImage: "xmark")
                 }
@@ -375,9 +374,9 @@ struct SigningQueueView: View {
         case .retryAllFailed:
             queue.retryAllFailed()
         case .clearCompleted:
-            withAnimation(reduceMotion ? nil : .snappy) { queue.clearCompleted() }
+            withAnimation(ZMotion.fast) { queue.clearCompleted() }
         case .clearFailed:
-            withAnimation(reduceMotion ? nil : .snappy) { queue.clearFailed() }
+            withAnimation(ZMotion.fast) { queue.clearFailed() }
         }
     }
 
@@ -478,7 +477,6 @@ struct SigningJobCard: View {
     let queue: SigningQueue
     let waitingPosition: Int?
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var now: Date { Date() }
@@ -673,7 +671,7 @@ struct SigningJobCard: View {
             if job.canBeRemoved {
                 Button {
                     ZHaptics.tap()
-                    withAnimation(reduceMotion ? nil : .snappy) { queue.remove(job.id) }
+                    withAnimation(ZMotion.fast) { queue.remove(job.id) }
                 } label: {
                     Image(systemName: "xmark")
                         .font(.caption.weight(.semibold))
@@ -694,7 +692,7 @@ struct SigningJobCard: View {
             // pipeline did not establish.
             ProgressView(value: job.fractionCompleted)
                 .tint(.accentColor)
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: job.fractionCompleted)
+                .animation(ZMotion.fast, value: job.fractionCompleted)
                 .accessibilityLabel("\(job.applicationName) progress")
                 .accessibilityValue("\(Int((job.fractionCompleted * 100).rounded())) percent, \(job.statusText)")
         } else if job.failure != nil {

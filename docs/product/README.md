@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../Assets/Brand/Logo/logo-lockup-dark.svg">
+    <img src="../../Assets/Brand/Logo/logo-lockup.svg" alt="ZynSign" width="260">
+  </picture>
+</p>
+
 # Product Documentation
 
 What ZynSign is for, who it is for, and — just as important — what it
@@ -9,6 +16,7 @@ deliberately does not do.
 |---|---|
 | [UNIQUE_VALUE_PROPOSITION.md](UNIQUE_VALUE_PROPOSITION.md) | Why does this exist, and for whom? |
 | [WHAT_DOES_NOT_EXIST.md](WHAT_DOES_NOT_EXIST.md) | Which capabilities are wired, and which are claimed *never*? |
+| [ROADMAP-v3.0-nova.md](ROADMAP-v3.0-nova.md) | Where is it going? — v3.0 “Nova”, the complete iOS signing platform, mapped onto the architecture |
 
 ## The one-paragraph version
 

@@ -88,7 +88,7 @@ struct StoreDeveloperView: View {
             Section {
                 HStack(spacing: 14) {
                     StoreArtwork(url: apps.first?.developerIconURL, symbol: "person.crop.circle.fill")
-                        .frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: 16))
+                        .frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: ZRadius.appIcon(side: 64), style: .continuous))
                     VStack(alignment: .leading, spacing: 4) {
                         Text(developer).font(.title2.bold())
                         Text("\(apps.count) catalog listings").font(.subheadline).foregroundStyle(.secondary)
@@ -118,7 +118,7 @@ struct StoreDeveloperView: View {
                     NavigationLink { StoreSourceDetailView(id: source.id, model: model) } label: {
                         HStack(spacing: 10) {
                             StoreArtwork(url: source.iconURL, symbol: "globe")
-                                .frame(width: 36, height: 36).clipShape(RoundedRectangle(cornerRadius: 9))
+                                .frame(width: 36, height: 36).clipShape(RoundedRectangle(cornerRadius: ZRadius.appIcon(side: 36), style: .continuous))
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(source.name).font(.subheadline.weight(.semibold))
                                 Text(source.url.absoluteString).font(.caption).foregroundStyle(.secondary).lineLimit(1)

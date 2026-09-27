@@ -214,7 +214,7 @@ public struct ZoomableImageView: View {
                                 }
                         )
                         .onTapGesture(count: 2) {
-                            withAnimation(.spring()) {
+                            withAnimation(ZMotion.interactive) {
                                 scale = scale > 1.5 ? 1.0 : 2.5
                             }
                         }

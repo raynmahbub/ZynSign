@@ -120,7 +120,7 @@ struct StoreHomeView: View {
             }
         }
         .foregroundStyle(.white).padding(22).frame(maxWidth: .infinity, alignment: .leading)
-        .background(LinearGradient(colors: [Color.accentColor, Color.accentColor.opacity(0.7)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 24))
+        .background(LinearGradient(colors: [Color.accentColor, Color.accentColor.opacity(0.7)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: ZRadius.xl))
         .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
     }
     private var destinations: some View {

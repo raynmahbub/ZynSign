@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="Assets/Brand/Logo/logo-lockup-dark.svg">
+    <img src="Assets/Brand/Logo/logo-lockup.svg" alt="ZynSign" width="260">
+  </picture>
+</p>
+
 # Changelog
 
 All notable changes to this project are documented in this file.
@@ -11,6 +18,122 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 > App Store submission and no install claim (see `docs/architecture/installation-compatibility.md`).
 
 ## [Unreleased]
+
+### Changed — ZS-029: a shared design-system foundation (no behaviour change)
+
+- **Motion** — four presets (`ZMotion.fast / standard / interactive /
+  relaxed`) replace 82 inline curves in 21 files; the unused second token
+  set (`ZynSignTokens.Motion` / `ZAnimation`) is gone. Static presets obey
+  the same Reduce Motion + preference policy as the environment value
+  (`RootView` publishes it), so twelve animations that only checked the
+  system switch now also honour the in-app preference. Skeleton shimmer no
+  longer loops when animation is off.
+- **Radius** — `ZRadius.appIcon(side:)` (the iOS 22.37 % ratio) replaces
+  nine hand-computed artwork radii; three more literals moved to tokens.
+- **Dashboard components** — `ZDashboardCard`, `ZDashboardLinkRow`,
+  `GreetingCard`, `QuickActionCard`, `HealthCard`, `IdentityCard`,
+  `DownloadCard`, `RecentListCard` extracted from the Smart Workspace into
+  `DesignSystem/Components`; the workspace now only maps Domain values onto
+  them.
+- **Guard** — `Scripts/audit_design_tokens.py` + `design_tokens_baseline.json`
+  in CI: hand-written colour/radius/spacing/font/shadow/motion/haptic values
+  in Presentation may not grow.
+- **Assets** — the living logo moved to `Assets/Brand/Motion/`.
+- Records: `docs/internal/DesignSystemAudit.md`,
+  `docs/internal/ArchitecturePreservationReport.md`.
+
+### Changed — RC 2 polish pass: Mission Control home, living logo, brand book
+
+- **Home is the Smart Workspace** in `v1.0.0-rc.2` (`ReleaseFeature.smartWorkspace`
+  moved from `nova1` to `rc2`; prerequisites `missionControl`, `identityCenter`).
+  New cards: **Quick Sign** (the most recent app, one tap from signing) and
+  **Install Health** (`InstallHealthReport.preview` — certificate, profile,
+  conflict and history from the inventory; binary checks stay *not performed*,
+  so the preview never says *Ready*). The Nova Assistant stays behind `nova1`.
+- **Living logo** — `Assets/Brand/Motion/hero.gif` (800×300, ~0.5 MB): the
+  ribbon draws along the Z diagonal, the wordmark settles, one specular pass;
+  `hero-still.png` for reduced motion. The README opens with it.
+- **Brand deliverables** — monochrome and outline marks (ink / white),
+  wordmark SVGs, GitHub avatar, five alternate icon renders (Crystal, Midnight,
+  Blueprint, Frost, Aurora — assets only, wiring is a v3.0 item). All from the
+  one master via `generate_brand_assets.py --check`.
+- **Brand book** — `docs/design/brand/` (Logo, Colors with measured contrast,
+  Typography, Motion & Haptics, Asset-Usage).
+- **Haptic language** — `ZHaptics.play(.imported | .sign | .succeeded | .failed |
+  .attention | .select | .navigate)`; starting a signing run is now a medium
+  impact. `ZMotion.hero` (spring 450 ms) for ribbon / success / ring moments.
+- **Custom empty states** — `ZEmptyIllustration`: four vector line-art
+  drawings (No Apps, No Certificates, No Downloads, No Sources) in the Z·Pen
+  language; used by the matching `ZEmptyState` presets, hidden from VoiceOver.
+- **Screenshot system** — `Scripts/compose_screenshots.py` (indigo ground,
+  black continuous-corner frame, headline + subtitle; 6.7", 6.1", iPad 13"),
+  `Assets/Screenshots/manifest.json`, `docs/releases/screenshots.md` incl. the
+  15–20 s App Preview storyboard.
+- **Audits** — `docs/audits/accessibility-checklist.md` (the human half:
+  VoiceOver, Dynamic Type AX5, Reduce Motion/Transparency, contrast, touch)
+  and `docs/audits/performance-audit.md` (Instruments procedure and budgets:
+  cold launch ≤ 1.0 s, 0 leaks, ≥ 58 fps in a 1 000-row library).
+
+### Added — v3.0 “Nova” foundation
+
+- **Roadmap** — `docs/product/ROADMAP-v3.0-nova.md` maps the Nova vision
+  (Smart Workspace 3.0, Nova Assistant, Install Health Pro, App DNA / App
+  Studio, Binary Studio, Repository Hub, Smart Collections+, Project
+  Workspaces, Signing Queue Pro, Living UI, Live Activities, Backup Center
+  Pro, Trust Center, Developer Console, Personalization, Universal Spotlight,
+  Smart Notifications) onto the four layers, marks what exists vs. what is
+  new, and keeps the three nevers.
+- **Release train** — stages `.professional` (`v2.0.0`), `.nova1`
+  (`v3.0.0-nova.1`) and `.nova` (`v3.0.0`); features `.smartWorkspace` (now
+  in RC 2, see above) and `.novaAssistant` (`nova1`). `ReleaseTrain.current`
+  is unchanged (`rc2`).
+- **Smart Workspace 3.0** — `WorkspaceWidget` + `WorkspaceLayoutPolicy`
+  (live work → time of day → usage with 7-day half-life → default),
+  `WorkspaceSession` (“Continue Last Session”), `WorkspaceStateStore` port,
+  `SmartWorkspaceService`, `FileWorkspaceStateStore`, and
+  `SmartWorkspaceView` which Home shows when the feature is on. Detail and
+  Sign screens record the session.
+- **Nova Assistant** — `NovaFacts` / `NovaAdvisor`: rule-based, on-device,
+  deterministic suggestions (expiring or expired identities and profiles,
+  matching profile, uncovered app, previously signed app, duplicate bundle,
+  backup, first-step nudges). Recommends only; no code path acts.
+- **Install Health Pro** — `InstallHealthReport`: eight weighted checks,
+  0–100 score where *not performed* earns nothing, `Ready / Needs Attention /
+  Blocked` verdict. Check runners follow.
+- Tests: `NovaTests` (layout policy, session, advisor rules, pattern
+  matching, health report, file store); `ReleaseTrainTests` extended.
+
+### Changed — One master for the brand, an iOS-correct app icon
+
+- **App icon** — regenerated from the Z·Pen master as three proper iOS
+  appearances: a full-bleed opaque light icon with no baked-in frame (iOS
+  applies the corner mask), a dark icon on a deep indigo ground, and a
+  grayscale-on-transparent tinted icon. The previous set carried a visible
+  bevel that clipped against the system mask, and its tinted variant was a
+  flat colour rather than a template.
+- **Brand pipeline** — `Scripts/generate_brand_assets.py` renders the app icon,
+  the in-app `PenMark` image set, every logo PNG, the favicon suite, the
+  social previews, and the SVGs from `Assets/Brand/Source/zpen-mark-1024.png`.
+  SVGs now carry a traced vector path instead of an embedded 1 MB raster
+  (`app-icon.svg` 1.3 MB → 32 KB). `--check` reports drift.
+- **Logo everywhere** — the mark now opens the onboarding flow and the app-lock
+  overlay in addition to the splash, Home, Settings, and About; every docs
+  section README, the changelog, and the generated hardening report carry the
+  lockup. `ZynSignMark` shares its palette (`ZynBrand`) and corner ratio with
+  the splash and the generator.
+- **Docs** — README rewritten to the essentials (what it does, requirements,
+  getting started, architecture, layout, development, security, licence).
+  `Assets/README.md` documents the single-master workflow; stale `/tmp`
+  references removed. The signing-pipeline diagram labels *Complete* as the
+  terminal state rather than a tenth stage.
+
+### Fixed
+
+- `<picture>` sources in the README used `media="prefers-color-scheme: dark"`
+  without parentheses, so GitHub never switched to the dark banner.
+- An empty `onChange(of:)` handler was removed from `ZynSplashView`.
+- `Scripts/update_readme.py` now keeps the release-train line in sync and no
+  longer rewrites section text that no longer exists.
 
 ### Changed — Brand refresh, app icon in the bundle, and README compaction
 

@@ -11,7 +11,6 @@ struct SigningHealthCard: View {
     let report: SigningDiagnosticsReport?
     let isAnalyzing: Bool
     let error: String?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
@@ -65,7 +64,7 @@ struct SigningHealthCard: View {
                 }
             }
         }
-        .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.8), value: report?.score)
+        .animation(ZMotion.interactive, value: report?.score)
     }
 
     private func scoreRing(_ report: SigningDiagnosticsReport) -> some View {

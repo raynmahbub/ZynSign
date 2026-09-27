@@ -68,7 +68,7 @@ struct IdentityRelationshipGraphView: View {
         return ZCard {
             VStack(alignment: .leading, spacing: ZSpacing.sm) {
                 Button {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    withAnimation(ZMotion.interactive) {
                         toggle(team.id)
                     }
                 } label: {

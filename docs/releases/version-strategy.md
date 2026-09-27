@@ -131,6 +131,13 @@ The final target. It requires:
 
 ## After 1.0.0
 
+`2.0.0` (“Professional Platform”) deepens the 1.0 surface without adding a
+release gate. `3.0.0` (“Nova”) is the complete-platform release: `3.0.0-nova.1`
+previews the Nova Assistant on the Smart Workspace home that shipped in RC 2,
+and `3.0.0` switches on the remaining areas in [../product/ROADMAP-v3.0-nova.md](../product/ROADMAP-v3.0-nova.md).
+Both are stages on the same train (`ReleaseStage.professional`, `.nova1`,
+`.nova`); the marketing version stays numeric (`2.0.0`, `3.0.0`).
+
 Semantic Versioning applies:
 
 - `1.0.1` — patch, security, or bug fix;

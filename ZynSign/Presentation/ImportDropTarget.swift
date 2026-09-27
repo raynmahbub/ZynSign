@@ -83,7 +83,7 @@ private struct ImportDropTargetModifier: ViewModifier {
                         .stroke(Color.accentColor, lineWidth: 2)
                 }
             }
-            .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: isTargeted)
+            .animation(ZMotion.fast(duration: 0.2), value: isTargeted)
     }
 
     private func receive(_ providers: [NSItemProvider]) {
@@ -228,7 +228,7 @@ struct ImportDropZone: View {
         }
         .buttonStyle(.plain)
         .importDropTarget(.none, isTargeted: $isTargeted, incomingCount: $incomingCount)
-        .animation(.snappy(duration: 0.2), value: isTargeted)
+        .animation(ZMotion.fast, value: isTargeted)
         .accessibilityLabel("Choose files to import")
         .accessibilityHint("Opens the file picker. On iPad you can also drop .ipa and .zip files here.")
     }

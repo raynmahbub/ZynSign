@@ -18,9 +18,17 @@ struct AppLockOverlay: View {
             Color.black.opacity(0.35)
                 .ignoresSafeArea()
             VStack(spacing: ZSpacing.lg) {
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 40))
-                    .foregroundStyle(.secondary)
+                ZynSignMark(size: 72)
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(7)
+                            .background(Circle().fill(Color(.systemGray)))
+                            .overlay(Circle().strokeBorder(Color(.systemBackground), lineWidth: 2))
+                            .offset(x: 8, y: 8)
+                    }
+                    .accessibilityHidden(true)
                 VStack(spacing: ZSpacing.xs) {
                     Text("ZynSign is locked")
                         .font(.title3.weight(.semibold))

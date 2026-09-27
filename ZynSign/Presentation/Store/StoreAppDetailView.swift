@@ -9,7 +9,7 @@ struct StoreAppDetailView: View {
         List {
             Section {
                 VStack(alignment: .leading, spacing: 16) {
-                    StoreArtwork(url: app.iconURL).frame(width: 100, height: 100).clipShape(RoundedRectangle(cornerRadius: 24))
+                    StoreArtwork(url: app.iconURL).frame(width: 100, height: 100).clipShape(RoundedRectangle(cornerRadius: ZRadius.appIcon(side: 100), style: .continuous))
                     Text(app.name).font(.largeTitle.bold())
                     Text(app.developer).font(.title3).foregroundStyle(.secondary)
                     if let subtitle = app.subtitle { Text(subtitle).font(.headline) }
@@ -36,7 +36,7 @@ struct StoreAppDetailView: View {
                 NavigationLink { StoreDeveloperView(developer: app.developer, model: model) } label: {
                     HStack(spacing: 10) {
                         StoreArtwork(url: app.developerIconURL, symbol: "person.crop.circle.fill")
-                            .frame(width: 40, height: 40).clipShape(RoundedRectangle(cornerRadius: 10))
+                            .frame(width: 40, height: 40).clipShape(RoundedRectangle(cornerRadius: ZRadius.appIcon(side: 40), style: .continuous))
                         VStack(alignment: .leading) {
                             Text(app.developer).font(.subheadline.weight(.semibold))
                             Text("Browse this developer’s apps").font(.caption).foregroundStyle(.secondary)
@@ -51,7 +51,7 @@ struct StoreAppDetailView: View {
                             ForEach(Array(app.screenshots.enumerated()), id: \.offset) { index, url in
                                 Button { gallery = StoreGallerySelection(index: index) } label: {
                                     StoreArtwork(url: url, symbol: "photo").frame(width: 170, height: 300)
-                                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                                        .clipShape(RoundedRectangle(cornerRadius: ZRadius.lg))
                                 }.buttonStyle(.plain).accessibilityLabel("Open screenshot \(index + 1) of \(app.screenshots.count)")
                             }
                         }

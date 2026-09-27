@@ -573,7 +573,7 @@ private struct DownloadJobCard: View {
         }
         .frame(width: 48, height: 48)
         .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .clipShape(RoundedRectangle(cornerRadius: ZRadius.appIcon(side: 48), style: .continuous))
         .accessibilityHidden(true)
     }
 }

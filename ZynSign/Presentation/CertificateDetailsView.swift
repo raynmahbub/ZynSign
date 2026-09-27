@@ -335,7 +335,7 @@ struct CertificateDetailView: View {
     private func presentToast(_ message: String, style: ZToast.Style = .success) {
         toastMessage = message
         toastStyle = style
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(ZMotion.interactive) {
             showToast = true
         }
     }

@@ -19,3 +19,6 @@ __pycache__/
 # Hardening report output from Scripts/generate_hardening_report.py
 # (regenerated on every run; CI uploads it as an artifact)
 build/
+
+# Composed store screenshots are generated from Assets/Screenshots/raw
+Assets/Screenshots/store/

@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../Assets/Brand/Logo/logo-lockup-dark.svg">
+    <img src="../../Assets/Brand/Logo/logo-lockup.svg" alt="ZynSign" width="260">
+  </picture>
+</p>
+
 # Design Documentation
 
 The design system of record for ZynSign. One language, one source of truth:
@@ -11,15 +18,20 @@ define — a change to the look is a change to ZDL first.
 
 | Source | Location |
 |---|---|
-| Tokens — spacing, radius, shadow, colour, type, motion | `ZynSign/Presentation/DesignSystem/DesignTokens.swift` (`ZSpacing` / `ZRadius` / `ZShadow` / `ZColors` / `ZTypography` / `ZMotion`) |
+| Tokens — spacing, radius, shadow, colour, type | `ZynSign/Presentation/DesignSystem/DesignTokens.swift` (`ZSpacing` / `ZRadius` / `ZShadow` / `ZColors` / `ZTypography`, `ZHaptics`) |
+| Motion — four presets, one Reduce Motion policy | `ZynSign/Presentation/DesignSystem/ZMotion.swift` (`ZMotion.fast / standard / interactive / relaxed`) |
+| Guard — hand-written values may not grow | `python3 Scripts/audit_design_tokens.py --baseline Scripts/design_tokens_baseline.json --check` (CI) · [audit record](../internal/DesignSystemAudit.md) |
 | Components | `ZynSign/Presentation/DesignSystem/Components/` |
 | Specification | [zynsign-design-language.md](zynsign-design-language.md) |
+| Brand book — logo, colours, type, motion & haptics, asset usage | [brand/](brand/README.md) |
 
 ## Components at a glance
 
 | Component | Purpose |
 |---|---|
 | `ZCard` | Material, filled, and outlined card containers with dark-mode edge definition |
+| `ZDashboardCard` · `ZDashboardLinkRow` · `GreetingCard` · `QuickActionCard` · `HealthCard` · `IdentityCard` · `DownloadCard` · `RecentListCard` | The dashboard building blocks (Smart Workspace, future Trust Center); plain values in, one accessibility element out |
+| `ZEmptyIllustration` | Four vector line-art drawings in the Z·Pen language for the empty states |
 | `ZButtonStyles` | Primary / secondary / destructive / large-prominent styles; ≥ 44×44 pt targets; spring press |
 | `ZStatusBadge` | Semantic status pill — colour means the state, never decoration |
 | `ZProgressRing` | Determinate progress for signing and verification runs |

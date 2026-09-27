@@ -36,7 +36,6 @@ struct ImportHubView: View {
     var onDone: (() -> Void)? = nil
 
     @Environment(\.applicationEnvironment) private var environment
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.signingQueuePresentation) private var signingQueuePresentation
 
     /// The imported applications awaiting a signing-queue configuration,
@@ -219,9 +218,9 @@ struct ImportHubView: View {
                     ImportSummaryCard(
                         summary: hub.summary,
                         retryableCount: retryableCount,
-                        onRetryFailed: { withAnimation(.snappy) { hub.retryAllFailed() } },
+                        onRetryFailed: { withAnimation(ZMotion.fast) { hub.retryAllFailed() } },
                         onOpenLibrary: onOpenLibrary,
-                        onClear: { withAnimation(.snappy) { hub.clearFinished() } },
+                        onClear: { withAnimation(ZMotion.fast) { hub.clearFinished() } },
                         onQueueImported: importedRecords.isEmpty ? nil : {
                             queueForSigning(importedRecords)
                         }
@@ -284,7 +283,7 @@ struct ImportHubView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .animation(reduceMotion ? nil : .snappy, value: hub.items.map(\.id))
+        .animation(ZMotion.fast, value: hub.items.map(\.id))
     }
 
     private var howItWorks: some View {
@@ -306,11 +305,11 @@ struct ImportHubView: View {
                 item: item,
                 candidates: candidates,
                 onExtractSingle: {
-                    withAnimation(.snappy) { hub.extract(candidates, from: item.id) }
+                    withAnimation(ZMotion.fast) { hub.extract(candidates, from: item.id) }
                 },
                 onChoose: { archiveSelection = ItemToken(id: item.id) },
                 onDecline: {
-                    withAnimation(.snappy) { hub.declineArchive(item.id) }
+                    withAnimation(ZMotion.fast) { hub.declineArchive(item.id) }
                 }
             )
         }
@@ -321,11 +320,11 @@ struct ImportHubView: View {
             item: item,
             onToggle: {
                 ZHaptics.tap()
-                withAnimation(.snappy(duration: 0.2)) { hub.setSelected(!item.isSelected, for: item.id) }
+                withAnimation(ZMotion.fast) { hub.setSelected(!item.isSelected, for: item.id) }
             },
             onResolve: { resolution in hub.resolve(item.id, with: resolution) },
             onOpenResolutionCenter: { isShowingResolutionCenter = true },
-            onCancel: { withAnimation(.snappy) { hub.cancel(item.id) } }
+            onCancel: { withAnimation(ZMotion.fast) { hub.cancel(item.id) } }
         )
     }
 
@@ -333,9 +332,9 @@ struct ImportHubView: View {
         ImportItemRow(
             item: item,
             canRetry: hub.canRetry(item.id),
-            onCancel: { withAnimation(.snappy) { hub.cancel(item.id) } },
-            onRetry: { withAnimation(.snappy) { hub.retry(item.id) } },
-            onRemove: { withAnimation(.snappy) { hub.remove(item.id) } },
+            onCancel: { withAnimation(ZMotion.fast) { hub.cancel(item.id) } },
+            onRetry: { withAnimation(ZMotion.fast) { hub.retry(item.id) } },
+            onRemove: { withAnimation(ZMotion.fast) { hub.remove(item.id) } },
             onShowDetails: { detailItem = ItemToken(id: item.id) },
             onOpenRecord: { record in openRecord(record) },
             onQueueForSigning: signingQueuePresentation.isAvailable
@@ -389,7 +388,7 @@ struct ImportHubView: View {
             Spacer()
             let allSelected = hub.readyItems.allSatisfy(\.isSelected)
             Button(allSelected ? "Select None" : "Select All") {
-                withAnimation(.snappy(duration: 0.2)) {
+                withAnimation(ZMotion.fast) {
                     if allSelected { hub.deselectAllReady() } else { hub.selectAllReady() }
                 }
             }
@@ -508,21 +507,21 @@ struct ImportHubView: View {
                 }
                 if retryableCount > 0 {
                     Button {
-                        withAnimation(.snappy) { hub.retryAllFailed() }
+                        withAnimation(ZMotion.fast) { hub.retryAllFailed() }
                     } label: {
                         Label("Retry All Failed", systemImage: "arrow.clockwise")
                     }
                 }
                 if hub.items.contains(where: \.canCancel) {
                     Button(role: .destructive) {
-                        withAnimation(.snappy) { hub.cancelAll() }
+                        withAnimation(ZMotion.fast) { hub.cancelAll() }
                     } label: {
                         Label("Cancel All", systemImage: "xmark.circle")
                     }
                 }
                 if hub.items.contains(where: \.isFinished) {
                     Button {
-                        withAnimation(.snappy) { hub.clearFinished() }
+                        withAnimation(ZMotion.fast) { hub.clearFinished() }
                     } label: {
                         Label("Clear Finished", systemImage: "checkmark.circle.badge.xmark")
                     }
@@ -543,10 +542,10 @@ struct ImportHubView: View {
                 archiveName: item.fileName,
                 candidates: candidates,
                 onExtract: { chosen in
-                    withAnimation(.snappy) { hub.extract(chosen, from: id) }
+                    withAnimation(ZMotion.fast) { hub.extract(chosen, from: id) }
                 },
                 onDecline: {
-                    withAnimation(.snappy) { hub.declineArchive(id) }
+                    withAnimation(ZMotion.fast) { hub.declineArchive(id) }
                 }
             )
         } else {
@@ -558,7 +557,7 @@ struct ImportHubView: View {
     private func detailSheet(for id: ImportJobIdentifier) -> some View {
         if let item = hub.items.first(where: { $0.id == id }) {
             ImportItemDetailView(item: item, canRetry: hub.canRetry(id)) {
-                withAnimation(.snappy) { hub.retry(id) }
+                withAnimation(ZMotion.fast) { hub.retry(id) }
             }
         } else {
             ContentUnavailableView("Item Removed", systemImage: "tray", description: Text("This import is no longer in the hub."))
@@ -570,7 +569,7 @@ struct ImportHubView: View {
     private func importSelected() {
         guard hub.canImportSelected else { return }
         ZHaptics.tap()
-        withAnimation(reduceMotion ? nil : .snappy) {
+        withAnimation(ZMotion.fast) {
             hub.importSelected()
         }
     }
@@ -579,7 +578,7 @@ struct ImportHubView: View {
         switch result {
         case .success(let urls):
             guard !urls.isEmpty else { return }
-            withAnimation(.snappy) {
+            withAnimation(ZMotion.fast) {
                 _ = hub.receive(urls, origin: .documentPicker)
             }
             availableCapacity = hub.availableCapacity()

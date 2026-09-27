@@ -2,53 +2,46 @@ import SwiftUI
 
 // MARK: - ZynSign Brand Mark
 
-/// The canonical ZynSign mark — the Z with integrated fountain-pen nib + signature swash on the indigo **Liquid Glass** tile.
+/// The canonical ZynSign mark — the white Z·Pen on the indigo Liquid Glass tile.
 ///
-/// This is the single source of truth for the mark's geometry and material. Every
-/// in-app appearance of the logo (Settings, About, Home header, onboarding, empty
-/// states) renders through this view. Its proportions are taken from
-/// `Assets/Brand/Logo/logo-mark.svg` (128 viewBox, tile 120 at 4/4, rx 30) and from
-/// `Assets/Brand/AppIcon/app-icon.svg` (1024 full-bleed). The mark is the bold white
-/// Z whose diagonal is the pen barrel ending in a detailed fountain nib at the
-/// lower-left (shoulder, breather hole, slit, collar ring) with the elegant cursive
-/// swash — as in the reference `IMG_6007.jpeg` but re-imagined for **iOS 26 Liquid
-/// Glass** (translucent indigo glass, specular top highlight, curved refraction band,
-/// subtle inner border, continuous corner radius, full-bleed 1024 for App Store).
-/// A change to the brand geometry happens here first, then the SVGs, then the
-/// derived PNGs are re-rendered from the same numbers.
+/// Every in-app appearance of the logo (launch splash, Home header, Settings,
+/// About, onboarding, empty states) renders through this view, so the mark the
+/// user sees in the app is the one on the home screen.
 ///
-/// Rules:
-/// - The Z+pen is white: bold top bar, long barrel with collar gap and ring, detailed
-///   nib (shoulder taper, circular breather hole, centre slit), short bottom bar, and
-///   the flowing swash with right loop — the same artwork that ships as `PenMark`
-///   (transparent white Z+pen, `zpen_liquid_only_clean_1024`) in the asset catalog.
-/// - The tile is **Liquid Glass**: gradient `#6D6AF0 → #4B48C4` (light) / `#7C79F5 → #5A57D6`
-///   (dark) with a curved translucent refraction band (white 8–9%), a crisp top-edge
-///   specular line (white 35–55%), and a soft inner glass border (white 14–18%),
-///   matching `logo-mark.svg` / `logo-mark-dark.svg` and the 1024 `zpen_liquid_1024` master.
-/// - The view is vector-tiled with a raster Z+pen supersampled 4× and Lanczos-downsampled
-///   from the 1024 liquid master, so it stays crisp from 16 pt to 512 pt.
-/// - `showsSealDot` is kept for source compatibility — the Z+pen has no seal dot.
+/// Source of truth: `Assets/Brand/Source/zpen-mark-1024.png` (white Z·Pen on
+/// transparent). `Scripts/generate_brand_assets.py` renders the app icon, the
+/// `PenMark` image set this view draws, and every brand SVG/PNG from that one
+/// file. The numbers below — palette, corner ratio, glyph fill — are the same
+/// numbers the script uses; change them in both places or in neither.
+///
+/// - Tile: `#6D6AF0 → #4B48C4` (light) / `#7C79F5 → #5A57D6` (dark), continuous
+///   corners at 22.37 % of the side (the iOS icon curve), a soft lens highlight
+///   and a hairline top specular.
+/// - Glyph: `PenMark` scaled to fit with 6 % padding — the artwork is authored
+///   so the Z·Pen lands at 66 % of the tile height, exactly as in the app icon.
 struct ZynSignMark: View {
 
     /// Side length of the square mark.
     var size: CGFloat = 60
-
-    /// Kept for API compatibility — the pen mark has no seal dot. Ignored.
-    var showsSealDot: Bool = true
 
     /// Force the dark tile variant. When `nil` the variant follows `colorScheme`.
     var forceDarkVariant: Bool? = nil
 
     @Environment(\.colorScheme) private var colorScheme
 
+    /// Corner radius as a fraction of the side — shared with the splash shimmer clip.
+    static let cornerRatio: CGFloat = 0.2237
+
     var body: some View {
         ZStack {
             tile
-            pen
+            Image("PenMark")
+                .resizable()
+                .scaledToFit()
+                .padding(size * 0.06)
         }
         .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .clipShape(shape)
         .accessibilityHidden(true)
     }
 
@@ -59,96 +52,58 @@ struct ZynSignMark: View {
         return colorScheme == .dark
     }
 
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: size * Self.cornerRatio, style: .continuous)
+    }
+
     private var tileGradient: LinearGradient {
-        if useDarkTile {
-            LinearGradient(
-                colors: [Color(red: 0x7C/255.0, green: 0x79/255.0, blue: 0xF5/255.0),
-                         Color(red: 0x5A/255.0, green: 0x57/255.0, blue: 0xD6/255.0)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        } else {
-            LinearGradient(
-                colors: [Color(red: 0x6D/255.0, green: 0x6A/255.0, blue: 0xF0/255.0),
-                         Color(red: 0x4B/255.0, green: 0x48/255.0, blue: 0xC4/255.0)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        }
+        LinearGradient(
+            colors: useDarkTile ? [ZynBrand.indigoDarkTop, ZynBrand.indigoDarkBottom]
+                                : [ZynBrand.indigoTop, ZynBrand.indigoBottom],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 
     private var tile: some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        shape
             .fill(tileGradient)
-            // Curved refraction band — the glass lens highlight across the upper half
+            // Lens highlight — the soft glass sheen across the upper half.
             .overlay(
                 Ellipse()
-                    .fill(Color.white.opacity(useDarkTile ? 0.08 : 0.09))
-                    .frame(width: size * 1.6, height: size * 0.85)
-                    .offset(y: -size * 0.38)
-                    .blur(radius: size * 0.015)
-                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                    .fill(Color.white.opacity(0.10))
+                    .frame(width: size * 1.7, height: size * 1.3)
+                    .offset(y: -size * 0.75)
+                    .blur(radius: size * 0.06)
             )
-            // Crisp top-edge specular highlight — the thin glass sheen at the very top
+            // Top specular hairline.
             .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.white.opacity(useDarkTile ? 0.32 : 0.42), Color.white.opacity(0)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(height: size * 0.085)
+                LinearGradient(colors: [Color.white.opacity(0.30), .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: size * 0.05)
                     .frame(maxHeight: .infinity, alignment: .top)
-                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                    .opacity(0.95)
             )
-            // Subtle bottom-edge glow
+            // Inner glass edge.
             .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.clear, Color.white.opacity(0.07)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(height: size * 0.06)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                shape.strokeBorder(Color.white.opacity(useDarkTile ? 0.18 : 0.16), lineWidth: max(1, size * 0.01))
             )
-            // Inner glass border — the thin translucent edge that defines the glass thickness
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.white.opacity(useDarkTile ? 0.18 : 0.16), lineWidth: max(1, size * 0.01))
-            )
-            // Outer soft border for legibility on both light/dark canvases
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.white.opacity(useDarkTile ? 0.10 : 0.14), lineWidth: max(1, size * 0.012))
-                    .blur(radius: 0.2)
-            )
+            .clipShape(shape)
     }
+}
 
-    private var cornerRadius: CGFloat {
-        // 30 / 128 ≈ 0.2344 — matches logo-mark.svg rx 30 within 128 viewBox
-        size * 0.234375
-    }
+// MARK: - Brand palette
 
-    // MARK: - Pen
-
-    private var pen: some View {
-        // The Z+pen artwork is supplied as a transparent PNG (white Z+pen on clear)
-        // in the asset catalog at 1×/2×/3×. It is the same artwork that was rendered
-        // from the 1024 master (Z top bar + diagonal pen barrel/collar/nib + bottom bar
-        // + cursive swash) and used for every derived PNG in `Assets/Brand/`.
-        Image("PenMark")
-            .resizable()
-            .scaledToFit()
-            .padding(size * 0.06)
-            .accessibilityHidden(true)
-    }
+/// Brand colours shared by the mark, the splash, and the lockups.
+/// Mirrors `Scripts/generate_brand_assets.py` and `Assets/README.md`.
+enum ZynBrand {
+    static let indigoTop = Color(red: 0x6D/255.0, green: 0x6A/255.0, blue: 0xF0/255.0)
+    static let indigoBottom = Color(red: 0x4B/255.0, green: 0x48/255.0, blue: 0xC4/255.0)
+    static let indigoDarkTop = Color(red: 0x7C/255.0, green: 0x79/255.0, blue: 0xF5/255.0)
+    static let indigoDarkBottom = Color(red: 0x5A/255.0, green: 0x57/255.0, blue: 0xD6/255.0)
+    static let ink = Color(red: 0x1D/255.0, green: 0x1D/255.0, blue: 0x1F/255.0)
+    static let paper = Color(red: 0xF5/255.0, green: 0xF5/255.0, blue: 0xF7/255.0)
+    static let surfaceDark = Color(red: 0x15/255.0, green: 0x15/255.0, blue: 0x1D/255.0)
+    static let mutedLight = Color(red: 0x6E/255.0, green: 0x6E/255.0, blue: 0x73/255.0)
+    static let mutedDark = Color(red: 0xA1/255.0, green: 0xA1/255.0, blue: 0xAA/255.0)
 }
 
 // MARK: - Lockup (mark + wordmark)
@@ -177,12 +132,7 @@ struct ZynSignLockup: View {
     }
 
     private var wordmarkColor: Color {
-        if let forceDarkVariant {
-            return forceDarkVariant ? Color(red: 0xF5/255.0, green: 0xF5/255.0, blue: 0xF7/255.0) : Color(red: 0x1D/255.0, green: 0x1D/255.0, blue: 0x1F/255.0)
-        }
-        return colorScheme == .dark
-            ? Color(red: 0xF5/255.0, green: 0xF5/255.0, blue: 0xF7/255.0)
-            : Color(red: 0x1D/255.0, green: 0x1D/255.0, blue: 0x1F/255.0)
+        (forceDarkVariant ?? (colorScheme == .dark)) ? ZynBrand.paper : ZynBrand.ink
     }
 }
 
@@ -198,17 +148,17 @@ struct ZynSignBanner: View {
         let isDark = colorScheme == .dark
         ZStack {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(isDark ? Color(red: 0x15/255.0, green: 0x15/255.0, blue: 0x1D/255.0) : Color(red: 0xF5/255.0, green: 0xF5/255.0, blue: 0xF7/255.0))
+                .fill(isDark ? ZynBrand.surfaceDark : ZynBrand.paper)
             HStack(spacing: 16) {
                 ZynSignMark(size: 64, forceDarkVariant: isDark)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("ZynSign")
                         .font(.system(size: 28, weight: .bold))
                         .tracking(-0.8)
-                        .foregroundStyle(isDark ? Color(red: 0xF5/255.0, green: 0xF5/255.0, blue: 0xF7/255.0) : Color(red: 0x1D/255.0, green: 0x1D/255.0, blue: 0x1F/255.0))
-                    Text("Professional iOS sideloading platform")
+                        .foregroundStyle(isDark ? ZynBrand.paper : ZynBrand.ink)
+                    Text("On-device iOS signing, made Apple-quality.")
                         .font(.footnote)
-                        .foregroundStyle(isDark ? Color(red: 0xA1/255.0, green: 0xA1/255.0, blue: 0xAA/255.0) : Color(red: 0x6E/255.0, green: 0x6E/255.0, blue: 0x73/255.0))
+                        .foregroundStyle(isDark ? ZynBrand.mutedDark : ZynBrand.mutedLight)
                 }
                 Spacer(minLength: 0)
             }
@@ -225,8 +175,7 @@ struct ZynSignBanner: View {
 
 // MARK: - Legacy alias
 
-/// Compatibility alias — the old `ZynSignAppMark(size:)` used in Settings and About.
-/// Now renders the authentic brand mark.
+/// `ZynSignAppMark(size:)` is the older call-site name; it is the same view.
 typealias ZynSignAppMark = ZynSignMark
 
 // MARK: - Previews

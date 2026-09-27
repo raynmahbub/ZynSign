@@ -6,15 +6,12 @@ README is the storefront. When you add a feature in ZynSign/** or
 docs/product/**, this script (and .github/workflows/update-readme.yml)
 regenerates the parts that must not drift:
 
-  1. Version badge — `https://img.shields.io/badge/version-X-orange`
+  1. Version badge — `https://img.shields.io/badge/version-X-<colour>`
      from ZynSign.xcodeproj/project.pbxproj MARKETING_VERSION
   2. Honest badge — `https://img.shields.io/badge/honest-N%20wired%20·%20M%20never-green`
      from docs/product/WHAT_DOES_NOT_EXIST.md tables (counts Now Exists vs Still Honest)
-  3. Header quote — `> **X Horizon (YYYY-MM-DD)` with current market version
-  4. "What works today" is left to human editing, but the script verifies
-     the counts match the anti-roadmap and warns if they don't.
-  5. Sideload line — `The X build is **not App Store**`
-  6. Branch line — `Current branch: arena/... X` (updates version word)
+  3. Release-train line — `Current stop on the release train: **vX**`
+     from Scripts/release_train.py (the `current` stage)
 
 Idempotent: if README already matches derived values, no write.
 
@@ -40,6 +37,20 @@ def read_marketing_version() -> str:
     if not m:
         return "0.1.0"
     return m.group(1).strip().strip('"')
+
+def read_release_stage() -> str | None:
+    """The release train's current stage tag, e.g. `v1.0.0-rc.2`."""
+    train = ROOT / "ZynSign" / "Application" / "ReleaseTrain.swift"
+    if not train.exists():
+        return None
+    text = train.read_text(encoding="utf-8")
+    m = re.search(r"static let current[^=]*=\s*\.?(\w+)", text)
+    if not m:
+        return None
+    case = m.group(1)
+    tag = re.search(rf"case \.{case}:\s*return\s*\"([^\"]+)\"", text)
+    return f"v{tag.group(1)}" if tag else None
+
 
 def count_what() -> tuple[int, int]:
     if not WHAT.exists():
@@ -79,54 +90,26 @@ def update_readme(check: bool = False) -> int:
     if never == 0:
         never = 3
 
-    # 1. Version badge
+    # 1. Version badge — any colour suffix is preserved.
     text = re.sub(
-        r"https://img\.shields\.io/badge/version-[^-]+--dev-orange",
-        f"https://img.shields.io/badge/version-{version}-orange",
-        text,
-    )
-    text = re.sub(
-        r"https://img\.shields\.io/badge/version-[^-]+-orange",
-        f"https://img.shields.io/badge/version-{version}-orange",
+        r"https://img\.shields\.io/badge/version-[^-]+(?:--dev)?-(?P<colour>[0-9A-Za-z]+)",
+        lambda m: f"https://img.shields.io/badge/version-{version}-{m.group('colour')}",
         text,
     )
     # 2. Honest badge
-    text = re.sub(
-        r"https://img\.shields\.io/badge/honest-[^-]+--green",
-        f"https://img.shields.io/badge/honest-{wired}%20wired%20·%20{never}%20never-green",
-        text,
-    )
     text = re.sub(
         r"https://img\.shields\.io/badge/honest-[^\"\)]+-green",
         f"https://img.shields.io/badge/honest-{wired}%20wired%20·%20{never}%20never-green",
         text,
     )
-
-    # 3. Header quote > **X Horizon
-    # e.g. > **0.2.0-dev Horizon (2026-09-25)
-    text = re.sub(
-        r"> \*\*[0-9\.]+(?:-dev)? Horizon",
-        f"> **{version} Horizon",
-        text,
-    )
-    # 4. Sideload line
-    text = re.sub(
-        r"The `[^`]+` build is \*\*not App Store\*\*",
-        f"The `{version}` build is **not App Store**",
-        text,
-    )
-    # 5. Repository layout version-strategy parenthetical
-    text = re.sub(
-        r"version-strategy \([^\)]+ Horizon\)",
-        f"version-strategy ({version} Horizon)",
-        text,
-    )
-    # 6. Current branch line — keep version word updated
-    text = re.sub(
-        r"(`4ea142a` `)[0-9\.]+(-dev)? Horizon",
-        rf"\g<1>{version} Horizon",
-        text,
-    )
+    # 3. Release-train line
+    stage = read_release_stage()
+    if stage:
+        text = re.sub(
+            r"(Current stop on the release train: \*\*`)[^`]+(`\*\*)",
+            rf"\g<1>{stage}\g<2>",
+            text,
+        )
 
     # 7. Ensure WHAT_DOES_NOT_EXIST badge counts comment matches
     # Add a hidden marker for CI debugging (optional)
