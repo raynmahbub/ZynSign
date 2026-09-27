@@ -54,7 +54,7 @@ struct SettingsView: View {
         }
     }
 
-    /// The complete areas that are not tabs: Files, App Store, and
+    /// The complete areas that are not tabs: Files, Store, and
     /// Downloads. They are reached from here so the bottom navigation stays
     /// the five-tab foundation every other screen builds on.
     private var browseSection: some View {
@@ -73,7 +73,7 @@ struct SettingsView: View {
                 }
             }
         } header: { Text("Browse") } footer: {
-            Text("Files, the App Store, and Downloads are complete areas of ZynSign, reached from here rather than the tab bar.")
+            Text("Files, the Store, and Downloads are complete areas of ZynSign, reached from here rather than the tab bar.")
         }
     }
 

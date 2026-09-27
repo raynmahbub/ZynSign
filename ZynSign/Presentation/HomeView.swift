@@ -439,10 +439,15 @@ struct HomeView: View {
                     ZHaptics.tap()
                     Task {
                         _ = await missionControl.refreshEverything(
-                            refreshRepositories: { HomeStorageCounts.sourceCount() },
+                            refreshRepositories: {
+                                guard let store = environment.storeBrowser else { return -1 }
+                                return await store.refreshForMaintenance()
+                            },
                             checkLibrary: {
-                                if let entries = try? await environment.library.entries() { return entries.count }
-                                return 0
+                                do {
+                                    let entries = try await environment.library.entries()
+                                    return entries.count
+                                } catch { return 0 }
                             },
                             cleanupCache: { missionControl.defaultCleanup() }
                         )
@@ -507,8 +512,7 @@ struct HomeView: View {
 }
 
 /// Counts Home shows without touching the library: signed IPAs written by
-/// `SigningView` to `Documents/Signed`, and sources saved by the App Store tab
-/// in `Documents/ZynSignSources.json`. A missing or unreadable file counts as 0.
+/// `SigningView` to `Documents/Signed`. A missing or unreadable directory counts as 0.
 enum HomeStorageCounts {
     private static var documents: URL? {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
@@ -519,14 +523,6 @@ enum HomeStorageCounts {
               let items = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
         else { return 0 }
         return items.filter { $0.pathExtension.lowercased() == "ipa" }.count
-    }
-
-    static func sourceCount() -> Int {
-        guard let url = documents?.appendingPathComponent("ZynSignSources.json"),
-              let data = try? Data(contentsOf: url),
-              let sources = try? JSONDecoder().decode([[String: String]].self, from: data)
-        else { return 0 }
-        return sources.count
     }
 }
 
