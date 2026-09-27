@@ -40,12 +40,17 @@ Development practice is defined at the repository root, and applies today:
 Version control actions are performed by the developer. See
 [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
-## What Will Live Here
+## Guides
 
-- Environment and toolchain setup.
-- How to build and run the project locally.
-- Coding conventions specific to the codebase.
-- Debugging and diagnostics notes.
+- [QuickStart.md](QuickStart.md) — clone to a running build; the same path CI runs.
+- [Build.md](Build.md) — project shape, configurations, settings that matter.
+- [Testing.md](Testing.md) — suites, host vectors, audits, and what CI enforces.
+- [Debugging.md](Debugging.md) — the error model, the Lab, and the diagnosis tools.
+- [Troubleshooting.md](Troubleshooting.md) — common refusals and the typed answers behind them.
+
+These document workflows that are already exercised — by CI, by the release
+train, or by the documented release gate. A guide that stops matching reality
+is a defect: fix the guide or the workflow in the same commit.
 
 ## Conventions
 
