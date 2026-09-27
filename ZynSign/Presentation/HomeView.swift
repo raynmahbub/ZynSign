@@ -439,7 +439,13 @@ struct HomeView: View {
                     ZHaptics.tap()
                     Task {
                         _ = await missionControl.refreshEverything(
-                            refreshRepositories: { HomeStorageCounts.sourceCount() },
+                            refreshRepositories: {
+                                if let directory = environment.repositoryDirectory {
+                                    await directory.refresh()
+                                    return directory.sources.count
+                                }
+                                return HomeStorageCounts.sourceCount()
+                            },
                             checkLibrary: {
                                 if let entries = try? await environment.library.entries() { return entries.count }
                                 return 0
@@ -522,11 +528,8 @@ enum HomeStorageCounts {
     }
 
     static func sourceCount() -> Int {
-        guard let url = documents?.appendingPathComponent("ZynSignSources.json"),
-              let data = try? Data(contentsOf: url),
-              let sources = try? JSONDecoder().decode([[String: String]].self, from: data)
-        else { return 0 }
-        return sources.count
+        guard let url = documents?.appendingPathComponent("ZynSignSources.json") else { return 0 }
+        return RepositoryDirectory.sourceCount(at: url)
     }
 }
 

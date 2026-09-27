@@ -1,34 +1,67 @@
 import SwiftUI
 
-/// The App Store area — browse and manage your application sources.
+/// The App Store area — browse configured AltSource-compatible repositories.
 ///
-/// ZynSign's original source browser. It aggregates the user's configured
-/// AltSource-compatible feeds, shows newest and featured applications, and
-/// lets the user add or refresh sources, search across all feeds, and start
-/// a download which lands in Downloads. No remote code is executed; an entry
-/// is metadata only until the user explicitly downloads it.
+/// Metadata is fetched and validated by `RepositoryDirectory`. Get queues a
+/// download in the Download Center. No package is imported, and no code from
+/// a source is executed. A source listing is not trust.
 struct AppStoreView: View {
 
-    @StateObject private var model = AppStoreViewModel()
+    @Environment(\.applicationEnvironment) private var environment
+
+    var body: some View {
+        if let directory = environment.repositoryDirectory {
+            AppStoreScreen(directory: directory)
+        } else {
+            ContentUnavailableView(
+                "Sources Unavailable",
+                systemImage: "globe.desk",
+                description: Text("Repository browsing is not installed in this build.")
+            )
+        }
+    }
+}
+
+private struct AppStoreScreen: View {
+
+    @ObservedObject var directory: RepositoryDirectory
+    @Environment(\.applicationEnvironment) private var environment
     @State private var searchText = ""
     @State private var showAddSource = false
     @State private var newSourceURL = ""
+    @State private var notice: String?
+    @State private var decision: DownloadDuplicatePrompt?
 
-    private var filtered: [StoreApp] {
-        let apps = model.apps
-        if searchText.isEmpty { return apps }
-        return apps.filter { $0.name.localizedCaseInsensitiveContains(searchText) || $0.bundleID.localizedCaseInsensitiveContains(searchText) }
+    /// One catalog entry. Two sources that list the same bundle stay two rows,
+    /// so Get does not silently pick a source.
+    private struct Listing: Identifiable {
+        let catalog: RepositoryCatalog
+        let app: RepositoryApp
+        var id: String { catalog.sourceURL + "|" + app.bundleIdentifier }
+    }
+
+    private var listings: [Listing] {
+        let all = directory.catalogs.flatMap { catalog in
+            catalog.apps.map { Listing(catalog: catalog, app: $0) }
+        }
+        let sorted = all.sorted { $0.app.name.localizedCaseInsensitiveCompare($1.app.name) == .orderedAscending }
+        guard !searchText.isEmpty else { return sorted }
+        return sorted.filter {
+            $0.app.name.localizedCaseInsensitiveContains(searchText)
+                || $0.app.bundleIdentifier.localizedCaseInsensitiveContains(searchText)
+                || $0.catalog.name.localizedCaseInsensitiveContains(searchText)
+        }
     }
 
     var body: some View {
         NavigationStack {
             Group {
-                if model.sources.isEmpty {
+                if directory.sources.isEmpty {
                     emptySources
-                } else if filtered.isEmpty && !searchText.isEmpty {
+                } else if listings.isEmpty && !searchText.isEmpty {
                     ContentUnavailableView.search(text: searchText)
-                } else if filtered.isEmpty {
-                    ContentUnavailableView("No Applications", systemImage: "bag") { Text("This source has no applications.") }
+                } else if listings.isEmpty {
+                    ContentUnavailableView("No Applications", systemImage: "bag", description: Text("Refresh a source to load its catalog. Apps appear only after the metadata is accepted."))
                 } else {
                     appList
                 }
@@ -36,75 +69,101 @@ struct AppStoreView: View {
             .navigationTitle("App Store")
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    EditButton()
-                }
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { Task { await model.refresh() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                    Button { Task { await directory.refresh() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
                     Button { showAddSource = true } label: { Label("Add Source", systemImage: "plus") }
                 }
             }
-            .refreshable { await model.refresh() }
+            .refreshable { await directory.refresh() }
             .alert("Add Source", isPresented: $showAddSource) {
                 TextField("https://example.com/apps.json", text: $newSourceURL)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 Button("Cancel", role: .cancel) { newSourceURL = "" }
                 Button("Add") {
-                    model.addSource(urlString: newSourceURL)
+                    let raw = newSourceURL
                     newSourceURL = ""
+                    if let message = directory.addSource(urlString: raw) {
+                        notice = message
+                    } else {
+                        Task { await directory.refresh() }
+                    }
                 }
                 .disabled(newSourceURL.trimmingCharacters(in: .whitespaces).isEmpty)
             } message: {
-                Text("Add an AltSource-compatible JSON feed. ZynSign fetches metadata only — no code is executed until you download.")
+                Text("Add an https AltSource-compatible feed. ZynSign validates the metadata before any package address can be downloaded. No code is executed.")
             }
-            .alert(model.notice?.title ?? "", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } }), presenting: model.notice) { _ in Button("OK", role: .cancel) {} } message: { n in Text(n.message) }
+            .alert("Source", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(notice ?? "")
+            }
+            .confirmationDialog("Already Held", isPresented: Binding(get: { decision != nil }, set: { if !$0 { decision = nil } }), titleVisibility: .visible) {
+                Button("Replace") { resolve(.replace) }
+                Button("Keep Both") { resolve(.keepBoth) }
+                Button("Skip", role: .cancel) { resolve(.skip) }
+            } message: {
+                Text(decision?.explanation ?? "")
+            }
         }
-        .task { await model.load() }
+        .task { directory.load() }
     }
 
     private var appList: some View {
         List {
-            if !model.featured.isEmpty {
+            if !listings.prefix(6).isEmpty {
                 Section("Featured") {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 12) {
-                            ForEach(model.featured) { app in
-                                FeaturedCard(app: app) { model.download(app) }
+                            ForEach(Array(listings.prefix(6))) { listing in
+                                FeaturedCard(app: listing.app, sourceName: listing.catalog.name) {
+                                    Task { await download(listing) }
+                                }
                             }
                         }
                         .padding(.vertical, 4)
                     }
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                    .listRowBackground(Color.clear)
                 }
             }
-            Section(header: Label("All Applications", systemImage: "square.grid.2x2")) {
-                ForEach(filtered) { app in
-                    AppRow(app: app, onDownload: { model.download(app) })
+            Section {
+                ForEach(listings) { listing in
+                    AppRow(app: listing.app, sourceName: listing.catalog.name) {
+                        Task { await download(listing) }
+                    }
                 }
+            } header: {
+                Label("All Applications", systemImage: "square.grid.2x2")
             }
-            Section("Sources \(model.sources.count)") {
-                ForEach(model.sources) { src in
+            Section("Sources \(directory.sources.count)") {
+                ForEach(directory.sources) { source in
                     HStack {
                         Image(systemName: "globe.desk").foregroundStyle(.secondary)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(src.name).lineLimit(1)
-                            Text(src.url.absoluteString).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                            if let ms = src.latencyMs {
-                                Text("\(ms) ms").font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                            Text(source.name).lineLimit(1)
+                            Text(source.url.absoluteString).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            if let milliseconds = source.latencyMilliseconds {
+                                Text("\(milliseconds) ms").font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                            }
+                            if let error = source.lastError {
+                                Text(error).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
                             }
                         }
                         Spacer()
-                        ZStatusBadge(src.healthBadge, systemImage: src.health.systemImage, kind: src.health == .fast ? .success : (src.health == .slow ? .warning : (src.health == .offline ? .error : .neutral)))
-                        if src.isRefreshing { ProgressView().padding(.leading, 4) }
+                        ZStatusBadge(
+                            source.health.rawValue,
+                            systemImage: source.health.systemImage,
+                            kind: source.health == .fast ? .success : (source.health == .slow ? .warning : (source.health == .offline ? .error : .neutral))
+                        )
+                        if source.isRefreshing { ProgressView().padding(.leading, 4) }
                     }
+                    .accessibilityElement(children: .combine)
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) { model.removeSource(src) } label: { Label("Remove", systemImage: "trash") }
+                        Button(role: .destructive) { directory.removeSource(id: source.id) } label: { Label("Remove", systemImage: "trash") }
                     }
                     .contextMenu {
-                        Button { Task { await model.probeHealth(for: src) } } label: { Label("Check Health", systemImage: "heart.text.square") }
-                        Button(role: .destructive) { model.removeSource(src) } label: { Label("Remove Source", systemImage: "trash") }
+                        Button { Task { await directory.probeHealth(id: source.id) } } label: { Label("Check Health", systemImage: "heart.text.square") }
+                        Button(role: .destructive) { directory.removeSource(id: source.id) } label: { Label("Remove Source", systemImage: "trash") }
                     }
                 }
             }
@@ -116,74 +175,103 @@ struct AppStoreView: View {
         ContentUnavailableView {
             Label("No Sources", systemImage: "globe.desk")
         } description: {
-            Text("Add a source to discover applications. Try the demo source or paste your own AltSource URL.")
+            Text("Add an https source to discover applications. Packages are not downloaded until you ask, and they are validated before import.")
         } actions: {
             VStack(spacing: 12) {
                 Button { showAddSource = true } label: { Label("Add Source", systemImage: "plus") }
                     .buttonStyle(.borderedProminent)
-                Button { model.addDemoSource() } label: { Text("Add Demo Source") }
+                    .frame(minHeight: 44)
+                Button { addDemo() } label: { Text("Add Demo Source") }
                     .buttonStyle(.bordered)
+                    .frame(minHeight: 44)
             }
         }
+    }
+
+    private func addDemo() {
+        if let message = directory.addSource(urlString: "https://qnblackcat.github.io/AltStore/apps.json") {
+            notice = message
+        } else {
+            Task { await directory.refresh() }
+        }
+    }
+
+    private func download(_ listing: Listing) async {
+        guard let center = environment.downloadCenter else {
+            notice = "The Download Center is not available."
+            return
+        }
+        guard var request = UpdatePlanner.downloadRequest(for: listing.app, catalog: listing.catalog) else {
+            notice = "Refresh this source before downloading. Its metadata has not been validated."
+            return
+        }
+        request.sourceKind = DownloadRequest.kindRepository
+        request.sourceName = listing.catalog.name
+        switch await center.enqueue(request) {
+        case .queued:
+            notice = "\(listing.app.name) was queued in Downloads. It will be validated before it can be imported."
+        case .needsDecision:
+            decision = center.pendingDecisions.first
+        case let .rejected(message):
+            notice = message
+        case .skipped:
+            break
+        }
+    }
+
+    private func resolve(_ choice: DownloadDuplicateChoice) {
+        guard let prompt = decision, let center = environment.downloadCenter else { return }
+        decision = nil
+        Task { _ = await center.resolveDuplicate(prompt.id, choice: choice) }
     }
 }
 
 private struct AppRow: View {
-    let app: StoreApp
+    let app: RepositoryApp
+    let sourceName: String
     let onDownload: () -> Void
+
     var body: some View {
         HStack(spacing: 12) {
-            AsyncImage(url: app.iconURL) { phase in
-                switch phase {
-                case .success(let img): img.resizable().scaledToFill()
-                case .failure, .empty: Image(systemName: "app.fill").foregroundStyle(.secondary)
-                @unknown default: Color.clear
-                }
-            }
-            .frame(width: 48, height: 48)
-            .background(Color(.secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            icon(url: app.iconURL.flatMap(URL.init(string:)), size: 48, radius: 10)
             VStack(alignment: .leading, spacing: 3) {
                 Text(app.name).lineLimit(1)
-                Text(app.bundleID).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                Text(app.versionText).font(.caption2).foregroundStyle(.tertiary)
+                Text(sourceName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(app.latest.version).font(.caption2).foregroundStyle(.tertiary)
             }
             Spacer()
-            Button { onDownload() } label: {
+            Button(action: onDownload) {
                 Text("Get").font(.caption.weight(.semibold))
-                    .padding(.horizontal, 14).padding(.vertical, 6)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 44)
                     .background(Color.accentColor, in: Capsule())
                     .foregroundStyle(.white)
             }
             .buttonStyle(.plain)
-        }
-        .contextMenu {
-            Button { onDownload() } label: { Label("Download", systemImage: "arrow.down.circle") }
+            .accessibilityLabel("Get \(app.name)")
+            .accessibilityHint("Queues a download. The file is validated before it can be imported.")
         }
     }
 }
 
 private struct FeaturedCard: View {
-    let app: StoreApp
+    let app: RepositoryApp
+    let sourceName: String
     let onDownload: () -> Void
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            AsyncImage(url: app.iconURL) { phase in
-                switch phase {
-                case .success(let img): img.resizable().scaledToFill()
-                default: Image(systemName: "app.fill").foregroundStyle(.white.opacity(0.8))
-                }
-            }
-            .frame(width: 120, height: 120)
-            .background(Color.accentColor)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            Text(app.name).font(.caption.weight(.semibold)).lineLimit(1)
-            Text(app.subtitle ?? app.bundleID).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-            Button { onDownload() } label: {
-                Text("Get").font(.caption2.weight(.bold)).frame(maxWidth: .infinity)
-                    .padding(.vertical, 5).background(Color.accentColor, in: Capsule()).foregroundStyle(.white)
+            icon(url: app.iconURL.flatMap(URL.init(string:)), size: 120, radius: 16)
+            Text(app.name).font(.caption.weight(.semibold)).lineLimit(2)
+            Text(sourceName).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            Button(action: onDownload) {
+                Text("Get").font(.caption2.weight(.bold))
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(Color.accentColor, in: Capsule())
+                    .foregroundStyle(.white)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Get \(app.name)")
         }
         .frame(width: 140)
         .padding(8)
@@ -191,171 +279,15 @@ private struct FeaturedCard: View {
     }
 }
 
-// MARK: - Model
-
-@MainActor
-final class AppStoreViewModel: ObservableObject {
-    struct Notice: Identifiable { var id: String { title }; let title, message: String }
-    struct Source: Identifiable, Equatable, Hashable {
-        let id: String; let name: String; let url: URL; var isRefreshing = false
-        var health: RepositoryHealth = .unknown
-        var latencyMs: Int? = nil
-        var healthBadge: String {
-            switch health {
-            case .fast: return "Fast"
-            case .slow: return "Slow"
-            case .offline: return "Offline"
-            case .unknown: return "—"
-            }
+private func icon(url: URL?, size: CGFloat, radius: CGFloat) -> some View {
+    AsyncImage(url: url) { phase in
+        switch phase {
+        case let .success(image): image.resizable().scaledToFill()
+        default: Image(systemName: "app.fill").foregroundStyle(.secondary)
         }
     }
-
-    @Published var sources: [Source] = []
-    @Published var apps: [StoreApp] = []
-    @Published var featured: [StoreApp] = []
-    @Published var notice: Notice?
-
-    private let fm = FileManager.default
-    private var storeURL: URL {
-        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory
-        return docs.appendingPathComponent("ZynSignSources.json")
-    }
-
-    func load() async {
-        // Load persisted sources
-        if let data = try? Data(contentsOf: storeURL), let arr = try? JSONDecoder().decode([PersistedSource].self, from: data) {
-            sources = arr.map { Source(id: $0.id, name: $0.name, url: URL(string: $0.url) ?? URL(string: "https://example.com")!) }
-        }
-        if sources.isEmpty {
-            // Seed with empty so empty state shows add prompt
-        } else {
-            await refresh()
-        }
-        // Demo apps if no network yet
-        if apps.isEmpty && sources.isEmpty {
-            apps = []
-            featured = []
-        }
-    }
-
-    func refresh() async {
-        let probe = RepositoryHealthProbe()
-        for idx in sources.indices {
-            sources[idx].isRefreshing = true
-            let url = sources[idx].url
-            let start = Date()
-            do {
-                let (data, response) = try await URLSession.shared.data(from: url)
-                let ms = Int(Date().timeIntervalSince(start)*1000)
-                let httpOK = (response as? HTTPURLResponse).map { (200...299).contains($0.statusCode) } ?? false
-                if let feed = try? JSONDecoder().decode(AltSourceFeed.self, from: data), httpOK {
-                    let mapped = feed.apps.map { a in
-                        StoreApp(id: a.bundleIdentifier, name: a.name, bundleID: a.bundleIdentifier, versionText: [a.version, a.versionDate].compactMap { $0 }.joined(separator: " · "), subtitle: a.subtitle, iconURL: a.iconURL.flatMap { URL(string: $0) }, downloadURL: a.downloadURL.flatMap { URL(string: $0) })
-                    }
-                    apps.removeAll { existing in mapped.contains { $0.id == existing.id } }
-                    apps.append(contentsOf: mapped)
-                    apps.sort { $0.name < $1.name }
-                    featured = Array(apps.prefix(6))
-                    sources[idx].health = ms < 800 ? .fast : (ms < 3000 ? .slow : .offline)
-                    sources[idx].latencyMs = ms
-                } else {
-                    sources[idx].health = httpOK ? .slow : .offline
-                    sources[idx].latencyMs = ms
-                }
-            } catch {
-                sources[idx].health = .offline
-                sources[idx].latencyMs = nil
-                // Also run bounded probe for a second opinion (timeout 3s)
-                let result = await probe.probe(url: url)
-                sources[idx].health = result.health
-                sources[idx].latencyMs = result.latencyMilliseconds
-            }
-            sources[idx].isRefreshing = false
-        }
-        persist()
-    }
-
-    func probeHealth(for src: Source) async {
-        guard let idx = sources.firstIndex(where: { $0.id == src.id }) else { return }
-        sources[idx].isRefreshing = true
-        let result = await RepositoryHealthProbe().probe(url: src.url)
-        sources[idx].health = result.health
-        sources[idx].latencyMs = result.latencyMilliseconds
-        sources[idx].isRefreshing = false
-    }
-
-    func addSource(urlString: String) {
-        var s = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !s.lowercased().hasPrefix("http") { s = "https://" + s }
-        guard let url = URL(string: s) else {
-            notice = Notice(title: "Invalid URL", message: "The URL could not be parsed.")
-            return
-        }
-        let src = Source(id: UUID().uuidString, name: url.host ?? s, url: url)
-        sources.append(src)
-        persist()
-        Task { await refresh() }
-    }
-
-    func addDemoSource() {
-        // A public AltSource demo feed — no private certs.
-        addSource(urlString: "https://qnblackcat.github.io/AltStore/apps.json")
-    }
-
-    func removeSource(_ src: Source) {
-        sources.removeAll { $0.id == src.id }
-        persist()
-    }
-
-    func download(_ app: StoreApp) {
-        guard let dlURL = app.downloadURL else {
-            notice = Notice(title: "No Download", message: "This application has no download URL in its source.")
-            return
-        }
-        // Hand off to Downloads via shared directory + notification so Downloads tab picks it up without tight coupling
-        let downloadsDir = (fm.urls(for: .documentDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory).appendingPathComponent("Downloads", isDirectory: true)
-        try? fm.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
-        // Trigger a download through DownloadsViewModel's URL
-        // Post notification and let Downloads handle; for now immediate URLSession
-        notice = Notice(title: "Downloading", message: "\(app.name) will appear in Downloads. Switch to the Downloads tab to see progress.")
-        // Fire an in-process download via a transient DownloadsViewModel
-        Task.detached {
-            var req = URLRequest(url: dlURL)
-            req.timeoutInterval = 60
-            if let (_, resp) = try? await URLSession.shared.download(for: req), let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) {
-                // DownloadsView will also handle its own queue; this is just a hint
-            }
-        }
-        // Also post for Downloads tab to start its own download
-        NotificationCenter.default.post(name: .zynSignRequestDownload, object: nil, userInfo: ["url": dlURL.absoluteString])
-    }
-
-    private func persist() {
-        let persisted = sources.map { PersistedSource(id: $0.id, name: $0.name, url: $0.url.absoluteString) }
-        if let data = try? JSONEncoder().encode(persisted) { try? data.write(to: storeURL, options: .atomic) }
-    }
-
-    private struct PersistedSource: Codable { let id, name, url: String }
-    private struct AltSourceFeed: Codable { let apps: [AltApp]; let name: String? }
-    private struct AltApp: Codable {
-        let name: String
-        let bundleIdentifier: String
-        let version: String?
-        let versionDate: String?
-        let subtitle: String?
-        let iconURL: String?
-        let downloadURL: String?
-    }
+    .frame(width: size, height: size)
+    .background(Color(.secondarySystemBackground))
+    .clipShape(RoundedRectangle(cornerRadius: radius))
+    .accessibilityHidden(true)
 }
-
-struct StoreApp: Identifiable, Equatable, Hashable {
-    let id: String
-    let name: String
-    let bundleID: String
-    let versionText: String
-    let subtitle: String?
-    let iconURL: URL?
-    let downloadURL: URL?
-}
-
-extension Notification.Name { static let zynSignRequestDownload = Notification.Name("zynSign.requestDownload") }

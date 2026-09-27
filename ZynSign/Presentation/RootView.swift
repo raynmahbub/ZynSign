@@ -66,6 +66,13 @@ struct RootView: View {
     /// so work in flight stays visible wherever the user navigates.
     @State private var activeSigningJobBadge = 0
 
+    /// Active downloads, shown on the Downloads tab when that feature is on.
+    @State private var activeDownloadBadge = 0
+
+    /// The download notice currently shown as a toast, if any.
+    @State private var visibleDownloadNotice: DownloadNotice?
+    @State private var isShowingDownloadToast = false
+
     /// Ticks while the shell is open, so a lapsed session can be noticed.
     private let inactivityTimer = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
 
@@ -87,7 +94,7 @@ struct RootView: View {
 
     var body: some View {
         TabView(selection: $selected) {
-            ForEach(ShellSection.primaryTabs) { section in
+            ForEach(visibleTabs) { section in
                 tabContent(section)
                     .tabItem {
                         Label(
@@ -96,12 +103,16 @@ struct RootView: View {
                         )
                     }
                     .tag(section)
-                    .badge(section == .library ? activeSigningJobBadge : 0)
+                    .badge(badgeCount(for: section))
             }
         }
         .tint(.primary)
         .environment(\.settingsCenter, settings)
         .environment(\.appLock, appLock)
+        .environment(\.downloadNavigation, DownloadNavigation(
+            openLibrary: { selected = .library },
+            openSigningQueue: { presentSigningQueue() }
+        ))
         .preferredColorScheme(settings.preferences.appearance.appearanceMode.resolvedColorScheme)
         .environment(
             \.colorSchemeContrast,
@@ -189,6 +200,24 @@ struct RootView: View {
                 ? jobs.filter { $0.isActive }.count
                 : 0
         }
+        .background {
+            if let center = environment.downloadCenter {
+                DownloadNoticeBridge(center: center, badge: $activeDownloadBadge) { notices in
+                    showNextDownloadNotice(from: notices)
+                }
+            }
+        }
+        .zToast(
+            isPresented: $isShowingDownloadToast,
+            message: visibleDownloadNotice.map { "\($0.title) — \($0.message)" } ?? "",
+            style: visibleDownloadNotice?.kind == .validationFailed ? .error : (visibleDownloadNotice?.kind == .updateAvailable ? .info : .success),
+            duration: .seconds(4)
+        )
+        .onChange(of: isShowingDownloadToast) { _, isShowing in
+            guard !isShowing else { return }
+            visibleDownloadNotice = nil
+            showNextDownloadNotice(from: environment.downloadCenter?.pendingNotices ?? [])
+        }
         .zToast(
             isPresented: $isShowingQueueToast,
             message: visibleQueueNotice.map { "\($0.title) — \($0.message)" } ?? "",
@@ -232,6 +261,33 @@ struct RootView: View {
             if SigningQueueAvailability.isAvailable {
                 await environment.signingQueue.restore()
             }
+            environment.repositoryDirectory?.load()
+            environment.repositoryDirectory?.onCatalogsChanged = { [environment] in
+                Task { await environment.downloadCenter?.refreshUpdates() }
+            }
+            environment.downloadCenter?.startObservingTransfers()
+            await environment.downloadCenter?.restore()
+            await environment.downloadCenter?.refreshUpdates()
+        }
+    }
+
+    /// Tabs the user can select. Downloads is added when that feature is
+    /// available, immediately before Settings, without removing the five-tab
+    /// foundation the other sections are built on.
+    private var visibleTabs: [ShellSection] {
+        var tabs = ShellSection.primaryTabs
+        guard ReleaseTrain.isAvailable(.downloads), let settings = tabs.firstIndex(of: .settings) else {
+            return tabs
+        }
+        tabs.insert(.downloads, at: settings)
+        return tabs
+    }
+
+    private func badgeCount(for section: ShellSection) -> Int {
+        switch section {
+        case .library: return activeSigningJobBadge
+        case .downloads: return activeDownloadBadge
+        default: return 0
         }
     }
 
@@ -382,11 +438,58 @@ struct RootView: View {
             SettingsView()
         case .presets:
             PresetsView()
-        case .files, .appStore, .downloads:
-            // Secondary sections are linked from Settings → Browse; they are
-            // not tabs. Each carries its own NavigationStack where presented.
+        case .downloads:
+            DownloadsView()
+        case .files, .appStore:
+            // Files and the App Store are linked from Settings → Browse.
+            // Each carries its own NavigationStack where presented.
             EmptyView()
         }
+    }
+
+    private func showNextDownloadNotice(from notices: [DownloadNotice]) {
+        guard ReleaseTrain.isAvailable(.downloads) else { return }
+        guard visibleDownloadNotice == nil, let next = notices.first else { return }
+        visibleDownloadNotice = next
+        environment.downloadCenter?.acknowledgeNotice(next.id)
+        AccessibilityNotification.Announcement(DownloadCenterRendering.announcement(for: next)).post()
+        let name: String
+        switch next.kind {
+        case .downloadCompleted: name = "download.completed"
+        case .validationFailed: name = "download.failed"
+        case .updateAvailable: name = "download.updateAvailable"
+        case .queueFinished: name = "download.queueFinished"
+        }
+        environment.recordAnalyticsEvent(
+            category: .download,
+            name: name,
+            succeeded: next.kind != .validationFailed
+        )
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            isShowingDownloadToast = true
+        }
+    }
+}
+
+private struct DownloadNoticeBridge: View {
+    @ObservedObject var center: DownloadCenter
+    @Binding var badge: Int
+    var onNotices: ([DownloadNotice]) -> Void
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .onChange(of: center.pendingNotices) { _, notices in
+                onNotices(notices)
+            }
+            .onChange(of: center.jobs) { _, jobs in
+                badge = jobs.filter(\.isTransferring).count
+            }
+            .onAppear {
+                badge = center.jobs.filter(\.isTransferring).count
+                onNotices(center.pendingNotices)
+            }
     }
 }
 

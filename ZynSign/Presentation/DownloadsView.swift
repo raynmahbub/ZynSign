@@ -1,204 +1,658 @@
 import SwiftUI
-import UIKit
 
-/// The Downloads area — download, track, and import packages from URLs.
-/// BackgroundURLSession: falls back to foreground on simulator; on device
-/// uses `BackgroundDownloadService` (identifier com.zynsign.downloads) for
-/// pause/resume across launches, retry with checksum, and 600s resource timeout.
+/// The Download Center.
+///
+/// Active, queued, paused, completed, and failed transfers live here, with
+/// available updates from configured repositories. The screen owns no
+/// transfers. `DownloadCenter` does, so leaving this tab does not cancel work.
 struct DownloadsView: View {
-    @StateObject private var model = DownloadsViewModel()
+
     @Environment(\.applicationEnvironment) private var environment
+    @Environment(\.downloadNavigation) private var navigation
+
+    var body: some View {
+        if let center = environment.downloadCenter {
+            DownloadCenterScreen(
+                center: center,
+                directory: environment.repositoryDirectory,
+                onOpenLibrary: navigation.openLibrary,
+                onOpenSigningQueue: navigation.openSigningQueue
+            )
+        } else {
+            ContentUnavailableView(
+                "Downloads Unavailable",
+                systemImage: "arrow.down.circle",
+                description: Text("The Download Center is not installed in this build.")
+            )
+        }
+    }
+}
+
+private struct DownloadCenterScreen: View {
+
+    @ObservedObject var center: DownloadCenter
+    var directory: RepositoryDirectory?
+    var onOpenLibrary: () -> Void
+    var onOpenSigningQueue: () -> Void
+
+    @Environment(\.applicationEnvironment) private var environment
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var searchText = ""
     @State private var showAdd = false
     @State private var urlText = ""
-    @State private var searchText = ""
-    private var filteredActive: [DownloadItem] {
-        if searchText.isEmpty { return model.active }
-        return model.active.filter { $0.title.localizedCaseInsensitiveContains(searchText) || $0.url.absoluteString.localizedCaseInsensitiveContains(searchText) }
-    }
-    private var filteredFinished: [DownloadItem] {
-        if searchText.isEmpty { return model.finished }
-        return model.finished.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
-    }
+    @State private var linkMessage: String?
+    @State private var storage = DownloadStorageReport.empty
+    @State private var pendingBulk: BulkAction?
+    @State private var notesCandidate: AppUpdateCandidate?
+    @State private var milestoneTokens: [String: String] = [:]
+    @State private var decisionPrompt: DownloadDuplicatePrompt?
+    @State private var openedEntry: LibraryEntryLink?
+
+    private var accessibilitySize: Bool { dynamicTypeSize.isAccessibilitySize }
+
     var body: some View {
         NavigationStack {
             List {
-                if !filteredActive.isEmpty {
-                    Section(header: Label("Downloading", systemImage: "arrow.down.circle.dotted")) {
-                        ForEach(filteredActive) { item in
-                            DownloadRow(item: item, onCancel: { model.cancel(item) }, onPause: { model.pause(item) }, onResume: { model.resume(item) })
-                        }
-                    }
-                }
-                Section(header: Label("Downloaded", systemImage: "checkmark.circle.fill")) {
-                    if filteredFinished.isEmpty {
-                        ContentUnavailableView { Label("No Downloads", systemImage: "arrow.down.circle") } description: { Text("Add a direct .ipa link or an itms-services URL. Downloads are kept here until you import or delete them. Background downloads survive app restarts.") } actions: { Button { showAdd = true } label: { Text("Add URL") }.buttonStyle(.borderedProminent) }
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                    } else {
-                        ForEach(filteredFinished) { item in
-                            FinishedRow(item: item, onImport: { model.importToLibrary(item) }, onShare: { model.share(item) }, onDelete: { model.delete(item) })
-                        }
-                    }
-                }
+                summary
+                if !filteredUpdates.isEmpty { updatesSection }
+                if !filtered(center.activeJobs).isEmpty { jobSection("Active Downloads", jobs: filtered(center.activeJobs), systemImage: "arrow.down.circle") }
+                if !filtered(center.queuedJobs).isEmpty { jobSection("Queued", jobs: filtered(center.queuedJobs), systemImage: "clock") }
+                if !filtered(center.pausedJobs).isEmpty { jobSection("Paused", jobs: filtered(center.pausedJobs), systemImage: "pause.circle") }
+                if !filtered(center.completedJobs).isEmpty { jobSection("Completed", jobs: filtered(center.completedJobs), systemImage: "checkmark.circle") }
+                if !filtered(center.failedJobs).isEmpty { jobSection("Failed", jobs: filtered(center.failedJobs), systemImage: "exclamationmark.circle") }
+                if !filtered(center.cancelledJobs).isEmpty { jobSection("Cancelled", jobs: filtered(center.cancelledJobs), systemImage: "xmark.circle") }
+                if center.jobs.isEmpty && center.updates.isEmpty && searchText.isEmpty { empty }
+                historySection
+                storageSection
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Downloads")
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button { showAdd = true } label: { Label("Add", systemImage: "plus") } }
-                ToolbarItem(placement: .topBarLeading) { if !model.finished.isEmpty { Button(role: .destructive) { model.clearFinished() } label: { Text("Clear") } } }
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Apps and sources")
+            .refreshable {
+                await directory?.refresh()
+                await center.refreshUpdates()
+                storage = await center.storageReport()
+            }
+            .toolbar { toolbar }
+            .confirmationDialog(
+                pendingBulk?.title ?? "Downloads",
+                isPresented: Binding(get: { pendingBulk != nil }, set: { if !$0 { pendingBulk = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button(pendingBulk?.title ?? "Continue", role: pendingBulk?.isDestructive == true ? .destructive : nil) {
+                    perform(pendingBulk)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(pendingBulk?.message ?? "")
+            }
+            .confirmationDialog(
+                "Already Held",
+                isPresented: Binding(get: { decisionPrompt != nil }, set: { if !$0 { decisionPrompt = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button("Replace") { resolve(.replace) }
+                Button("Keep Both") { resolve(.keepBoth) }
+                Button("Skip", role: .cancel) { resolve(.skip) }
+            } message: {
+                Text(decisionPrompt?.explanation ?? "")
             }
             .alert("Add Download", isPresented: $showAdd) {
-                TextField("https://example.com/app.ipa or itms-services://", text: $urlText)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                TextField("https://example.com/app.ipa", text: $urlText)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
                 Button("Cancel", role: .cancel) { urlText = "" }
-                Button("Download") { model.startDownload(from: urlText.trimmingCharacters(in: .whitespacesAndNewlines)); urlText = "" }.disabled(urlText.trimmingCharacters(in: .whitespaces).isEmpty)
-            } message: { Text("Supports:\n• https://example.com/app.ipa\n• itms-services://?action=download-manifest&url=https://...\n• https://example.com/manifest.plist\nBackground session: pause/resume supported, retry ×3, survives backgrounding.") }
-            .alert(model.notice?.title ?? "", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } }), presenting: model.notice) { _ in Button("OK", role: .cancel) {} } message: { n in Text(n.message) }
-            .refreshable { model.reload() }
-        }
-        .task { model.reload() }
-        .onAppear {
-            model.onOutcome = { ok in
-                environment.recordAnalyticsEvent(category: .download, name: ok ? "download.completed" : "download.failed", succeeded: ok)
+                Button("Download") {
+                    let raw = urlText
+                    urlText = ""
+                    Task { await addLink(raw) }
+                }
+                .disabled(urlText.trimmingCharacters(in: .whitespaces).isEmpty)
+            } message: {
+                Text("https addresses only. An install manifest is read for an https package address and is not imported as an app. Resume depends on the server and is never assumed.")
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .zynSignRequestDownload)) { note in if let s = note.userInfo?["url"] as? String { model.startDownload(from: s) } }
-    }
-}
-private struct DownloadRow: View {
-    let item: DownloadItem
-    let onCancel: () -> Void
-    let onPause: () -> Void
-    let onResume: () -> Void
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: item.isPaused ? "pause.circle.fill" : "arrow.down.doc.fill").foregroundStyle(item.isPaused ? .orange : .blue)
-                VStack(alignment: .leading, spacing: 2) { Text(item.title).lineLimit(1); Text(item.url.absoluteString).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-                Spacer()
-                if item.isPaused {
-                    Button { onResume() } label: { Image(systemName: "play.circle.fill").foregroundStyle(.green) }
-                    Button(role: .destructive) { onCancel() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
-                } else {
-                    Button { onPause() } label: { Image(systemName: "pause.circle").foregroundStyle(.secondary) }
-                    Button(role: .destructive) { onCancel() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+            .alert("Download", isPresented: Binding(get: { linkMessage != nil }, set: { if !$0 { linkMessage = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(linkMessage ?? "")
+            }
+            .sheet(item: $notesCandidate) { candidate in
+                ReleaseNotesSheet(candidate: candidate, center: center)
+            }
+            .sheet(item: $openedEntry) { link in
+                NavigationStack {
+                    ApplicationDetailView(
+                        entry: link.entry,
+                        bundleInspection: environment.bundleInspection,
+                        detailsInspection: environment.applicationDetailsInspection
+                    )
                 }
             }
-            ProgressView(value: item.progress)
-            HStack { Text(item.isPaused ? "Paused • \(item.progressText)" : item.progressText).font(.caption).foregroundStyle(.secondary).monospacedDigit(); Spacer(); Text(item.sizeText).font(.caption).foregroundStyle(.secondary) }
-        }.padding(.vertical, 4)
+            .navigationDestination(for: DownloadJobIdentifier.self) { id in
+                DownloadDetailView(
+                    center: center,
+                    jobID: id,
+                    onOpenLibrary: onOpenLibrary,
+                    onOpenSigningQueue: onOpenSigningQueue
+                )
+            }
+        }
+        .task {
+            center.startObservingTransfers()
+            await center.restore()
+            directory?.load()
+            await center.refreshUpdates()
+            storage = await center.storageReport()
+        }
+        .onChange(of: center.pendingDecisions.count) { _, _ in
+            decisionPrompt = center.pendingDecisions.first
+        }
+        .onChange(of: center.jobs.map(DownloadCenterRendering.milestoneToken(for:))) { _, _ in
+            announceMilestones()
+        }
     }
-}
-private struct FinishedRow: View {
-    let item: DownloadItem
-    let onImport: () -> Void; let onShare: () -> Void; let onDelete: () -> Void
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "doc.zipper").foregroundStyle(.green).frame(width: 28)
-            VStack(alignment: .leading, spacing: 2) { Text(item.title).lineLimit(1); Text(item.sizeText).font(.caption).foregroundStyle(.secondary) }
-            Spacer()
-            Menu { Button { onImport() } label: { Label("Import to Library", systemImage: "square.grid.2x2") }; Button { onShare() } label: { Label("Share", systemImage: "square.and.arrow.up") }; Button(role: .destructive) { onDelete() } label: { Label("Delete", systemImage: "trash") } } label: { Image(systemName: "ellipsis.circle").foregroundStyle(.secondary) }
-        }.swipeActions(edge: .trailing, allowsFullSwipe: false) { Button { onImport() } label: { Label("Import", systemImage: "square.grid.2x2") }.tint(.blue); Button(role: .destructive) { onDelete() } label: { Label("Delete", systemImage: "trash") } }
-        .contextMenu { Button { onImport() } label: { Label("Import to Library", systemImage: "square.grid.2x2") }; Button { onShare() } label: { Label("Share", systemImage: "square.and.arrow.up") } }
+
+    private var summary: some View {
+        Section {
+            HStack {
+                stat("Active", center.activeJobs.count)
+                stat("Queued", center.queuedJobs.count)
+                stat("Failed", center.failedJobs.count)
+                stat("Updates", center.updates.count)
+            }
+            .accessibilityElement(children: .combine)
+        } footer: {
+            Text("Files stay in the Download Center until they pass validation. A configured source is not enough to import them.")
+        }
     }
-}
-// MARK: - Model (BackgroundURLSession with pause/resume/retry/checksum)
-@MainActor
-final class DownloadsViewModel: ObservableObject {
-    struct Notice: Identifiable { var id: String { title }; let title, message: String }
-    @Published var active: [DownloadItem] = []
-    @Published var finished: [DownloadItem] = []
-    @Published var notice: Notice?
-    private let fm = FileManager.default
-    private var pausedItems: Set<String> = []
-    private var retryCounts: [String: Int] = [:]
-    private let maxRetries = 3
-    private lazy var session: URLSession = { let cfg = URLSessionConfiguration.default; cfg.waitsForConnectivity = true; return URLSession(configuration: cfg, delegate: nil, delegateQueue: nil) }()
-    private var bgTasks: [String: String] = [:]
-    private var urlTasks: [String: URLSessionDownloadTask] = [:]
-    /// An action performed on the main actor when a download reaches a
-    /// terminal outcome — completed, or permanently failed after retries.
-    /// An intermediate retry is not terminal and does not fire it. The
-    /// default is no action.
-    var onOutcome: (@MainActor (Bool) -> Void)?
-    var downloadsDir: URL { let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory; let dir = docs.appendingPathComponent("Downloads", isDirectory: true); try? fm.createDirectory(at: dir, withIntermediateDirectories: true); return dir }
-    func reload() {
-        guard let urls = try? fm.contentsOfDirectory(at: downloadsDir, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey], options: .skipsHiddenFiles) else { finished = []; return }
-        finished = urls.compactMap { url in let vals = try? url.resourceValues(forKeys: [.fileSizeKey]); return DownloadItem(id: url.lastPathComponent, title: url.deletingPathExtension().lastPathComponent, url: url, localURL: url, progress: 1, totalBytes: Int64(vals?.fileSize ?? 0), isFinished: true, isPaused: false) }.sorted { $0.title < $1.title }
+
+    private var updatesSection: some View {
+        Section {
+            if !filteredUpdates.isEmpty {
+                Button {
+                    Task { await updateAll() }
+                } label: {
+                    Label("Update All", systemImage: "arrow.triangle.2.circlepath")
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                }
+                .keyboardShortcut("u", modifiers: .command)
+                .accessibilityHint("Queues updates from configured repositories. Collisions ask before anything is replaced.")
+            }
+            ForEach(filteredUpdates) { candidate in
+                updateRow(candidate)
+            }
+        } header: {
+            Label("Available Updates", systemImage: "arrow.triangle.2.circlepath")
+        } footer: {
+            Text("Installed and latest versions from configured repositories only. Ignored versions stay hidden until a newer one is published.")
+        }
     }
-    func startDownload(from raw: String) {
-        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !s.lowercased().hasPrefix("http") && !s.lowercased().hasPrefix("itms") { s = "https://" + s }
-        guard let url = URL(string: s) else { notice = Notice(title: "Invalid URL", message: "The URL could not be parsed."); return }
-        if url.scheme?.lowercased() == "itms-services", let comps = URLComponents(url: url, resolvingAgainstBaseURL: false), let q = comps.queryItems?.first(where: { $0.name == "url" })?.value, let manifestURL = URL(string: q) { startDownload(from: manifestURL.absoluteString); return }
-        let item = DownloadItem(id: UUID().uuidString, title: url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent, url: url, localURL: downloadsDir.appendingPathComponent(UUID().uuidString + "_" + (url.lastPathComponent.isEmpty ? "app.ipa" : url.lastPathComponent)), progress: 0, totalBytes: 0, isFinished: false, isPaused: false)
-        active.append(item)
-        #if targetEnvironment(simulator)
-        startForegroundDownload(item: item, url: url)
-        #else
-        startBackgroundDownload(item: item, url: url)
-        #endif
+
+    private func updateRow(_ candidate: AppUpdateCandidate) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(candidate.name).font(.headline)
+                    Text(candidate.sourceName).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Update") {
+                    Task { await update(candidate) }
+                }
+                .buttonStyle(.borderedProminent)
+                .frame(minHeight: 44)
+            }
+            HStack {
+                labeledColumn("Installed", candidate.installedVersion ?? "—")
+                labeledColumn("Latest", candidate.latestVersion)
+            }
+            HStack {
+                Button("View Changes") { notesCandidate = candidate }
+                    .frame(minHeight: 44)
+                Button("Ignore Version") { center.ignore(candidate) }
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .font(.subheadline)
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(candidate.name), installed \(candidate.installedVersion ?? "unknown"), latest \(candidate.latestVersion), \(candidate.sourceName)")
+        .accessibilityHint("Update downloads the latest version. Ignore hides this version.")
     }
-    private func startForegroundDownload(item: DownloadItem, url: URL) {
-        let task = session.downloadTask(with: url) { [weak self] temp, resp, err in
-            Task { @MainActor in
-                guard let self else { return }
-                self.urlTasks.removeValue(forKey: item.id)
-                if let err { await self.handleFailure(item: item, url: url, error: err); return }
-                guard let temp else { await self.handleFailure(item: item, url: url, error: NSError(domain: "ZynSign.Download", code: -1, userInfo: [NSLocalizedDescriptionKey: "No data received."])); return }
-                if let data = try? Data(contentsOf: temp), let text = String(data: data, encoding: .utf8), text.contains("<plist") {
-                    if let ipaURL = self.extractIPA(fromManifestData: data) ?? self.extractIPA(fromManifestText: text) {
-                        self.active.removeAll { $0.id == item.id }; self.startDownload(from: ipaURL.absoluteString); return
+
+    private func jobSection(_ title: String, jobs: [DownloadCenter.Job], systemImage: String) -> some View {
+        Section {
+            ForEach(jobs) { job in
+                NavigationLink(value: job.id) {
+                    DownloadJobCard(job: job, stacksVertically: accessibilitySize)
+                }
+                .accessibilityHint("Opens download details")
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    if job.isPaused {
+                        Button { center.resume(job.id) } label: { Label("Resume", systemImage: "play.fill") }.tint(.green)
+                    } else if job.state == .downloading || job.state == .connecting {
+                        Button { center.pause(job.id) } label: { Label("Pause", systemImage: "pause") }.tint(.orange)
+                    }
+                    if job.isQueued || job.isTransferring || job.isPaused {
+                        Button(role: .destructive) { center.cancel(job.id) } label: { Label("Cancel", systemImage: "xmark") }
                     }
                 }
-                let dest = item.localURL
-                try? self.fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try? self.fm.moveItem(at: temp, to: dest)
-                self.active.removeAll { $0.id == item.id }
-                self.retryCounts.removeValue(forKey: item.id)
-                self.reload()
-                self.onOutcome?(true)
+                .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                    if job.isQueued {
+                        Button { center.sendToTop(job.id) } label: { Label("Top", systemImage: "arrow.up.to.line") }.tint(.blue)
+                    }
+                    if job.isRetryable {
+                        Button { center.retry(job.id) } label: { Label("Retry", systemImage: "arrow.clockwise") }.tint(.blue)
+                    }
+                }
+                .contextMenu {
+                    if job.isQueued {
+                        Button { center.move(job.id, up: true) } label: { Label("Move Up", systemImage: "arrow.up") }
+                        Button { center.move(job.id, up: false) } label: { Label("Move Down", systemImage: "arrow.down") }
+                        Button { center.sendToTop(job.id) } label: { Label("Send to Top", systemImage: "arrow.up.to.line") }
+                        Menu("Priority") {
+                            ForEach(DownloadJobPriority.allCases, id: \.self) { priority in
+                                Button(priority.displayName) { center.setPriority(priority, on: job.id) }
+                            }
+                        }
+                    }
+                    Button(role: .destructive) { center.removeDownload(job.id) } label: { Label("Remove Download", systemImage: "trash") }
+                }
+            }
+        } header: {
+            Label(title, systemImage: systemImage)
+        }
+    }
+
+    private var historySection: some View {
+        Section {
+            if center.history.isEmpty {
+                Text("Completed and rejected downloads are listed here with their validation result.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(filteredHistory) { entry in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(entry.appName).font(.body)
+                        Text([entry.version, entry.sourceName].compactMap { $0 }.joined(separator: " · "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(entry.completedAt.formatted(date: .abbreviated, time: .shortened))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        Text(entry.validationSummary)
+                            .font(.footnote)
+                            .foregroundStyle(entry.validationPassed ? .secondary : .orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if entry.validationPassed {
+                            Button("Open App") { Task { await openHistory(entry) } }
+                                .frame(minHeight: 44)
+                                .accessibilityHint("Opens the imported app when it is in the Library. Does not delete it.")
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .accessibilityElement(children: .combine)
+                }
+            }
+        } header: {
+            Label("History", systemImage: "clock.arrow.circlepath")
+        }
+    }
+
+    private var storageSection: some View {
+        Section {
+            storageRow("Downloaded IPAs", DownloadCenterRendering.bytes(storage.downloadedIPABytes))
+            storageRow("Completed Downloads", "\(storage.completedDownloadCount) · \(DownloadCenterRendering.bytes(storage.completedRetainedBytes))")
+            storageRow("Temporary Data", DownloadCenterRendering.bytes(storage.temporaryBytes))
+            storageRow("Total", DownloadCenterRendering.bytes(storage.totalBytes))
+            Button(role: .destructive) { pendingBulk = .clearCompleted } label: {
+                Label("Clear Completed", systemImage: "checkmark.circle")
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            }
+            .disabled(center.completedJobs.isEmpty)
+            Button(role: .destructive) {
+                Task {
+                    _ = await center.clearTemporaryData()
+                    storage = await center.storageReport()
+                }
+            } label: {
+                Label("Clear Temporary Data", systemImage: "trash")
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            }
+            .accessibilityHint("Removes partials and isolated rejects. Imported apps and validated packages are kept.")
+        } header: {
+            Label("Storage", systemImage: "internaldrive")
+        } footer: {
+            Text("Completed download size is included in Downloaded IPAs, not added again. These actions never delete imported apps.")
+        }
+    }
+
+    private var empty: some View {
+        Section {
+            ContentUnavailableView {
+                Label("No Downloads", systemImage: "arrow.down.circle")
+            } description: {
+                Text("Download an app from a configured source, or add an https address. Files are validated before they can be imported.")
+            } actions: {
+                Button { showAdd = true } label: { Text("Add URL") }
+                    .buttonStyle(.borderedProminent)
+                    .frame(minHeight: 44)
             }
         }
-        urlTasks[item.id] = task
-        task.resume()
-        Task { await pollProgress(task: task, item: item) }
     }
-    private func startBackgroundDownload(item: DownloadItem, url: URL) {
-        let bgId = BackgroundDownloadService.shared.start(url: url, progress: { [weak self] prog in Task { @MainActor in if let idx = self?.active.firstIndex(where: { $0.id == item.id }) { self?.active[idx].progress = prog } } }, completion: { [weak self] result in Task { @MainActor in guard let self else { return }; self.bgTasks.removeValue(forKey: item.id); switch result { case .success(let dest): if let data = try? Data(contentsOf: dest), let text = String(data: data, encoding: .utf8), text.contains("<plist") { if let ipaURL = self.extractIPA(fromManifestData: data) ?? self.extractIPA(fromManifestText: text) { try? self.fm.removeItem(at: dest); self.active.removeAll { $0.id == item.id }; self.startDownload(from: ipaURL.absoluteString); return } }; let final = item.localURL; try? self.fm.createDirectory(at: final.deletingLastPathComponent(), withIntermediateDirectories: true); if dest != final { try? self.fm.moveItem(at: dest, to: final) }; self.active.removeAll { $0.id == item.id }; self.retryCounts.removeValue(forKey: item.id); self.reload(); self.onOutcome?(true); case .failure(let err): await self.handleFailure(item: item, url: url, error: err) } } })
-        bgTasks[item.id] = bgId
-    }
-    private func handleFailure(item: DownloadItem, url: URL, error: Error) async {
-        let count = retryCounts[item.id, default: 0]
-        if count < maxRetries {
-            retryCounts[item.id] = count + 1
-            notice = Notice(title: "Retrying", message: "\(item.title) failed (\(error.localizedDescription)) — retry \(count+1)/\(maxRetries) in 2s.")
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            if active.contains(where: { $0.id == item.id }) { startForegroundDownload(item: item, url: url) }
-        } else {
-            active.removeAll { $0.id == item.id }
-            retryCounts.removeValue(forKey: item.id)
-            notice = Notice(title: "Download failed", message: error.localizedDescription)
-            onOutcome?(false)
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { showAdd = true } label: { Label("Add", systemImage: "plus") }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .accessibilityLabel("Add download")
+        }
+        ToolbarItem(placement: .topBarLeading) {
+            Menu {
+                Button { pendingBulk = .cancelWaiting } label: { Label("Cancel Waiting", systemImage: "xmark.circle") }
+                    .disabled(center.queuedJobs.isEmpty)
+                Button { center.retryAllFailed() } label: { Label("Retry Failed", systemImage: "arrow.clockwise") }
+                    .disabled(center.failedJobs.isEmpty)
+                Button { pendingBulk = .clearCompleted } label: { Label("Clear Completed", systemImage: "checkmark.circle") }
+                    .disabled(center.completedJobs.isEmpty)
+                if let notifier = environment.downloadNotifier as? LocalDownloadNotifier, notifier.isSupported {
+                    DownloadNotificationToggle(notifier: notifier)
+                }
+            } label: {
+                Label("Download Actions", systemImage: "ellipsis.circle")
+            }
+            .accessibilityLabel("Download actions")
         }
     }
-    private func pollProgress(task: URLSessionDownloadTask, item: DownloadItem) async {
-        while task.state == .running {
-            let prog = task.countOfBytesExpectedToReceive > 0 ? Double(task.countOfBytesReceived) / Double(task.countOfBytesExpectedToReceive) : 0
-            if let idx = active.firstIndex(where: { $0.id == item.id }) { if !active[idx].isPaused { active[idx].progress = prog; active[idx].totalBytes = task.countOfBytesExpectedToReceive } }
-            try? await Task.sleep(nanoseconds: 200_000_000)
+
+    private var filteredUpdates: [AppUpdateCandidate] {
+        guard !searchText.isEmpty else { return center.updates }
+        return center.updates.filter {
+            $0.name.localizedCaseInsensitiveContains(searchText)
+                || $0.sourceName.localizedCaseInsensitiveContains(searchText)
+                || $0.bundleIdentifier.localizedCaseInsensitiveContains(searchText)
         }
     }
-    func pause(_ item: DownloadItem) { pausedItems.insert(item.id); if let bgId = bgTasks[item.id] { BackgroundDownloadService.shared.pause(id: bgId) }; urlTasks[item.id]?.suspend(); if let idx = active.firstIndex(where: { $0.id == item.id }) { active[idx].isPaused = true } }
-    func resume(_ item: DownloadItem) { pausedItems.remove(item.id); if let bgId = bgTasks[item.id] { BackgroundDownloadService.shared.resume(id: bgId) }; urlTasks[item.id]?.resume(); if let idx = active.firstIndex(where: { $0.id == item.id }) { active[idx].isPaused = false } }
-    func cancel(_ item: DownloadItem) { if let bgId = bgTasks[item.id] { BackgroundDownloadService.shared.cancel(id: bgId); bgTasks.removeValue(forKey: item.id) }; urlTasks[item.id]?.cancel(); urlTasks.removeValue(forKey: item.id); active.removeAll { $0.id == item.id }; pausedItems.remove(item.id); retryCounts.removeValue(forKey: item.id) }
-    func delete(_ item: DownloadItem) { try? fm.removeItem(at: item.localURL); reload() }
-    func clearFinished() { for f in finished { try? fm.removeItem(at: f.localURL) }; reload() }
-    func retry(_ item: DownloadItem) { retryCounts.removeValue(forKey: item.id); startDownload(from: item.url.absoluteString) }
-    func importToLibrary(_ item: DownloadItem) { notice = Notice(title: "Ready to import", message: "Open Library → Import and pick \(item.title) from Downloads. Direct library adoption from Downloads will land in the next update.") }
-    func share(_ item: DownloadItem) { guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene, let window = scene.windows.first, let vc = window.rootViewController else { return }; let av = UIActivityViewController(activityItems: [item.localURL], applicationActivities: nil); if let pop = av.popoverPresentationController { pop.sourceView = window; pop.sourceRect = CGRect(x: window.bounds.midX, y: window.bounds.midY, width: 0, height: 0) }; vc.present(av, animated: true) }
-    private func extractIPA(fromManifestData data: Data) -> URL? { if let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any], let items = plist["items"] as? [[String: Any]], let assets = items.first?["assets"] as? [[String: Any]], let urlString = assets.first?["url"] as? String, let url = URL(string: urlString) { return url }; return nil }
-    private func extractIPA(fromManifestText text: String) -> URL? { let pattern = #"https?://[^\s"']+\.ipa"#; guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive), let m = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)), let r = Range(m.range, in: text) else { return nil }; return URL(string: String(text[r])) }
+
+    private var filteredHistory: [DownloadHistoryEntry] {
+        guard !searchText.isEmpty else { return center.history }
+        return center.history.filter {
+            $0.appName.localizedCaseInsensitiveContains(searchText) || $0.sourceName.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    private func filtered(_ jobs: [DownloadCenter.Job]) -> [DownloadCenter.Job] {
+        guard !searchText.isEmpty else { return jobs }
+        return jobs.filter {
+            $0.request.displayName.localizedCaseInsensitiveContains(searchText)
+                || $0.request.sourceName.localizedCaseInsensitiveContains(searchText)
+                || ($0.request.bundleIdentifier?.localizedCaseInsensitiveContains(searchText) ?? false)
+        }
+    }
+
+    private func stat(_ title: String, _ count: Int) -> some View {
+        VStack(spacing: 2) {
+            Text("\(count)").font(.headline).monospacedDigit()
+            Text(title).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 44)
+    }
+
+    private func labeledColumn(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.caption2).foregroundStyle(.secondary)
+            Text(value).font(.body.monospacedDigit())
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func storageRow(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(value).foregroundStyle(.secondary).monospacedDigit()
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func openHistory(_ entry: DownloadHistoryEntry) async {
+        guard let bundle = entry.bundleIdentifier,
+              let entries = try? await environment.library.entries(),
+              let match = entries.first(where: { $0.record.bundleIdentifier.rawValue == bundle }) else {
+            onOpenLibrary()
+            return
+        }
+        openedEntry = LibraryEntryLink(entry: match)
+    }
+
+    private func addLink(_ raw: String) async {
+        switch await center.enqueueUserLink(raw) {
+        case .queued:
+            linkMessage = "Queued. It will be validated before it can be imported."
+        case .needsDecision:
+            decisionPrompt = center.pendingDecisions.first
+        case let .rejected(message):
+            linkMessage = message
+        case .skipped:
+            break
+        }
+    }
+
+    private func update(_ candidate: AppUpdateCandidate) async {
+        switch await center.update(candidate) {
+        case .queued:
+            break
+        case .needsDecision:
+            decisionPrompt = center.pendingDecisions.first
+        case let .rejected(message):
+            linkMessage = message
+        case .skipped:
+            break
+        }
+    }
+
+    private func updateAll() async {
+        let result = await center.updateAll()
+        if result.needsDecision > 0 {
+            linkMessage = "\(result.queued) queued. \(result.needsDecision) need a decision before they can download. Nothing was overwritten."
+            decisionPrompt = center.pendingDecisions.first
+        }
+    }
+
+    private func resolve(_ choice: DownloadDuplicateChoice) {
+        guard let prompt = decisionPrompt else { return }
+        decisionPrompt = nil
+        Task {
+            _ = await center.resolveDuplicate(prompt.id, choice: choice)
+            storage = await center.storageReport()
+        }
+    }
+
+    private func perform(_ action: BulkAction?) {
+        switch action {
+        case .cancelWaiting: center.cancelAllWaiting()
+        case .clearCompleted:
+            center.clearCompleted()
+            Task { storage = await center.storageReport() }
+        case nil: break
+        }
+    }
+
+    private func announceMilestones() {
+        for job in center.jobs {
+            let previous = milestoneTokens[job.id.rawValue]
+            if let speech = DownloadCenterRendering.milestoneAnnouncement(previous: previous, current: job) {
+                AccessibilityNotification.Announcement(speech).post()
+            }
+            milestoneTokens[job.id.rawValue] = DownloadCenterRendering.milestoneToken(for: job)
+        }
+    }
+
+    private enum BulkAction: Identifiable {
+        case cancelWaiting
+        case clearCompleted
+        var id: String { title }
+        var title: String {
+            switch self {
+            case .cancelWaiting: return "Cancel Waiting"
+            case .clearCompleted: return "Clear Completed"
+            }
+        }
+        var isDestructive: Bool { true }
+        var message: String {
+            switch self {
+            case .cancelWaiting:
+                return "Waiting downloads will be cancelled. A transfer that has started is left alone until you cancel it. Imported apps are not touched."
+            case .clearCompleted:
+                return "Completed downloads will be removed from the Download Center, including their files. Imported apps in the Library are not deleted."
+            }
+        }
+    }
 }
-struct DownloadItem: Identifiable, Equatable { let id: String; var title: String; var url: URL; var localURL: URL; var progress: Double; var totalBytes: Int64; var isFinished: Bool; var isPaused: Bool = false; var progressText: String { isFinished ? "Completed" : String(format: "%.0f%%", progress*100) }; var sizeText: String { if isFinished { return ByteCountFormatter.string(fromByteCount: totalBytes > 0 ? totalBytes : (try? localURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map { Int64($0) } ?? 0, countStyle: .file) }; if totalBytes > 0 { return ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file) }; return "—" } }
+
+private struct DownloadJobCard: View {
+    let job: DownloadCenter.Job
+    var stacksVertically: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 12) {
+                icon
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(job.request.displayName).font(.headline).lineLimit(stacksVertically ? nil : 1)
+                    Text(job.request.sourceName).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                    Text(job.statusText).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                ZStatusBadge(job.priority.displayName, systemImage: job.priority.symbolName, kind: job.priority == .high ? .info : .neutral)
+            }
+            if let fraction = job.progress.fraction {
+                ProgressView(value: fraction)
+            } else if job.isTransferring {
+                ProgressView()
+            }
+            ViewThatFits(in: .horizontal) {
+                HStack { metrics }
+                VStack(alignment: .leading, spacing: 2) { metrics }
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(DownloadCenterRendering.cardLabel(for: job))
+        .accessibilityValue(DownloadCenterRendering.progressValue(for: job))
+    }
+
+    @ViewBuilder
+    private var metrics: some View {
+        Text(job.stage.displayName)
+        if let fraction = job.progress.fraction {
+            Text("\(Int((fraction * 100).rounded()))%")
+        }
+        Text(DownloadCenterRendering.speed(job.progress.bytesPerSecond))
+        Text(DownloadCenterRendering.remainingText(for: job))
+    }
+
+    private var icon: some View {
+        AsyncImage(url: job.request.iconURL) { phase in
+            switch phase {
+            case let .success(image): image.resizable().scaledToFill()
+            default: Image(systemName: "app.fill").foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 48, height: 48)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .accessibilityHidden(true)
+    }
+}
+
+private struct ReleaseNotesSheet: View {
+    let candidate: AppUpdateCandidate
+    @ObservedObject var center: DownloadCenter
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("What's New") {
+                    if let notes = candidate.releaseNotes {
+                        Text(notes).fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text("This source did not include release notes.").foregroundStyle(.secondary)
+                    }
+                }
+                Section("Release") {
+                    labeled("Version", candidate.latestVersion)
+                    labeled("Release date", candidate.releaseDate ?? "Not declared")
+                    labeled("Source", candidate.sourceName)
+                    labeled("Installed", candidate.installedVersion ?? "Unknown")
+                }
+                Section("Version History") {
+                    if candidate.versionHistory.isEmpty {
+                        Text("No earlier versions were listed.").foregroundStyle(.secondary)
+                    }
+                    ForEach(candidate.versionHistory) { note in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(note.version).font(.headline)
+                            if let date = note.date { Text(date).font(.caption).foregroundStyle(.secondary) }
+                            if let notes = note.notes { Text(notes).font(.subheadline).fixedSize(horizontal: false, vertical: true) }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+            .navigationTitle(candidate.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Update") {
+                        Task { _ = await center.update(candidate) }
+                        dismiss()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+    }
+
+    private func labeled(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title).foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct DownloadNotificationToggle: View {
+    @ObservedObject var notifier: LocalDownloadNotifier
+
+    var body: some View {
+        Toggle(isOn: $notifier.isEnabled) {
+            Label("Notify When Downloads Finish", systemImage: "bell")
+        }
+        .accessibilityHint("Off by default. Turning it on asks the system for permission. In-app notices stay on either way.")
+    }
+}
+
+private struct DownloadNavigationKey: EnvironmentKey {
+    static let defaultValue = DownloadNavigation.inactive
+}
+
+extension EnvironmentValues {
+    var downloadNavigation: DownloadNavigation {
+        get { self[DownloadNavigationKey.self] }
+        set { self[DownloadNavigationKey.self] = newValue }
+    }
+}

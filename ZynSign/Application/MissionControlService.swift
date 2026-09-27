@@ -72,19 +72,9 @@ final class MissionControlService: ObservableObject {
                 try? fm.removeItem(at: url); removed += 1
             }
         }
-        // Also prune Downloads older than 7 days if > 500MB total
-        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first
-        if let downloads = docs?.appendingPathComponent("Downloads") , let files = try? fm.contentsOfDirectory(at: downloads, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey], options: .skipsHiddenFiles) {
-            let total = files.compactMap { try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize }.reduce(0,+)
-            if total > 500*1024*1024 {
-                let sorted = files.sorted { (a,b) in
-                    let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                    let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                    return da < db
-                }
-                for f in sorted.prefix(5) { try? fm.removeItem(at: f); removed += 1 }
-            }
-        }
+        // Download Center files are not pruned here. Validated packages and
+        // imported apps are removed only by an explicit Download Center or
+        // Library action.
         return removed
     }
 }

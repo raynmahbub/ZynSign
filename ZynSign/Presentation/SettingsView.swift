@@ -73,7 +73,7 @@ struct SettingsView: View {
                 }
             }
         } header: { Text("Browse") } footer: {
-            Text("Files, the App Store, and Downloads are complete areas of ZynSign, reached from here rather than the tab bar.")
+            Text("Files and the App Store are reached from here. Downloads is also a tab when that feature is available. None of these actions delete imported apps.")
         }
     }
 
