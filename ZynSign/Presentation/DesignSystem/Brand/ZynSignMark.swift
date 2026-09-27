@@ -2,25 +2,31 @@ import SwiftUI
 
 // MARK: - ZynSign Brand Mark
 
-/// The canonical ZynSign mark — the fountain pen over the signature swash on the indigo tile.
+/// The canonical ZynSign mark — the Z with integrated fountain-pen nib + signature swash on the indigo tile.
 ///
 /// This is the single source of truth for the mark's geometry. Every in-app
 /// appearance of the logo (Settings summary, About, Home welcome header, onboarding,
 /// empty states) renders through this view. Its proportions are taken from
 /// `Assets/Brand/Logo/logo-mark.svg` (128 viewBox, tile 120 at 4/4, rx 30) and from
-/// `Assets/Brand/AppIcon/app-icon.svg` (1024 full-bleed tile). The pen is the diagonal
-/// fountain-pen nib with collar, barrel and wavy signature swash — white on the indigo
-/// gradient, as in the reference `IMG_6007.jpeg`. A change to the brand geometry happens
-/// here first, then the SVGs, then the derived PNGs are re-rendered from the same numbers.
+/// `Assets/Brand/AppIcon/app-icon.svg` (1024 full-bleed tile). The mark is the bold
+/// white Z whose diagonal is the pen barrel ending in a detailed fountain nib at the
+/// lower-left (shoulder, breather hole, slit, collar gap) with a thin cursive swash
+/// underline — as in the reference `IMG_6007.jpeg` (dark outer frame → inner indigo
+/// rounded square `#6B5BDB→#4B48C4` with white Z+pen) but modernized for Apple HIG
+/// (full-bleed 1024, continuous corner radius, flat `#6D6AF0→#4B48C4` gradient, no
+/// outer shadow). A change to the brand geometry happens here first, then the SVGs,
+/// then the derived PNGs are re-rendered from the same numbers.
 ///
 /// Rules:
-/// - The pen is white, diagonal (≈35°) with breather hole and slit, plus a thin wavy
-///   swash below — the same artwork that ships as `PenMark` in the asset catalog.
+/// - The Z+pen is white: bold top bar, thick diagonal pen barrel/collar with a 1–2 px
+///   gap before the nib, detailed nib (shoulder taper, circular breather hole, centre
+///   slit), short bottom bar, and the 3-hump cursive swash — the same artwork that
+///   ships as `PenMark` (transparent white Z+pen) in the asset catalog.
 /// - The tile gradient is the light variant `#6D6AF0 → #4B48C4` on light and
 ///   `#7C79F5 → #5A57D6` on dark, matching `logo-mark.svg` / `logo-mark-dark.svg`.
-/// - The view is vector-tiled with a raster pen that is supersampled (4×) and
-///   Lanczos-downsampled, so it stays crisp from 16 pt (favicon) to 512 pt.
-/// - `showsSealDot` is kept for source compatibility — the pen has no seal dot.
+/// - The view is vector-tiled with a raster Z+pen that is supersampled (4×) and
+///   Lanczos-downsampled from the 1024 master, so it stays crisp from 16 pt to 512 pt.
+/// - `showsSealDot` is kept for source compatibility — the Z+pen has no seal dot.
 struct ZynSignMark: View {
 
     /// Side length of the square mark.
@@ -86,10 +92,10 @@ struct ZynSignMark: View {
     // MARK: - Pen
 
     private var pen: some View {
-        // The pen artwork is supplied as a transparent PNG (white pen on clear) in
-        // the asset catalog at 1×/2×/3×. It is the same artwork that was rendered from
-        // the reference pen (diagonal nib, collar, barrel, wavy swash) and used for
-        // every derived PNG in `Assets/Brand/`.
+        // The Z+pen artwork is supplied as a transparent PNG (white Z+pen on clear)
+        // in the asset catalog at 1×/2×/3×. It is the same artwork that was rendered
+        // from the 1024 master (Z top bar + diagonal pen barrel/collar/nib + bottom bar
+        // + cursive swash) and used for every derived PNG in `Assets/Brand/`.
         Image("PenMark")
             .resizable()
             .scaledToFit()
