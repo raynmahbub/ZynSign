@@ -2,29 +2,31 @@ import SwiftUI
 
 // MARK: - ZynSign Brand Mark
 
-/// The canonical ZynSign mark — the bold Z over the seal dot on the indigo tile.
+/// The canonical ZynSign mark — the fountain pen over the signature swash on the indigo tile.
 ///
 /// This is the single source of truth for the mark's geometry. Every in-app
 /// appearance of the logo (Settings summary, About, Home welcome header, onboarding,
 /// empty states) renders through this view. Its proportions are taken from
-/// `Assets/Brand/Logo/logo-mark.svg` (128 viewBox, tile 120 at 4/4, rx 30, Z stroke 14,
-/// diagonal bezier, seal dot at 100/94 r 6.5) and from `Assets/Brand/AppIcon/app-icon.svg`
-/// (1024 full-bleed tile). A change to the brand geometry happens here first,
-/// then the SVGs, then the derived PNGs are re-rendered from the same numbers.
+/// `Assets/Brand/Logo/logo-mark.svg` (128 viewBox, tile 120 at 4/4, rx 30) and from
+/// `Assets/Brand/AppIcon/app-icon.svg` (1024 full-bleed tile). The pen is the diagonal
+/// fountain-pen nib with collar, barrel and wavy signature swash — white on the indigo
+/// gradient, as in the reference `IMG_6007.jpeg`. A change to the brand geometry happens
+/// here first, then the SVGs, then the derived PNGs are re-rendered from the same numbers.
 ///
 /// Rules:
-/// - The Z is a single continuous stroked path with round caps and joins — no
-///   three-segment seams, no gaps at the diagonal joints.
+/// - The pen is white, diagonal (≈35°) with breather hole and slit, plus a thin wavy
+///   swash below — the same artwork that ships as `PenMark` in the asset catalog.
 /// - The tile gradient is the light variant `#6D6AF0 → #4B48C4` on light and
 ///   `#7C79F5 → #5A57D6` on dark, matching `logo-mark.svg` / `logo-mark-dark.svg`.
-/// - The seal dot is `#30D158` and never scales independently of the tile.
-/// - The view is vector — it draws at any size without rasterization artifacts.
+/// - The view is vector-tiled with a raster pen that is supersampled (4×) and
+///   Lanczos-downsampled, so it stays crisp from 16 pt (favicon) to 512 pt.
+/// - `showsSealDot` is kept for source compatibility — the pen has no seal dot.
 struct ZynSignMark: View {
 
     /// Side length of the square mark.
     var size: CGFloat = 60
 
-    /// Whether the seal dot is shown. The shipping mark always shows it.
+    /// Kept for API compatibility — the pen mark has no seal dot. Ignored.
     var showsSealDot: Bool = true
 
     /// Force the dark tile variant. When `nil` the variant follows `colorScheme`.
@@ -35,8 +37,7 @@ struct ZynSignMark: View {
     var body: some View {
         ZStack {
             tile
-            zShape
-            if showsSealDot { sealDot }
+            pen
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
@@ -82,46 +83,18 @@ struct ZynSignMark: View {
         size * 0.234375
     }
 
-    // MARK: - Z
+    // MARK: - Pen
 
-    private var zShape: some View {
-        // Single continuous path: M 38 42 H 90 C 76 56 60 70 40 86 H 90
-        // Stroke 14 / 128, lineCap .round, lineJoin .round — seam-free.
-        Canvas { context, canvasSize in
-            let w = canvasSize.width
-            let h = canvasSize.height
-            // Reference is 128 × 128; scale uniformly (square canvas)
-            let s = w / 128.0
-
-            var path = Path()
-            path.move(to: CGPoint(x: 38 * s, y: 42 * s))
-            path.addLine(to: CGPoint(x: 90 * s, y: 42 * s))
-            path.addCurve(
-                to: CGPoint(x: 40 * s, y: 86 * s),
-                control1: CGPoint(x: 76 * s, y: 56 * s),
-                control2: CGPoint(x: 60 * s, y: 70 * s)
-            )
-            path.addLine(to: CGPoint(x: 90 * s, y: 86 * s))
-
-            context.stroke(
-                path,
-                with: .color(.white),
-                style: StrokeStyle(lineWidth: 14 * s, lineCap: .round, lineJoin: .round)
-            )
-        }
-        .frame(width: size, height: size)
-    }
-
-    private var sealDot: some View {
-        Canvas { context, canvasSize in
-            let s = canvasSize.width / 128.0
-            let center = CGPoint(x: 100 * s, y: 94 * s)
-            let radius = 6.5 * s
-            let rect = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
-            let dotPath = Path(ellipseIn: rect)
-            context.fill(dotPath, with: .color(Color(red: 0x30/255.0, green: 0xD1/255.0, blue: 0x58/255.0)))
-        }
-        .frame(width: size, height: size)
+    private var pen: some View {
+        // The pen artwork is supplied as a transparent PNG (white pen on clear) in
+        // the asset catalog at 1×/2×/3×. It is the same artwork that was rendered from
+        // the reference pen (diagonal nib, collar, barrel, wavy swash) and used for
+        // every derived PNG in `Assets/Brand/`.
+        Image("PenMark")
+            .resizable()
+            .scaledToFit()
+            .padding(size * 0.06)
+            .accessibilityHidden(true)
     }
 }
 

@@ -99,9 +99,10 @@ struct AboutSettingsSection: View {
 
 // `ZynSignAppMark` is the canonical brand mark. Its declaration lives in
 // `Presentation/DesignSystem/Brand/ZynSignMark.swift`, which renders the
-// authentic Z (indigo tile, white bold Z, seal dot) from the master geometry
-// in `Assets/Brand/Logo/logo-mark.svg`. Re-exports and local definitions are
-// intentionally not duplicated here so every appearance stays in one vector.
+// authentic pen (indigo tile, white diagonal nib + swash) from the master geometry
+// in `Assets/Brand/Logo/logo-mark.svg` and `PenMark` in the catalog. Re-exports
+// and local definitions are intentionally not duplicated here so every appearance
+// stays in one artwork.
 
 // MARK: - Documents
 

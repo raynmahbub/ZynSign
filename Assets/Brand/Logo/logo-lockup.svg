@@ -7,9 +7,20 @@
   </defs>
   <rect x="4" y="4" width="120" height="120" rx="30" fill="url(#tile-light)"/>
   <rect x="4.75" y="4.75" width="118.5" height="118.5" rx="29.25" fill="none" stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="1.5"/>
-  <g stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" fill="none">
-    <path d="M 38 42 H 90 C 76 56 60 70 40 86 H 90"/>
+  <g fill="#FFFFFF">
+    <!-- Nib - fountain pen with curved shoulders -->
+    <path d="M 40 26 C 34 30 30 38 34 48 L 40 58 L 50 66 L 60 58 L 64 48 C 68 38 64 30 40 26 Z" />
+    <!-- Collar -->
+    <rect x="48" y="62" width="8" height="16" rx="4" transform="rotate(-38 52 70)" />
+    <!-- Barrel -->
+    <path d="M 58 74 L 52 84 L 64 96 L 72 86 Z" />
   </g>
-  <circle cx="100" cy="94" r="6.5" fill="#30D158"/>
+  <g fill="#4B48C4">
+    <circle cx="52" cy="56.5" r="2.2" />
+  </g>
+  <g stroke="#4B48C4" stroke-linecap="round" fill="none">
+    <path d="M 41 27 L 52 56.5" stroke-width="1.25" />
+  </g>
+  <path d="M 24 88 C 32 76 40 96 52 86 C 58 78 66 96 78 86 C 86 80 92 84 104 82" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
   <text x="156" y="86" font-family="-apple-system, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="84" font-weight="700" letter-spacing="-2" fill="#1D1D1F">ZynSign</text>
 </svg>

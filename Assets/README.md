@@ -33,15 +33,16 @@ needs a raster.
 
 ## Brand identity
 
-The mark is the **bold Z over the seal dot on the indigo tile** — white
-strokes `14 / 128` with `round` caps and joins, diagonal bezier
-`M 38 42 H 90 C 76 56 60 70 40 86 H 90`, seal dot at `100,94 r 6.5`
+The mark is the **fountain pen over the signature swash on the indigo tile** — white
+pen (diagonal nib with collar, barrel, breather hole + slit, and wavy underline)
 on a `120×120 rx 30` tile at `4,4` within the `128×128` viewBox
 (full-bleed `1024×1024` for the app icon). The tile gradient is
-`#6D6AF0 → #4B48C4` (light) and `#7C79F5 → #5A57D6` (dark surfaces);
-the seal is `#30D158`. The system renders the same geometry everywhere:
-the SVG masters in `Brand/`, the Xcode app icon, and the SwiftUI
-`ZynSignMark` in `Presentation/DesignSystem/Brand/ZynSignMark.swift`.
+`#6D6AF0 → #4B48C4` (light) and `#7C79F5 → #5A57D6` (dark surfaces).
+The system renders the same pen artwork everywhere:
+the SVG masters in `Brand/` (vector pen with nib, slit, collar, barrel, swash),
+the Xcode app icon, the favicon suite, the social preview, and the SwiftUI
+`ZynSignMark` (`PenMark` image in the asset catalog) in
+`Presentation/DesignSystem/Brand/ZynSignMark.swift`.
 
 | Asset | File | Size / variant | Use |
 |---|---|---|---|
@@ -68,23 +69,23 @@ the SVG masters in `Brand/`, the Xcode app icon, and the SwiftUI
 | ICO | `Brand/Favicon/favicon.ico` | 16/32/48 multi | Legacy browsers |
 | Manifest | `Brand/Favicon/site.webmanifest` | JSON | `link rel="manifest"` |
 
-All rasters are rendered from the SVG masters with the same stroking
-(`stroke-linecap round`, `stroke-linejoin round`, single continuous path)
-so there are no seam artifacts at the diagonal joints — the app icon's
-diagonal is a single `C` bezier, not three overlapping strokes.
+All rasters are rendered from the same pen artwork (white pen on transparent,
+supersampled 4× and Lanczos-downsampled) composited onto the gradient tile,
+so the nib, slit, breather hole, collar, barrel and swash stay identical from the
+32 px favicon to the 1024 px app icon.
 
 ## Brand rules
 
 | Element | Rule |
 |---|---|
-| Geometry | One mark: the bold Z over the seal dot. Never redraw it ad hoc — copy the `M 38 42 H 90 C 76 56 60 70 40 86 H 90` path and the `100,94 r 6.5` dot |
-| Palette | Indigo `#6D6AF0`→`#4B48C4`, dark indigo `#7C79F5`→`#5A57D6`, ink `#1D1D1F` / paper `#F5F5F7`, dark surface `#15151D`, seal green `#30D158` |
+| Geometry | One mark: the diagonal fountain pen over the wavy swash. Never redraw it ad hoc — use `PenMark` from the asset catalog or copy the SVG in `Brand/Logo/logo-mark.svg` |
+| Palette | Indigo `#6D6AF0`→`#4B48C4`, dark indigo `#7C79F5`→`#5A57D6`, ink `#1D1D1F` / paper `#F5F5F7`, dark surface `#15151D` |
 | Surfaces | Every banner and diagram ships a light **and** a dark variant — GitHub renders both via `<picture>` |
-| Icons | SF Symbols in the app; the same drawing logic (rounded strokes, one accent dot) in brand art |
+| Icons | SF Symbols in the app; the same pen (white nib, slit, collar, barrel, swash) in brand art |
 | Type | System stack (`-apple-system, SF Pro, Segoe UI, Roboto, …`) in SVG; tight tracking on display sizes |
 | Screenshots | One device frame, one background, one language — identical treatment for every capture |
 | Type of asset | Vectors wherever possible; rasters only where a raster is required (social preview, favicon, app icon) |
-| Rendering | Rasters are supersampled (4×) and Lanczos-downsampled; `stroke 14/128` scales linearly with the canvas; the dot scales as `6.5/128` |
+| Rendering | Rasters are the white pen on transparent, supersampled 4× and Lanczos-downsampled, composited onto the gradient; the same artwork scales from 16 px to 1024 px |
 
 The master geometry lives in the SVGs in `Brand/`. If the mark ever changes,
 it changes there first, every derived PNG is re-rendered from it, and the
@@ -93,14 +94,14 @@ source of truth.
 
 ## In-app usage
 
-The app never ships an SVG. It draws the same geometry with SwiftUI
+The app never ships an SVG. It draws the same pen with SwiftUI
 (`ZynSignMark` in `Presentation/DesignSystem/Brand/ZynSignMark.swift`):
 a `LinearGradient` tile clipped to `RoundedRectangle(cornerRadius: size*0.234)`,
-a `Canvas` stroked path `M 38 42 H 90 C 76 56 60 70 40 86 H 90` with
-`lineCap .round` `lineJoin .round`, and an ellipse at `100,94 r 6.5`.
+with an `Image("PenMark")` (white pen on transparent, 1×/2×/3× in the catalog)
+centered and padded by `size*0.06`. The same `PenMark` supplies every derived PNG.
 `ZynSignAppMark` is a typealias of `ZynSignMark` so every existing call site
-(`About`, `Settings` summary, `Home` welcome header) shows the authentic mark
-without duplicating the path.
+(`About`, `Settings` summary, `Home` welcome header) shows the authentic pen
+without duplicating the artwork.
 
 ## Regeneration
 

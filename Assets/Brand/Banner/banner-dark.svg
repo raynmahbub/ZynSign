@@ -9,27 +9,31 @@
       <stop offset="1" stop-color="#7C79F5" stop-opacity="0"/>
     </radialGradient>
   </defs>
-
   <rect x="0" y="0" width="1500" height="500" rx="28" fill="#15151D"/>
   <ellipse cx="250" cy="90" rx="420" ry="230" fill="url(#glow)"/>
   <ellipse cx="1380" cy="440" rx="420" ry="230" fill="url(#glow)"/>
-  <rect x="0.75" y="0.75" width="1498.5" height="498.5" rx="27.25" fill="none" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="1.5"/>
-
-  <!-- Mark -->
+  <rect x="0.75" y="0.75" width="1498.5" height="498.5" rx="27.25" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="1.5"/>
   <g transform="translate(102 128) scale(1.91)">
     <rect x="4" y="4" width="120" height="120" rx="30" fill="url(#tile)"/>
-    <rect x="4.75" y="4.75" width="118.5" height="118.5" rx="29.25" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="1.5"/>
-    <g stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" fill="none">
-      <path d="M 38 42 H 90 C 76 56 60 70 40 86 H 90"/>
-    </g>
-    <circle cx="100" cy="94" r="6.5" fill="#30D158"/>
+    <rect x="4.75" y="4.75" width="118.5" height="118.5" rx="29.25" fill="none" stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="1.5"/>
+  <g fill="#FFFFFF">
+    <!-- Nib - fountain pen with curved shoulders -->
+    <path d="M 40 26 C 34 30 30 38 34 48 L 40 58 L 50 66 L 60 58 L 64 48 C 68 38 64 30 40 26 Z" />
+    <!-- Collar -->
+    <rect x="48" y="62" width="8" height="16" rx="4" transform="rotate(-38 52 70)" />
+    <!-- Barrel -->
+    <path d="M 58 74 L 52 84 L 64 96 L 72 86 Z" />
   </g>
-
-  <!-- Wordmark + tagline -->
+  <g fill="#4B48C4">
+    <circle cx="52" cy="56.5" r="2.2" />
+  </g>
+  <g stroke="#4B48C4" stroke-linecap="round" fill="none">
+    <path d="M 41 27 L 52 56.5" stroke-width="1.25" />
+  </g>
+  <path d="M 24 88 C 32 76 40 96 52 86 C 58 78 66 96 78 86 C 86 80 92 84 104 82" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
   <text x="408" y="252" font-family="-apple-system, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="104" font-weight="700" letter-spacing="-3" fill="#F5F5F7">ZynSign</text>
   <text x="412" y="312" font-family="-apple-system, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="34" fill="#A1A1AA">Professional iOS sideloading platform</text>
-
-  <!-- Chips -->
   <g font-family="-apple-system, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="24" fill="#D4D4D8">
     <rect x="412" y="346" width="122" height="48" rx="24" fill="#1F1F29" stroke="#34343F"/>
     <text x="473" y="377" text-anchor="middle">iOS 17+</text>
