@@ -46,6 +46,59 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 - **Asset Relationships**: Logically groups assets into App Icon Sets, Launch Assets, String Tables, and Font Families.
 - **Performance & Accessibility**: Lazy thumbnail loading, bounded prefix reads for dimensions and metadata headers, Dynamic Type, VoiceOver announcements, and Dark Mode support.
 
+### Added — Alpha 3 · Step 18: Binary & Signature Inspector
+
+- Read-only **Binary & Signature Inspector** opened from IPA Explorer for
+  library packages and signed packages: a dashboard card per executable —
+  main app first, then frameworks, dylibs, app extensions, and nested
+  bundles — with per-target status, live verification progress, and a
+  bundle health summary that states exactly what a signature does and does
+  not prove.
+- **Architecture and structure inspection**: friendly labels for CPU
+  type/subtype, file offset, and size; load commands grouped into
+  Executable, Dynamic Libraries, Security, Linking, and Metadata, with raw
+  values collapsed behind Advanced Details; tappable linked libraries with
+  their origin explained.
+- **Code Signature inspector**: SuperBlob listing, CodeDirectory viewer
+  (version, identifier, team, hash algorithm, page size and count, with
+  plain-language explanations), CMS state without raw blobs, decoded
+  requirement set, entitlement keys (values never leave the boundary),
+  special slots, and page-hash results.
+- **On-device verification**: every code page re-hashed with the
+  CodeDirectory's own algorithm and page size; bound special-slot content
+  re-hashed against recorded digests; the CMS digest bound to the
+  CodeDirectory and the signature checked against the embedded signer's
+  public key. Certificate trust is shown as "not evaluated", never claimed;
+  a check that cannot run is "Not Performed" with the reason, never a
+  silent pass; unsigned code is reported as Unsigned, not failed.
+- **Signature timeline** (executable → CodeDirectory → page hashes →
+  signature applied → verification) with the signer-declared signing time
+  labelled as not a trusted timestamp, a verification details screen for
+  every check, and on-demand re-hashing of every file the resource seal
+  lists.
+- **Binary comparison** against another library record or signed package:
+  size, architectures, signature, CodeDirectory, entitlement keys, linked
+  libraries, build version, and verification differences — meaningful
+  changes only, with same-states stated as identical.
+- **Report export** (text or JSON) through the share sheet with an explicit
+  exclusion statement: no private keys or credentials, no certificate data,
+  serial numbers, or fingerprints, no entitlement values, no raw hash
+  bytes, nothing outside the bundle.
+- **Instant search** across load commands, libraries, architecture fields,
+  and signature fields — case- and diacritic-insensitive, every-word
+  matching, scoped to the current page.
+- **Bounded and read-only**: per-executable, bundle-information, seal, and
+  sealed-file read bounds enforced before reading; structure streamed
+  before verification; readers closed on every outcome; signed packages
+  accepted only from the permitted directory; no binary modification.
+- Dynamic Type, VoiceOver labels with spoken verification summaries, Dark
+  Mode, and large touch targets.
+- Synthetic XCTest coverage for the use case, verifier outcomes,
+  comparison, search, timeline, export, health, and discovery, plus
+  [scope/validation documentation](docs/architecture/binary-signature-inspector.md).
+  Feature entry points ship at Alpha 3 without promoting the current
+  release.
+
 ### Added — Alpha 3 · Step 17: Entitlements Studio
 
 - Read-only App Details workspace with capability-grouped cards, dashboard counts,
