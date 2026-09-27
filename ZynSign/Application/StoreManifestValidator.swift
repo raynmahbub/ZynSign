@@ -49,6 +49,8 @@ struct StoreManifestValidator {
             apps.append(CatalogApp(sourceID: sourceID, bundleID: bundle,
                 name: try text(app.name, field: "app name", limit: 200),
                 developer: try text(app.developerName, field: "developerName for \(bundle)", limit: 200),
+                developerIconURL: try app.developerIconURL.map(StoreURLPolicy.validate),
+                keywords: try optionalKeywords(app.keywords),
                 subtitle: try optionalText(app.subtitle, field: "subtitle", limit: 500),
                 description: try optionalText(app.localizedDescription, field: "description") ?? "No description supplied.",
                 iconURL: try app.iconURL.map(StoreURLPolicy.validate), screenshots: shots,
@@ -75,6 +77,11 @@ struct StoreManifestValidator {
         guard let value else { return nil }
         if value.isEmpty { return nil }
         return try text(value, field: field, limit: limit)
+    }
+    private func optionalKeywords(_ values: [String]?) throws -> [String]? {
+        guard let values else { return nil }
+        guard values.count <= 64 else { throw StoreFailure.invalid("An app may provide at most 64 search keywords.") }
+        return try values.map { try text($0, field: "search keyword", limit: 100) }
     }
     static func date(_ raw: String) -> Date? {
         let iso = ISO8601DateFormatter()
@@ -103,6 +110,8 @@ struct StoreManifestValidator {
         let name: String
         let bundleIdentifier: String
         let developerName: String
+        let developerIconURL: String?
+        let keywords: [String]?
         let subtitle: String?
         let localizedDescription: String?
         let iconURL: String?

@@ -4,8 +4,10 @@ import XCTest
 final class StoreCatalogTests: XCTestCase {
     func testSearchCombinesCategoryAndAllDeclaredSearchFields() throws {
         let source = try StoreFixtures.source()
+        XCTAssertEqual(source.apps[0].keywords, ["navigation", "stellar planner"])
+        XCTAssertEqual(source.apps[0].developerIconURL?.absoluteString, "https://source.example/mira.png")
         let index = CatalogSearchIndex(sources: [source])
-        for query in ["orbit", "mira", "org.example.orbit", "development", "independent shelf", "ORBIT Mira"] {
+        for query in ["orbit", "mira", "org.example.orbit", "development", "independent shelf", "ORBIT Mira", "useful tool", "stellar planner", "source.example/catalog.json"] {
             XCTAssertEqual(index.search(query, category: "Development").count, 1, query)
             XCTAssertTrue(index.search(query, category: "Games").isEmpty)
         }
@@ -20,7 +22,9 @@ final class StoreCatalogTests: XCTestCase {
         let one = try StoreFixtures.source()
         var two = try StoreFixtures.source()
         XCTAssertNotEqual(one.apps[0].id, two.apps[0].id)
-        XCTAssertEqual(CatalogSearchIndex(sources: [one, two]).search("orbit").count, 2)
+        let index = CatalogSearchIndex(sources: [one, two])
+        XCTAssertEqual(index.search("orbit").count, 2)
+        XCTAssertEqual(index.search("orbit", sourceID: one.id).map(\.sourceID), [one.id])
         two.enabled = false
         XCTAssertEqual(CatalogSearchIndex(sources: [one, two]).search("").count, 1)
     }

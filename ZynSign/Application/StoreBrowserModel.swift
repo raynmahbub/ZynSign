@@ -16,7 +16,14 @@ final class StoreBrowserModel: ObservableObject {
     private var searchIndex = CatalogSearchIndex(sources: [])
     private var loaded = false
     private var loading = false
-    let categories = ["Utilities", "Games", "Productivity", "Social", "Development", "Entertainment", "Education"]
+    var categories: [String] {
+        let priority = ["Utilities", "Games", "Productivity", "Social", "Development", "Entertainment", "Education"]
+        return categoryCounts.map(\.name).sorted { left, right in
+            let leftRank = priority.firstIndex { $0.caseInsensitiveCompare(left) == .orderedSame } ?? Int.max
+            let rightRank = priority.firstIndex { $0.caseInsensitiveCompare(right) == .orderedSame } ?? Int.max
+            return leftRank == rightRank ? left.localizedStandardCompare(right) == .orderedAscending : leftRank < rightRank
+        }
+    }
 
     nonisolated init(repository: StoreRepository, downloads: StoreDownloadQueue) {
         self.repository = repository; self.downloads = downloads
@@ -65,8 +72,56 @@ final class StoreBrowserModel: ObservableObject {
             !snapshot.sources.contains { $0.url == (try? StoreURLPolicy.validate(old.url)) }
         }
     }
-    func search(_ query: String, category: String?) -> [CatalogApp] { searchIndex.search(query, category: category) }
+    func search(_ query: String, category: String?, sourceID: UUID? = nil) -> [CatalogApp] {
+        searchIndex.search(query, category: category, sourceID: sourceID)
+    }
     func source(_ app: CatalogApp) -> CatalogSource? { snapshot.sources.first { $0.id == app.sourceID } }
+    var savedApps: [CatalogApp] {
+        let byID = Dictionary(uniqueKeysWithValues: apps.map { ($0.id, $0) })
+        return (snapshot.savedAppIDs ?? []).compactMap { byID[$0] }
+    }
+    var categoryCounts: [StoreCategoryCount] {
+        Dictionary(grouping: apps, by: \.category).map { StoreCategoryCount(name: $0.key, count: $0.value.count) }
+            .sorted { $0.count == $1.count ? $0.name.localizedStandardCompare($1.name) == .orderedAscending : $0.count > $1.count }
+    }
+    var recentlyViewedDevelopers: [String] {
+        var seen = Set<String>()
+        return continueBrowsing.compactMap { app in
+            let key = app.developer.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            return seen.insert(key).inserted ? app.developer : nil
+        }.prefix(12).map { $0 }
+    }
+    var suggestions: [CatalogApp] {
+        let viewed = continueBrowsing
+        let categories = Set(viewed.map(\.category))
+        let developers = Set(viewed.map { $0.developer.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current) })
+        guard !viewed.isEmpty else { return [] }
+        let viewedIDs = Set(snapshot.browsing)
+        return apps.filter { app in
+            !viewedIDs.contains(app.id) && (categories.contains(app.category) || developers.contains(app.developer.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)))
+        }.sorted { left, right in
+            let leftScore = (categories.contains(left.category) ? 1 : 0) + (developers.contains(left.developer.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)) ? 1 : 0)
+            let rightScore = (categories.contains(right.category) ? 1 : 0) + (developers.contains(right.developer.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)) ? 1 : 0)
+            return leftScore == rightScore ? left.name.localizedStandardCompare(right.name) == .orderedAscending : leftScore > rightScore
+        }.prefix(12).map { $0 }
+    }
+    var collections: [StoreFeaturedCollection] {
+        let recentCutoff = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? .distantPast
+        let categoryCounts = Dictionary(grouping: apps, by: \.category).mapValues(\.count)
+        let definitions: [(String, String, String, [CatalogApp])] = [
+            ("productivity", "Productivity Essentials", "Apps labeled as productivity by repository metadata", apps.filter { $0.category.localizedCaseInsensitiveContains("product") || ($0.keywords ?? []).contains { $0.localizedCaseInsensitiveContains("productivity") } }),
+            ("utilities", "Utilities", "Utility category listings from configured sources", apps.filter { $0.category.localizedCaseInsensitiveContains("utilit") }),
+            ("developer-tools", "Developer Tools", "Development category and keyword listings", apps.filter { $0.category.localizedCaseInsensitiveContains("develop") || ($0.keywords ?? []).contains { $0.localizedCaseInsensitiveContains("developer") } }),
+            ("new-this-month", "New This Month", "Apps with a reported release date in the last 30 days", apps.filter { ($0.latest.date ?? .distantPast) >= recentCutoff && ($0.latest.date ?? .distantFuture) <= Date() }),
+            ("community-favorites", "Community Favorites", "Community ratings are not provided by these sources", []),
+            ("hidden-gems", "Less Represented Categories", "Small category counts only; not a popularity or quality ranking", apps.filter { categoryCounts[$0.category, default: 0] <= 2 })
+        ]
+        return definitions.map { StoreFeaturedCollection(id: $0.0, title: $0.1, subtitle: $0.2, apps: Array($0.3.prefix(40))) }
+    }
+    func isSaved(_ app: CatalogApp) -> Bool { (snapshot.savedAppIDs ?? []).contains(app.id) }
+    func save(_ app: CatalogApp, isSaved: Bool) async {
+        await mutate { try await self.repository.setSaved(app, isSaved) }
+    }
     func sourceName(_ app: CatalogApp) -> String { source(app)?.name ?? "Removed source" }
     func variants(_ app: CatalogApp) -> [CatalogApp] { apps.filter { $0.bundleID == app.bundleID } }
     var updates: [CatalogUpdate] {
