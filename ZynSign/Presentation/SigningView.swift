@@ -182,6 +182,19 @@ struct SigningView: View {
         .onDisappear { preflightTask?.cancel() }
         .fileImporter(isPresented: $showProfileImporter, allowedContentTypes: [.data, .item], allowsMultipleSelection: false) { result in handleProfilePicker(result) }
         .sheet(item: $shareItem) { item in ShareSheet(url: item.url) }
+        .sheet(isPresented: $isPresentingWorkspace) {
+            NavigationStack {
+                InstallationWorkspaceView(
+                    workspace: env.installationWorkspace,
+                    storage: env.storageManagement
+                )
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") { isPresentingWorkspace = false }
+                    }
+                }
+            }
+        }
         .sheet(isPresented: $model.isPresentingDetails) {
             NavigationStack {
                 if let result = model.result {
@@ -751,6 +764,13 @@ struct SigningView: View {
                         InstallationDeliveryView(package: InstallationDeliveryPackage(signedIPA: url, record: entry.record))
                     } label: {
                         Label("Deliver…", systemImage: "tray.and.arrow.up")
+                    }
+                }
+                if ReleaseTrain.isAvailable(.installationWorkspace) {
+                    Button {
+                        isPresentingWorkspace = true
+                    } label: {
+                        Label("Installation Workspace…", systemImage: "arrow.down.app")
                     }
                 }
                 Button { dismiss() } label: { Label("Return to Library", systemImage: "chevron.backward") }

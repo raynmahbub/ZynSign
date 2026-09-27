@@ -62,6 +62,16 @@ struct SettingsView: View {
             NavigationLink { FilesView() } label: {
                 Label(ShellSection.files.title, systemImage: ShellSection.files.symbolName)
             }
+            if ReleaseTrain.isAvailable(.installationWorkspace) {
+                NavigationLink {
+                    InstallationWorkspaceView(
+                        workspace: environment.installationWorkspace,
+                        storage: environment.storageManagement
+                    )
+                } label: {
+                    Label(ShellSection.install.title, systemImage: ShellSection.install.symbolName)
+                }
+            }
             if ReleaseTrain.isAvailable(.appStore) {
                 NavigationLink { AppStoreView() } label: {
                     Label(ShellSection.appStore.title, systemImage: ShellSection.appStore.symbolName)
@@ -73,7 +83,7 @@ struct SettingsView: View {
                 }
             }
         } header: { Text("Browse") } footer: {
-            Text("Files and the Store are reached from here. Downloads is also a tab when that feature is available. Store jobs stay isolated until you import them, and Download Center cleanup never deletes imported apps.")
+            Text("Files, the Installation Workspace, and the Store are reached from here. Downloads is also a tab when that feature is available. Store jobs stay isolated until you import them, and Download Center cleanup never deletes imported apps.")
         }
     }
 

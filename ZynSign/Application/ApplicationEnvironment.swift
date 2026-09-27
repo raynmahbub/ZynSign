@@ -179,6 +179,15 @@ struct ApplicationEnvironment {
     /// offers no collections; treated as read-only after construction.
     var libraryOrganizer: LibraryOrganizer? = nil
 
+    /// The Installation Workspace use case: joins the library, the signing
+    /// journal, the export catalog, and the installed-applications records
+    /// into candidates, evaluates readiness, runs verification on demand,
+    /// and records the attempts and confirmations behind the Installed Apps
+    /// Library. `nil` where no composition supplies it, in which case the
+    /// interface does not offer the workspace; treated as read-only after
+    /// construction.
+    var installationWorkspace: InstallationWorkspace? = nil
+
     /// Reads the developer and team each library package declares, for
     /// search and the Team filter. `nil` where no reader provider is
     /// composed; treated as read-only after construction.

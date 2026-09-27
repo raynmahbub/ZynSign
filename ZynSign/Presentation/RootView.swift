@@ -440,6 +440,10 @@ struct RootView: View {
             PresetsView()
         case .downloads:
             DownloadsView()
+        case .install:
+            // Secondary sections are linked from Settings → Browse; they are
+            // not tabs. Each carries its own NavigationStack where presented.
+            EmptyView()
         case .files, .appStore:
             // Files and the App Store are linked from Settings → Browse.
             // Each carries its own NavigationStack where presented.

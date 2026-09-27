@@ -37,6 +37,7 @@ struct HomeView: View {
     @State private var hasReadLibrary = false
     @State private var settledImportCount = 0
     @State private var showPresets = false
+    @State private var showInstallationWorkspace = false
     @AppStorage(LibraryPreferenceKeys.scope) private var libraryScope = LibraryScope.all.storageValue
     /// Whether first-launch onboarding has been completed.
     ///
@@ -161,7 +162,7 @@ struct HomeView: View {
                     onOpenSection(.profiles)
                 }
             }
-            if ReleaseTrain.isAvailable(.signingPresets) || signingQueuePresentation.isAvailable {
+            if ReleaseTrain.isAvailable(.signingPresets) || signingQueuePresentation.isAvailable || ReleaseTrain.isAvailable(.installationWorkspace) {
                 HStack(spacing: ZSpacing.sm) {
                     if ReleaseTrain.isAvailable(.signingPresets) {
                         HomeActionButton(title: "Presets", icon: "rectangle.stack", color: .teal) {
@@ -175,11 +176,25 @@ struct HomeView: View {
                         }
                         .accessibilityHint("Opens the signing queue dashboard.")
                     }
+                    if ReleaseTrain.isAvailable(.installationWorkspace) {
+                        HomeActionButton(title: "Install", icon: "arrow.down.app.fill", color: .mint) {
+                            showInstallationWorkspace = true
+                        }
+                        .accessibilityHint("Opens the installation workspace. ZynSign validates and records; it does not install.")
+                    }
                 }
             }
         }
         .sheet(isPresented: $showPresets) {
             PresetsView()
+        }
+        .sheet(isPresented: $showInstallationWorkspace) {
+            NavigationStack {
+                InstallationWorkspaceView(
+                    workspace: environment.installationWorkspace,
+                    storage: environment.storageManagement
+                )
+            }
         }
     }
 
