@@ -202,6 +202,19 @@ struct ApplicationEnvironment {
     /// cast.
     var queueNotifier: (any SigningQueueNotifying)? = nil
 
+    /// The Download Center: queue, validation, updates, and import handoff.
+    /// `nil` where a composition does not install it. Production installs it.
+    /// Screens observe it; they do not own transfers.
+    var downloadCenter: DownloadCenter? = nil
+
+    /// Configured repositories and the catalogs last validated from them.
+    /// Shared by the App Store and the update engine.
+    var repositoryDirectory: RepositoryDirectory? = nil
+
+    /// Local notifications for download outcomes. Optional. In-app notices
+    /// are posted either way. Off unless the user turns them on.
+    var downloadNotifier: (any DownloadNotifying)? = nil
+
     /// The Binary & Signature Inspector use case: inspects, read-only, every
     /// executable in a library application's bundle — Mach-O structure,
     /// load commands, and code signature — and verifies each signature on

@@ -73,7 +73,7 @@ struct SettingsView: View {
                 }
             }
         } header: { Text("Browse") } footer: {
-            Text("Files, the Store, and Downloads are complete areas of ZynSign, reached from here rather than the tab bar.")
+            Text("Files and the Store are reached from here. Downloads is also a tab when that feature is available. Store jobs stay isolated until you import them, and Download Center cleanup never deletes imported apps.")
         }
     }
 

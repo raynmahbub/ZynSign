@@ -440,8 +440,21 @@ struct HomeView: View {
                     Task {
                         _ = await missionControl.refreshEverything(
                             refreshRepositories: {
-                                guard let store = environment.storeBrowser else { return -1 }
-                                return await store.refreshForMaintenance()
+                                var count = 0
+                                var refreshed = false
+                                if let store = environment.storeBrowser {
+                                    let refreshedCount = await store.refreshForMaintenance()
+                                    if refreshedCount >= 0 {
+                                        count += refreshedCount
+                                        refreshed = true
+                                    }
+                                }
+                                if let directory = environment.repositoryDirectory {
+                                    await directory.refresh()
+                                    count += directory.sources.count
+                                    refreshed = true
+                                }
+                                return refreshed ? count : HomeStorageCounts.sourceCount()
                             },
                             checkLibrary: {
                                 do {
@@ -523,6 +536,11 @@ enum HomeStorageCounts {
               let items = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
         else { return 0 }
         return items.filter { $0.pathExtension.lowercased() == "ipa" }.count
+    }
+
+    static func sourceCount() -> Int {
+        guard let url = documents?.appendingPathComponent("ZynSignSources.json") else { return 0 }
+        return RepositoryDirectory.sourceCount(at: url)
     }
 }
 

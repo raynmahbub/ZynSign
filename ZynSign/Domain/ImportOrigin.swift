@@ -37,6 +37,10 @@ enum ImportOrigin: String, CaseIterable, Hashable, Sendable, Codable {
     /// over a copy.
     case openIn
 
+    /// A validated download the user asked to import from the Download Center.
+    /// The file is still untrusted input: this origin is a label, not trust.
+    case downloadCenter
+
     /// The short name shown on a queued import.
     var displayName: String {
         switch self {
@@ -46,6 +50,7 @@ enum ImportOrigin: String, CaseIterable, Hashable, Sendable, Codable {
         case .dragAndDrop: return "Dropped"
         case .retry: return "Retried"
         case .openIn: return "Opened In"
+        case .downloadCenter: return "Download"
         }
     }
 
@@ -58,6 +63,7 @@ enum ImportOrigin: String, CaseIterable, Hashable, Sendable, Codable {
         case .dragAndDrop: return "Dropped into ZynSign."
         case .retry: return "Attempted again."
         case .openIn: return "Opened in ZynSign from another application."
+        case .downloadCenter: return "Downloaded and validated, then handed to Import."
         }
     }
 
@@ -70,6 +76,7 @@ enum ImportOrigin: String, CaseIterable, Hashable, Sendable, Codable {
         case .dragAndDrop: return "hand.point.up.left"
         case .retry: return "arrow.clockwise"
         case .openIn: return "arrow.up.forward.app"
+        case .downloadCenter: return "arrow.down.circle"
         }
     }
 }

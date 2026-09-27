@@ -12,6 +12,18 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — Beta 1 · Step 22: Download Center & Update Engine
+
+- **Download Center** — downloads are jobs (`queued → connecting → downloading → validating → import ready`, or `failed → retry`) owned by `DownloadCenter`, not by a screen. The dashboard sections are Active, Queued, Paused, Completed, Failed, and Available Updates. Cards show source, stage, measured progress, speed, and remaining size. A percentage is shown only when the server declared a size.
+- **Queue** — several downloads, individual progress, High / Normal / Low insertion, Move Up, Move Down, and Send to Top for waiting jobs. A transfer that has started is not preempted. Waiting jobs reorder without touching running ones.
+- **Validation before import** — archive readability, expected package layout, extraction readiness, and declared metadata. A declared SHA-256 must match. Failure keeps the original file isolated and does not import it. A configured source is not trust.
+- **Import handoff** — Import Now, Queue for Signing, and Keep Downloaded are separate. Queue for Signing imports the file and does not start or enqueue signing. Imported apps are never deleted by download cleanup.
+- **Duplicates** — same downloaded version, same imported version, a newer copy, or another source asks Replace / Keep Both / Skip. Nothing is overwritten silently. Replace applies to a previous download only after the new file validates.
+- **Updates** — installed versus latest from configured, already-validated repositories only. Update, Update All, View Changes, and Ignore Version. Release notes show what changed, history, date, and source.
+- **Recovery** — queue state and completed files survive a restart. An in-flight transfer is restored as interrupted, never completed. Resume is offered only when resume data was captured, and the interface says the server may still refuse it.
+- **Storage** — Downloaded IPAs, completed downloads, and temporary data are accounted separately from the library. Clear Completed and Clear Temporary Data cannot reach imported apps.
+- See [download-center.md](docs/architecture/download-center.md).
+
 ### Added — Beta 1 · Step 21: Store Browser & Repository Ecosystem
 
 - Independent Store storefront with source-aware catalog search, category filters,

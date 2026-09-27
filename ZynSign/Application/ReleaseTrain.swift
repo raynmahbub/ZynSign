@@ -21,7 +21,7 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
     case entitlementsStudio
     /// The App Store tab: AltSource feeds and repository health.
     case appStore
-    /// The Downloads tab: background downloads with pause / resume / retry.
+    /// The Downloads tab: Download Center queue, validation, and updates.
     case downloads
     /// Home → Mission Control (Refresh Everything).
     case missionControl
@@ -93,7 +93,7 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .smartSign: return "Smart Sign"
         case .entitlementsStudio: return "Entitlements Studio"
         case .appStore: return "App Store & Repository Health"
-        case .downloads: return "Background Downloads"
+        case .downloads: return "Download Center"
         case .missionControl: return "Mission Control"
         case .deliveryHandoff: return "Installation Delivery Hand-off"
         case .activityJournal: return "Local Activity Journal"

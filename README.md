@@ -13,7 +13,7 @@
 </p>
 
 > **0.1.0 Horizon (2026-09-25) — release train**  
-> The whole app is built: import, inspection, library, **Certificate Studio**, **Smart Sign (engine run · 9 stages · independent verification · DER 0x20400 · Live Activity)**, **Repository Health**, **Background Downloads**, **Mission Control**, **Installation Delivery Hand-off (OTA manifest + QR + operator guides)**, and a **Local Activity Journal (on-device, never transmitted)**. It ships **one release at a time**: `0.1.0` shows Files, Import, Library and Bundle Explorer, and each alpha switches on more (see [Release train](#release-train)). In-app installation remains a platform fact (`noDeliveryMechanism`); Pairing/JIT/Mux stays **never** (ADR-recorded); off-device analytics stays **off**.
+> The whole app is built: import, inspection, library, **Certificate Studio**, **Smart Sign (engine run · 9 stages · independent verification · DER 0x20400 · Live Activity)**, **Repository Health**, **Download Center**, **Mission Control**, **Installation Delivery Hand-off (OTA manifest + QR + operator guides)**, and a **Local Activity Journal (on-device, never transmitted)**. It ships **one release at a time**: `0.1.0` shows Files, Import, Library and Bundle Explorer, and each alpha switches on more (see [Release train](#release-train)). In-app installation remains a platform fact (`noDeliveryMechanism`); Pairing/JIT/Mux stays **never** (ADR-recorded); off-device analytics stays **off**.
 
 ---
 
@@ -46,7 +46,7 @@ Features are finished and compiled in. `ReleaseTrain.current` in [`ReleaseTrain.
 | **`v0.1.0`** ◀ current | Home Dashboard · Import · Library (grid/list, search, sort, favourites) · Bundle Explorer · Certificates · Profiles · Settings |
 | `v0.1.0-alpha.1` | Certificate Studio · Advanced Library (collections, smart collections, stackable filters, statistics, bulk and quick actions) |
 | `v0.1.0-alpha.2` | Smart Sign (+ Signing Options, Installation screen) · Professional Signing Queue · Intelligent Signing Presets |
-| `v0.1.0-alpha.3` | Entitlements Studio · App Store + Repository Health · Background Downloads |
+| `v0.1.0-alpha.3` | Entitlements Studio · App Store + Repository Health · Download Center |
 | `v0.9.0-beta.1` | Mission Control · Delivery Hand-off · Activity Journal — **feature complete** |
 | `v0.9.0-beta.2…4` → `v1.0.0-rc.1…3` → `v1.0.0` | Fixes only |
 
@@ -98,7 +98,7 @@ The `0.1.0` build is **not App Store** — install via sideloading, TestFlight (
 4. **Profiles** — `Profiles tab → Import` → pick `.mobileprovision` → the import summary shows what was read; cards list name, team, type, devices, expiry (Healthy / Expiring Soon ≤ 30 d / Expired) and a compatibility badge. Search, sort, filter, or open a profile for its General/Application/Distribution facts, five pre-sign checks, and diagnostics; `Refresh Validation` re-reads the stored file. `Use for Signing` pins a profile; opening an app's detail suggests the best match for its bundle ID and lets you override per app.
 5. **Sign** — `Library → ⋯ → Sign` → choose identity (ready) → choose `.mobileprovision` → entitlements auto-derived (`N from profile` + 8-key preview) → `DER 0x20400` toggle as needed → `Sign Application` → `ZProgressRing` + `ZSigningStatusMachine` + Live Activity → `Documents/Signed/*_signed.ipa` `Share` (or `Open in Files`). Failure shows `Refused at <stage>:` + `category`, no container delivered.
 6. **Deliver** — `Sign → Deliver…` → enter the HTTPS address where you will host the signed IPA → ZynSign builds the `manifest.plist`, the `itms-services://…` install link, and a QR → publish both files on your host (or use MDM / Finder-Apple Configurator) → the device installs on user confirmation. ZynSign never uploads or claims an install.
-7. **Store / Sources / Updates** — `Settings → Browse → Store` → Sources → Add Source. Browse all enabled repositories, view details/screenshots/history, and choose an app's preferred update source. Download jobs stay isolated until explicit Import through the Import Hub. Pause is live-session only; interrupted Store transfers need Retry. Updates compare Library versions, not device installations. See the [Step 21 verification checklist](docs/testing/store-browser.md).
+7. **Store / Downloads / Home** — `Settings → Browse → Store` → Sources → Add Source. Browse enabled repositories, view details, and choose a preferred update source. Store jobs stay isolated until you import them; pause is live-session only. The Downloads tab is the Download Center: files are validated before import, and resume is offered only when resume data was captured. `Home → Refresh Everything` refreshes sources and checks the library. `Settings → Analytics` shows the on-device activity journal — clearable, exportable, never transmitted. See the [Step 21 verification checklist](docs/testing/store-browser.md).
 
 ---
 
