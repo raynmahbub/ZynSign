@@ -89,6 +89,17 @@ actor StoreRepository {
         next.visits[app.id] = min(1_000_000, next.visits[app.id, default: 0] + 1)
         try commit(next)
     }
+    func setSaved(_ app: CatalogApp, _ saved: Bool) throws {
+        var next = try snapshot()
+        var ids = next.savedAppIDs ?? []
+        guard !saved || next.sources.contains(where: { $0.id == app.sourceID && $0.apps.contains(where: { $0.id == app.id }) }) else {
+            throw StoreFailure.invalid("This app is no longer in the catalog.")
+        }
+        ids.removeAll { $0 == app.id }
+        if saved { ids.insert(app.id, at: 0) }
+        next.savedAppIDs = Array(ids.prefix(30_000))
+        try commit(next)
+    }
     func refresh(_ id: UUID, force: Bool = false, now: Date = Date()) async throws {
         _ = try snapshot()
         guard let source = state.sources.first(where: { $0.id == id }),

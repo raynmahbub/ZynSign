@@ -18,8 +18,9 @@ struct StoreHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var query = ""
     @State private var category: String?
+    @State private var sourceFilter: UUID?
     @State private var results: [CatalogApp] = []
-    private var filtering: Bool { !query.isEmpty || category != nil }
+    private var filtering: Bool { !query.isEmpty || category != nil || sourceFilter != nil }
     var body: some View {
         NavigationStack {
             List {
@@ -28,9 +29,16 @@ struct StoreHomeView: View {
                     destinations
                 }
                 categoryPicker
+                if !model.snapshot.sources.isEmpty { sourcePicker }
                 if filtering {
                     Section("\(results.count) Results") {
-                        if results.isEmpty { ContentUnavailableView.search(text: query) }
+                        if results.isEmpty {
+                            if query.isEmpty {
+                                ContentUnavailableView("No Matching Apps", systemImage: "line.3.horizontal.decrease.circle", description: Text("Try a different repository or category filter."))
+                            } else {
+                                ContentUnavailableView.search(text: query)
+                            }
+                        }
                         ForEach(results) { app in StoreAppLink(app: app, model: model) }
                     }
                 } else {
@@ -48,12 +56,30 @@ struct StoreHomeView: View {
                         ContentUnavailableView("Your Store Starts Here", systemImage: "globe", description: Text("Add or enable a source to discover apps. Previously cached sources remain available offline."))
                         NavigationLink("Manage Sources") { StoreSourcesView(model: model) }
                     } else {
-                        shelf("Featured Apps", subtitle: "Selected by your sources", apps: model.apps.filter(\.featured))
+                        shelf("Featured This Week", subtitle: "Apps explicitly marked featured by their repositories · not an endorsement", apps: model.apps.filter(\.featured))
+                        shelf("Trending Apps", subtitle: "Most opened on this device · not repository-wide popularity", apps: model.trending)
                         shelf("Recently Updated", subtitle: "Latest release dates reported by sources", apps: model.apps.filter { $0.latest.date != nil }.sorted { ($0.latest.date ?? .distantPast) > ($1.latest.date ?? .distantPast) })
-                        shelf("Trending", subtitle: "Most viewed on this device • not community rankings", apps: model.trending)
-                        shelf("New Releases", subtitle: "Newest first-known releases in source history", apps: model.apps.sorted { earliest($0) > earliest($1) }.filter { earliest($0) != .distantPast })
-                        shelf("Installed Apps", subtitle: "Matched to your Library • device installation is not detectable", apps: model.apps.filter { model.installed[$0.bundleID] != nil })
-                        shelf("Continue Browsing", subtitle: "Pick up where you left off", apps: model.continueBrowsing)
+                        shelf("New Releases", subtitle: "First-known releases with dates from repository history", apps: model.apps.sorted { earliest($0) > earliest($1) }.filter { earliest($0) != .distantPast })
+                        shelf("Suggestions for You", subtitle: "Based on apps you recently viewed · suggestions only", apps: model.suggestions)
+                        shelf("Saved for Later", subtitle: "Stored locally · saving never downloads", apps: model.savedApps)
+                        shelf("Continue Browsing", subtitle: "Recently viewed on this device", apps: model.continueBrowsing)
+                        shelf("Available Updates", subtitle: "Compared with your ZynSign Library records; not device installation status", apps: model.updates.map(\.app))
+                        Section("Recently Browsed Developers") {
+                            ForEach(model.recentlyViewedDevelopers, id: \.self) { developer in
+                                NavigationLink(developer) { StoreDeveloperView(developer: developer, model: model) }
+                            }
+                        }
+                        Section("Featured Collections") {
+                            Text("Collections are assembled from repository categories and release metadata, not endorsements.").font(.caption).foregroundStyle(.secondary)
+                            ForEach(model.collections) { collection in
+                                NavigationLink { StoreCollectionDetailView(collection: collection, model: model) } label: {
+                                    LabeledContent(collection.title, value: "\(collection.apps.count) apps")
+                                }
+                            }
+                        }
+                        Section("Staff Picks") {
+                            Text("No staff-curated list is configured. Explore metadata-based collections instead.").font(.subheadline).foregroundStyle(.secondary)
+                        }
                         Section("Unified Catalog") {
                             ForEach(model.apps) { app in StoreAppLink(app: app, model: model) }
                         }
@@ -72,11 +98,11 @@ struct StoreHomeView: View {
             .refreshable { await model.refreshDue() }
             .storeNotice($model.problem)
             .task { await model.load(library: environment.library) }
-            .task(id: query + "\u{0}" + (category ?? "")) {
+            .task(id: query + "\u{0}" + (category ?? "") + "\u{0}" + (sourceFilter?.uuidString ?? "")) {
                 do { try await Task.sleep(nanoseconds: 100_000_000) } catch { return }
-                results = model.search(query, category: category)
+                results = model.search(query, category: category, sourceID: sourceFilter)
             }
-            .onChange(of: model.apps) { _, _ in results = model.search(query, category: category) }
+            .onChange(of: model.apps) { _, _ in results = model.search(query, category: category, sourceID: sourceFilter) }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { Task { await model.load(library: environment.library) } }
             }
@@ -104,6 +130,9 @@ struct StoreHomeView: View {
             }
             NavigationLink { StoreDownloadsView(queue: model.downloads) } label: { Label("Download Jobs", systemImage: "arrow.down.circle") }
             NavigationLink { StoreSourcesView(model: model) } label: { Label("Sources", systemImage: "globe") }
+            NavigationLink { StoreSavedAppsView(model: model) } label: { Label("Saved Items · \(model.savedApps.count)", systemImage: "bookmark") }
+            NavigationLink { StoreCollectionsView(model: model) } label: { Label("Collections", systemImage: "square.stack.3d.up") }
+            NavigationLink { StoreCategoryExplorerView(model: model) } label: { Label("Browse Categories", systemImage: "square.grid.2x2") }
         }
     }
     private var categoryPicker: some View {
@@ -111,7 +140,28 @@ struct StoreHomeView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack {
                     categoryButton("All", value: nil)
-                    ForEach(model.categories, id: \.self) { categoryButton($0, value: $0) }
+                    ForEach(model.categories, id: \.self) { value in
+                        let count = model.categoryCounts.first(where: { $0.name.caseInsensitiveCompare(value) == .orderedSame })?.count ?? 0
+                        categoryButton(count > 0 ? "\(value) · \(count)" : value, value: value)
+                    }
+                }
+            }
+        }
+    }
+    private var sourcePicker: some View {
+        Section("Repositories") {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    Button { sourceFilter = nil } label: {
+                        Text("All Sources").font(.subheadline.weight(.semibold)).padding(.horizontal, 14).frame(minHeight: 44)
+                            .background(sourceFilter == nil ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.09), in: Capsule())
+                    }.buttonStyle(.plain).accessibilityAddTraits(sourceFilter == nil ? [.isSelected] : [])
+                    ForEach(model.snapshot.sources) { source in
+                        Button { sourceFilter = sourceFilter == source.id ? nil : source.id } label: {
+                            Text(source.name).font(.subheadline.weight(.semibold)).lineLimit(1).padding(.horizontal, 14).frame(minHeight: 44)
+                                .background(sourceFilter == source.id ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.09), in: Capsule())
+                        }.buttonStyle(.plain).accessibilityAddTraits(sourceFilter == source.id ? [.isSelected] : [])
+                    }
                 }
             }
         }

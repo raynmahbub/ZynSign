@@ -6,6 +6,8 @@ struct CatalogApp: Codable, Hashable, Identifiable, Sendable {
     let bundleID: String
     let name: String
     let developer: String
+    let developerIconURL: URL?
+    let keywords: [String]?
     let subtitle: String?
     let description: String
     let iconURL: URL?
@@ -62,6 +64,8 @@ struct StoreSnapshot: Codable, Sendable {
     var recentSearches: [String] = []
     var browsing: [String] = []
     var visits: [String: Int] = [:]
+    /// Source-scoped app IDs saved locally. Optional to decode pre-discovery snapshots.
+    var savedAppIDs: [String]? = nil
 }
 
 enum StoreFailure: LocalizedError, Equatable {
@@ -116,7 +120,10 @@ struct CatalogSearchIndex {
     init(sources: [CatalogSource]) {
         entries = sources.filter(\.enabled).flatMap { source in
             source.apps.map { app in
-                let text = Self.fold([app.name, app.developer, app.bundleID, app.category, source.name].joined(separator: " "))
+                let text = Self.fold([
+                    app.name, app.developer, app.bundleID, app.category, app.description,
+                    source.name, source.url.absoluteString, app.keywords?.joined(separator: " ") ?? ""
+                ].joined(separator: " "))
                 return (app, text, text.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
             }
         }.sorted { $0.0.name.localizedStandardCompare($1.0.name) == .orderedAscending }
@@ -124,10 +131,11 @@ struct CatalogSearchIndex {
     static func fold(_ value: String) -> String {
         value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
     }
-    func search(_ query: String, category: String? = nil) -> [CatalogApp] {
+    func search(_ query: String, category: String? = nil, sourceID: UUID? = nil) -> [CatalogApp] {
         let tokens = Self.fold(String(query.prefix(200))).split(whereSeparator: \.isWhitespace).prefix(16).map(String.init)
         return entries.compactMap { app, text, words in
-            guard category == nil || Self.fold(app.category) == Self.fold(category!) else { return nil }
+            guard category == nil || Self.fold(app.category) == Self.fold(category!),
+                  sourceID == nil || app.sourceID == sourceID else { return nil }
             return tokens.allSatisfy { token in
                 text.contains(token) || (token.count >= 4 && words.contains { Self.oneEditApart(token, $0) })
             } ? app : nil

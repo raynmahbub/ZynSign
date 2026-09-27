@@ -72,6 +72,19 @@ final class StoreRepositoryTests: XCTestCase {
         let snapshot = try await repository.snapshot()
         XCTAssertTrue(snapshot.sources.isEmpty)
     }
+    func testSavedItemsPersistSourceScopedListingIDsAndCanBeRemoved() async throws {
+        let repository = StoreRepository(storage: StoreMemoryStorage(), client: StoreStubClient([StoreStubClient.ok()]))
+        try await repository.add(StoreFixtures.url.absoluteString)
+        let initial = try await repository.snapshot()
+        let app = try XCTUnwrap(initial.sources.first?.apps.first)
+        try await repository.setSaved(app, true)
+        let saved = try await repository.snapshot()
+        XCTAssertEqual(saved.savedAppIDs, [app.id])
+        try await repository.setSaved(app, false)
+        let removed = try await repository.snapshot()
+        XCTAssertEqual(removed.savedAppIDs, [])
+    }
+
     func testHistoryIsBoundedAndCanBeCleared() async throws {
         let repository = StoreRepository(storage: StoreMemoryStorage(), client: StoreStubClient([]))
         for index in 0..<20 { try await repository.recordSearch("Query \(index)") }

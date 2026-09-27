@@ -9,6 +9,7 @@ enum StoreFixtures {
       "iconURL": "https://source.example/icon.png",
       "apps": [{
         "name": "Orbit", "bundleIdentifier": "org.example.orbit", "developerName": "Mira Labs",
+        "developerIconURL": "https://source.example/mira.png", "keywords": ["navigation", "stellar planner"],
         "category": "Development", "localizedDescription": "A useful tool.",
         "screenshotURLs": {"iphone": ["https://source.example/phone.png"], "ipad": ["https://source.example/pad.png"]},
         "versions": [

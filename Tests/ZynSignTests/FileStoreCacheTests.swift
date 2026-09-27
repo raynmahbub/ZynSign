@@ -11,12 +11,13 @@ final class FileStoreCacheTests: XCTestCase {
         let cache = FileStoreCache(directory: directory)
         var state = StoreSnapshot(); let source = try StoreFixtures.source()
         state.sources = [source]; state.preferredSources[source.apps[0].bundleID] = source.id
-        state.recentSearches = ["orbit"]; state.browsing = [source.apps[0].id]
+        state.recentSearches = ["orbit"]; state.browsing = [source.apps[0].id]; state.savedAppIDs = [source.apps[0].id]
         try cache.save(state)
         let restored = try FileStoreCache(directory: directory).load()
         XCTAssertEqual(restored.sources, state.sources)
         XCTAssertEqual(restored.preferredSources, state.preferredSources)
         XCTAssertEqual(restored.browsing, state.browsing)
+        XCTAssertEqual(restored.savedAppIDs, state.savedAppIDs)
         XCTAssertEqual(restored.recentSearches, state.recentSearches)
     }
     func testCorruptCacheIsReportedAndNeverSilentlyReset() throws {
@@ -34,7 +35,7 @@ final class FileStoreCacheTests: XCTestCase {
     func testEmptyReleaseInCacheCannotReachLatestAccessor() throws {
         var state = StoreSnapshot(); var source = try StoreFixtures.source(); let app = source.apps[0]
         source.apps = [CatalogApp(sourceID: source.id, bundleID: app.bundleID, name: app.name, developer: app.developer,
-            subtitle: nil, description: "", iconURL: nil, screenshots: [], category: "Utilities", releases: [], featured: false)]
+            developerIconURL: nil, keywords: nil, subtitle: nil, description: "", iconURL: nil, screenshots: [], category: "Utilities", releases: [], featured: false)]
         state.sources = [source]
         let cache = FileStoreCache(directory: directory); try cache.save(state)
         XCTAssertThrowsError(try cache.load())

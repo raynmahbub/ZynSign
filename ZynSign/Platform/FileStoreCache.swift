@@ -14,6 +14,8 @@ struct FileStoreCache: StorePersisting {
         let data = try Data(contentsOf: file)
         let state = try JSONDecoder().decode(StoreSnapshot.self, from: data)
         guard state.schema == 1, state.sources.count <= 64,
+              (state.savedAppIDs?.count ?? 0) <= 30_000,
+              Set(state.savedAppIDs ?? []).count == (state.savedAppIDs?.count ?? 0),
               Set(state.sources.map(\.id)).count == state.sources.count,
               Set(state.sources.map(\.url)).count == state.sources.count else {
             throw StoreFailure.invalid("The Store cache is invalid or from a newer version. It has not been overwritten.")
@@ -29,6 +31,8 @@ struct FileStoreCache: StorePersisting {
                 guard app.sourceID == source.id, !app.name.isEmpty, app.name.count <= 200,
                       !app.bundleID.isEmpty, app.bundleID.count <= 255,
                       !app.developer.isEmpty, app.developer.count <= 200,
+                      (app.keywords?.count ?? 0) <= 64,
+                      (app.keywords?.allSatisfy { !$0.isEmpty && $0.count <= 100 } ?? true),
                       !app.category.isEmpty, app.category.count <= 100, app.description.count <= 100_000,
                       !app.releases.isEmpty, app.releases.count <= 200,
                       Set(app.releases.map(\.version)).count == app.releases.count, app.screenshots.count <= 30 else { throw StoreFailure.invalid("Invalid cached app metadata.") }
@@ -41,7 +45,7 @@ struct FileStoreCache: StorePersisting {
                         throw StoreFailure.invalid("Invalid cached release metadata.")
                     }
                 }
-                for url in app.screenshots + [app.iconURL].compactMap({ $0 }) + app.releases.map(\.downloadURL) {
+                for url in app.screenshots + [app.iconURL, app.developerIconURL].compactMap({ $0 }) + app.releases.map(\.downloadURL) {
                     _ = try StoreURLPolicy.validate(url.absoluteString)
                 }
             }

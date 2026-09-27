@@ -19,11 +19,31 @@ struct StoreAppDetailView: View {
                     }
                 }.padding(.vertical, 8)
                 StoreAppActions(app: app, model: model, queue: model.downloads)
+                Button {
+                    Task { await model.save(app, isSaved: !model.isSaved(app)) }
+                } label: {
+                    Label(model.isSaved(app) ? "Saved for Later" : "Save for Later", systemImage: model.isSaved(app) ? "bookmark.fill" : "bookmark")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityHint("Saving keeps this listing on this device and does not download it.")
                 ShareLink(item: app.latest.downloadURL, subject: Text(app.name), message: Text("\(app.name) from \(model.sourceName(app)). Source and package are not verified by ZynSign.")) {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
             }
             Section("About") { Text(app.description).textSelection(.enabled) }
+            Section("Developer") {
+                NavigationLink { StoreDeveloperView(developer: app.developer, model: model) } label: {
+                    HStack(spacing: 10) {
+                        StoreArtwork(url: app.developerIconURL, symbol: "person.crop.circle.fill")
+                            .frame(width: 40, height: 40).clipShape(RoundedRectangle(cornerRadius: 10))
+                        VStack(alignment: .leading) {
+                            Text(app.developer).font(.subheadline.weight(.semibold))
+                            Text("Browse this developer’s apps").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }.frame(minHeight: 44)
+                }
+            }
             if !app.screenshots.isEmpty {
                 Section("Screenshots") {
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -48,6 +68,11 @@ struct StoreAppDetailView: View {
             }
             Section("Information") {
                 LabeledContent("Version", value: app.latest.version)
+                if let source = model.source(app) {
+                    StoreHealthBadge(source: source)
+                    LabeledContent("Repository URL", value: source.url.absoluteString).lineLimit(2).textSelection(.enabled)
+                    LabeledContent("Last Repository Refresh", value: source.refreshedAt?.formatted(date: .abbreviated, time: .shortened) ?? "Never")
+                }
                 LabeledContent("Bundle ID", value: app.bundleID)
                 LabeledContent("Category", value: app.category)
                 LabeledContent("Download Size", value: app.latest.size.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "Not supplied")
