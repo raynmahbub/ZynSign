@@ -82,8 +82,10 @@ struct AboutSettingsSection: View {
             NavigationLink { AboutDocumentView(document: .acknowledgements) } label: {
                 ZSettingsLabel(title: AboutDocument.Document.acknowledgements.title, symbol: "heart")
             }
-            Link(destination: URL(string: "https://github.com/raynmahbub/ZynSign")!) {
-                ZSettingsLabel(title: "ZynSign on GitHub", symbol: "link")
+            if let repositoryURL = URL(string: "https://github.com/raynmahbub/ZynSign") {
+                Link(destination: repositoryURL) {
+                    ZSettingsLabel(title: "ZynSign on GitHub", symbol: "link")
+                }
             }
         } header: {
             Text("Documents")

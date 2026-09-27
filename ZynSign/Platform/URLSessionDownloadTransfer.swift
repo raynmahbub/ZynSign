@@ -19,7 +19,7 @@ import Foundation
 final class URLSessionDownloadTransfer: NSObject, URLSessionDownloadDelegate, DownloadTransferring {
 
     private let callbackQueue: OperationQueue
-    private var session: URLSession!
+    private var session: URLSession?
     private var tasks: [String: URLSessionDownloadTask] = [:]
     private var destinations: [String: URL] = [:]
     private var pauseRequested: Set<String> = []
@@ -191,6 +191,7 @@ final class URLSessionDownloadTransfer: NSObject, URLSessionDownloadDelegate, Do
         pauseRequested.remove(key)
         cancelRequested.remove(key)
         lastProgressReport[key] = nil
+        guard let session else { return }
         let task: URLSessionDownloadTask
         if let resumeData = request.resumeData, !resumeData.isEmpty {
             task = session.downloadTask(withResumeData: resumeData)

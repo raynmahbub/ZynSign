@@ -490,9 +490,12 @@ struct IdentityCenterService {
         let certificateEntries: [IdentityCenterCertificate] = joinedCertificates.map { joined in
             let facts = joined.facts
             let linkedProfiles = profileFacts.filter { profile in
-                profile.certificateFingerprints.contains(facts.fingerprintHex)
-                    || (facts.teamID != nil
-                        && profile.teamID?.caseInsensitiveCompare(facts.teamID!) == .orderedSame)
+                if profile.certificateFingerprints.contains(facts.fingerprintHex) { return true }
+                if let teamID = facts.teamID,
+                   profile.teamID?.caseInsensitiveCompare(teamID) == .orderedSame {
+                    return true
+                }
+                return false
             }
             let linkedIDs = linkedProfiles.map(\.id)
             var compatible: [CompatibleApp] = []

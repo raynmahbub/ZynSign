@@ -255,6 +255,7 @@ struct SigningJobDetailView: View {
             Text(failure.summary)
                 .font(.footnote)
                 .fixedSize(horizontal: false, vertical: true)
+            ErrorRecoveryView(category: failure.category, message: failure.summary, showsWhatHappened: false)
             if let detail = failure.detail {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Technical Detail")
@@ -291,7 +292,7 @@ struct SigningJobDetailView: View {
         } header: {
             Text("Failure")
         } footer: {
-            Text("Nothing was delivered, and the run's working copy was discarded. A retry never continues from a partially modified state — it repeats a clean one.")
+            Text("Nothing was delivered, and the run's working copy was discarded. A retry never continues from a partially modified state — it repeats a clean one. The answers above come from the failure's own category, so every job explains itself the same way.")
         }
     }
 

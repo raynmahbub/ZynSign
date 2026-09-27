@@ -108,8 +108,11 @@ actor BackupArchive {
         let length = bytes.count
         let result = password.withCString { pass in
             salt.withUnsafeBytes { raw in
-                CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), pass, password.utf8.count,
-                    raw.bindMemory(to: UInt8.self).baseAddress!, salt.count,
+                guard let baseAddress = raw.bindMemory(to: UInt8.self).baseAddress else {
+                    return Int32(kCCParamError)
+                }
+                return CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), pass, password.utf8.count,
+                    baseAddress, salt.count,
                     CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256), Self.iterations, &bytes, length)
             }
         }

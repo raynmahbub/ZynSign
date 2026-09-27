@@ -60,8 +60,13 @@ struct AppleSigningKeyResolver: SigningIdentityKeyResolver {
               attributes[kSecAttrIsExtractable as String] as? Bool == false else {
             throw ZynSignError.identity(.platformRestriction)
         }
-        // The runtime type check above is necessary for Core Foundation types.
-        return value as! SecKey
+        // The Core Foundation type check above establishes what the value
+        // is; this cast restates it in Swift's own terms, so a value that
+        // somehow is not a key is a structured refusal rather than a trap.
+        guard let key = value as? SecKey else {
+            throw ZynSignError.identity(.unexpectedSecurityFailure)
+        }
+        return key
     }
 }
 

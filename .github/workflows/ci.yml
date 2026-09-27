@@ -60,6 +60,29 @@ jobs:
           python3 Tests/Host/verify_zip_writer_vectors.py
           python3 Tests/Host/external_validation.py self-test
 
+      # RC gates that belong to the host, not to a device: the crash-surface
+      # inventory must still describe the code, the accessibility audit must
+      # find no hard-coded colour or undersized control, and every behaviour
+      # the regression catalogue freezes must name a test that exists.
+      - name: Check the crash surface against its baseline
+        run: python3 Scripts/audit_crash_surface.py
+
+      - name: Audit accessibility in the sources
+        run: python3 Scripts/audit_accessibility.py --strict
+
+      - name: Check the regression catalogue names real tests
+        run: python3 Scripts/audit_regression_coverage.py
+
+      - name: Build the hardening report
+        run: python3 Scripts/generate_hardening_report.py --output build/hardening/index.html
+
+      - name: Upload the hardening report
+        uses: actions/upload-artifact@v4
+        with:
+          name: hardening-report
+          path: build/hardening/index.html
+          if-no-files-found: error
+
   build-and-test:
     name: Build and test (Xcode)
     runs-on: macos-15

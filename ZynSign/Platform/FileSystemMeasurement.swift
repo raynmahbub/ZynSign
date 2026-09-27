@@ -77,7 +77,11 @@ enum FileSystemMeasurement {
             if visited > maximumEntryCount || enumerator.level > maximumDepth { break }
             guard let entryValues = try? entry.resourceValues(forKeys: [.contentModificationDateKey]),
                   let date = entryValues.contentModificationDate else { continue }
-            if newest == nil || date > newest! { newest = date }
+            if let currentNewest = newest {
+                if date > currentNewest { newest = date }
+            } else {
+                newest = date
+            }
         }
         return newest
     }

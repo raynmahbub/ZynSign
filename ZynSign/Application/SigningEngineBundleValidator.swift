@@ -145,7 +145,8 @@ struct SigningEngineBundleValidator {
                 passed: false,
                 detail: "The declared executable \(executableName) is not exactly one regular file."
             ))
-        } else if let bytes = try? reader.readEntryData(at: executablePath!, maximumBytes: limits.maximumEntryBytes) {
+        } else if let path = executablePath,
+                 let bytes = try? reader.readEntryData(at: path, maximumBytes: limits.maximumEntryBytes) {
             mainExecutableBytes = bytes
             let verdict = Self.machOForm(of: bytes, parser: parser)
             checks.append(BundleValidationCheck(

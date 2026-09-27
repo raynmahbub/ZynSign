@@ -134,7 +134,7 @@ struct CatalogSearchIndex {
     func search(_ query: String, category: String? = nil, sourceID: UUID? = nil) -> [CatalogApp] {
         let tokens = Self.fold(String(query.prefix(200))).split(whereSeparator: \.isWhitespace).prefix(16).map(String.init)
         return entries.compactMap { app, text, words in
-            guard category == nil || Self.fold(app.category) == Self.fold(category!),
+            guard category.map({ Self.fold(app.category) == Self.fold($0) }) ?? true,
                   sourceID == nil || app.sourceID == sourceID else { return nil }
             return tokens.allSatisfy { token in
                 text.contains(token) || (token.count >= 4 && words.contains { Self.oneEditApart(token, $0) })

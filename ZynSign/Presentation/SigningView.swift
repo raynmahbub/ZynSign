@@ -806,6 +806,7 @@ struct SigningView: View {
                             }
                         }
                         Text(failure.userMessage).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        ErrorRecoveryView(category: failure.category, message: failure.userMessage, showsWhatHappened: false)
                     }
                 }
                 .listRowInsets(EdgeInsets(top: ZSpacing.sm, leading: ZSpacing.md, bottom: ZSpacing.sm, trailing: ZSpacing.md))
