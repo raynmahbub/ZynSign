@@ -38,6 +38,12 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
     /// expiration warnings, compatibility diagnostics.
     case provisioningProfileManager
 
+    /// Alpha 3: the Developer Identity Center — the unified dashboard,
+    /// team workspace, certificate and profile inspectors, relationship
+    /// graph, health center, conflict detection, expiration forecast,
+    /// identity timeline, and the signing screen's recommended identity.
+    case identityCenter
+
     /// Alpha 2: Professional Signing Queue — the job-based signing system:
     /// queue dashboard, priorities, per-job controls, live stage progress,
     /// failure recovery, persistence, and bulk queue operations.
@@ -72,6 +78,7 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .activityJournal: return []
         case .libraryPowerFeatures: return []
         case .provisioningProfileManager: return [.smartSign]
+        case .identityCenter: return [.certificateStudio, .smartSign, .provisioningProfileManager]
         case .signingQueue: return [.smartSign]
         case .signingPresets: return [.smartSign, .certificateStudio]
         case .batchSigning: return [.signingPresets]
@@ -92,6 +99,7 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .activityJournal: return "Local Activity Journal"
         case .libraryPowerFeatures: return "Library Power Features"
         case .provisioningProfileManager: return "Provisioning Profile Manager"
+        case .identityCenter: return "Developer Identity Center"
         case .signingQueue: return "Professional Signing Queue"
         case .signingPresets: return "Intelligent Signing Presets"
         case .batchSigning: return "Batch Signing"
@@ -155,7 +163,7 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
         case .horizon: return []
         case .alpha1: return [.certificateStudio, .libraryPowerFeatures]
         case .alpha2: return [.smartSign, .provisioningProfileManager, .signingQueue, .signingPresets]
-        case .alpha3: return [.appStore, .downloads, .entitlementsStudio]
+        case .alpha3: return [.appStore, .downloads, .entitlementsStudio, .identityCenter]
         case .beta1: return [.missionControl, .deliveryHandoff, .activityJournal]
         case .beta2: return []
         case .beta3: return [.batchSigning]

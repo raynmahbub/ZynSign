@@ -15,6 +15,9 @@ import Foundation
 /// composition root and surfaced here, which keeps dependency substitution
 /// and testing straightforward.
 struct ApplicationEnvironment {
+    /// App-owned Store services survive navigation between Store and Downloads.
+    var storeBrowser: StoreBrowserModel? = nil
+
     /// Facts about the running application, shown by the shell.
     let applicationInfo: ApplicationInfo
 
@@ -153,6 +156,13 @@ struct ApplicationEnvironment {
     /// The local-only annotation store behind the Certificates area.
     var identityAnnotations: (any IdentityAnnotationsStore)? = nil
 
+    /// The Developer Identity Center: one read of each store per snapshot,
+    /// every signing relationship answered from it. The dashboard, the
+    /// team workspace, the health center, the conflict list, the forecast,
+    /// the timeline, and the signing screen's recommendation all read this
+    /// one service. Optional for the same reasons as its peers.
+    var identityCenter: IdentityCenterService? = nil
+
     /// The user's preferences: one document, loaded once at launch and
     /// written whole whenever a setting changes. The Settings Control Center
     /// reads and writes through this port, and the shell reads it once to
@@ -212,6 +222,12 @@ struct ApplicationEnvironment {
     /// interface does not offer the inspector; treated as read-only after
     /// construction.
     var binaryInspection: IPABinaryInspection? = nil
+
+    /// The Resource & Asset Studio inspection use case: inspects app icons,
+    /// launch assets, images, fonts, media, and localization tables in an
+    /// imported IPA bundle. `nil` where no composition supplies it; treated
+    /// as read-only after construction.
+    var resourceInspection: IPAResourceStudioInspection? = nil
 
     /// Records one local activity event when the journal preference allows.
     ///

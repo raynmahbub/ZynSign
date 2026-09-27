@@ -803,7 +803,7 @@ final class SigningQueue: ObservableObject {
         // could have its fresh working copy swept from under it. A queue
         // without persistence has nothing to restore and runs at once.
         guard !isRestoring, hasRestored || store == nil else { return }
-        while runningTasks.count < maximumConcurrentJobs {
+        while JobQueueCapacity.hasCapacity(running: runningTasks.count, limit: maximumConcurrentJobs) {
             guard let next = jobs.first(where: { $0.state == .queued && runningTasks[$0.id] == nil }) else {
                 return
             }

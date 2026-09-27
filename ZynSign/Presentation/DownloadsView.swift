@@ -53,6 +53,18 @@ private struct DownloadCenterScreen: View {
     var body: some View {
         NavigationStack {
             List {
+                if let store = environment.storeBrowser {
+                    Section {
+                        NavigationLink {
+                            StoreDownloadsView(queue: store.downloads)
+                        } label: {
+                            Label("Store Download Jobs", systemImage: "bag")
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        }
+                    } footer: {
+                        Text("Store packages stay in isolated Store storage until you import them. They are separate from the downloads listed below.")
+                    }
+                }
                 summary
                 if !filteredUpdates.isEmpty { updatesSection }
                 if !filtered(center.activeJobs).isEmpty { jobSection("Active Downloads", jobs: filtered(center.activeJobs), systemImage: "arrow.down.circle") }

@@ -38,7 +38,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
         case .profiles: return "Profiles"
         case .settings: return "Settings"
         case .files: return "Files"
-        case .appStore: return "App Store"
+        case .appStore: return "Store"
         case .downloads: return "Downloads"
         case .presets: return "Presets"
         }

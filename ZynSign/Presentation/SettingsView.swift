@@ -54,7 +54,7 @@ struct SettingsView: View {
         }
     }
 
-    /// The complete areas that are not tabs: Files, App Store, and
+    /// The complete areas that are not tabs: Files, Store, and
     /// Downloads. They are reached from here so the bottom navigation stays
     /// the five-tab foundation every other screen builds on.
     private var browseSection: some View {
@@ -73,7 +73,7 @@ struct SettingsView: View {
                 }
             }
         } header: { Text("Browse") } footer: {
-            Text("Files and the App Store are reached from here. Downloads is also a tab when that feature is available. None of these actions delete imported apps.")
+            Text("Files and the Store are reached from here. Downloads is also a tab when that feature is available. Store jobs stay isolated until you import them, and Download Center cleanup never deletes imported apps.")
         }
     }
 
@@ -120,6 +120,14 @@ struct SettingsView: View {
                     Label("Signing Presets", systemImage: "rectangle.stack")
                 }
                 .accessibilityHint("Opens saved signing presets. Choosing one does not sign.")
+            }
+            if ReleaseTrain.isAvailable(.identityCenter), let identityCenter = environment.identityCenter {
+                NavigationLink {
+                    IdentityCenterView(service: identityCenter)
+                } label: {
+                    Label("Developer Identity", systemImage: "person.badge.key.fill")
+                }
+                .accessibilityHint("Opens the Developer Identity Center: teams, certificates, profiles, health, and conflicts.")
             }
             NavigationLink { ArchiveSettingsView() } label: {
                 Label("Archive & Extraction", systemImage: "doc.zipper")
