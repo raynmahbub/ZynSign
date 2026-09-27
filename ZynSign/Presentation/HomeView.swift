@@ -59,6 +59,7 @@ struct HomeView: View {
                     ImportHubStatusBanner(hub: environment.importHub) {
                         importPresentation.present()
                     }
+                    ReleaseReadinessLink()
                     quickActions
                     if onboardingNeeded {
                         onboardingCard
@@ -453,10 +454,28 @@ struct HomeView: View {
                     ZHaptics.tap()
                     Task {
                         _ = await missionControl.refreshEverything(
-                            refreshRepositories: { HomeStorageCounts.sourceCount() },
+                            refreshRepositories: {
+                                var count = 0
+                                var refreshed = false
+                                if let store = environment.storeBrowser {
+                                    let refreshedCount = await store.refreshForMaintenance()
+                                    if refreshedCount >= 0 {
+                                        count += refreshedCount
+                                        refreshed = true
+                                    }
+                                }
+                                if let directory = environment.repositoryDirectory {
+                                    await directory.refresh()
+                                    count += directory.sources.count
+                                    refreshed = true
+                                }
+                                return refreshed ? count : HomeStorageCounts.sourceCount()
+                            },
                             checkLibrary: {
-                                if let entries = try? await environment.library.entries() { return entries.count }
-                                return 0
+                                do {
+                                    let entries = try await environment.library.entries()
+                                    return entries.count
+                                } catch { return 0 }
                             },
                             cleanupCache: { missionControl.defaultCleanup() }
                         )
@@ -521,8 +540,7 @@ struct HomeView: View {
 }
 
 /// Counts Home shows without touching the library: signed IPAs written by
-/// `SigningView` to `Documents/Signed`, and sources saved by the App Store tab
-/// in `Documents/ZynSignSources.json`. A missing or unreadable file counts as 0.
+/// `SigningView` to `Documents/Signed`. A missing or unreadable directory counts as 0.
 enum HomeStorageCounts {
     private static var documents: URL? {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
@@ -536,11 +554,8 @@ enum HomeStorageCounts {
     }
 
     static func sourceCount() -> Int {
-        guard let url = documents?.appendingPathComponent("ZynSignSources.json"),
-              let data = try? Data(contentsOf: url),
-              let sources = try? JSONDecoder().decode([[String: String]].self, from: data)
-        else { return 0 }
-        return sources.count
+        guard let url = documents?.appendingPathComponent("ZynSignSources.json") else { return 0 }
+        return RepositoryDirectory.sourceCount(at: url)
     }
 }
 

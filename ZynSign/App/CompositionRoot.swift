@@ -35,6 +35,7 @@ enum CompositionRoot {
         let diagnosticHistory = makeSigningDiagnosticsHistoryStore()
         let library = makeApplicationLibrary(intake: intake, diagnosticHistory: diagnosticHistory)
         let identityStore = makeIdentityStore()
+        let identityAnnotationsStore = makeIdentityAnnotationsStore()
         let diagnostics = makeSigningDiagnostics(
             library: library, intake: intake, identities: identityStore,
             history: diagnosticHistory
@@ -110,13 +111,48 @@ enum CompositionRoot {
         environment.appIcons = appIcons
         environment.signingPresetWorkflow = signingPresetWorkflow
         environment.signingDiagnostics = diagnostics
-        environment.identityAnnotations = makeIdentityAnnotationsStore()
+        environment.identityAnnotations = identityAnnotationsStore
+        // The Identity Center reads the same stores the tabs read — one
+        // identity store, one profile library, one library, one
+        // annotation store, one journal — so its snapshot can never
+        // disagree with what those tabs show.
+        environment.identityCenter = IdentityCenterService(
+            identityStore: identityStore,
+            profiles: profiles,
+            library: library,
+            annotations: identityAnnotationsStore,
+            history: history
+        )
         environment.libraryOrganizer = makeLibraryOrganizer()
         environment.applicationProvenance = makeApplicationProvenanceExtraction()
         environment.libraryExport = makeLibraryExportPreparation()
         environment.droppedFiles = droppedFiles
         environment.queueNotifier = queueNotifier
         environment.binaryInspection = makeBinaryInspection(intake: intake, library: library)
+        environment.storeBrowser = StoreBrowserModel(
+            repository: StoreRepository(storage: FileStoreCache(directory: FileStoreCache.root)),
+            downloads: StoreDownloadQueue(directory: FileStoreCache.root.appendingPathComponent("Quarantine"))
+        )
+        let resourceReader = DirectoryArtifactArchiveReaderProvider(directory: libraryArtifactDirectory)
+        environment.resourceInspection = makeResourceStudioInspection(library: library, readerProvider: resourceReader)
+        if let binary = environment.binaryInspection {
+            let historyURL = libraryRootDirectory.appendingPathComponent("ReleaseReadiness.json")
+            environment.releaseReadiness = ReleaseReadinessService(
+                diagnostics: diagnostics, exports: exports, operations: signingOperations,
+                binary: binary, history: ReleaseReadinessHistory(location: historyURL),
+                bundles: environment.bundleInspection, library: library, identities: identityStore)
+        }
+        let downloadNotifier = LocalDownloadNotifier()
+        let repositoryDirectory = makeRepositoryDirectory()
+        let downloadCenter = makeDownloadCenter(
+            library: library,
+            importHub: environment.importHub,
+            notifier: downloadNotifier,
+            catalogs: { @MainActor in repositoryDirectory.catalogs }
+        )
+        environment.downloadNotifier = downloadNotifier
+        environment.repositoryDirectory = repositoryDirectory
+        environment.downloadCenter = downloadCenter
         environment.installationWorkspace = makeInstallationWorkspace(
             library: library,
             history: history,
@@ -166,6 +202,48 @@ enum CompositionRoot {
             installedByteCount: { [installed] in
                 await installed.storedByteCount()
             }
+        )
+    }
+
+    /// The Download Center and the repository directory it trusts only after
+    /// metadata validation. Transfers are foreground URLSession tasks. Resume
+    /// is reported only when resume data is captured.
+    static func makeDownloadCenter(
+        library: ApplicationLibrary,
+        importHub: ImportHub,
+        notifier: (any DownloadNotifying)?,
+        catalogs: @escaping @MainActor () -> [RepositoryCatalog]
+    ) -> DownloadCenter {
+        let client = URLSessionRepositoryClient()
+        let center = DownloadCenter(
+            transfer: URLSessionDownloadTransfer(),
+            validator: IPADownloadValidator(),
+            store: FileDownloadCenterStore(rootDirectory: downloadCenterRoot),
+            importer: ImportHubDownloadImporter(hub: importHub),
+            notifier: notifier,
+            manifestResolver: client,
+            installedApplications: { @MainActor in
+                let entries = (try? await library.entries()) ?? []
+                return entries.map { entry in
+                    InstalledApplication(
+                        bundleIdentifier: entry.record.bundleIdentifier.rawValue,
+                        name: entry.record.displayName ?? entry.record.bundleIdentifier.rawValue,
+                        version: entry.record.identity.shortVersionString,
+                        build: entry.record.identity.buildVersion,
+                        recordID: entry.record.id.rawValue
+                    )
+                }
+            },
+            catalogs: catalogs
+        )
+        return center
+    }
+
+    static func makeRepositoryDirectory() -> RepositoryDirectory {
+        RepositoryDirectory(
+            storeURL: repositorySourceStoreURL,
+            cacheDirectory: downloadCenterRoot.appendingPathComponent("Catalogs", isDirectory: true),
+            fetcher: URLSessionRepositoryClient()
         )
     }
 
@@ -360,6 +438,21 @@ enum CompositionRoot {
             ),
             digest: digest,
             limits: inspectionLimits
+        )
+    }
+
+    /// Builds the Resource & Asset Studio inspection use case: inspects app
+    /// icons, launch assets, images, fonts, media, and localization tables in
+    /// an imported IPA bundle, completely read-only.
+    static func makeResourceStudioInspection(
+        library: ApplicationLibrary,
+        readerProvider: any ArtifactArchiveReaderProvider,
+        limits: ArchiveLimits = .default
+    ) -> IPAResourceStudioInspection {
+        IPAResourceStudioInspection(
+            library: library,
+            readerProvider: readerProvider,
+            limits: limits
         )
     }
 
@@ -1370,6 +1463,17 @@ enum CompositionRoot {
     }
 
     /// The document holding the library's collections and usage.
+    private static var downloadCenterRoot: URL {
+        libraryRootDirectory.appendingPathComponent("DownloadCenter", isDirectory: true)
+    }
+
+    private static var repositorySourceStoreURL: URL {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Documents", isDirectory: true)
+        return documents.appendingPathComponent("ZynSignSources.json")
+    }
+
     private static var libraryOrganizationLocation: URL {
         libraryRootDirectory.appendingPathComponent("Organization.json", isDirectory: false)
     }

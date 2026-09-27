@@ -117,6 +117,80 @@ struct ApplicationDetailView: View {
         }
     }
 
+    @ViewBuilder
+    private var resourceStudioCard: some View {
+        if let resourceInspection = environment.resourceInspection {
+            let summary: ResourceSummary = {
+                if let contents = model.report?.bundleContents {
+                    return resourceInspection.quickSummary(from: contents)
+                }
+                return .empty
+            }()
+
+            DetailSectionCard(
+                title: "Resource & Asset Studio",
+                subtitle: "Visual inspection for icons, launch screens & media",
+                symbol: "photo.stack.fill",
+                isExpanded: .constant(true)
+            ) {
+                VStack(spacing: ZSpacing.sm) {
+                    resourceSummaryGrid(summary)
+
+                    NavigationLink {
+                        ResourceStudioView(entry: entry, inspection: resourceInspection)
+                    } label: {
+                        Label("Open Resource & Asset Studio", systemImage: "arrow.up.right.square")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!entry.isArtifactAvailable)
+                    .accessibilityHint("Visual inspector for app icons, launch screens, images, fonts, audio, video, and localizations.")
+
+                    Text("Visually explore app icons, launch screens, bundled fonts, localization files, and media assets. Read-only inspection.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func resourceSummaryGrid(_ summary: ResourceSummary) -> some View {
+        let items: [(label: String, count: Int, symbol: String, tint: Color)] = [
+            ("Icons", summary.iconCount, "app.badge", .orange),
+            ("Launch Assets", summary.launchAssetCount, "arrow.up.right.video", .indigo),
+            ("Images", summary.imageCount, "photo", .blue),
+            ("Fonts", summary.fontCount, "textformat", .purple),
+            ("Audio", summary.audioCount, "waveform", .pink),
+            ("Videos", summary.videoCount, "film", .red),
+            ("Localization Files", summary.localizationCount, "globe", .teal)
+        ]
+
+        LazyVGrid(columns: actionColumns, spacing: ZSpacing.xs) {
+            ForEach(items, id: \.label) { item in
+                HStack(spacing: ZSpacing.xs) {
+                    Image(systemName: item.symbol)
+                        .foregroundStyle(item.tint)
+                        .font(.subheadline)
+                        .frame(width: 20)
+                    Text(item.label)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer()
+                    Text(item.count > 0 ? "\(item.count)" : "—")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.primary)
+                }
+                .padding(.horizontal, ZSpacing.sm)
+                .padding(.vertical, 8)
+                .background(Color(.tertiarySystemBackground), in: RoundedRectangle(cornerRadius: ZRadius.sm, style: .continuous))
+            }
+        }
+    }
+
     private var recordContent: ApplicationDetailContent {
         ApplicationDetailContent(entry: entry)
     }
@@ -138,6 +212,7 @@ struct ApplicationDetailView: View {
                 RecommendedPresetCard(entry: entry)
                 profileSuggestionCard
                 entitlementsStudioCard
+                resourceStudioCard
 
                 if model.isRefreshing, model.report != nil {
                     HStack(spacing: ZSpacing.xs) {
@@ -220,6 +295,7 @@ struct ApplicationDetailView: View {
     /// summary is promoted into a signing authorization.
     private var signingHealthCard: some View {
         VStack(alignment: .leading, spacing: ZSpacing.sm) {
+            ReleaseReadinessLink(recordID: entry.record.id)
             SigningHealthCard(report: health?.report, isAnalyzing: isAnalyzingHealth, error: healthError)
             if let health {
                 NavigationLink {
@@ -513,6 +589,22 @@ struct ApplicationDetailView: View {
                         .buttonStyle(.plain)
                         .disabled(!entry.isArtifactAvailable)
                         .accessibilityHint("Inspects every executable's structure and code signature, and verifies each signature on this device, read-only.")
+                    }
+
+                    if let resourceInspection = environment.resourceInspection {
+                        NavigationLink {
+                            ResourceStudioView(entry: entry, inspection: resourceInspection)
+                        } label: {
+                            QuickActionTile(
+                                title: "Resource Studio",
+                                subtitle: "Media, fonts, icons & localizations",
+                                symbol: "photo.stack",
+                                tint: .teal
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!entry.isArtifactAvailable)
+                        .accessibilityHint("Visual inspector for app icons, launch screens, images, fonts, audio, video, and localizations.")
                     }
 
                     Button {

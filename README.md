@@ -13,7 +13,7 @@
 </p>
 
 > **0.1.0 Horizon (2026-09-25) — release train**  
-> The whole app is built: import, inspection, library, **Certificate Studio**, **Smart Sign (engine run · 9 stages · independent verification · DER 0x20400 · Live Activity)**, **Repository Health**, **Background Downloads**, **Mission Control**, **Installation Delivery Hand-off (OTA manifest + QR + operator guides)**, and a **Local Activity Journal (on-device, never transmitted)**. It ships **one release at a time**: `0.1.0` shows Files, Import, Library and Bundle Explorer, and each alpha switches on more (see [Release train](#release-train)). In-app installation remains a platform fact (`noDeliveryMechanism`); Pairing/JIT/Mux stays **never** (ADR-recorded); off-device analytics stays **off**.
+> The whole app is built: import, inspection, library, **Certificate Studio**, **Smart Sign (engine run · 9 stages · independent verification · DER 0x20400 · Live Activity)**, **Repository Health**, **Download Center**, **Mission Control**, **Installation Delivery Hand-off (OTA manifest + QR + operator guides)**, and a **Local Activity Journal (on-device, never transmitted)**. It ships **one release at a time**: `0.1.0` shows Files, Import, Library and Bundle Explorer, and each alpha switches on more (see [Release train](#release-train)). In-app installation remains a platform fact (`noDeliveryMechanism`); Pairing/JIT/Mux stays **never** (ADR-recorded); off-device analytics stays **off**.
 
 ---
 
@@ -31,7 +31,7 @@ Sideloading on iOS is a maze of certificates, entitlements, provisioning profile
 | **Apple-quality UI** | **Design Language (ZDL v1.0)** — `ZCard`/`ZSkeleton`/`ZProgressRing`/`ZToast`/`ZBottomSheet` + `DesignTokens` + liquid glass, spring + haptics, Dark Mode |
 | **Plain diagnostics** | **Human errors** — `CERT_002 → “Wrong provisioning profile.”` via `ZynSignError` + `DiagnosticCategory` + `ZToast` |
 | **One-tap maintenance** | **Mission Control** — `Home` `Good Evening · 12 Apps · Certificates Healthy · Expires in 28d → [Refresh Everything]` (`MissionControlService`) |
-| **Trustworthy updates** | **Repository Intelligence** — `App Store` `Fast`/`Slow`/`Offline` health + `latency ms` (`RepositoryHealthProbe` 3 s) |
+| **Source-aware discovery** | **[Store Browser](docs/architecture/store-browser.md)** — unified catalog, offline metadata, explicit source preferences and Library version updates; health is not publisher trust |
 
 Full product identity: [`docs/product/UNIQUE_VALUE_PROPOSITION.md`](docs/product/UNIQUE_VALUE_PROPOSITION.md) · Honest limits: [`docs/product/WHAT_DOES_NOT_EXIST.md`](docs/product/WHAT_DOES_NOT_EXIST.md)
 
@@ -46,7 +46,7 @@ Features are finished and compiled in. `ReleaseTrain.current` in [`ReleaseTrain.
 | **`v0.1.0`** ◀ current | Home Dashboard · Import · Library (grid/list, search, sort, favourites) · Bundle Explorer · Certificates · Profiles · Settings |
 | `v0.1.0-alpha.1` | Certificate Studio · Advanced Library (collections, smart collections, stackable filters, statistics, bulk and quick actions) |
 | `v0.1.0-alpha.2` | Smart Sign (+ Signing Options, Installation screen) · Professional Signing Queue · Intelligent Signing Presets |
-| `v0.1.0-alpha.3` | Entitlements Studio · App Store + Repository Health · Background Downloads |
+| `v0.1.0-alpha.3` | Entitlements Studio · App Store + Repository Health · Download Center |
 | `v0.9.0-beta.1` | Mission Control · Delivery Hand-off · Activity Journal — **feature complete** |
 | `v0.9.0-beta.2` | Installation Workspace (readiness, Installed Apps Library, confirmed deliveries, history) |
 | `v0.9.0-beta.3…4` → `v1.0.0-rc.1…3` → `v1.0.0` | Batch Signing, then fixes |
@@ -74,7 +74,7 @@ The **Ships in** column is the first release that shows the feature.
 | **Smart Sign** <br/><sub>Ships in `v0.1.0-alpha.2`</sub> | `Library → ⋯ → Sign` / `Detail → Sign` → `SigningView` | One engine run (`SigningEngineCoordinator`): validation gate → 9 stages (integrity → profile → discovery → extraction → nested → sealing → main → packaging → verification) inside an isolated working copy, then an independent re-read verification before the IPA is delivered — the imported package is never signed and a refusal never leaves a partially signed artifact. Profile-derived `CodeSigningEntitlements` (CMS `CMSStructureReader` + `PropertyListProvisioningProfileParser`), **DER toggle** `0x20200` `slot 5` ↔ `0x20400` `slot 5+7` (`DEREntitlementsSerializer` `0xFADE7172`), **Live Activity** (`LiveActivityService` `ActivityKit` on 16.1+ else `ZStatusBadge`), export actions **Export IPA · Open Details · Verify Again · Return to Library** → `Documents/Signed/*_signed.ipa` + Share |
 | **Signing Queue** <br/><sub>Ships in `v0.1.0-alpha.2`</sub> | `Library → Queue` / `Select → Queue Selected` / `Detail → Add to Queue` / `Sign → Add to Signing Queue Instead` / Import Hub → **Queue for Signing** / Settings → `SigningQueueView` | Job-based signing (`SigningQueue`): each job is one `SigningOperationCenter` operation (isolated workspace, independent verification, committed to **Exports**, recorded in signing history). High/Normal/Low priorities, Move Up/Down/Send to Top, live weighted stage progress (no fake jumps), Cancel/Retry (clean re-run)/Details/Remove, no Pause (no safe checkpoint), per-job log, revisioned persistence (interrupted runs never marked completed), bulk operations with confirmation, app-lock authorization at enqueue, toasts + VoiceOver + opt-in local notifications. See `docs/architecture/signing-queue.md` |
 | **Intelligent Signing Presets** <br/><sub>Ships in `v0.1.0-alpha.2`</sub> | Settings → Signing Presets · Home → Presets · App details and Sign → Recommended Preset · Library selection → Sign with Preset · Import Hub → Ready to Sign | Reusable templates store a certificate fingerprint, a profile reference, team, entitlements slot, verification preference, and export behavior — not a key, a password, or profile bytes. Matching recommends; it does not sign. Confirming, after the app lock, enqueues compatible apps on the Signing Queue. See `docs/architecture/signing-presets.md` |
-| **Repository browser** <br/><sub>Ships in `v0.1.0-alpha.3`</sub> | `App Store` (`AppStoreView`) AltSource feed, Featured + All, add/remove sources | **Health** `Fast` (<800 ms) / `Slow` (<3000 ms) / `Offline` (`RepositoryHealthProbe` 3 s, JSON validation, `ZStatusBadge` + `Check Health`) |
+| **Store Browser & Sources** <br/><sub>Step 21 implementation; native acceptance pending</sub> | Settings → Browse → Store → Sources / Updates / Download Jobs | Source-scoped catalog, validated AltSource-style manifests, cached metadata/artwork, category + typo-tolerant search, rich details/gallery/history, Healthy/Warning/Offline availability, explicit update-source selection, isolated managed transfers → Import Hub. [Scope and limits](docs/architecture/store-browser.md) |
 | **Downloads** <br/><sub>Ships in `v0.1.0-alpha.3`</sub> | `Downloads` (`DownloadsView`) `https` / `itms-services` / `manifest.plist` | **BackgroundURLSession** `com.zynsign.downloads` (resumeData, 600 s, retry ×3, checksum), `Pause`/`Resume`/`Cancel`, progress, survives backgrounding (foreground on Simulator) |
 | **Mission Control** <br/><sub>Ships in `v0.9.0-beta.1`</sub> | `Home` (`HomeView`) + `MissionControlService` | **Refresh Everything**: sources → library re-read → cache cleanup (`tmp` 24h + `Downloads` 500 MiB/7d) with report `Completed`/`Unavailable` + counts + ms |
 | **Design System** | `DesignSystem/` `ZCard/ZStatusBadge/ZSkeleton/ZProgressRing/ZToast/ZBottomSheet` + `DesignTokens` | ZDL v1.0, `Four-layer` `Presentation→Application→Domain←Platform` via `CompositionRoot` |
@@ -99,7 +99,7 @@ The `0.1.0` build is **not App Store** — install via sideloading, TestFlight (
 4. **Profiles** — `Profiles tab → Import` → pick `.mobileprovision` → the import summary shows what was read; cards list name, team, type, devices, expiry (Healthy / Expiring Soon ≤ 30 d / Expired) and a compatibility badge. Search, sort, filter, or open a profile for its General/Application/Distribution facts, five pre-sign checks, and diagnostics; `Refresh Validation` re-reads the stored file. `Use for Signing` pins a profile; opening an app's detail suggests the best match for its bundle ID and lets you override per app.
 5. **Sign** — `Library → ⋯ → Sign` → choose identity (ready) → choose `.mobileprovision` → entitlements auto-derived (`N from profile` + 8-key preview) → `DER 0x20400` toggle as needed → `Sign Application` → `ZProgressRing` + `ZSigningStatusMachine` + Live Activity → `Documents/Signed/*_signed.ipa` `Share` (or `Open in Files`). Failure shows `Refused at <stage>:` + `category`, no container delivered.
 6. **Deliver** — `Sign → Deliver…` → enter the HTTPS address where you will host the signed IPA → ZynSign builds the `manifest.plist`, the `itms-services://…` install link, and a QR → publish both files on your host (or use MDM / Finder-Apple Configurator) → the device installs on user confirmation. ZynSign never uploads or claims an install.
-7. **App Store / Downloads / Home** — `Settings → Browse → App Store` add AltSource `https://…/apps.json` → see `Fast/Slow/Offline`; `Get` → `Settings → Browse → Downloads` (pause/resume); `Home → Refresh Everything` for one-tap maintenance. `Settings → Analytics` shows the on-device activity journal — clearable, exportable, never transmitted.
+7. **Store / Downloads / Home** — `Settings → Browse → Store` → Sources → Add Source. Browse enabled repositories, view details, and choose a preferred update source. Store jobs stay isolated until you import them; pause is live-session only. The Downloads tab is the Download Center: files are validated before import, and resume is offered only when resume data was captured. `Home → Refresh Everything` refreshes sources and checks the library. `Settings → Analytics` shows the on-device activity journal — clearable, exportable, never transmitted. See the [Step 21 verification checklist](docs/testing/store-browser.md).
 
 ---
 
@@ -195,6 +195,15 @@ No app claims to install arbitrary IPAs on stock iOS. ZynSign is explicit:
 - **Analytics** — none. No Kit, no SDK, no endpoint, no identifier.
 
 If a screen claims one of those as working, the screen is wrong — file an issue with the exact `ZynSignError` code.
+
+Full anti-roadmap: [`docs/product/WHAT_DOES_NOT_EXIST.md`](docs/product/WHAT_DOES_NOT_EXIST.md) · Installability: [`docs/architecture/installation-compatibility.md`](docs/architecture/installation-compatibility.md) · External validation: [`docs/architecture/external-validation.md`](docs/architecture/external-validation.md)
+
+---
+
+## License
+
+[MIT](LICENSE) — original software, written from scratch. See [`CONTRIBUTING.md`](CONTRIBUTING.md) originality clause and [`docs/product/UNIQUE_VALUE_PROPOSITION.md`](docs/product/UNIQUE_VALUE_PROPOSITION.md).
+of those as working, the screen is wrong — file an issue with the exact `ZynSignError` code.
 
 Full anti-roadmap: [`docs/product/WHAT_DOES_NOT_EXIST.md`](docs/product/WHAT_DOES_NOT_EXIST.md) · Installability: [`docs/architecture/installation-compatibility.md`](docs/architecture/installation-compatibility.md) · External validation: [`docs/architecture/external-validation.md`](docs/architecture/external-validation.md)
 

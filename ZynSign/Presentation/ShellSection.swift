@@ -39,7 +39,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
         case .profiles: return "Profiles"
         case .settings: return "Settings"
         case .files: return "Files"
-        case .appStore: return "App Store"
+        case .appStore: return "Store"
         case .downloads: return "Downloads"
         case .presets: return "Presets"
         case .install: return "Install"
@@ -59,7 +59,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
         case .downloads: return "arrow.down.circle.fill"
         case .presets: return "rectangle.stack.fill"
         case .install: return "arrow.down.app.fill"
-        }
+    }
     }
 
     /// The symbol for the unselected state (used where a filled variant is too heavy).
@@ -99,7 +99,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
         case .appStore:
             return "Discover and download applications from your configured sources."
         case .downloads:
-            return "Download packages from URLs, track progress, and import them into the library when finished."
+            return "Download packages, validate them before import, and review updates from configured sources."
         case .presets:
             return "Reusable signing presets — certificate and profile references, options, and live compatibility. Presets do not store secrets."
         case .install:
