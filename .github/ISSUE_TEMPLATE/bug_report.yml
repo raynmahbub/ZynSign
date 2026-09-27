@@ -5,6 +5,13 @@ body:
   - type: markdown
     attributes:
       value: |
+        <div align="center">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/raynmahbub/ZynSign/main/Assets/Brand/Logo/logo-lockup-dark.svg">
+          <img src="https://raw.githubusercontent.com/raynmahbub/ZynSign/main/Assets/Brand/Logo/logo-lockup.svg" alt="ZynSign" width="360">
+        </picture>
+        </div>
+
         Do not include passwords, private keys, certificates containing sensitive material, provisioning profiles containing sensitive information, authentication tokens, or other secrets. Redact sensitive values before posting.
         If this is a security vulnerability, do not open a public issue. Follow the private reporting process in [`SECURITY.md`](https://github.com/raynmahbub/ZynSign/blob/main/SECURITY.md).
 

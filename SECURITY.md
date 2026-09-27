@@ -1,3 +1,12 @@
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="Assets/Brand/Banner/banner-dark.svg">
+  <img src="Assets/Brand/Banner/banner-light.svg" alt="ZynSign — professional iOS sideloading platform" width="100%">
+</picture>
+
+</div>
+
 # Security Policy
 
 ZynSign is intended to work with signing material and user data. This document

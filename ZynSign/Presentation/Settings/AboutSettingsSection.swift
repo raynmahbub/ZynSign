@@ -95,33 +95,14 @@ struct AboutSettingsSection: View {
     }
 }
 
-// MARK: - App mark
+// MARK: - Brand mark
 
-/// ZynSign's own mark.
-///
-/// This is the application's mark, drawn from the design system's own tokens —
-/// not an extracted icon from a package, and not a claim about the icon the
-/// system shows on the Home Screen.
-struct ZynSignAppMark: View {
-
-    var size: CGFloat = 60
-
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.2237, style: .continuous)
-                .fill(LinearGradient(
-                    colors: [Color.accentColor, Color.accentColor.opacity(0.65)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ))
-            Image(systemName: "signature")
-                .font(.system(size: size * 0.42, weight: .semibold))
-                .foregroundStyle(.white)
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
-    }
-}
+// `ZynSignAppMark` is the canonical brand mark. Its declaration lives in
+// `Presentation/DesignSystem/Brand/ZynSignMark.swift`, which renders the
+// authentic pen (indigo tile, white diagonal nib + swash) from the master geometry
+// in `Assets/Brand/Logo/logo-mark.svg` and `PenMark` in the catalog. Re-exports
+// and local definitions are intentionally not duplicated here so every appearance
+// stays in one artwork.
 
 // MARK: - Documents
 

@@ -1,3 +1,12 @@
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="Assets/Brand/Banner/banner-dark.svg">
+  <img src="Assets/Brand/Banner/banner-light.svg" alt="ZynSign — professional iOS sideloading platform" width="100%">
+</picture>
+
+</div>
+
 # Contributing to ZynSign
 
 ZynSign is independently developed, written from scratch, and not a fork or derivative of any other project. All contributions must be original work; do not submit code copied from another application, binary teardown, or third-party repository. By contributing you affirm you are the author of your contribution and license it under the MIT License.
