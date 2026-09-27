@@ -11,16 +11,36 @@ import SwiftUI
 /// the SwiftUI environment, because the shell builds the Settings Control
 /// Center and the lock over it: one environment, one settings model, one
 /// lock — the same objects the rest of the interface reads.
+///
+/// The launch splash — `ZynSplashView` (Liquid Glass Z+pen) — is shown once
+/// per cold launch over `RootView` until its 1.9s fluid timeline completes
+/// (tap skips). It is the same Liquid Glass mark used everywhere else, animated
+/// with spring + shimmer + haptics, and respects Reduce Motion.
 @main
 struct ZynSignApp: App {
 
     @State
     private var environment: ApplicationEnvironment = CompositionRoot.makeApplicationEnvironment()
 
+    @State
+    private var showSplash = true
+
     var body: some Scene {
         WindowGroup {
-            RootView(environment: environment)
-                .environment(\.applicationEnvironment, environment)
+            ZStack {
+                RootView(environment: environment)
+                    .environment(\.applicationEnvironment, environment)
+
+                if showSplash {
+                    ZynSplashView {
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.86)) {
+                            showSplash = false
+                        }
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .zIndex(1)
+                }
+            }
         }
         .commands {
             ImportCommands()
