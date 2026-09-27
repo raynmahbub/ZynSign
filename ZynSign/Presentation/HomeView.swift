@@ -119,12 +119,7 @@ struct HomeView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityAddTraits(.isHeader)
             HStack(spacing: ZSpacing.sm) {
-                Image(systemName: "signature")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-                    .background(Color.accentColor)
-                    .clipShape(RoundedRectangle(cornerRadius: ZRadius.sm, style: .continuous))
+                ZynSignMark(size: 40)
                 VStack(alignment: .leading, spacing: 0) {
                     Text("ZynSign")
                         .font(.headline)
