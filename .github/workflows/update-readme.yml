@@ -11,7 +11,7 @@
 # features" automation the first public dev needs.
 #
 # Manual: python3 Scripts/update_readme.py --check  (CI) / --write (fix)
-name: README
+name: README Hygiene
 
 on:
   push:
@@ -35,6 +35,12 @@ on:
 permissions:
   contents: write
   pull-requests: write
+
+# The fixer commits to the branch that triggered it; two concurrent fixes
+# would race on the same index.
+concurrency:
+  group: readme-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   readme:

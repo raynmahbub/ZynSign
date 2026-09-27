@@ -11,6 +11,17 @@ on:
     branches: ["**"]
   pull_request:
 
+# Hygiene, build, and test jobs only read; the hardening report and the
+# external-validation artifacts are the workflow's only outputs. Superseded
+# pushes to the same branch are cancelled — the newest commit is the one
+# whose verdict matters.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   hygiene:
     name: Repository hygiene
