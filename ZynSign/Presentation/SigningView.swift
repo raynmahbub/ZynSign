@@ -220,8 +220,8 @@ struct SigningView: View {
             if new == .signed {
                 ZHaptics.success()
                 rememberSelections()
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) { successScale = 1.08 }
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.9).delay(0.18)) { successScale = 1 }
+                withAnimation(ZMotion.interactive) { successScale = 1.08 }
+                withAnimation(ZMotion.interactive?.delay(0.18)) { successScale = 1 }
                 showSuccessToast = true
             } else {
                 ZHaptics.warning()
@@ -646,7 +646,7 @@ struct SigningView: View {
         env.signingQueue.enqueue(submission, priority: .normal, origin: .signingScreen)
         env.recordAnalyticsEvent(category: .signing, name: "queue.job.enqueued", succeeded: true)
         ZHaptics.tap()
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { showQueuedToast = true }
+        withAnimation(ZMotion.interactive) { showQueuedToast = true }
     }
 
     private var whyDisabled: String {
@@ -1033,6 +1033,9 @@ struct SigningView: View {
     /// A forced local scan must finish for precisely the current selection
     /// before the engine receives its authenticated profile claims.
     @MainActor private func startSigning() {
+        // Nova: the workspace's "Continue Last Session" card points back here.
+        env.smartWorkspace?.noteSession(.signing, recordID: entry.record.id.rawValue, displayName: entry.record.displayName)
+        ZHaptics.play(.sign)
         guard canSign else { return }
         isPreparingToSign = true
         preflightError = nil

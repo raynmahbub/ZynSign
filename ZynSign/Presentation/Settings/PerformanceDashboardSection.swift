@@ -53,7 +53,7 @@ struct PerformanceDashboardSection: View {
                 messageBanner(message)
             }
         }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.message)
+        .animation(ZMotion.fast, value: model.message)
     }
 
     // MARK: - Sections

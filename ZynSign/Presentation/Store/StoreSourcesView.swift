@@ -29,7 +29,7 @@ struct StoreSourcesView: View {
                 Section {
                     NavigationLink { StoreSourceDetailView(id: source.id, model: model) } label: {
                         HStack(alignment: .top, spacing: 12) {
-                            StoreArtwork(url: source.iconURL, symbol: "globe").frame(width: 48, height: 48).clipShape(RoundedRectangle(cornerRadius: 12))
+                            StoreArtwork(url: source.iconURL, symbol: "globe").frame(width: 48, height: 48).clipShape(RoundedRectangle(cornerRadius: ZRadius.appIcon(side: 48), style: .continuous))
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(source.name).font(.headline)
                                 Text("\(source.apps.count) apps").font(.caption)
@@ -95,7 +95,7 @@ struct StoreSourceDetailView: View {
         List {
             if let source = model.snapshot.sources.first(where: { $0.id == id }) {
                 Section {
-                    StoreArtwork(url: source.iconURL, symbol: "globe").frame(width: 80, height: 80).clipShape(RoundedRectangle(cornerRadius: 18))
+                    StoreArtwork(url: source.iconURL, symbol: "globe").frame(width: 80, height: 80).clipShape(RoundedRectangle(cornerRadius: ZRadius.appIcon(side: 80), style: .continuous))
                     Text(source.name).font(.title.bold())
                     StoreHealthBadge(source: source)
                     Text(source.summary ?? "No source description supplied.")

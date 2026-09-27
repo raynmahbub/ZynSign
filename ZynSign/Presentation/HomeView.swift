@@ -52,25 +52,57 @@ struct HomeView: View {
         settings.preferences.general.onboardingCompleted
     }
 
+    /// The Smart Workspace, when the train exposes it and the composition
+    /// root built it. Either condition failing shows the classic dashboard.
+    private var smartWorkspace: SmartWorkspaceService? {
+        guard ReleaseTrain.isAvailable(.smartWorkspace) else { return nil }
+        return environment.smartWorkspace
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: ZSpacing.lg) {
-                    welcomeHeader
-                    ImportHubStatusBanner(hub: environment.importHub) {
-                        importPresentation.present()
-                    }
-                    ReleaseReadinessLink()
-                    quickActions
-                    if onboardingNeeded {
-                        onboardingCard
-                    }
-                    statisticsCard
-                    if showsFavorites {
-                        favoritesCard
-                    }
-                    if !entries.isEmpty {
-                        recentlyImportedCard
+                    if let workspace = smartWorkspace {
+                        // Nova: the Smart Workspace replaces the welcome
+                        // header, statistics, and recent list with its
+                        // usage-ordered widgets. Import, onboarding, and
+                        // quick actions stay exactly where they were.
+                        SmartWorkspaceView(
+                            service: workspace,
+                            entries: entries,
+                            onOpenSection: onOpenSection,
+                            onOpenSigningQueue: { signingQueuePresentation.present() },
+                            onOpenInstallation: { showInstallationWorkspace = true }
+                        )
+                        ImportHubStatusBanner(hub: environment.importHub) {
+                            importPresentation.present()
+                        }
+                        ReleaseReadinessLink()
+                        quickActions
+                        if onboardingNeeded {
+                            onboardingCard
+                        }
+                        if showsFavorites {
+                            favoritesCard
+                        }
+                    } else {
+                        welcomeHeader
+                        ImportHubStatusBanner(hub: environment.importHub) {
+                            importPresentation.present()
+                        }
+                        ReleaseReadinessLink()
+                        quickActions
+                        if onboardingNeeded {
+                            onboardingCard
+                        }
+                        statisticsCard
+                        if showsFavorites {
+                            favoritesCard
+                        }
+                        if !entries.isEmpty {
+                            recentlyImportedCard
+                        }
                     }
                     if ReleaseTrain.isAvailable(.missionControl) {
                         missionControlCard
@@ -660,7 +692,8 @@ private struct FavoriteApplicationTile: View {
 
 /// One recently imported application: icon, name, declared version, and how
 /// long ago it arrived.
-private struct RecentApplicationRow: View {
+/// One recently imported application. Shared with the Smart Workspace.
+struct RecentApplicationRow: View {
     let entry: LibraryEntry
 
     var body: some View {

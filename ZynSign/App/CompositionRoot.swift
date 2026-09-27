@@ -131,6 +131,18 @@ enum CompositionRoot {
             history: history
         )
         environment.libraryOrganizer = makeLibraryOrganizer()
+        // Nova: the Smart Workspace reads the identity store, the profile
+        // library, the application library, and the signing history the
+        // tabs already read; only its own small state file is new.
+        environment.smartWorkspace = SmartWorkspaceService(
+            identityStore: identityStore,
+            profiles: profiles,
+            library: library,
+            signingHistory: history,
+            state: FileWorkspaceStateStore(
+                documentLocation: libraryRootDirectory.appendingPathComponent("SmartWorkspace.json")
+            )
+        )
         environment.applicationProvenance = makeApplicationProvenanceExtraction()
         environment.libraryExport = makeLibraryExportPreparation()
         environment.droppedFiles = droppedFiles

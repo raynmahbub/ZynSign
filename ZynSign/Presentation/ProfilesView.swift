@@ -404,7 +404,7 @@ struct ProfilesView: View {
     private var layoutToggle: some View {
         Button {
             ZHaptics.tap()
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(ZMotion.fast) {
                 showsGrid.toggle()
             }
         } label: {

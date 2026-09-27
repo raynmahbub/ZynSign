@@ -45,7 +45,7 @@ struct ImportHistoryView: View {
                     .accessibilityElement(children: .combine)
                     .contextMenu {
                         Button(role: .destructive) {
-                            withAnimation(.snappy) { hub.removeHistoryEntry(entry.id) }
+                            withAnimation(ZMotion.fast) { hub.removeHistoryEntry(entry.id) }
                         } label: {
                             Label("Remove from History", systemImage: "trash")
                         }
@@ -64,7 +64,7 @@ struct ImportHistoryView: View {
         }
         .confirmationDialog("Clear Import History?", isPresented: $isConfirmingClear, titleVisibility: .visible) {
             Button("Clear History", role: .destructive) {
-                withAnimation(.snappy) { hub.clearHistory() }
+                withAnimation(ZMotion.fast) { hub.clearHistory() }
             }
         } message: {
             Text("Only the history is removed. Imported apps stay in the library.")

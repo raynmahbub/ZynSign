@@ -2,7 +2,9 @@ import Foundation
 import SwiftUI
 
 /// ZynSign design tokens — the single source of truth for spacing, radii,
-/// shadows, typography, colors, and motion across the entire application.
+/// shadows, typography and colors across the entire application. Motion is
+/// `ZMotion`, haptics are `ZHaptics` (below); both resolve the user's
+/// preferences in one place.
 ///
 /// Every screen uses these unified tokens to ensure consistent rhythm,
 /// comfortable touch targets, elegant dark mode contrast, and responsive
@@ -45,6 +47,13 @@ enum ZynSignTokens {
         static let xl: CGFloat = 24
         /// Full capsule / circular pill.
         static let pill: CGFloat = 999
+
+        /// The corner of an app-icon artwork at a given side length — the
+        /// iOS icon ratio (22.37 %), so a 56 pt icon gets 12.5 pt and a
+        /// 100 pt icon 22 pt, exactly like the home screen.
+        static func appIcon(side: CGFloat) -> CGFloat {
+            (side * 0.2237).rounded()
+        }
     }
 
     /// Elevation shadows — calibrated for subtle depth in light and dark mode.
@@ -102,14 +111,11 @@ enum ZynSignTokens {
         static let codeCaption: Font = .system(.caption, design: .monospaced)
     }
 
-    /// Unified animation curves.
-    enum Motion {
-        static let standard = Animation.spring(response: 0.35, dampingFraction: 0.8)
-        static let snappy = Animation.spring(response: 0.25, dampingFraction: 0.75)
-        static let gentle = Animation.easeInOut(duration: 0.3)
-        static let cardExpand = Animation.spring(response: 0.4, dampingFraction: 0.82)
-    }
 }
+
+// Motion lives in ZMotion.swift: one policy (Reduce Motion + the animation
+// preference) resolves the four presets for the environment and for static
+// call sites alike.
 
 // Convenience aliases that match ZSpacing-style naming across the app.
 typealias ZSpacing = ZynSignTokens.Spacing
@@ -117,7 +123,6 @@ typealias ZRadius = ZynSignTokens.Radius
 typealias ZShadow = ZynSignTokens.Shadow
 typealias ZColors = ZynSignTokens.Color
 typealias ZTypography = ZynSignTokens.Typography
-typealias ZAnimation = ZynSignTokens.Motion
 
 // MARK: - View helpers
 
@@ -203,5 +208,35 @@ enum ZHaptics {
 #if os(iOS)
         UIImpactFeedbackGenerator(style: style).impactOccurred()
 #endif
+    }
+
+    // MARK: - Haptic language
+
+    /// The vocabulary. Screens name the *moment*, not the generator, so
+    /// every import feels like an import and every sign like a sign.
+    ///
+    /// | Moment | Feedback |
+    /// |---|---|
+    /// | `imported` | light impact — something small arrived |
+    /// | `sign` | medium impact — the user committed to work |
+    /// | `succeeded` | notification success |
+    /// | `failed` | notification error |
+    /// | `attention` | notification warning — a refusal, not a crash |
+    /// | `select` | selection change — pickers, segmented controls |
+    /// | `navigate` | light impact — opening a section |
+    enum Moment: Sendable {
+        case imported, sign, succeeded, failed, attention, select, navigate
+    }
+
+    /// Play the feedback for a moment. Honours the haptics preference.
+    static func play(_ moment: Moment) {
+        switch moment {
+        case .imported, .navigate: tap()
+        case .sign: impact(.medium)
+        case .succeeded: success()
+        case .failed: error()
+        case .attention: warning()
+        case .select: selection()
+        }
     }
 }

@@ -73,7 +73,7 @@ struct ApplicationIconView: View {
             if reduceMotion {
                 image = loaded
             } else {
-                withAnimation(.easeOut(duration: 0.15)) { image = loaded }
+                withAnimation(ZMotion.fast) { image = loaded }
             }
         }
     }

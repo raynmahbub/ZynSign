@@ -2,7 +2,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="Assets/Brand/Banner/banner-dark.svg">
-  <img src="Assets/Brand/Banner/banner-light.svg" alt="ZynSign — professional iOS sideloading platform" width="100%">
+  <img src="Assets/Brand/Banner/banner-light.svg" alt="ZynSign — on-device iOS signing, made Apple-quality" width="100%">
 </picture>
 
 </div>

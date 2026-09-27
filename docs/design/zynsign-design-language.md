@@ -38,15 +38,23 @@ Typography: `ZynSignTokens.Typography` — `cardTitle .headline`, `footnoteSecon
 
 ## 3. Animation & Haptics
 
-| Interaction | Animation | Haptic |
-|---|---|---|
-| Tap | `spring(response: 0.3, dampingFraction: 0.8)` | `ZHaptics.tap()` / `.sensoryFeedback(.impact(weight: .light))` |
-| Sheet | `interactive` (SwiftUI default) | none |
-| Toast | `spring + slide` 0.35s | `success` / `warning` |
-| Success | scale 1.02 → 1.0, 0.2s | `UINotification(.success)` |
-| Card press | `scaleEffect(0.98)` | light |
+Motion is `ZMotion` — one policy (system Reduce Motion + the in-app
+animation preference) resolved in `RootView` and read either from the
+environment (`@Environment(\.zMotion)`) or statically (`ZMotion.fast`), both
+returning `nil` when animation is off. Call sites never write a duration.
 
-`ZHaptics` is stateless; never retain a generator.
+| Preset | Curve | Use |
+|---|---|---|
+| `fast` | ease-out 200 ms | Content replacing content, a row toggling, a chip, list reorders |
+| `standard` | ease-in-out 300 ms | A state change the user caused |
+| `interactive` | spring 350 ms / 0.80 | Things that follow a finger or settle after a tap; toasts |
+| `relaxed` | spring 450 ms / 0.82 | The ribbon drawing itself, a success tick, a ring filling |
+| `fade` | opacity transition | Rows appearing in a list — never an offset per row |
+
+Haptics are `ZHaptics.play(_:)`: `imported` light · `select` selection ·
+`sign` medium · `succeeded` success · `attention` warning · `failed` error ·
+`navigate` light. `ZHaptics` is stateless; never retain a generator. Details
+and the reasoning: [brand/Motion.md](brand/Motion.md).
 
 ## 4. Components — `Presentation/DesignSystem/Components/`
 

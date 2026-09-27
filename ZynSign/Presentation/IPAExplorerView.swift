@@ -258,7 +258,7 @@ struct IPAExplorerScreen: View {
 
     private func showMoreButton(parent: ExplorerNodeID, hidden: Int) -> some View {
         Button {
-            withAnimation(.smooth(duration: 0.22)) {
+            withAnimation(ZMotion.fast) {
                 let current = windows[parent] ?? ExplorerTreeProjection.pageSize
                 windows[parent] = current + ExplorerTreeProjection.pageSize
             }
@@ -375,7 +375,7 @@ struct IPAExplorerScreen: View {
     }
 
     private func toggle(_ id: ExplorerNodeID) {
-        withAnimation(.smooth(duration: 0.22)) {
+        withAnimation(ZMotion.fast) {
             if expanded.contains(id) {
                 expanded.remove(id)
             } else {
@@ -385,7 +385,7 @@ struct IPAExplorerScreen: View {
     }
 
     private func openDetail(_ node: ExplorerNodeID) {
-        withAnimation(.smooth(duration: 0.22)) {
+        withAnimation(ZMotion.fast) {
             expanded = ExplorerTreeProjection.revealedExpansion(of: node, existing: expanded)
             if let (parent, count) = ExplorerTreeProjection.windowNeeded(toShow: node, contents: contents) {
                 windows[parent] = max(windows[parent] ?? 0, count)
@@ -398,7 +398,7 @@ struct IPAExplorerScreen: View {
     }
 
     private func reveal(_ node: ExplorerNodeID, returnToTree: Bool) {
-        withAnimation(.smooth(duration: 0.22)) {
+        withAnimation(ZMotion.fast) {
             expanded = ExplorerTreeProjection.revealedExpansion(of: node, existing: expanded)
             if let (parent, count) = ExplorerTreeProjection.windowNeeded(toShow: node, contents: contents) {
                 windows[parent] = max(windows[parent] ?? 0, count)
@@ -415,7 +415,7 @@ struct IPAExplorerScreen: View {
     private func copy(_ text: String, message: String) {
         UIPasteboard.general.string = text
         copiedMessage = message
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(ZMotion.interactive) {
             showCopiedToast = true
         }
     }

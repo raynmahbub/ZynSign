@@ -15,6 +15,8 @@ struct ZEmptyState: View {
     let primaryAction: (() -> Void)?
     let secondaryActionTitle: String?
     let secondaryAction: (() -> Void)?
+    /// A bespoke line-art drawing; when set it replaces the symbol disc.
+    let lineArt: ZEmptyIllustration?
 
     init(
         title: String,
@@ -25,7 +27,8 @@ struct ZEmptyState: View {
         primaryActionTitle: String? = nil,
         primaryAction: (() -> Void)? = nil,
         secondaryActionTitle: String? = nil,
-        secondaryAction: (() -> Void)? = nil
+        secondaryAction: (() -> Void)? = nil,
+        lineArt: ZEmptyIllustration? = nil
     ) {
         self.title = title
         self.message = message
@@ -36,6 +39,7 @@ struct ZEmptyState: View {
         self.primaryAction = primaryAction
         self.secondaryActionTitle = secondaryActionTitle
         self.secondaryAction = secondaryAction
+        self.lineArt = lineArt
     }
 
     var body: some View {
@@ -94,7 +98,18 @@ struct ZEmptyState: View {
 
     // MARK: - Layered illustration
 
+    @ViewBuilder
     private var illustration: some View {
+        if let lineArt {
+            lineArt.view(size: 112, tint: tint)
+                .padding(ZSpacing.sm)
+                .zynSoftShadow(ZShadow.subtle)
+        } else {
+            symbolIllustration
+        }
+    }
+
+    private var symbolIllustration: some View {
         ZStack {
             // Outer glow ring
             Circle()
@@ -141,7 +156,8 @@ extension ZEmptyState {
             tint: .blue,
             badgeSymbol: "plus",
             primaryActionTitle: "Import Package…",
-            primaryAction: action
+            primaryAction: action,
+            lineArt: .noApps
         )
     }
 
@@ -154,7 +170,8 @@ extension ZEmptyState {
             tint: .purple,
             badgeSymbol: "key.fill",
             primaryActionTitle: "Import Certificate",
-            primaryAction: action
+            primaryAction: action,
+            lineArt: .noCertificates
         )
     }
 
@@ -180,7 +197,8 @@ extension ZEmptyState {
             tint: .teal,
             badgeSymbol: "link",
             primaryActionTitle: "Add Download URL",
-            primaryAction: action
+            primaryAction: action,
+            lineArt: .noDownloads
         )
     }
 
@@ -258,7 +276,8 @@ extension ZEmptyState {
             tint: .blue,
             badgeSymbol: "plus",
             primaryActionTitle: "Add AltSource Feed",
-            primaryAction: action
+            primaryAction: action,
+            lineArt: .noSources
         )
     }
 

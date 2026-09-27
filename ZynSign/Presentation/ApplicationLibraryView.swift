@@ -552,7 +552,7 @@ struct ApplicationLibraryView: View {
         guard !signable.isEmpty else { return }
         ZHaptics.tap()
         if model.isSelecting {
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withAnimation(ZMotion.fast) {
                 model.setSelecting(false)
             }
         }
@@ -755,7 +755,7 @@ struct ApplicationLibraryView: View {
     }
 
     private func selectScope(_ scope: LibraryScope) {
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(ZMotion.fast) {
             model.scope = scope
         }
         LibraryAnnouncer.announce("\(model.scopeTitle ?? "All Apps"), \(ApplicationLibraryModel.applicationCount(model.visibleIDs.count))")
@@ -916,7 +916,7 @@ struct ApplicationLibraryView: View {
     private var layoutToggle: some View {
         Button {
             ZHaptics.tap()
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(ZMotion.fast) {
                 showsGrid.toggle()
             }
         } label: {
@@ -953,7 +953,7 @@ struct ApplicationLibraryView: View {
     private func toggleSelectionMode() {
         ZHaptics.tap()
         let selecting = !model.isSelecting
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(ZMotion.fast) {
             model.setSelecting(selecting)
         }
         LibraryAnnouncer.announce(selecting ? "Selection mode. Choose apps to act on." : "Selection mode ended")
@@ -961,14 +961,14 @@ struct ApplicationLibraryView: View {
 
     private func toggleSelection(_ id: ApplicationRecordIdentifier) {
         ZHaptics.tap()
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(ZMotion.fast) {
             model.toggleSelection(id)
         }
     }
 
     private func toggleSelectAll() {
         ZHaptics.tap()
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(ZMotion.fast) {
             if model.isEverythingSelected {
                 model.deselectAll()
             } else {
@@ -1427,9 +1427,9 @@ struct LibrarySkeletonRow: View {
                 .fill(Color(.tertiarySystemFill))
                 .frame(width: 52, height: 52)
             VStack(alignment: .leading, spacing: ZSpacing.xxs) {
-                RoundedRectangle(cornerRadius: 3).fill(Color(.tertiarySystemFill)).frame(height: 14)
-                RoundedRectangle(cornerRadius: 3).fill(Color(.tertiarySystemFill)).frame(height: 10).padding(.trailing, 60)
-                RoundedRectangle(cornerRadius: 3).fill(Color(.tertiarySystemFill)).frame(height: 10).padding(.trailing, 120)
+                RoundedRectangle(cornerRadius: ZRadius.xs).fill(Color(.tertiarySystemFill)).frame(height: 14)
+                RoundedRectangle(cornerRadius: ZRadius.xs).fill(Color(.tertiarySystemFill)).frame(height: 10).padding(.trailing, 60)
+                RoundedRectangle(cornerRadius: ZRadius.xs).fill(Color(.tertiarySystemFill)).frame(height: 10).padding(.trailing, 120)
             }
             Spacer()
         }

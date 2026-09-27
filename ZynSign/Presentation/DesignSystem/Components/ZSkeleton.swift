@@ -22,6 +22,10 @@ struct ZSkeleton: View {
         }
         .redacted(reason: .placeholder)
         .onAppear {
+            // The shimmer is decoration: it stays still under Reduce Motion
+            // and the "Off" animation preference, and never runs per row in a
+            // long list (the library uses its static `LibrarySkeletonRow`).
+            guard ZMotion.permitsAnimationGlobally else { return }
             withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {
                 phase = 1
             }
@@ -68,6 +72,10 @@ struct ZSkeletonAppRow: View {
         .overlay { shimmer }
         .redacted(reason: .placeholder)
         .onAppear {
+            // The shimmer is decoration: it stays still under Reduce Motion
+            // and the "Off" animation preference, and never runs per row in a
+            // long list (the library uses its static `LibrarySkeletonRow`).
+            guard ZMotion.permitsAnimationGlobally else { return }
             withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {
                 phase = 1
             }
@@ -114,6 +122,10 @@ struct ZSkeletonCertificateRow: View {
         .overlay { shimmer }
         .redacted(reason: .placeholder)
         .onAppear {
+            // The shimmer is decoration: it stays still under Reduce Motion
+            // and the "Off" animation preference, and never runs per row in a
+            // long list (the library uses its static `LibrarySkeletonRow`).
+            guard ZMotion.permitsAnimationGlobally else { return }
             withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {
                 phase = 1
             }
@@ -160,6 +172,10 @@ struct ZSkeletonProfileRow: View {
         .overlay { shimmer }
         .redacted(reason: .placeholder)
         .onAppear {
+            // The shimmer is decoration: it stays still under Reduce Motion
+            // and the "Off" animation preference, and never runs per row in a
+            // long list (the library uses its static `LibrarySkeletonRow`).
+            guard ZMotion.permitsAnimationGlobally else { return }
             withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {
                 phase = 1
             }

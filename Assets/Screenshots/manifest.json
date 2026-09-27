@@ -1,0 +1,7 @@
+[
+  {"file": "raw/01-workspace.png",   "headline": "One Workspace.",    "subtitle": "Continue where you left off. Sign in one tap."},
+  {"file": "raw/02-sign.png",        "headline": "Smart Sign.",       "subtitle": "Nine stages, on your device, verified independently."},
+  {"file": "raw/03-health.png",      "headline": "Install Health.",   "subtitle": "Know before you install. Nothing is assumed."},
+  {"file": "raw/04-certificates.png","headline": "Your Keys.\nYour Device.", "subtitle": "Keychain-bound identities that never leave the phone."},
+  {"file": "raw/05-library.png",     "headline": "Every App,\nInspected.", "subtitle": "Binaries, entitlements, resources — read-only, honest."}
+]

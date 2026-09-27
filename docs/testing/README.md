@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../Assets/Brand/Logo/logo-lockup-dark.svg">
+    <img src="../../Assets/Brand/Logo/logo-lockup.svg" alt="ZynSign" width="260">
+  </picture>
+</p>
+
 # Testing Documentation
 
 Testing strategy and practice for ZynSign will be recorded here.

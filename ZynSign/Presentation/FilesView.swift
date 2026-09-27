@@ -140,7 +140,7 @@ struct FilesView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .animation(.snappy, value: filtered)
+        .animation(ZMotion.fast, value: filtered)
     }
 
     private var emptyState: some View {

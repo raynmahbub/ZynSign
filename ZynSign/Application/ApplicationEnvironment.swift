@@ -247,6 +247,12 @@ struct ApplicationEnvironment {
     /// construction.
     var performanceEngine: PerformanceEngine? = nil
 
+    /// Nova: the Smart Workspace 3.0 use case — greeting, widget order,
+    /// last session, and the Nova Assistant's recommendations, read from
+    /// the same stores the tabs read. `nil` in compositions that do not
+    /// compose it (most tests); Home then shows the classic dashboard.
+    var smartWorkspace: SmartWorkspaceService? = nil
+
     /// Records one local activity event when the journal preference allows.
     ///
     /// This is the only recording path the presentation layer uses. It

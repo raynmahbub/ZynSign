@@ -12,7 +12,7 @@ import SwiftUI
 /// Center and the lock over it: one environment, one settings model, one
 /// lock — the same objects the rest of the interface reads.
 ///
-/// The launch splash — `ZynSplashView` (Liquid Glass Z+pen) — is shown once
+/// The launch splash — `ZynSplashView` (Liquid Glass Z·Pen) — is shown once
 /// per cold launch over `RootView` until its 1.9s fluid timeline completes
 /// (tap skips). It is the same Liquid Glass mark used everywhere else, animated
 /// with spring + shimmer + haptics, and respects Reduce Motion.

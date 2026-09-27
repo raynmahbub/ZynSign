@@ -265,6 +265,14 @@ struct ApplicationDetailView: View {
         .task { await model.load() }
         .task { await loadProfileSuggestion() }
         .task(id: entry.record.id.rawValue) { await analyzeHealth() }
+        .task(id: entry.record.id.rawValue) {
+            // Nova: remember what the user is looking at, for "Continue Last Session".
+            environment.smartWorkspace?.noteSession(
+                .inspecting,
+                recordID: entry.record.id.rawValue,
+                displayName: entry.record.displayName
+            )
+        }
         .task {
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(60)) } catch { break }
@@ -419,7 +427,7 @@ struct ApplicationDetailView: View {
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(Color.accentColor)
                         .frame(width: 40, height: 40)
-                        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: ZRadius.card))
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Signing Status")
@@ -1420,7 +1428,7 @@ private struct DetailSectionCard<Content: View>: View {
                 }
                 .contentShape(Rectangle())
             }
-            .animation(.snappy(duration: 0.28), value: isExpanded)
+            .animation(ZMotion.standard, value: isExpanded)
         }
     }
 }
@@ -1596,7 +1604,7 @@ private struct ComponentDisclosureList: View {
             }
         }
         .font(.subheadline.weight(.medium))
-        .animation(.snappy(duration: 0.25), value: components)
+        .animation(ZMotion.fast, value: components)
         .accessibilityHint("Expands to list detected \(title.lowercased()).")
     }
 }
@@ -1679,7 +1687,7 @@ private struct BundleTreeView: View {
                 .accessibilityLabel("Payload folder")
 
             Button {
-                withAnimation(.snappy(duration: 0.25)) { isRootExpanded.toggle() }
+                withAnimation(ZMotion.fast) { isRootExpanded.toggle() }
             } label: {
                 HStack(spacing: ZSpacing.xs) {
                     Image(systemName: isRootExpanded ? "chevron.down" : "chevron.right")
@@ -1753,7 +1761,7 @@ private struct BundleTreeEntryView: View {
         VStack(alignment: .leading, spacing: 2) {
             if entry.isDirectory {
                 Button {
-                    withAnimation(.snappy(duration: 0.22)) { isExpanded.toggle() }
+                    withAnimation(ZMotion.fast) { isExpanded.toggle() }
                 } label: {
                     entryLabel(isExpanded: isExpanded)
                 }

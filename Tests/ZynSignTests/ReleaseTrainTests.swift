@@ -15,6 +15,8 @@ final class ReleaseTrainTests: XCTestCase {
             "0.9.0-beta.1", "0.9.0-beta.2", "0.9.0-beta.3", "0.9.0-beta.4",
             "1.0.0-rc.1", "1.0.0-rc.2", "1.0.0-rc.3",
             "1.0.0",
+            "2.0.0",
+            "3.0.0-nova.1", "3.0.0",
         ])
     }
 
@@ -33,13 +35,17 @@ final class ReleaseTrainTests: XCTestCase {
         XCTAssertEqual(ReleaseStage.horizon.tag, "v0.1.0")
         XCTAssertEqual(ReleaseStage.alpha1.tag, "v0.1.0-alpha.1")
         XCTAssertEqual(ReleaseStage.stable.tag, "v1.0.0")
+        XCTAssertEqual(ReleaseStage.nova.tag, "v3.0.0")
+        XCTAssertEqual(ReleaseStage.nova1.marketingVersion, "3.0.0")
     }
 
     func testNextWalksTheTrainAndStopsAtStable() {
         XCTAssertEqual(ReleaseStage.horizon.next, .alpha1)
         XCTAssertEqual(ReleaseStage.alpha3.next, .beta1)
         XCTAssertEqual(ReleaseStage.rc3.next, .stable)
-        XCTAssertNil(ReleaseStage.stable.next)
+        XCTAssertEqual(ReleaseStage.stable.next, .professional)
+        XCTAssertEqual(ReleaseStage.professional.next, .nova1)
+        XCTAssertNil(ReleaseStage.nova.next)
     }
 
     func testStagesCanBeFoundByNameOrVersion() {
@@ -47,6 +53,7 @@ final class ReleaseTrainTests: XCTestCase {
         XCTAssertEqual(ReleaseStage(identifier: "0.1.0-alpha.2"), .alpha2)
         XCTAssertEqual(ReleaseStage(identifier: "v0.1.0-alpha.2"), .alpha2)
         XCTAssertEqual(ReleaseStage(identifier: " v1.0.0 "), .stable)
+        XCTAssertEqual(ReleaseStage(identifier: "3.0.0-nova.1"), .nova1)
         XCTAssertNil(ReleaseStage(identifier: "0.2.0-dev"))
     }
 
@@ -81,8 +88,13 @@ final class ReleaseTrainTests: XCTestCase {
         )
         XCTAssertFalse(ReleaseStage.beta1.introducedFeatures.contains(.signingPresets))
         XCTAssertFalse(ReleaseStage.beta1.features.contains(.batchSigning), "Batch signing ships in beta 3")
-        XCTAssertEqual(ReleaseStage.beta3.features, Set(ReleaseFeature.allCases).subtracting([.signingHealthScore]))
-        XCTAssertEqual(ReleaseStage.stable.features, Set(ReleaseFeature.allCases))
+        XCTAssertEqual(
+            ReleaseStage.beta3.features,
+            Set(ReleaseFeature.allCases).subtracting([.signingHealthScore, .smartWorkspace, .novaAssistant])
+        )
+        XCTAssertEqual(ReleaseStage.stable.features, Set(ReleaseFeature.allCases).subtracting(ReleaseFeature.nova))
+        XCTAssertEqual(ReleaseStage.professional.features, ReleaseStage.stable.features, "2.0 adds depth, not gates")
+        XCTAssertEqual(ReleaseStage.nova.features, Set(ReleaseFeature.allCases))
     }
 
     func testTheSigningQueueShipsWithSmartSignInAlpha2() {
@@ -116,8 +128,23 @@ final class ReleaseTrainTests: XCTestCase {
         XCTAssertEqual(ReleaseFeature.installationWorkspace.displayName, "Installation Workspace")
     }
 
+    func testMissionControlHomeShipsInReleaseCandidateTwo() {
+        XCTAssertTrue(ReleaseStage.rc2.introducedFeatures.contains(.smartWorkspace))
+        XCTAssertFalse(ReleaseStage.rc1.features.contains(.smartWorkspace))
+        XCTAssertTrue(ReleaseStage.stable.features.contains(.smartWorkspace))
+        XCTAssertEqual(ReleaseFeature.smartWorkspace.prerequisites, [.missionControl, .identityCenter])
+        XCTAssertEqual(ReleaseFeature.smartWorkspace.displayName, "Smart Workspace")
+    }
+
+    func testNovaShipsAfterOnePointZero() {
+        XCTAssertFalse(ReleaseStage.stable.features.contains(.novaAssistant))
+        XCTAssertTrue(ReleaseStage.nova1.introducedFeatures.contains(.novaAssistant))
+        XCTAssertTrue(ReleaseStage.nova.features.contains(.novaAssistant))
+        XCTAssertEqual(ReleaseFeature.novaAssistant.prerequisites, [.smartWorkspace])
+    }
+
     func testFeatureCompleteFromTheFinalRelease() {
-        for stage in ReleaseStage.allCases where stage >= .stable {
+        for stage in ReleaseStage.allCases where stage >= .nova1 {
             XCTAssertEqual(stage.features, Set(ReleaseFeature.allCases), "\(stage) must be feature complete")
         }
     }

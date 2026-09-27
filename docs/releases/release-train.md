@@ -19,8 +19,13 @@ cherry-picks, and no deleted code to restore later.
 | Beta 1 | `v0.9.0-beta.1` | Mission Control, Delivery Hand-off, Activity Journal | Home → Refresh Everything · Sign → Deliver… (OTA manifest, link, QR) · Settings → Analytics → Local Activity Journal. **Feature complete.** |
 | Beta 2 | `v0.9.0-beta.2` | Installation Workspace | Settings → Browse → Install · Home → Install · signing success → Installation Workspace… (readiness checklists, Installed Apps Library, confirmed deliveries and history, bulk preparation, storage) |
 | Beta 3–4 | `v0.9.0-beta.3…4` | Batch Signing (Beta 3) | Fixes plus the batch signing workspace |
-| RC 1–3 | `v1.0.0-rc.1…3` | — | Fixes only |
+| RC 1 | `v1.0.0-rc.1` | — | Fixes; Compatibility Lab |
+| RC 2 | `v1.0.0-rc.2` | `.smartWorkspace` | UX pass: the Smart Workspace home (Mission Control) |
+| RC 3 | `v1.0.0-rc.3` | — | Fixes only |
 | Stable | `v1.0.0` | — | Everything |
+| Professional | `v2.0.0` | — | Depth and fixes; no new gate |
+| Nova preview | `v3.0.0-nova.1` | `.nova1` | Nova Assistant |
+| Nova | `v3.0.0` | `.nova` | The remaining areas — see [../product/ROADMAP-v3.0-nova.md](../product/ROADMAP-v3.0-nova.md) |
 
 This follows [version-strategy.md](version-strategy.md): signing arrives within
 Alpha (Alpha's exit criteria need it), and the app is feature complete by the

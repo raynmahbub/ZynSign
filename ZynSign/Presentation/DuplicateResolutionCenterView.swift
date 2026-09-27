@@ -75,7 +75,7 @@ struct DuplicateResolutionCenterView: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .animation(.snappy, value: conflicts.map(\.resolution))
+            .animation(ZMotion.fast, value: conflicts.map(\.resolution))
             .navigationTitle("Resolve Conflicts")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -107,7 +107,7 @@ struct DuplicateResolutionCenterView: View {
             if conflicts.contains(where: { $0.conflict?.suggestion != nil }) {
                 Button {
                     ZHaptics.tap()
-                    withAnimation(.snappy) { hub.applySuggestions() }
+                    withAnimation(ZMotion.fast) { hub.applySuggestions() }
                 } label: {
                     Label("Use Suggested Choices", systemImage: "wand.and.stars")
                 }
@@ -123,7 +123,7 @@ struct DuplicateResolutionCenterView: View {
         ForEach(ConflictResolution.allCases, id: \.self) { resolution in
             Button {
                 ZHaptics.tap()
-                withAnimation(.snappy) { hub.applyToAllConflicts(resolution) }
+                withAnimation(ZMotion.fast) { hub.applyToAllConflicts(resolution) }
             } label: {
                 Label(resolution.displayName, systemImage: resolution.symbolName)
             }

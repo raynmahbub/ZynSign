@@ -2,7 +2,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="../Assets/Brand/Banner/banner-dark.svg">
-  <img src="../Assets/Brand/Banner/banner-light.svg" alt="ZynSign — professional iOS sideloading platform" width="100%">
+  <img src="../Assets/Brand/Banner/banner-light.svg" alt="ZynSign — on-device iOS signing, made Apple-quality" width="100%">
 </picture>
 
 </div>
@@ -26,8 +26,9 @@ read, not skimmed past.
 | Section | What it answers | Start with |
 |---|---|---|
 | [architecture/](architecture/) | *How is it built?* — ZAS v1.0, the signing pipeline, every subsystem decision | [architecture.md](architecture/architecture.md) |
-| [product/](product/) | *What is it, and what does it refuse to claim?* — value proposition, the honest anti-roadmap | [WHAT_DOES_NOT_EXIST.md](product/WHAT_DOES_NOT_EXIST.md) |
-| [design/](design/) | *How does it look and move?* — ZDL v1.0 tokens, components, motion | [zynsign-design-language.md](design/zynsign-design-language.md) |
+| [product/](product/) | *What is it, and what does it refuse to claim?* — value proposition, the honest anti-roadmap, the v3.0 Nova roadmap | [WHAT_DOES_NOT_EXIST.md](product/WHAT_DOES_NOT_EXIST.md) · [ROADMAP-v3.0-nova.md](product/ROADMAP-v3.0-nova.md) |
+| [internal/](internal/) | *What did a milestone touch, and what did the audit find?* — design-system audit, architecture preservation report | [ArchitecturePreservationReport.md](internal/ArchitecturePreservationReport.md) |
+| [design/](design/) | *How does it look and move?* — ZDL v1.0 tokens, components, motion, the brand book | [zynsign-design-language.md](design/zynsign-design-language.md) · [brand/](design/brand/README.md) |
 | [security/](security/) | *How is sensitive material handled?* — identities, profiles, release review | [signing-identities.md](security/signing-identities.md) |
 | [releases/](releases/) | *How does it ship?* — version strategy, the release train, the private → public gate | [release-train.md](releases/release-train.md) |
 | [hardening/](hardening/) | *How is a candidate judged?* — Compatibility Lab, matrices, release blockers | [compatibility-lab.md](hardening/compatibility-lab.md) |

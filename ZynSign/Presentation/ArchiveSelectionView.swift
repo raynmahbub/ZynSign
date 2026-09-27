@@ -60,7 +60,7 @@ struct ArchiveSelectionView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(selection.count == candidates.count ? "Select None" : "Select All") {
-                        withAnimation(.snappy) {
+                        withAnimation(ZMotion.fast) {
                             selection = selection.count == candidates.count ? [] : Set(candidates.map(\.id))
                         }
                     }

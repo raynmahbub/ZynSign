@@ -108,6 +108,13 @@ struct RootView: View {
         environment.performanceEngine?.launch.mark(LaunchTimeline.Milestone.environmentReady)
     }
 
+    /// One motion policy for the environment and for `ZMotion`'s static presets.
+    private var motion: ZMotion {
+        let resolved = ZMotion(reduceMotion: systemReduceMotion, preference: settings.preferences.general.animationPreference)
+        ZMotion.permitsAnimationGlobally = resolved.permitsAnimation
+        return resolved
+    }
+
     var body: some View {
         TabView(selection: $selected) {
             ForEach(visibleTabs) { section in
@@ -124,10 +131,7 @@ struct RootView: View {
         }
         .tint(.primary)
         .environment(\.thumbnailPipeline, thumbnailPipeline)
-        .environment(
-            \.zMotion,
-            ZMotion(reduceMotion: systemReduceMotion, preference: settings.preferences.general.animationPreference)
-        )
+        .environment(\.zMotion, motion)
         .environment(\.settingsCenter, settings)
         .environment(\.appLock, appLock)
         .environment(\.downloadNavigation, DownloadNavigation(
@@ -404,7 +408,7 @@ struct RootView: View {
             name: next.kind == .jobFailed ? "queue.job.failed" : (next.kind == .jobCompleted ? "queue.job.completed" : "queue.finished"),
             succeeded: next.kind != .jobFailed
         )
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(ZMotion.interactive) {
             isShowingQueueToast = true
         }
     }
@@ -558,7 +562,7 @@ struct RootView: View {
             name: name,
             succeeded: next.kind != .validationFailed
         )
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(ZMotion.interactive) {
             isShowingDownloadToast = true
         }
     }

@@ -74,6 +74,15 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
     /// optimization.
     case performanceDashboard
 
+    /// v3.0 Nova: the Smart Workspace 3.0 — Home becomes the command
+    /// center: greeting, usage-ordered widgets, Continue Last Session.
+    case smartWorkspace
+
+    /// v3.0 Nova: the Nova Assistant — on-device, rule-based suggestions
+    /// (expiring identities, matching profiles, duplicates, backups). It
+    /// only recommends; every action stays with the user.
+    case novaAssistant
+
     /// Features that must already be available for this one to make sense.
     ///
     /// A release that exposes a feature without its prerequisites would show
@@ -98,8 +107,13 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .installationWorkspace: return [.deliveryHandoff]
         case .signingHealthScore: return [.smartSign, .signingPresets]
         case .performanceDashboard: return [.libraryPowerFeatures]
+        case .smartWorkspace: return [.missionControl, .identityCenter]
+        case .novaAssistant: return [.smartWorkspace]
         }
     }
+
+    /// The features that belong to the v3.0 Nova release.
+    static let nova: Set<ReleaseFeature> = [.novaAssistant]
 
     /// Short human name, used by release notes tooling and diagnostics.
     var displayName: String {
@@ -121,6 +135,8 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .installationWorkspace: return "Installation Workspace"
         case .signingHealthScore: return "Signing Health Score"
         case .performanceDashboard: return "Performance Engine"
+        case .smartWorkspace: return "Smart Workspace"
+        case .novaAssistant: return "Nova Assistant"
         }
     }
 }
@@ -143,6 +159,9 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
     case rc2
     case rc3
     case stable       // 1.0.0
+    case professional // 2.0.0 — Professional Platform (fixes and depth; no new gate)
+    case nova1        // 3.0.0-nova.1 — Nova preview: Nova Assistant
+    case nova         // 3.0.0 — Nova: the remaining areas of the roadmap
 
     /// The Git tag / GitHub release version, without the leading `v`.
     var version: String {
@@ -159,6 +178,9 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
         case .rc2: return "1.0.0-rc.2"
         case .rc3: return "1.0.0-rc.3"
         case .stable: return "1.0.0"
+        case .professional: return "2.0.0"
+        case .nova1: return "3.0.0-nova.1"
+        case .nova: return "3.0.0"
         }
     }
 
@@ -185,8 +207,12 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
         case .beta2: return [.installationWorkspace, .performanceDashboard]
         case .beta3: return [.batchSigning]
         case .beta4: return []
-        case .rc1, .rc2, .rc3: return []
+        case .rc1, .rc3: return []
+        case .rc2: return [.smartWorkspace]   // Mission Control home — the RC 2 UX pass
         case .stable: return [.signingHealthScore]
+        case .professional: return []
+        case .nova1: return [.novaAssistant]
+        case .nova: return []
         }
     }
 

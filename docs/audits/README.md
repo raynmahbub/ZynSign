@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../Assets/Brand/Logo/logo-lockup-dark.svg">
+    <img src="../../Assets/Brand/Logo/logo-lockup.svg" alt="ZynSign" width="260">
+  </picture>
+</p>
+
 # Audit Records
 
 Dated, point-in-time verification passes over the repository. An audit record
@@ -8,6 +15,8 @@ it is never updated after the fact; a new pass adds a new file.
 |---|---|
 | [2026-09-25-horizon-0.1.0-audit.md](2026-09-25-horizon-0.1.0-audit.md) | Full pre-public audit of the Horizon `0.1.0` milestone: workflows, host vectors, documentation claims |
 | [rc2-ux-refinement-checklist.md](rc2-ux-refinement-checklist.md) | The sixteen RC 2 UX-polish criteria, each with its verification |
+| [accessibility-checklist.md](accessibility-checklist.md) | The human half of the accessibility audit: VoiceOver, Dynamic Type, motion, contrast, touch — signed per release |
+| [performance-audit.md](performance-audit.md) | Instruments procedure and the budgets a tag must meet: launch, hitches, memory, leaks, energy |
 
 ## Running the audits yourself
 

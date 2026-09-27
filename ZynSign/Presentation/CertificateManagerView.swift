@@ -199,7 +199,7 @@ struct CertificateManagerView: View {
             .zToast(isPresented: $showToast, message: toastMessage, style: toastStyle)
             .onChange(of: model.importSummary) { _, new in
                 if new != nil {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    withAnimation(ZMotion.interactive) {
                         showImportSummary = true
                     }
                 }
@@ -312,10 +312,10 @@ struct CertificateManagerView: View {
         }
         .listStyle(.insetGrouped)
         .refreshable { await model.refresh() }
-        .animation(.easeInOut(duration: 0.2), value: model.sortOrder)
-        .animation(.easeInOut(duration: 0.2), value: model.expirationFilter)
-        .animation(.easeInOut(duration: 0.2), value: model.kindFilter)
-        .animation(.easeInOut(duration: 0.2), value: model.teamFilter)
+        .animation(ZMotion.fast, value: model.sortOrder)
+        .animation(ZMotion.fast, value: model.expirationFilter)
+        .animation(ZMotion.fast, value: model.kindFilter)
+        .animation(ZMotion.fast, value: model.teamFilter)
     }
 
     private func libraryGrid(_ items: [CertificateManagerModel.CertificateItem]) -> some View {
@@ -351,10 +351,10 @@ struct CertificateManagerView: View {
             }
         }
         .refreshable { await model.refresh() }
-        .animation(.easeInOut(duration: 0.2), value: model.sortOrder)
-        .animation(.easeInOut(duration: 0.2), value: model.expirationFilter)
-        .animation(.easeInOut(duration: 0.2), value: model.kindFilter)
-        .animation(.easeInOut(duration: 0.2), value: model.teamFilter)
+        .animation(ZMotion.fast, value: model.sortOrder)
+        .animation(ZMotion.fast, value: model.expirationFilter)
+        .animation(ZMotion.fast, value: model.kindFilter)
+        .animation(ZMotion.fast, value: model.teamFilter)
     }
 
     // MARK: - Rows and cards
@@ -558,7 +558,7 @@ struct CertificateManagerView: View {
     private var layoutToggle: some View {
         Button {
             ZHaptics.tap()
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(ZMotion.fast) {
                 showsGrid.toggle()
             }
         } label: {
@@ -652,7 +652,7 @@ struct CertificateManagerView: View {
     private func presentToast(_ message: String, style: ZToast.Style = .success) {
         toastMessage = message
         toastStyle = style
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(ZMotion.interactive) {
             showToast = true
         }
     }

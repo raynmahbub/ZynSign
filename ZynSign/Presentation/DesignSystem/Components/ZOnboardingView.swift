@@ -180,23 +180,33 @@ struct ZOnboardingView: View {
 
     // MARK: - Hero Illustration
 
+    @ViewBuilder
     private var heroIllustration: some View {
-        ZStack {
-            Circle()
-                .fill(currentStep.tint.opacity(0.1))
-                .frame(width: 108, height: 108)
+        if currentStep == .welcome {
+            // The welcome step opens on the app's own mark — the same Z·Pen as the
+            // home-screen icon and the launch splash.
+            ZynSignMark(size: 96)
+                .zynSoftShadow(ZShadow.subtle)
+                .padding(.top, ZSpacing.sm)
+                .accessibilityHidden(true)
+        } else {
+            ZStack {
+                Circle()
+                    .fill(currentStep.tint.opacity(0.1))
+                    .frame(width: 108, height: 108)
 
-            Circle()
-                .fill(currentStep.tint.opacity(0.18))
-                .frame(width: 84, height: 84)
+                Circle()
+                    .fill(currentStep.tint.opacity(0.18))
+                    .frame(width: 84, height: 84)
 
-            Image(systemName: currentStep.symbol)
-                .font(.system(size: 40, weight: .semibold))
-                .foregroundStyle(currentStep.tint)
+                Image(systemName: currentStep.symbol)
+                    .font(.system(size: 40, weight: .semibold))
+                    .foregroundStyle(currentStep.tint)
+            }
+            .zynSoftShadow(ZShadow.subtle)
+            .padding(.top, ZSpacing.sm)
+            .accessibilityHidden(true)
         }
-        .zynSoftShadow(ZShadow.subtle)
-        .padding(.top, ZSpacing.sm)
-        .accessibilityHidden(true)
     }
 
     // MARK: - Title & Subtitle

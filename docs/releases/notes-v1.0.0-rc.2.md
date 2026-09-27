@@ -47,8 +47,8 @@ iPad, in light and dark, at every Dynamic Type size.
   what to renew and where).
 - **App icon and brand** — the shipping app now carries its icon:
   `ZynSign/Resources/Assets.xcassets` compiles the master artwork into the
-  bundle, and the mark is the bold Z over the seal dot across the lockup,
-  banner, favicon, and social preview.
+  bundle (light, dark, and tinted appearances), and the Z·Pen mark is rendered
+  from one master across the lockup, banner, favicon, and social preview.
 
 ### Verification
 
