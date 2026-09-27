@@ -5,7 +5,7 @@ public struct DuplicateResourcesView: View {
 
     @ObservedObject public var model: ResourceStudioModel
 
-    private var report: DuplicateReport {
+    private var report: ResourceDuplicateReport {
         model.catalog.duplicates
     }
 

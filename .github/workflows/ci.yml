@@ -33,8 +33,12 @@ jobs:
       - name: Refuse private keys and misplaced certificates
         run: |
           set -eu
+          # The Compatibility Lab's security suite embeds the PEM headers
+          # as detection markers — it scans shared exports for key
+          # material. They are fixed strings in code, never keys; the
+          # exemption names that one file.
           if grep -rniE "BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY" \
-              --exclude-dir=.git . ; then
+              --exclude-dir=.git --exclude=CompatibilityLabSecurity.swift . ; then
             echo "Private key material found in the repository." >&2
             exit 1
           fi

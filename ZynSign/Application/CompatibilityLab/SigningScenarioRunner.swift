@@ -490,7 +490,7 @@ struct SigningScenarioLab {
                     name: "preparation",
                     value: Double(totalMilliseconds),
                     unit: "ms",
-                    threshold: Double(PerformanceBenchmark.signingPreparationMilliseconds),
+                    threshold: Double(PerformanceThresholds.signingPreparationMilliseconds),
                     comparison: .lowerIsBetter
                 ),
                 CompatibilityMeasurement(

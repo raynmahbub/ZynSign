@@ -154,7 +154,7 @@ struct NetworkResilienceSuite {
                     name: "latency",
                     value: Double(result.latencyMilliseconds ?? -1),
                     unit: "ms",
-                    threshold: Double(PerformanceBenchmark.repositoryHealthFastMilliseconds),
+                    threshold: Double(PerformanceThresholds.repositoryHealthFastMilliseconds),
                     comparison: .lowerIsBetter
                 )
             ]
@@ -408,7 +408,7 @@ struct ResourceResilienceSuite {
             // near where it started; a process that keeps climbing under
             // repeated spikes is the failure this check exists to catch.
             let drift = after > before ? after - before : 0
-            settled = drift <= UInt64(PerformanceBenchmark.memorySpikeToleranceBytes)
+            settled = drift <= UInt64(PerformanceThresholds.memorySpikeToleranceBytes)
         } else {
             settled = true
         }
@@ -431,7 +431,7 @@ struct ResourceResilienceSuite {
                     name: "spike retained after release",
                     value: Double((after ?? 0) > (before ?? 0) ? (after ?? 0) - (before ?? 0) : 0),
                     unit: "bytes",
-                    threshold: Double(PerformanceBenchmark.memorySpikeToleranceBytes),
+                    threshold: Double(PerformanceThresholds.memorySpikeToleranceBytes),
                     comparison: .lowerIsBetter
                 )
             ]
@@ -467,7 +467,7 @@ struct ResourceResilienceSuite {
                         name: "read and plan",
                         value: Double(elapsed),
                         unit: "ms",
-                        threshold: Double(PerformanceBenchmark.largeImportMilliseconds),
+                        threshold: Double(PerformanceThresholds.largeImportMilliseconds),
                         comparison: .lowerIsBetter
                     )
                 ],
@@ -532,7 +532,7 @@ struct ResourceResilienceSuite {
                     name: "reclaimable temporary bytes",
                     value: Double(temporary.byteCount),
                     unit: "bytes",
-                    threshold: Double(PerformanceBenchmark.temporaryFootprintWarningBytes),
+                    threshold: Double(PerformanceThresholds.temporaryFootprintWarningBytes),
                     comparison: .lowerIsBetter
                 )
             ]

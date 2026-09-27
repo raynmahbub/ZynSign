@@ -24,17 +24,22 @@ Assets/
 └ Icons/            Supplementary icons (pending)
 ```
 
+The shipping app icon is not in this tree: the Xcode project compiles
+`ZynSign/Resources/Assets.xcassets` (AppIcon, 1024×1024, full-bleed and
+opaque — the corner mask is the system's), rendered from the same master
+geometry as `Brand/AppIcon/app-icon.svg`.
+
 ## Brand rules
 
 | Element | Rule |
 |---|---|
-| Geometry | One mark: the Z-stroke tile with the seal dot. Never redraw it ad hoc |
+| Geometry | One mark: the bold Z over the seal dot. Never redraw it ad hoc |
 | Palette | Indigo `#6D6AF0`→`#4B48C4`, ink `#1D1D1F` / paper `#F5F5F7`, dark surface `#15151D`, seal green `#30D158` |
 | Surfaces | Every banner and diagram ships a light **and** a dark variant — GitHub renders both via `<picture>` |
 | Icons | SF Symbols in the app; the same drawing logic (rounded strokes, one accent dot) in brand art |
 | Type | System stack (`-apple-system, SF Pro, Segoe UI, Roboto, …`) in SVG; tight tracking on display sizes |
 | Screenshots | One device frame, one background, one language — identical treatment for every capture |
-| Type of asset | Vectors wherever possible; rasters only where a raster is required (social preview, favicon) |
+| Type of asset | Vectors wherever possible; rasters only where a raster is required (social preview, favicon, app icon) |
 
 The master geometry lives in the SVGs in `Brand/`. If the mark ever changes,
 it changes there first, and every derived asset is re-rendered from it.

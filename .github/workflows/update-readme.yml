@@ -1,7 +1,7 @@
 # README — auto-update when features land
 #
 # README is the storefront and must not drift from
-#   - ZynSign.xcodeproj/project.pbxproj MARKETING_VERSION (market 0.1.0)
+#   - ZynSign.xcodeproj/project.pbxproj MARKETING_VERSION (market 1.0.0)
 #   - docs/product/WHAT_DOES_NOT_EXIST.md (counts derived from its tables)
 #
 # When you add a feature in ZynSign/** or docs/product/** and push to
@@ -78,7 +78,7 @@ jobs:
           git add README.md
           git commit -m "docs(readme): auto-sync version/badge from MARKETING_VERSION and WHAT_DOES_NOT_EXIST
 
-          Triggered by ${{ github.sha }} on ${{ github.ref_name }} — Scripts/update_readme.py keeps README honest (market 0.1.0, counts from WHAT_DOES_NOT_EXIST tables)."
+          Triggered by ${{ github.sha }} on ${{ github.ref_name }} — Scripts/update_readme.py keeps README honest (market 1.0.0, counts from WHAT_DOES_NOT_EXIST tables)."
           # Push to the same branch that triggered the workflow
           BRANCH="${GITHUB_REF_NAME}"
           echo "Pushing README fix to ${BRANCH}"

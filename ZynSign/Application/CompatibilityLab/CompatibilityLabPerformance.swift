@@ -13,7 +13,7 @@ import Foundation
 ///
 /// A measurement on a simulator is compared against the same thresholds but
 /// is never presented as a device result — see the note on each report.
-enum PerformanceBenchmark {
+enum PerformanceThresholds {
 
     /// Time from the first data access to a populated library list: reading
     /// the preferences document and the library catalog.
@@ -117,7 +117,7 @@ struct PerformanceSuite {
         _ = environment.preferencesStore.snapshot
         let entries = (try? await environment.library.entries()) ?? []
         let elapsed = Int(context.now().timeIntervalSince(started) * 1_000)
-        let passed = elapsed <= PerformanceBenchmark.firstDataReadMilliseconds
+        let passed = elapsed <= PerformanceThresholds.firstDataReadMilliseconds
         return check(
             id: "performance.firstDataRead",
             title: "First data read",
@@ -130,7 +130,7 @@ struct PerformanceSuite {
                     name: "first data read",
                     value: Double(elapsed),
                     unit: "ms",
-                    threshold: Double(PerformanceBenchmark.firstDataReadMilliseconds),
+                    threshold: Double(PerformanceThresholds.firstDataReadMilliseconds),
                     comparison: .lowerIsBetter
                 ),
                 CompatibilityMeasurement(
@@ -190,7 +190,7 @@ struct PerformanceSuite {
         }
         let total = Int(context.now().timeIntervalSince(started) * 1_000)
         let average = Double(total) / Double(max(1, terms.count))
-        let passed = average <= Double(PerformanceBenchmark.searchMilliseconds)
+        let passed = average <= Double(PerformanceThresholds.searchMilliseconds)
         return check(
             id: "performance.search",
             title: "Search latency",
@@ -204,7 +204,7 @@ struct PerformanceSuite {
                     name: "search latency",
                     value: average,
                     unit: "ms",
-                    threshold: Double(PerformanceBenchmark.searchMilliseconds),
+                    threshold: Double(PerformanceThresholds.searchMilliseconds),
                     comparison: .lowerIsBetter
                 )
             ],
@@ -218,7 +218,7 @@ struct PerformanceSuite {
             id: "performance.import",
             title: "Import speed",
             scenario: .simpleApplication,
-            thresholdMilliseconds: PerformanceBenchmark.importPreparationMilliseconds,
+            thresholdMilliseconds: PerformanceThresholds.importPreparationMilliseconds,
             claim: "Preparing one ordinary package",
             context: context
         )
@@ -231,7 +231,7 @@ struct PerformanceSuite {
             id: "performance.signingPreparation",
             title: "Signing preparation",
             scenario: .applicationWithFrameworks,
-            thresholdMilliseconds: PerformanceBenchmark.signingPreparationMilliseconds,
+            thresholdMilliseconds: PerformanceThresholds.signingPreparationMilliseconds,
             claim: "Preparing a package with frameworks",
             context: context
         )
@@ -314,7 +314,7 @@ struct PerformanceSuite {
                 nextStep: "Run the Lab on a device: a simulator's memory accounting is not the device's."
             )
         }
-        let passed = Int(clamping: resident) <= PerformanceBenchmark.residentMemoryCeilingBytes
+        let passed = Int(clamping: resident) <= PerformanceThresholds.residentMemoryCeilingBytes
         return check(
             id: "performance.memory",
             title: "Memory usage",
@@ -327,7 +327,7 @@ struct PerformanceSuite {
                     name: "resident memory",
                     value: Double(resident),
                     unit: "bytes",
-                    threshold: Double(PerformanceBenchmark.residentMemoryCeilingBytes),
+                    threshold: Double(PerformanceThresholds.residentMemoryCeilingBytes),
                     comparison: .lowerIsBetter
                 )
             ]
