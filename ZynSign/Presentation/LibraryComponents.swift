@@ -227,11 +227,12 @@ struct LibraryShareSheet: UIViewControllerRepresentable {
 /// it — deleted from another screen, for example.
 struct LibraryEntryUnavailableView: View {
     var body: some View {
-        ContentUnavailableView {
-            Label("Application Unavailable", systemImage: "questionmark.app")
-        } description: {
-            Text("This application is no longer in ZynSign's library.")
-        }
+        ZEmptyState(
+            title: "Application Unavailable",
+            message: "This application is no longer in ZynSign's library. It may have been removed or replaced.",
+            systemImage: "questionmark.app",
+            tint: .orange
+        )
     }
 }
 
@@ -240,15 +241,14 @@ struct LibraryNoCollectionsView: View {
     var onCreate: (() -> Void)?
 
     var body: some View {
-        ContentUnavailableView {
-            Label("No Collections", systemImage: "folder")
-        } description: {
-            Text("Create your first collection to organize your library.")
-        } actions: {
-            if let onCreate {
-                Button("New Collection", action: onCreate)
-                    .buttonStyle(.borderedProminent)
-            }
-        }
+        ZEmptyState(
+            title: "No Custom Collections",
+            message: "Create your first collection to group applications by project, workflow, or distribution target.",
+            systemImage: "folder.badge.plus",
+            tint: .indigo,
+            badgeSymbol: "plus",
+            primaryActionTitle: onCreate != nil ? "New Collection" : nil,
+            primaryAction: onCreate
+        )
     }
 }

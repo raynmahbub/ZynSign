@@ -69,6 +69,9 @@ struct RootView: View {
     /// Active downloads, shown on the Downloads tab when that feature is on.
     @State private var activeDownloadBadge = 0
 
+    /// First-launch onboarding walkthrough.
+    @State private var isShowingOnboarding = false
+
     /// The download notice currently shown as a toast, if any.
     @State private var visibleDownloadNotice: DownloadNotice?
     @State private var isShowingDownloadToast = false
@@ -208,6 +211,14 @@ struct RootView: View {
                 onDone: { isShowingSigningQueue = false }
             )
         }
+        .fullScreenCover(isPresented: $isShowingOnboarding) {
+            ZOnboardingView(
+                isPresented: $isShowingOnboarding,
+                onComplete: {
+                    settings.update { $0.general.onboardingCompleted = true }
+                }
+            )
+        }
         .onReceive(environment.signingQueue.$pendingNotices.receive(on: DispatchQueue.main)) { notices in
             // Delivered after the change lands (a `@Published` emits before
             // storing), so acknowledging here can never be overwritten.
@@ -334,6 +345,9 @@ struct RootView: View {
         if let engine, let firstFrame = engine.launch.timeToFirstFrame {
             await engine.benchmarks.record(kind: .launch, duration: firstFrame, itemCount: 1)
         }
+        if !settings.preferences.general.onboardingCompleted {
+            isShowingOnboarding = true
+        }
     }
 
     /// Tabs the user can select. Downloads is added when that feature is
@@ -415,10 +429,19 @@ struct RootView: View {
     /// A copy the system placed in ZynSign's own inbox came through the
     /// share sheet; anything else was opened in place.
     private func acceptIncoming(_ url: URL) {
-        guard url.isFileURL, IPAFileFormat.acceptsForImport(url) else { return }
-        let origin: ImportOrigin = Self.isShareSheetCopy(url) ? .shareSheet : .openIn
-        environment.importHub.receive([url], origin: origin)
-        isShowingImport = true
+        guard url.isFileURL else { return }
+        let ext = url.pathExtension.lowercased()
+        if IPAFileFormat.acceptsForImport(url) {
+            let origin: ImportOrigin = Self.isShareSheetCopy(url) ? .shareSheet : .openIn
+            environment.importHub.receive([url], origin: origin)
+            isShowingImport = true
+        } else if ext == "mobileprovision" || ext == "provisionprofile" {
+            selected = .profiles
+            ZHaptics.tap()
+        } else if ext == "p12" || ext == "pfx" {
+            selected = .certificates
+            ZHaptics.tap()
+        }
     }
 
     /// Whether `url` is a copy the system placed in ZynSign's own

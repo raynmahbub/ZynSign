@@ -343,14 +343,8 @@ private struct DownloadCenterScreen: View {
 
     private var empty: some View {
         Section {
-            ContentUnavailableView {
-                Label("No Downloads", systemImage: "arrow.down.circle")
-            } description: {
-                Text("Download an app from a configured source, or add an https address. Files are validated before they can be imported.")
-            } actions: {
-                Button { showAdd = true } label: { Text("Add URL") }
-                    .buttonStyle(.borderedProminent)
-                    .frame(minHeight: 44)
+            ZEmptyState.noDownloads {
+                showAdd = true
             }
         }
     }

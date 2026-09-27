@@ -227,24 +227,21 @@ struct CertificateManagerView: View {
             ScrollView {
                 VStack(spacing: ZSpacing.sm) {
                     ForEach(0..<4, id: \.self) { _ in
-                        RoundedRectangle(cornerRadius: ZRadius.card)
-                            .fill(Color(.tertiarySystemFill))
-                            .frame(height: 96)
+                        ZSkeletonCertificateRow()
+                            .padding(.horizontal)
                     }
                 }
-                .padding(ZSpacing.sm)
-                .redacted(reason: .placeholder)
+                .padding(.top, ZSpacing.sm)
             }
             .accessibilityLabel("Loading certificates")
         case .failed(let message):
-            ContentUnavailableView {
-                Label("Certificates Unavailable", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(message)
-            } actions: {
-                Button("Retry") { Task { await model.refresh() } }
-                    .buttonStyle(.borderedProminent)
-            }
+            ZErrorView(
+                title: "Certificates Unavailable",
+                explanation: message,
+                suggestedAction: "Verify iOS Keychain access or re-import your PKCS#12 identity.",
+                technicalDetails: "CertificateManager read failure: \(message)",
+                onRetry: { Task { await model.refresh() } }
+            )
         case .empty:
             emptyState
         case .loaded:
@@ -254,13 +251,8 @@ struct CertificateManagerView: View {
 
     /// The empty state: friendly, short, and free of technical wording.
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label("No Certificates Yet", systemImage: "person.text.rectangle.badge.plus")
-        } description: {
-            Text("Add a certificate and it stays on this device, ready to sign your applications.")
-        } actions: {
-            Button("Import Certificate") { showImporter = true }
-                .buttonStyle(.borderedProminent)
+        ZEmptyState.noCertificates {
+            showImporter = true
         }
     }
 
@@ -272,16 +264,18 @@ struct CertificateManagerView: View {
     private var libraryContent: some View {
         let items = model.visibleItems()
         if items.isEmpty && !model.searchText.isEmpty {
-            ContentUnavailableView.search(Text(model.searchText))
-        } else if items.isEmpty && model.hasActiveFilters {
-            ContentUnavailableView {
-                Label("No Matching Certificates", systemImage: "line.3.horizontal.decrease.circle")
-            } description: {
-                Text("Every certificate is hidden by the current search or filters.")
-            } actions: {
-                Button("Clear Filters") { model.clearFilters() }
-                    .buttonStyle(.borderedProminent)
+            ZEmptyState.noSearchResults(query: model.searchText) {
+                model.searchText = ""
             }
+        } else if items.isEmpty && model.hasActiveFilters {
+            ZEmptyState(
+                title: "No Matching Certificates",
+                message: "Every certificate is hidden by the current search or filters.",
+                systemImage: "line.3.horizontal.decrease.circle",
+                tint: .purple,
+                primaryActionTitle: "Clear Filters",
+                primaryAction: { model.clearFilters() }
+            )
         } else if items.isEmpty {
             emptyState
         } else if showsGrid {

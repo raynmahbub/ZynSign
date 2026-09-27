@@ -38,6 +38,7 @@ struct HomeView: View {
     @State private var settledImportCount = 0
     @State private var showPresets = false
     @State private var showInstallationWorkspace = false
+    @State private var isShowingWalkthrough = false
     @AppStorage(LibraryPreferenceKeys.scope) private var libraryScope = LibraryScope.all.storageValue
     /// Whether first-launch onboarding has been completed.
     ///
@@ -98,6 +99,12 @@ struct HomeView: View {
                     entry: entry,
                     bundleInspection: environment.bundleInspection,
                     detailsInspection: environment.applicationDetailsInspection
+                )
+            }
+            .sheet(isPresented: $isShowingWalkthrough) {
+                ZOnboardingView(
+                    isPresented: $isShowingWalkthrough,
+                    onComplete: { completeOnboarding() }
                 )
             }
         }
@@ -420,6 +427,15 @@ struct HomeView: View {
                     isComplete: (profileCount ?? 0) > 0,
                     action: { onOpenSection(.profiles) }
                 )
+
+                Button {
+                    isShowingWalkthrough = true
+                } label: {
+                    Label("View 6-Step Walkthrough", systemImage: "sparkles")
+                        .font(.footnote.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .padding(.top, 4)
             }
         }
         .padding()
