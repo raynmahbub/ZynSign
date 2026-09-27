@@ -298,3 +298,15 @@ readiness-gated act. The decision record is
 [installation-workspace.md](installation-workspace.md); the
 installation boundary it operates inside is
 [installation-compatibility.md](installation-compatibility.md).
+
+## Diagrams
+
+The two diagrams most conversations need, drawn once as SVG in
+[diagrams/](diagrams/) — light and dark variants of each, referenced by the
+README and the documentation hub. A change to layer responsibilities or to the
+stage order updates the diagram in the same commit that updates the code.
+
+| Diagram | What it shows |
+|---|---|
+| [layers-light.svg](diagrams/layers-light.svg) · [layers-dark.svg](diagrams/layers-dark.svg) | The four layers, the composition root, and the one-layer-down rule |
+| [signing-pipeline-light.svg](diagrams/signing-pipeline-light.svg) · [signing-pipeline-dark.svg](diagrams/signing-pipeline-dark.svg) | The nine-stage signing run, inner code first, independent verification before packaging |
