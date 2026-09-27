@@ -15,7 +15,7 @@ public struct ResourceCatalog: @unchecked Sendable {
     public let localizationFiles: [LocalizationFileAsset]
     public let audio: [AudioAsset]
     public let videos: [VideoAsset]
-    public let duplicates: DuplicateReport
+    public let duplicates: ResourceDuplicateReport
     public let relationships: AssetRelationships
     public let searchIndex: ResourceSearchIndex
 
@@ -48,7 +48,7 @@ public struct ResourceCatalog: @unchecked Sendable {
         localizationFiles: [LocalizationFileAsset] = [],
         audio: [AudioAsset] = [],
         videos: [VideoAsset] = [],
-        duplicates: DuplicateReport = .empty,
+        duplicates: ResourceDuplicateReport = .empty,
         relationships: AssetRelationships = .empty,
         searchIndex: ResourceSearchIndex? = nil
     ) {

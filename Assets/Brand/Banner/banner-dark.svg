@@ -17,14 +17,14 @@
 
   <!-- Mark -->
   <g transform="translate(102 128) scale(1.91)">
-    <rect x="4" y="4" width="120" height="120" rx="30" fill="url(#tile)"/>
-    <rect x="4.75" y="4.75" width="118.5" height="118.5" rx="29.25" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="1.5"/>
-    <g stroke="#FFFFFF" stroke-width="11" stroke-linecap="round" fill="none">
-      <path d="M41 43 H 87"/>
-      <path d="M85 45 C 74 57 61 70 45 84"/>
-      <path d="M41 85 H 87"/>
-    </g>
-    <circle cx="100" cy="94" r="6.5" fill="#30D158"/>
+  <rect x="4" y="4" width="120" height="120" rx="30" fill="url(#tile)"/>
+  <rect x="4.75" y="4.75" width="118.5" height="118.5" rx="29.25" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="1.5"/>
+  <g stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" fill="none">
+    <path d="M 38 42 H 90"/>
+    <path d="M 88 45 C 74 59 58 73 40 86"/>
+    <path d="M 38 86 H 90"/>
+  </g>
+  <circle cx="100" cy="94" r="6.5" fill="#30D158"/>
   </g>
 
   <!-- Wordmark + tagline -->

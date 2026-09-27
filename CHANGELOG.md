@@ -12,10 +12,30 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Changed — Brand refresh, app icon in the bundle, and README compaction
+
+- **Logo** — one mark across every surface: the bold Z over the seal dot on
+  the indigo tile (`Assets/Brand/Logo/`, light and dark), drawn once and
+  re-rendered into the lockup, the README hero banner, the favicon, and the
+  social preview. The seal dot keeps its corner and the palette is unchanged.
+- **App icon ships** — `ZynSign/Resources/Assets.xcassets` compiles the master
+  artwork (1024×1024, full-bleed and opaque) into the app bundle, wired through
+  `ASSETCATALOG_COMPILER_APPICON_NAME`; the built app no longer shows the
+  default placeholder icon.
+- **README** — restructured as a compact landing page (242 → 188 lines):
+  the banner, badges, release train, and shipped-feature table are intact,
+  the prose is tightened, and every string `Scripts/update_readme.py`
+  maintains is preserved (`--check` passes).
+- **Release docs synced to the train** — `docs/releases/` (README,
+  version-strategy, private-testing) and the anti-roadmap header now describe
+  `v1.0.0-rc.2` (market `1.0.0`, build `5`, `10 wired · 3 never`) instead of
+  the Horizon `0.1.0` build `4` state; `docs/releases/notes-v1.0.0-rc.2.md`
+  records the RC 2 candidate.
+
 ### Added — Repository Modernization: brand, documentation hub, and contributor surfaces
 
 - **Brand system (`Assets/`)** — one identity system for every public surface:
-  the Z-stroke tile mark with seal dot, wordmark lockup, README hero banner,
+  the bold-Z mark over the seal dot, wordmark lockup, README hero banner,
   master app-icon artwork, favicon, and the GitHub social preview card —
   each in light and dark variants where a surface renders both
   (`Assets/Brand/`), under written brand rules (`Assets/README.md`).

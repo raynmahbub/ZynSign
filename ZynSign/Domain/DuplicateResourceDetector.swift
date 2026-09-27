@@ -33,7 +33,7 @@ public struct DuplicateGroup: Identifiable, Equatable, Hashable, Sendable {
 }
 
 /// The complete duplicate resource analysis of an inspected application bundle.
-public struct DuplicateReport: Equatable, Hashable, Sendable {
+public struct ResourceDuplicateReport: Equatable, Hashable, Sendable {
 
     public let groups: [DuplicateGroup]
     public let totalDuplicateCount: Int
@@ -53,7 +53,7 @@ public struct DuplicateReport: Equatable, Hashable, Sendable {
         self.totalWastedBytes = groups.reduce(0) { $0 + $1.wastedBytes }
     }
 
-    public static let empty = DuplicateReport(groups: [])
+    public static let empty = ResourceDuplicateReport(groups: [])
 }
 
 /// Analyzes an imported application bundle to detect redundant and duplicate resources.
@@ -65,7 +65,7 @@ public enum DuplicateResourceDetector {
         fonts: [FontAsset],
         localizationFiles: [LocalizationFileAsset],
         allEntries: [(path: BundlePath, size: Int)]
-    ) -> DuplicateReport {
+    ) -> ResourceDuplicateReport {
         var groups: [DuplicateGroup] = []
 
         // 1. Detect duplicate images (same dimensions + size or same base name & size)
@@ -156,6 +156,6 @@ public enum DuplicateResourceDetector {
             }
         }
 
-        return DuplicateReport(groups: groups)
+        return ResourceDuplicateReport(groups: groups)
     }
 }

@@ -766,7 +766,7 @@ struct DeviceCompatibilitySuite {
                         name: "physical memory",
                         value: facts.physicalMemoryGigabytes,
                         unit: "GB",
-                        threshold: PerformanceBenchmark.minimumPhysicalMemoryGigabytes,
+                        threshold: PerformanceThresholds.minimumPhysicalMemoryGigabytes,
                         comparison: .higherIsBetter
                     )
                 ]
@@ -794,7 +794,7 @@ struct DeviceCompatibilitySuite {
                         name: "physical memory",
                         value: facts.physicalMemoryGigabytes,
                         unit: "GB",
-                        threshold: PerformanceBenchmark.minimumPhysicalMemoryGigabytes,
+                        threshold: PerformanceThresholds.minimumPhysicalMemoryGigabytes,
                         comparison: .higherIsBetter
                     )
                 ]

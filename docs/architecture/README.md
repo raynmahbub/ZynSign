@@ -4,6 +4,12 @@ Architectural decisions for ZynSign are recorded here.
 
 ## Current State
 
+The record below is in decision order, oldest first. Where the project stands
+today: `v1.0.0-rc.2` (market `1.0.0`, build `5`) — every staged feature is
+built and switched on, the Compatibility Lab is the release gate, and the
+only feature still waiting for its release is the Signing Health Score at
+`v1.0.0` (see [../releases/release-train.md](../releases/release-train.md)).
+
 ZynSign is at the start of development. An Xcode application target with a
 SwiftUI shell, a composition root, minimal domain types, and a unit-test target
 establishes the layer boundaries the architecture describes. The archive layer

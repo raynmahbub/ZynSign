@@ -4,11 +4,11 @@ The release process for ZynSign — private test first, public tag second.
 
 ## Current State
 
-**First professional development build ready to test: Horizon `0.1.0` (market `0.1.0`, build `4`, 2026-09-25, private test → public), `9 wired · 3 never`.** It is built from the Horizon shell — six-tab Files / Library / Home / App Store / Downloads / Settings, Import + Library + Certificate Studio (`.p12` + JSON export) + Smart Sign (9 stages, CMS-derived entitlements, DER `0x20400` toggle, Live Activity) + repository health Fast / Slow / Offline + `BackgroundURLSession` pause / resume / retry ×3 + Mission Control Refresh + **installation delivery hand-off (OTA manifest + install link + QR + operator guides)** + **local activity journal (on-device, never transmitted)** — wired via `CompositionRoot` in `DesignSystem` only, with `SigningState` / `ZynSignError`+`ZToast` exactly as shipped. The honest rows stay honest per [WHAT_DOES_NOT_EXIST.md](../product/WHAT_DOES_NOT_EXIST.md): in-app installation, Pairing/JIT/Mux, and off-device measurement are claimed-never (pairing via `docs/architecture/pairing-jit-mux-feasibility.md`).
+**Current release candidate: `v1.0.0-rc.2` (market `1.0.0`, build `5`, 2026-09-27), `10 wired · 3 never`.** The whole app is built and feature-complete since `v0.9.0-beta.1`: the six-tab shell (Files / Library / Home / App Store / Downloads / Settings), import, Library, Certificate Studio (`.p12` + JSON export), Smart Sign (9 stages, CMS-derived entitlements, DER `0x20400` toggle, Live Activity), repository health Fast / Slow / Offline, resumable Download Center, Mission Control Refresh, **installation delivery hand-off (OTA manifest + install link + QR + operator guides)**, and the **local activity journal (on-device, never transmitted)** — wired via `CompositionRoot`, with `SigningState` / `ZynSignError` + `ZToast` exactly as shipped. RC 1 added the Compatibility Lab; **RC 2 is the polish pass** (unified design system, guided onboarding, bespoke empty states, actionable error views, adaptive iPad layouts) and switches on no new capability. The honest rows stay honest per [WHAT_DOES_NOT_EXIST.md](../product/WHAT_DOES_NOT_EXIST.md): in-app installation, Pairing/JIT/Mux, and off-device measurement are claimed-never (pairing via `docs/architecture/pairing-jit-mux-feasibility.md`).
 
-The Xcode project already declares `MARKETING_VERSION 0.1.0` `CURRENT_PROJECT_VERSION 4` (`ZynSign.xcodeproj/project.pbxproj`). The public tag `v0.1.0` is **not** published until the private gate passes (see private-testing.md). The private binary and the public release are the same binary — no rebuild between private and public.
+The Xcode project declares `MARKETING_VERSION 1.0.0` `CURRENT_PROJECT_VERSION 5` (`ZynSign.xcodeproj/project.pbxproj`) and `ReleaseTrain.current` is `.rc2` — verify both with `python3 Scripts/release_train.py check`. The private binary and the public release are the same binary — no rebuild between private and public.
 
-- Tags `v0.1.0-dev`/`v0.1.1-dev`/`v0.2.0-dev` at `58e604c` are Horizon history; the first public dev tag will be `v0.1.0` (market 0.1.0 build 4) on the private-tested commit.
+- Horizon history: tags `v0.1.0-dev`/`v0.1.1-dev`/`v0.2.0-dev` at `58e604c`; the train has since moved through `v0.1.0` → the alphas → the betas → `v1.0.0-rc.1` → `v1.0.0-rc.2` (see [release-train.md](release-train.md)).
 - The build is not signed for the App Store. Distribution is sideloading / TestFlight only; installation on iOS/iPadOS remains unavailable per [installation-compatibility.md](../architecture/installation-compatibility.md).
 - See [CHANGELOG.md](../../CHANGELOG.md) and [version-strategy.md](version-strategy.md) for exactly what is claimed.
 
@@ -19,9 +19,9 @@ The app is fully built but ships one release at a time. `0.1.0` shows Files, Imp
 ## Private → Public Gate (how a professional dev release ships)
 
 ```
-commit HEAD (market 0.1.0 build 4 — Horizon + hand-off/journal/ADR + private test)  ──►  private build (TestFlight internal / ad-hoc IPA)
+commit HEAD (market 1.0.0 build 5 — v1.0.0-rc.2 + private test)  ──►  private build (TestFlight internal / ad-hoc IPA)
                                            private matrix all green (two real devices)
-                                           ──►  tag v0.1.0 + gh release (public, changelog auto)
+                                           ──►  tag v1.0.0-rc.2 + gh release (public, changelog auto)
 ```
 
 **Step 1 — Build privately (same commit, same version, no tag).** On your Mac:
@@ -44,11 +44,11 @@ Or trigger `.github/workflows/private-test-build.yml` manually (`workflow_dispat
 **Step 3 — Publish (one command after green, no rebuild):**
 
 ```sh
-git tag -a v0.1.0 -m "ZynSign 0.1.0 Horizon — first public dev (private-tested)" HEAD
-git push origin tag v0.1.0
-gh release create v0.1.0 --target main \
-  --title "ZynSign 0.1.0 Horizon — first public dev" \
-  --notes-file docs/releases/notes-v0.1.0.md  # auto-generated by release.yml if missing
+git tag -a v1.0.0-rc.2 -m "ZynSign 1.0.0-rc.2 — release candidate 2 (private-tested)" HEAD
+git push origin tag v1.0.0-rc.2
+gh release create v1.0.0-rc.2 --target main \
+  --title "ZynSign 1.0.0-rc.2 — release candidate 2" \
+  --notes-file docs/releases/notes-v1.0.0-rc.2.md  # auto-generated by release.yml if missing
 ```
 
 The market version does not change between private and public — the build you tested **is** the release.
@@ -66,8 +66,8 @@ turning those changes into a release.
   not write it ahead of the first real release.
 - Release artifacts must never contain secrets, credentials, private keys,
   provisioning profiles, or user data. See [SECURITY.md](../../SECURITY.md).
-- Market version (`CFBundleShortVersionString`) is `0.1.0` for the first public dev — the tag is `v0.1.0` (no `-dev` needed for market), as Apple expects a numeric market version.
-- Build number (`CFBundleVersion`) bumps by 1 per release: `4` for `v0.1.0`, `5` for `v0.1.0-alpha.1`, etc. (`Scripts/release_train.py promote` does it). `ApplicationInfo.current` reads both and is covered by hygiene.
+- Market version (`CFBundleShortVersionString`) stays numeric on every stop — `1.0.0` for the RCs — with the pre-release suffix living only in the tag, as Apple expects.
+- Build number (`CFBundleVersion`) bumps by 1 per release — currently `5` for `v1.0.0-rc.2` (`Scripts/release_train.py promote` does it). `ApplicationInfo.current` reads both and is covered by hygiene.
 
 ## Index
 
@@ -76,7 +76,8 @@ turning those changes into a release.
 
 - [version-strategy.md](version-strategy.md) — the development → alpha →
   beta → release-candidate → stable progression, exit criteria, and the
-  current position (Horizon `0.1.0` build `4`).
-- [private-testing.md](private-testing.md) — the private build channels (ad-hoc IPA / TestFlight internal), the device matrix, ExportOptions templates, and the checklist that gates `v0.1.0`.
+  current position (`v1.0.0-rc.2`, market `1.0.0` build `5`).
+- [private-testing.md](private-testing.md) — the private build channels (ad-hoc IPA / TestFlight internal), the device matrix, ExportOptions templates, and the checklist that gates each release on the train.
 - [ExportOptions-private-adhoc.plist](ExportOptions-private-adhoc.plist) — `method: ad-hoc` template for DM sideload.
 - [ExportOptions-private-appstore.plist](ExportOptions-private-appstore.plist) — `method: app-store` template for TestFlight internal.
+- [notes-v1.0.0-rc.1.md](notes-v1.0.0-rc.1.md) · [notes-v1.0.0-rc.2.md](notes-v1.0.0-rc.2.md) — the release-candidate notes the workflow attaches to each GitHub release.

@@ -44,7 +44,9 @@ jobs:
       - name: Refuse private keys and misplaced certificates
         run: |
           set -eu
-          if grep -rniE "BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY" --exclude-dir=.git . ; then
+          # CompatibilityLabSecurity.swift carries the PEM headers as
+          # detection markers (fixed strings, never keys) — exempted by name.
+          if grep -rniE "BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY" --exclude-dir=.git --exclude=CompatibilityLabSecurity.swift . ; then
             echo "Private key material found." >&2; exit 1; fi
           if grep -rniE "BEGIN CERT[I]FICATE" --exclude-dir=.git --exclude-dir=Tests . ; then
             echo "Certificate material outside Tests/." >&2; exit 1; fi
@@ -167,9 +169,14 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :teamID YOUR_TEAM_ID" docs/releases/ExportOptions-private-adhoc.plist || true
           ls -la "$RUNNER_TEMP/private-export" 2>/dev/null || true
           if [ -f "$RUNNER_TEMP/private-export/ZynSign.ipa" ]; then
-            # Rename with version for clarity — MARKETING_VERSION + CURRENT_PROJECT_VERSION from the project
-            mv "$RUNNER_TEMP/private-export/ZynSign.ipa" "$RUNNER_TEMP/ZynSign-0.1.0-3-private.ipa"
-            echo "IPA ready at $RUNNER_TEMP/ZynSign-0.1.0-3-private.ipa"
+            # Rename with the version the archive actually carries — read from
+            # the built app, never hardcoded, so the artifact name cannot go stale.
+            APP_PLIST="$RUNNER_TEMP/ZynSign-private.xcarchive/Products/Applications/ZynSign.app/Info.plist"
+            MARKETING=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$APP_PLIST" 2>/dev/null || echo unknown)
+            BUILD=$(/usr/libexec/PlistBuddy -c "Print CFBundleVersion" "$APP_PLIST" 2>/dev/null || echo unknown)
+            IPA_NAME="ZynSign-${MARKETING}-${BUILD}-private.ipa"
+            mv "$RUNNER_TEMP/private-export/ZynSign.ipa" "$RUNNER_TEMP/$IPA_NAME"
+            echo "IPA ready at $RUNNER_TEMP/$IPA_NAME"
           fi
 
       - name: Upload private test artifacts (NOT a release)
@@ -180,7 +187,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
           path: |
-            ${{ runner.temp }}/ZynSign-0.1.0-3-private.ipa
+            ${{ runner.temp }}/ZynSign-*-private.ipa
             ${{ runner.temp }}/private-export/**
             ${{ runner.temp }}/archive.log
             ${{ runner.temp }}/export.log
@@ -194,7 +201,7 @@ jobs:
 
           * **Simulator build + tests:** the gate — if green, the commit is sound enough to test on devices.
           * **Archive / IPA:** produced only when the runner can sign (requires `TEAM_ID` secret). Without that secret the simulator build is the evidence and you produce the IPA locally per `docs/releases/private-testing.md` (Option A/B).
-          * **This workflow never creates a tag or a GitHub release.** When the private matrix in `docs/releases/private-testing.md` is all green on two real devices, publish `v0.1.0` once, manually, as described there.
+          * **This workflow never creates a tag or a GitHub release.** When the private matrix in `docs/releases/private-testing.md` is all green on two real devices, publish the tag for the current train stop (today `v1.0.0-rc.2`) once, manually, as described there.
 
           **Local private IPA (no secret needed, on your Mac):**
           ```sh
