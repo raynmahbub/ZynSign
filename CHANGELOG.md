@@ -12,6 +12,49 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added — Beta 2 · Step 25: Performance Engine & Large Library Optimization
+
+- `PerformanceEngine` façade (Application) over a `BackgroundWorkScheduler`
+  (keyed, priority-ordered, bounded concurrency), a two-tier `ThumbnailCache`
+  (ImageIO downsampling into small/medium/large variants; memory tier trimmed
+  under pressure; disk tier under the thumbnails/screenshots policies), a
+  persisted `MetadataIndex` (name, version, bundle ID, developer, import date,
+  signing state — the list never opens a package), a shared entry-table
+  `InspectionResultCache` behind `CachingArtifactArchiveReaderProvider` keyed by
+  file stamp (read-only library inspectors only; import/staging stay uncached),
+  a `MemoryManager` over the system pressure source, a `CacheManager` with one
+  `CachePolicy` per category (thumbnails, screenshots, metadata, diagnostics,
+  temporary files; LRU + age eviction; imported apps are never a cache), a
+  `PerformanceBenchmarkRunner` with baseline + `PerformanceRegressionDetector`,
+  a `LaunchPerformanceRecorder` and `StartupWorkPlan`, and a `StoreManifestCache`
+  with conditional (ETag/Last-Modified) refresh and a paged, indexed `StoreCatalog`
+  (used by the benchmark suite and cache accounting; the Store Browser keeps its
+  own `StoreRepository` cache from Step 21).
+- Generic trigram `SearchIndex<ID, Field>` adopted by `LibraryIndex`: name,
+  bundle ID, version, file name, developer, team, and collection are indexed
+  incrementally and searched in a few set intersections instead of a scan.
+- Hidden **Performance** page under Settings → Advanced (`ReleaseFeature.
+  performanceDashboard`, introduced in `0.9.0-beta.2`): Library Items, Indexed
+  Apps, Cache Size, Thumbnail Cache, Search Index Status, Last Optimization,
+  memory pressure, background work, launch timeline, per-category cache clearing,
+  Optimize Now, and a benchmark table (library load, index build, search latency,
+  import speed, signing preparation, store loading, thumbnail generation, launch)
+  with Stable / Improved / Regressed verdicts against an accepted baseline.
+- Library: `IncrementalRenderWindow` materialises 120 rows/cards at a time with
+  skeleton rows and "Show all"; `ApplicationIconView` draws through the shared
+  `ThumbnailPipeline` (synchronous memory hit, otherwise monogram → icon).
+- Signing Queue: `ProgressCoalescer` folds sub-1 % progress reports so a run
+  publishes only visible changes; stage changes and completions always pass.
+- Launch: the shell marks first frame, runs every startup item after a 350 ms
+  deferral in plan order, and records launch-to-first-frame as a benchmark.
+- `ZMotion` design-system helper honouring Reduce Motion and the animation
+  preference; skeleton placeholders keep accessibility hidden.
+- Foundation-only XCTest coverage for the index (2,000 documents under a frame),
+  eviction planner, cache/memory managers, scheduler, coalescer, render window,
+  regression detector, benchmark runner, launch plan, store catalog/manifest
+  cache, inspection cache, and the engine façade. Design record:
+  [`docs/architecture/performance-engine.md`](docs/architecture/performance-engine.md).
+
 ### Added — 0.9.0-beta.2 · Step 24: Installation Workspace
 
 - **A dedicated Install section** — Settings → Browse → Install, a Home

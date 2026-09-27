@@ -282,6 +282,11 @@ final class SigningQueue: ObservableObject {
     /// business, and the interface has no way to show them by accident.
     private var submissions: [SigningJobIdentifier: SigningJobSubmission] = [:]
 
+    /// One coalescer per running job, so a run reporting hundreds of
+    /// byte-level updates publishes only the ones that change what a row
+    /// shows. Every stage change and every stage completion still passes.
+    private var progressCoalescers: [SigningJobIdentifier: ProgressCoalescer] = [:]
+
     /// The queue-owned profile copy file names, once persistence has stored
     /// them. A snapshot written before a copy completes restores the job
     /// honestly — as a job whose configuration could not be recovered.
@@ -923,6 +928,18 @@ final class SigningQueue: ObservableObject {
                 appendLog(id, "Reached \(progress.stage.displayName).")
             }
         }
+        // Publishing `jobs` re-renders every observer; a report that moves
+        // the bar by less than a visible step is folded into the next one.
+        var coalescer = progressCoalescers[id] ?? ProgressCoalescer()
+        let isStageComplete = progress.totalUnitCount > 0 && progress.completedUnitCount >= progress.totalUnitCount
+        let shouldPublish = coalescer.shouldPublish(
+            stageOrder: progress.stage.order,
+            fraction: progress.fractionCompleted,
+            isStageComplete: isStageComplete,
+            now: now()
+        )
+        progressCoalescers[id] = coalescer
+        guard shouldPublish else { return }
         jobs[index].progress = progress
     }
 
@@ -935,6 +952,7 @@ final class SigningQueue: ObservableObject {
         jobs[index].state = state
         jobs[index].finishedAt = now()
         jobs[index].cancellationRequested = false
+        progressCoalescers.removeValue(forKey: id)
         if state.completion != nil {
             jobs[index].progress = SigningJobProgress(stage: .completed)
         }

@@ -102,43 +102,14 @@ struct LibraryTeam: Hashable, Sendable, Identifiable {
 /// it, and compare it without any shared mutable state.
 struct LibraryIndex: Sendable {
 
-    /// The folded search text of one entry, by field.
-    private struct SearchDocument: Sendable {
-        var name = ""
-        var bundleIdentifier = ""
-        var version = ""
-        var sourceFileName = ""
-        var developer = ""
-        var teamIdentifier = ""
-        var collection = ""
+    /// The search index over every entry's folded text, by field. Trigram
+    /// postings narrow each term to a handful of candidates before the
+    /// substring check, so a keystroke over a thousand entries costs a few
+    /// set intersections rather than a thousand string scans.
+    typealias LibrarySearchIndex = SearchIndex<ApplicationRecordIdentifier, LibrarySearchField>
 
-        func text(for field: LibrarySearchField) -> String {
-            switch field {
-            case .name: return name
-            case .bundleIdentifier: return bundleIdentifier
-            case .version: return version
-            case .sourceFileName: return sourceFileName
-            case .developer: return developer
-            case .teamIdentifier: return teamIdentifier
-            case .collection: return collection
-            }
-        }
-
-        /// Whether one folded search term occurs in any field.
-        func matches(_ term: String) -> Bool {
-            Self.occurs(term, in: name)
-                || Self.occurs(term, in: bundleIdentifier)
-                || Self.occurs(term, in: version)
-                || Self.occurs(term, in: sourceFileName)
-                || Self.occurs(term, in: developer)
-                || Self.occurs(term, in: teamIdentifier)
-                || Self.occurs(term, in: collection)
-        }
-
-        static func occurs(_ term: String, in text: String) -> Bool {
-            !text.isEmpty && text.range(of: term) != nil
-        }
-    }
+    /// One entry's searchable text.
+    private typealias SearchDocument = LibrarySearchIndex.Document
 
     /// Every entry, by record identifier.
     private(set) var entriesByID: [ApplicationRecordIdentifier: LibraryEntry] = [:]
@@ -152,7 +123,9 @@ struct LibraryIndex: Sendable {
     /// Declared provenance by artifact, for the packages resolved so far.
     private(set) var provenanceByArtifact: [ArtifactIdentifier: ApplicationProvenance] = [:]
 
-    private var documents: [ApplicationRecordIdentifier: SearchDocument] = [:]
+    /// The search index. Exposed read-only so an owner can report its size
+    /// and generation without copying the entries.
+    private(set) var searchIndex = LibrarySearchIndex()
     private var signing: [ApplicationRecordIdentifier: LibrarySigningFact] = [:]
     private var membersByCollection: [LibraryCollectionIdentifier: Set<ApplicationRecordIdentifier>] = [:]
     private var collectionsByRecord: [ApplicationRecordIdentifier: [LibraryCollectionIdentifier]] = [:]
@@ -280,10 +253,8 @@ struct LibraryIndex: Sendable {
 
         let terms = query.foldedSearchTerms
         if !terms.isEmpty {
-            candidates = candidates.filter { id in
-                guard let document = documents[id] else { return false }
-                return terms.allSatisfy { document.matches($0) }
-            }
+            let matched = searchIndex.matches(allOf: terms, among: Set(candidates))
+            candidates = candidates.filter { matched.contains($0) }
         }
 
         return sorted(candidates, by: query.sort)
@@ -301,10 +272,10 @@ struct LibraryIndex: Sendable {
         for id: ApplicationRecordIdentifier,
         foldedTerms: [String]
     ) -> [LibrarySearchField] {
-        guard !foldedTerms.isEmpty, let document = documents[id] else { return [] }
+        guard !foldedTerms.isEmpty, let document = searchIndex.document(for: id) else { return [] }
         return LibrarySearchField.allCases.filter { field in
-            let text = document.text(for: field)
-            return foldedTerms.contains { SearchDocument.occurs($0, in: text) }
+            guard let text = document.fields[field], !text.isEmpty else { return false }
+            return foldedTerms.contains { text.contains($0) }
         }
     }
 
@@ -356,8 +327,7 @@ struct LibraryIndex: Sendable {
         if previous?.record.identity != entry.record.identity {
             rebuildLatestVersions()
         }
-        let document = makeDocument(for: entry)
-        documents[id] = document
+        searchIndex.upsert(id, document: makeDocument(for: entry))
     }
 
     /// Removes the entries in `ids`.
@@ -365,9 +335,9 @@ struct LibraryIndex: Sendable {
         guard !ids.isEmpty else { return }
         for id in ids {
             entriesByID.removeValue(forKey: id)
-            documents.removeValue(forKey: id)
             signing.removeValue(forKey: id)
         }
+        searchIndex.remove(ids)
         rebuildMembership()
         rebuildLatestVersions()
     }
@@ -382,8 +352,9 @@ struct LibraryIndex: Sendable {
         guard collectionsChanged else { return }
         rebuildMembership()
         for id in Array(entriesByID.keys) {
-            let text = collectionText(for: id)
-            documents[id]?.collection = text
+            guard var document = searchIndex.document(for: id) else { continue }
+            document.fields[.collection] = collectionText(for: id)
+            searchIndex.upsert(id, document: document)
         }
     }
 
@@ -401,8 +372,7 @@ struct LibraryIndex: Sendable {
         provenanceByArtifact.merge(additions) { _, new in new }
         let affected = entriesByID.values.filter { additions[$0.record.artifact.artifactID] != nil }
         for entry in affected {
-            let document = makeDocument(for: entry)
-            documents[entry.record.id] = document
+            searchIndex.upsert(entry.record.id, document: makeDocument(for: entry))
         }
     }
 
@@ -578,20 +548,20 @@ struct LibraryIndex: Sendable {
 
     private func makeDocument(for entry: LibraryEntry) -> SearchDocument {
         let record = entry.record
-        var document = SearchDocument()
+        var fields: [LibrarySearchField: String] = [:]
         let names = [record.identity.declaredDisplayName, record.identity.declaredBundleName].compactMap { $0 }
-        document.name = LibraryQuery.fold(names.joined(separator: "\n"))
-        document.bundleIdentifier = LibraryQuery.fold(record.bundleIdentifier.rawValue)
+        fields[.name] = LibraryQuery.fold(names.joined(separator: "\n"))
+        fields[.bundleIdentifier] = LibraryQuery.fold(record.bundleIdentifier.rawValue)
         let versions = [record.identity.shortVersionString, record.identity.buildVersion].compactMap { $0 }
-        document.version = LibraryQuery.fold(versions.joined(separator: "\n"))
-        document.sourceFileName = LibraryQuery.fold(record.sourceFileName ?? "")
+        fields[.version] = LibraryQuery.fold(versions.joined(separator: "\n"))
+        fields[.sourceFileName] = LibraryQuery.fold(record.sourceFileName ?? "")
         if let declared = provenanceByArtifact[record.artifact.artifactID] {
             let developers = [declared.developerName, declared.teamName].compactMap { $0 }
-            document.developer = LibraryQuery.fold(developers.joined(separator: "\n"))
-            document.teamIdentifier = LibraryQuery.fold(declared.teamIdentifier ?? "")
+            fields[.developer] = LibraryQuery.fold(developers.joined(separator: "\n"))
+            fields[.teamIdentifier] = LibraryQuery.fold(declared.teamIdentifier ?? "")
         }
-        document.collection = collectionText(for: record.id)
-        return document
+        fields[.collection] = collectionText(for: record.id)
+        return SearchDocument(fields: fields)
     }
 
     private func collectionText(for id: ApplicationRecordIdentifier) -> String {
@@ -606,7 +576,7 @@ struct LibraryIndex: Sendable {
         for (id, entry) in entriesByID {
             rebuilt[id] = makeDocument(for: entry)
         }
-        documents = rebuilt
+        searchIndex.replaceAll(rebuilt)
     }
 
     private mutating func rebuildSigning() {
