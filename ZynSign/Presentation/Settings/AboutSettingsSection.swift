@@ -162,14 +162,14 @@ private enum AboutDocument {
 
         var body: String {
             switch self {
-            case .license: return Self.license
-            case .privacyPolicy: return Self.privacyPolicy
-            case .terms: return Self.terms
-            case .acknowledgements: return Self.acknowledgements
+            case .license: return Self.licenseText
+            case .privacyPolicy: return Self.privacyPolicyText
+            case .terms: return Self.termsText
+            case .acknowledgements: return Self.acknowledgementsText
             }
         }
 
-        static let license = """
+        static let licenseText = """
         ZynSign is released under the MIT License.
 
         Copyright (c) 2026 ZynSign
@@ -183,7 +183,7 @@ private enum AboutDocument {
         ZynSign links no third-party code into the application binary. No analytics kit, no crash reporter, no networking library, and no signing toolkit are linked in. OpenSSL is used only by the repository's host-side validation scripts, and never by the application.
         """
 
-        static let privacyPolicy = """
+        static let privacyPolicyText = """
         ZynSign collects nothing.
 
         There is no account, no telemetry, no crash reporting, and no measurement of any kind that leaves the device. There is no identifier — no advertising identifier, no vendor identifier, and no custom one — collected for measurement. There is no endpoint to send anything to.
@@ -193,7 +193,7 @@ private enum AboutDocument {
         The optional activity journal and the optional technical log are on-device records you can read and clear in Settings. A diagnostic report is written to a file only when you export it, and it leaves the device only if you share it yourself.
         """
 
-        static let terms = """
+        static let termsText = """
         ZynSign is provided as-is, without warranty of any kind. Use it at your own risk.
 
         ZynSign helps you sign applications you already hold, with certificates and provisioning profiles you already own. It does not install applications, does not bypass any platform restriction, and does not make any statement about whether a signed application will be accepted anywhere. A signed application's validity is decided by whoever receives it.
@@ -203,7 +203,7 @@ private enum AboutDocument {
         The MIT License above is the licence that applies to the software. These terms describe what the software is for; they do not replace or limit that licence.
         """
 
-        static let acknowledgements = """
+        static let acknowledgementsText = """
         ZynSign is original software, written from scratch for this project.
 
         It is built on Apple's platforms: Foundation, SwiftUI, Security, LocalAuthentication, CryptoKit, Compression, Network, and the code-signing architecture documented by Apple. The signing implementation follows the published structure of code signatures, code directories, and CMS containers rather than any third-party tool.

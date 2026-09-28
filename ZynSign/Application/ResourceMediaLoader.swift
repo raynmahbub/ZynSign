@@ -59,7 +59,8 @@ public final class ResourceMediaLoader: @unchecked Sendable {
         for bundlePath: BundlePath,
         recordID: ApplicationRecordIdentifier
     ) async throws -> URL {
-        let fileURL = tempDirectory.appendingPathComponent("\(bundlePath.lastComponent)", isDirectory: false)
+        let fileName = bundlePath.name ?? "media-\(recordID.rawValue)"
+        let fileURL = tempDirectory.appendingPathComponent(fileName, isDirectory: false)
         if FileManager.default.fileExists(atPath: fileURL.path) {
             return fileURL
         }

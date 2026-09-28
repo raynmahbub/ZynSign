@@ -1075,7 +1075,7 @@ private struct NestedCodeTraversal {
             items.append(NestedCodeItem(
                 id: NestedCodeItemID(kind: .dynamicLibrary, location: path),
                 kind: .dynamicLibrary,
-                bundlePath: container.bundlePath,
+                bundlePath: path.parent ?? container.bundlePath,
                 executablePath: path,
                 executableProvenance: nil,
                 bundleInformation: .notPresent,

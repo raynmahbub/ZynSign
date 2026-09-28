@@ -1,0 +1,222 @@
+# Pre-release preflight.
+#
+# The complete release rehearsal, run BEFORE a tag is pushed:
+# validation, every static guard, the full build and test run, and a dry
+# run of the release assets (IPA, checksum, BuildInfo.json, notes).
+# Nothing is published — if any gate fails here, the release stops
+# before it starts.
+#
+# Pushing the actual tag runs release.yml, which repeats the gates and
+# publishes. Preflight is also how a maintainer verifies a candidate
+# version for the development / alpha / beta / rc channels.
+name: Prerelease Preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Candidate version without leading v, e.g. 0.1.0-alpha.1"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prerelease-preflight
+  cancel-in-progress: false
+
+jobs:
+  meta:
+    name: Derive candidate metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      channel: ${{ steps.meta.outputs.channel }}
+    steps:
+      - name: Derive version, tag, and channel
+        id: meta
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -eu
+          TAG="v${VERSION}"
+          case "${VERSION}" in
+            *-dev*)   CHANNEL="development" ;;
+            *-alpha*) CHANNEL="alpha" ;;
+            *-beta*)  CHANNEL="beta" ;;
+            *-rc*)    CHANNEL="rc" ;;
+            *)        CHANNEL="stable" ;;
+          esac
+          {
+            echo "version=${VERSION}"
+            echo "tag=${TAG}"
+            echo "channel=${CHANNEL}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Candidate ${TAG} on the ${CHANNEL} channel"
+
+  validation:
+    name: Validate the candidate release
+    runs-on: ubuntu-latest
+    needs: meta
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Validate the release (train stage, version, changelog, notes)
+        run: Scripts/ci/release_validate.sh "${{ needs.meta.outputs.version }}"
+
+      - name: Enforce the architecture boundaries
+        run: Scripts/ci/architecture_guard.sh
+
+      - name: Enforce the dependency allowlist
+        run: Scripts/ci/dependency_check.sh
+
+      - name: Validate the documentation
+        run: Scripts/ci/docs_check.sh
+
+      - name: Scan for secret material
+        run: Scripts/ci/security_scan.sh
+
+  gitleaks:
+    name: Gitleaks over the full history
+    runs-on: ubuntu-latest
+    needs: meta
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  lint-and-format:
+    name: SwiftLint and SwiftFormat
+    runs-on: macos-15
+    needs: meta
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install the tooling
+        run: HOMEBREW_NO_AUTO_UPDATE=1 brew install swiftlint swiftformat
+
+      - name: SwiftLint
+        run: Scripts/ci/lint.sh
+
+      - name: SwiftFormat check
+        run: Scripts/ci/format.sh check
+
+  build-and-test:
+    name: Build and run the unit tests
+    runs-on: macos-15
+    needs: meta
+    timeout-minutes: 45
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Select the newest stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Build and test
+        run: Scripts/ci/build.sh
+
+      - name: Upload build and test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preflight-build-logs
+          path: build/logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+  assets-dry-run:
+    name: Release assets dry run
+    runs-on: macos-15
+    needs: [meta, validation, gitleaks, lint-and-format, build-and-test]
+    timeout-minutes: 45
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Select the newest stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Archive an unsigned device build
+        run: |
+          set -eu
+          mkdir -p build/release
+          xcodebuild archive \
+            -project ZynSign.xcodeproj \
+            -scheme ZynSign \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath build/release/ZynSign.xcarchive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            -quiet
+
+      - name: Package the candidate assets
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          CHANNEL: ${{ needs.meta.outputs.channel }}
+        run: |
+          set -eu
+          cd build/release
+          mkdir -p payload/Payload
+          cp -R ZynSign.xcarchive/Products/Applications/ZynSign.app payload/Payload/
+          (cd payload && zip -qry ../ZynSign.ipa Payload)
+          shasum -a 256 ZynSign.ipa > ZynSign.sha256
+          BUILD_NUMBER="$(grep -oE 'CURRENT_PROJECT_VERSION = [0-9]+' ../../ZynSign.xcodeproj/project.pbxproj | head -1 | awk '{print $3}')"
+          DEPLOY_TARGET="$(grep -oE 'IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+' ../../ZynSign.xcodeproj/project.pbxproj | head -1 | awk '{print $3}')"
+          {
+            echo "candidate=${TAG}"
+            echo "channel=${CHANNEL}"
+            echo "buildNumber=${BUILD_NUMBER}"
+            echo "minimumIOS=${DEPLOY_TARGET}"
+            echo "sha256=$(awk '{print $1}' ZynSign.sha256)"
+          } > PreflightBuildInfo.txt
+          cat PreflightBuildInfo.txt
+
+      - name: Upload the candidate assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: preflight-assets
+          path: |
+            build/release/ZynSign.ipa
+            build/release/ZynSign.sha256
+            build/release/PreflightBuildInfo.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  verdict:
+    name: Preflight verdict
+    runs-on: ubuntu-latest
+    needs: [meta, validation, gitleaks, lint-and-format, build-and-test, assets-dry-run]
+    timeout-minutes: 5
+    steps:
+      - name: Report
+        run: |
+          set -eu
+          echo "### ✅ Preflight passed for ${{ needs.meta.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "The candidate cleared validation, static guards, lint, format," >> "$GITHUB_STEP_SUMMARY"
+          echo "the build, the tests, and the asset dry run." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Tag when ready:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "    git tag -a ${{ needs.meta.outputs.tag }} -m \"ZynSign ${{ needs.meta.outputs.version }}\" && git push origin ${{ needs.meta.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"

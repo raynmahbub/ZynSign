@@ -1,0 +1,17 @@
+# Architecture Guard baseline.
+#
+# Known, grandfathered layer crossings. The guard fails on any NEW crossing;
+# entries here are the only ones allowed to exist. Removing code that makes
+# an entry obsolete lets (and a later cleanup commit should) delete the
+# entry — the ratchet only tightens.
+#
+# Format: <layer-of-the-file> <type-name> <reason>
+#
+# Domain predates the Platform binary-parsing split and calls three
+# read-only parsers directly. They are pure byte-in/structure-out types
+# with no platform services, so the dependency is benign until the parser
+# extraction project moves them.
+Domain BoundedBinaryReader read-only byte cursor used by CodeSignatureBlob / DER parsers
+Domain CheckedBinaryWriter read-only byte writer used by CodeDirectory / requirements serialization
+Domain ReadOnlyMachOParser read-only Mach-O / super-blob parsing used by Domain signature types
+Domain ProvisioningProfileAuthorizationStatus policy report carries the Application enum until the status type moves to Domain

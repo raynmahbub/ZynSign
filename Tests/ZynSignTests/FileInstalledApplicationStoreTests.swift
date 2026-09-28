@@ -120,26 +120,28 @@ final class FileInstalledApplicationStoreTests: XCTestCase {
 
     func testAttemptRemovalIsANoOpForUnknownIdentifiers() async throws {
         try await store.removeAttempt(withID: InstallationEventIdentifier())
-        XCTAssertTrue(try await store.allAttempts().isEmpty)
+        let attempts = try await store.allAttempts()
+        XCTAssertTrue(attempts.isEmpty)
     }
 
     // MARK: - Measurement and refusal
 
     func testStoredByteCountMeasuresTheCatalog() async throws {
-        XCTAssertNil(await store.storedByteCount(), "No catalog yet, no measurement.")
+        let byteCount = await store.storedByteCount()
+        XCTAssertNil(byteCount, "No catalog yet, no measurement.")
         try await store.write(InstallationFixtures.installedRecord())
         let bytes = await store.storedByteCount()
         XCTAssertEqual(bytes ?? 0, try location.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? -1)
     }
 
-    func testUnrecognizableCatalogIsRefusedNotSilentlyEmptied() throws {
+    func testUnrecognizableCatalogIsRefusedNotSilentlyEmptied() async throws {
         try Data("not a catalog".utf8).write(to: location)
 
-        XCTAssertThrowsError(try FileInstalledApplicationStore.readCatalog(at: location)) { error in
-            guard let zynSignError = error as? ZynSignError else {
-                return XCTFail("Expected a typed error, got \(error)")
-            }
-            XCTAssertFalse(zynSignError.userMessage.isEmpty)
+        do {
+            _ = try await store.allRecords()
+            XCTFail("An unrecognizable catalog must be refused, not read as empty.")
+        } catch let error as ZynSignError {
+            XCTAssertFalse(error.userMessage.isEmpty)
         }
     }
 }

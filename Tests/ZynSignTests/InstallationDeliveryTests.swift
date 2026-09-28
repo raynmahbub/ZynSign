@@ -105,16 +105,9 @@ final class InstallationDeliveryTests: XCTestCase {
         XCTAssertNotNil(roundTripped["items"])
     }
 
-    func testManifestRefusesNonHTTPSAddresses() {
+    func testManifestRefusesNonHTTPSAddresses() throws {
         let service = InstallationDeliveryService()
-        let package = InstallationDeliveryPackage(
-            fileName: "Example_signed.ipa",
-            fileURL: URL(fileURLWithPath: "/Documents/Signed/Example_signed.ipa"),
-            displayName: "Example",
-            bundleIdentifier: "com.example.synthetic",
-            bundleVersion: "1.0",
-            buildVersion: nil
-        )
+        let package = try makePackage()
         XCTAssertThrowsError(
             try service.manifest(
                 for: package,
@@ -181,7 +174,7 @@ final class InstallationDeliveryTests: XCTestCase {
 
     func testOverTheAirStepsMentionConfirmationAndTrust() {
         let steps = InstallationDeliveryChannel.overTheAir.steps.joined(separator: " ")
-        XCTAssertTrue(steps.contains("confirm"), "OTA steps must include the device-side confirmation.")
+        XCTAssertTrue(steps.lowercased().contains("confirm"), "OTA steps must include the device-side confirmation.")
         XCTAssertTrue(steps.lowercased().contains("trust"), "OTA steps must include the certificate-trust step.")
     }
 }

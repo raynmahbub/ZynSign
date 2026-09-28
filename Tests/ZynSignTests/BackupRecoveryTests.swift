@@ -115,7 +115,6 @@ final class BackupRecoveryTests: XCTestCase {
         XCTAssertTrue(status.contains("damaged"))
     }
 
-
     func testHistoryRenameDeleteAndRecoveryOfUnindexedBackup() async throws {
         let root = try setup()
         defer { try? FileManager.default.removeItem(at: root) }

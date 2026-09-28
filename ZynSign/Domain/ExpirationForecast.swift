@@ -36,7 +36,7 @@ enum ExpirationForecastBand: Int, Comparable, CaseIterable, Equatable, Hashable,
     /// Classifies a day count. Negative days are expired.
     static func band(forDaysRemaining days: Int) -> ExpirationForecastBand {
         if days < 0 { return .expired }
-        for band in [.critical, .important, .warning] {
+        for band in [ExpirationForecastBand.critical, .important, .warning] {
             if let threshold = thresholds[band], days <= threshold { return band }
         }
         return .watch

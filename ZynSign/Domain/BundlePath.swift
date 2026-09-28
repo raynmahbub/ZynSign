@@ -15,7 +15,7 @@
 /// not constructible. That is what keeps every location the explorer can be
 /// asked about inside the bundle by construction rather than by checking:
 /// there is no value that names anything above the root.
-struct BundlePath: Equatable, Hashable, CustomStringConvertible {
+public struct BundlePath: Equatable, Hashable, CustomStringConvertible {
 
     /// The bundle root: the `.app` directory itself.
     static let root = BundlePath(validatedComponents: [])
@@ -130,5 +130,5 @@ struct BundlePath: Equatable, Hashable, CustomStringConvertible {
         BundlePath(components: components + [component])
     }
 
-    var description: String { rawValue }
+    public var description: String { rawValue }
 }

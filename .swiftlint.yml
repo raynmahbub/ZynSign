@@ -1,0 +1,80 @@
+# SwiftLint — ZynSign engineering standards.
+#
+# Two tiers, exactly as the engineering playbook defines them:
+#
+#   Errors (block CI)    force_unwrapping, force_cast, duplicate_imports,
+#                        trailing_whitespace, redundant_nil_coalescing
+#   Warnings (reported)  function_body_length, file_length,
+#                        cyclomatic_complexity, nesting
+#
+# `only_rules` keeps the rule set pinned: nothing new can start blocking
+# development silently when SwiftLint upgrades. Large legacy files warn
+# (file_length, function_body_length) instead of blocking — the error
+# thresholds sit far above any current file.
+#
+# Tests/ is excluded: test fixtures deliberately force-unwrap to turn an
+# unexpected nil into a loud test failure, which is exactly what the app
+# sources must never do.
+
+only_rules:
+  # --- Errors: the safety floor -------------------------------------------
+  - force_unwrapping
+  - force_cast
+  - duplicate_imports
+  - trailing_whitespace
+  - redundant_nil_coalescing
+  # --- Warnings: the complexity guard -------------------------------------
+  - function_body_length
+  - file_length
+  - cyclomatic_complexity
+  - nesting
+
+force_unwrapping:
+  severity: error
+
+force_cast:
+  severity: error
+
+duplicate_imports:
+  severity: error
+
+trailing_whitespace:
+  severity: error
+  ignores_empty_lines: false
+  ignores_comments: false
+
+redundant_nil_coalescing:
+  severity: error
+
+# Complexity rules warn only (part 6 thresholds: function 80,
+# file 800, nesting 4). Error limits are deliberately unreachable so a
+# legacy file can never block a merge.
+function_body_length:
+  warning: 80
+  error: 5000
+  ignores_comment_lines: true
+
+file_length:
+  warning: 800
+  error: 5000
+
+cyclomatic_complexity:
+  warning: 15
+  error: 100
+
+nesting:
+  type_level:
+    warning: 3
+    error: 10
+  function_level:
+    warning: 4
+    error: 20
+
+excluded:
+  - Tests
+  - build
+  - DerivedData
+  - .build
+  - .external-validation
+  - node_modules
+  - Reports

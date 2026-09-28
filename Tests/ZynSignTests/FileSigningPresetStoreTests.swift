@@ -38,7 +38,8 @@ final class FileSigningPresetStoreTests: XCTestCase {
         let store = FileSigningPresetStore(catalogLocation: temporaryDirectory.appendingPathComponent("presets.json"))
         let presets = try await store.allPresets()
         XCTAssertTrue(presets.isEmpty)
-        XCTAssertEqual(try await store.count(), 0)
+        let count = try await store.count()
+        XCTAssertEqual(count, 0)
     }
 
     func testUpsertAndRetrieve() async throws {
@@ -54,7 +55,8 @@ final class FileSigningPresetStoreTests: XCTestCase {
             updatedAt: now
         )
         try await store.upsert(preset)
-        XCTAssertEqual(try await store.count(), 1)
+        let count = try await store.count()
+        XCTAssertEqual(count, 1)
         let fetched = try await store.preset(withID: preset.id)
         XCTAssertEqual(fetched, preset)
     }
@@ -81,7 +83,8 @@ final class FileSigningPresetStoreTests: XCTestCase {
         let preset = SigningPreset(name: "Throwaway", createdAt: now, updatedAt: now)
         try await store.upsert(preset)
         try await store.remove(presetWithID: preset.id)
-        XCTAssertEqual(try await store.count(), 0)
+        let count = try await store.count()
+        XCTAssertEqual(count, 0)
     }
 
     func testCorruptCatalogThrows() async throws {
@@ -116,8 +119,10 @@ final class FileSigningHistoryStoreTests: XCTestCase {
             journalLocation: temporaryDirectory.appendingPathComponent("history.json"),
             capacity: 100
         )
-        XCTAssertEqual(try await store.count(), 0)
-        XCTAssertEqual(try await store.allRecords(), [])
+        let count = try await store.count()
+        XCTAssertEqual(count, 0)
+        let records = try await store.allRecords()
+        XCTAssertEqual(records, [])
     }
 
     func testAppendIsMostRecentFirst() async throws {
@@ -177,7 +182,8 @@ final class FileSigningHistoryStoreTests: XCTestCase {
             )
             try await store.append(record)
         }
-        XCTAssertEqual(try await store.count(), 2)
+        let count = try await store.count()
+        XCTAssertEqual(count, 2)
     }
 
     func testClear() async throws {
@@ -198,7 +204,8 @@ final class FileSigningHistoryStoreTests: XCTestCase {
             duration: 0
         ))
         try await store.clear()
-        XCTAssertEqual(try await store.count(), 0)
+        let count = try await store.count()
+        XCTAssertEqual(count, 0)
     }
 
     func testRecordsForPresetFiltersCorrectly() async throws {

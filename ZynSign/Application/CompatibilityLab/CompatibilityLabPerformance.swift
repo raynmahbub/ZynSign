@@ -87,7 +87,7 @@ enum ByteCountFormatting {
 /// that settles it. A performance claim nobody can reproduce is worse than
 /// no claim, and the report is built so an imported measurement can fill
 /// that row without pretending the Lab took it.
-struct PerformanceSuite {
+struct PerformanceSuite: CompatibilitySuite {
 
     func checks(context: CompatibilityLabContext) async -> [CompatibilityCheck] {
         var results: [CompatibilityCheck] = []
@@ -114,7 +114,7 @@ struct PerformanceSuite {
             )
         }
         let started = context.now()
-        _ = environment.preferencesStore.snapshot
+        _ = await MainActor.run { environment.preferencesStore.snapshot }
         let entries = (try? await environment.library.entries()) ?? []
         let elapsed = Int(context.now().timeIntervalSince(started) * 1_000)
         let passed = elapsed <= PerformanceThresholds.firstDataReadMilliseconds
@@ -289,6 +289,7 @@ struct PerformanceSuite {
     private func scrollingCheck() -> CompatibilityCheck {
         CompatibilityCheck(
             id: "performance.scrolling",
+            category: .performance,
             title: "Scrolling",
             status: .notRun,
             summary: "Frame rate is not measured in-process; it needs Instruments or an XCTest metric.",

@@ -113,7 +113,7 @@ public struct LazyImageThumbnail: View {
     @State private var isLoading = false
     @State private var loadFailed = false
 
-    public init(
+    init(
         bundlePath: BundlePath,
         recordID: ApplicationRecordIdentifier,
         mediaLoader: ResourceMediaLoader,

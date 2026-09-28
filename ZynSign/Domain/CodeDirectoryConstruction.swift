@@ -44,6 +44,7 @@ enum CodeDirectoryVersion: Equatable, Hashable {
         switch self {
         case .v20001: return false
         case .v20200, .v20400: return true
+        case .unsupported: return false
         }
     }
 

@@ -512,7 +512,7 @@ struct HomeView: View {
                                     count += directory.sources.count
                                     refreshed = true
                                 }
-                                return refreshed ? count : HomeStorageCounts.sourceCount()
+                                return refreshed ? count : await HomeStorageCounts.sourceCount()
                             },
                             checkLibrary: {
                                 do {
@@ -549,7 +549,7 @@ struct HomeView: View {
         } catch {
             failedLoad = true
         }
-        certificateCount = (try? environment.identityStore.listIdentities().count) ?? nil
+        certificateCount = try? environment.identityStore.listIdentities().count
         profileCount = try? await environment.provisioningProfiles?.count()
         if !entries.isEmpty && (certificateCount ?? 0) > 0 && (profileCount ?? 0) > 0 {
             completeOnboarding()
@@ -596,9 +596,9 @@ enum HomeStorageCounts {
         return items.filter { $0.pathExtension.lowercased() == "ipa" }.count
     }
 
-    static func sourceCount() -> Int {
+    static func sourceCount() async -> Int {
         guard let url = documents?.appendingPathComponent("ZynSignSources.json") else { return 0 }
-        return RepositoryDirectory.sourceCount(at: url)
+        return await MainActor.run { RepositoryDirectory.sourceCount(at: url) }
     }
 }
 

@@ -49,9 +49,15 @@ enum ImportQueueRendering {
                 : "Added to the library and replaced the \(removed) entries it matched."
             guard !settlement.retainedRecords.isEmpty else { return base }
             let retained = settlement.retainedRecords.count
-            let tail = retained == 1
-                ? "One earlier entry could not be removed and remains in the library."
-                : "\(retained) earlier entries could not be removed and remain in the library."
+            let tail: String
+            switch retained {
+            case 1:
+                tail = "One earlier entry could not be removed and remains in the library."
+            case 2:
+                tail = "Two earlier entries could not be removed and remain in the library."
+            default:
+                tail = "\(retained) earlier entries could not be removed and remain in the library."
+            }
             return base + " " + tail
 
         case .alreadyHeld:

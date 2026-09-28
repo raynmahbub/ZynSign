@@ -9,7 +9,7 @@ import Foundation
 /// are opaque — never derived from package metadata, never presented as
 /// package information — and a persisted identifier is reused when the
 /// record is rehydrated rather than minted again.
-struct ApplicationRecordIdentifier: Equatable, Hashable, CustomStringConvertible, Sendable {
+public struct ApplicationRecordIdentifier: Equatable, Hashable, CustomStringConvertible, Sendable {
 
     /// The underlying uniqueness value.
     let uuid: UUID
@@ -36,5 +36,5 @@ struct ApplicationRecordIdentifier: Equatable, Hashable, CustomStringConvertible
     /// diagnostics. Contains no package information.
     var rawValue: String { uuid.uuidString }
 
-    var description: String { rawValue }
+    public var description: String { rawValue }
 }

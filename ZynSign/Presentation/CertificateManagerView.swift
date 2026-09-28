@@ -26,7 +26,7 @@ import UIKit
 /// the store's status snapshot, and the user's own local notes.
 struct CertificateManagerView: View {
 
-    @Environment(\\.applicationEnvironment) private var env
+    @Environment(\.applicationEnvironment) private var env
     @StateObject private var model: CertificateManagerModel
     @AppStorage("zynsign.certs.showsGrid") private var showsGrid = false
 

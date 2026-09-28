@@ -45,7 +45,7 @@ final class CertificateManagerModelTests: XCTestCase {
     }
 
     /// Registers the four standing fixtures and loads the model.
-    private func registerStandardIdentities() throws {
+    private func registerStandardIdentities() async throws {
         _ = try store.register(certificateDER: CertificateFixtures.validDER, keyReference: SigningIdentityFixtures.reference)
         _ = try store.register(certificateDER: CertificateFixtures.expiredDER, keyReference: SigningIdentityFixtures.reference)
         _ = try store.register(certificateDER: CertificateFixtures.futureDER, keyReference: SigningIdentityFixtures.reference)
@@ -150,9 +150,11 @@ final class CertificateManagerModelTests: XCTestCase {
         XCTAssertEqual(model.visibleItems().count, 1)
         XCTAssertEqual(model.visibleItems().first?.commonName, "ZynSign Multi")
 
-        // Every fixture is issued by "Test CA".
+        // Three fixtures share the Test CA issuer; the multi-attribute
+        // fixture is self-issued with its own distinguished name, so an
+        // issuer search reaches three of the four.
         model.searchText = "Test CA"
-        XCTAssertEqual(model.visibleItems().count, 4)
+        XCTAssertEqual(model.visibleItems().count, 3)
 
         // A fingerprint prefix finds its certificate.
         model.searchText = "4aea4f8b"
@@ -290,7 +292,7 @@ final class CertificateManagerModelTests: XCTestCase {
         XCTAssertEqual(model.defaultFingerprint, Self.expiredFingerprint)
         let updated = item(withCommonName: "ZynSign Test Expired", in: model.phase)
         XCTAssertTrue(updated.isDefault)
-        XCTAssertNil(item(withCommonName: "ZynSign Test Valid", in: model.phase).isDefault)
+        XCTAssertFalse(item(withCommonName: "ZynSign Test Valid", in: model.phase).isDefault)
 
         let cleared = await model.clearDefault()
         XCTAssertTrue(cleared)

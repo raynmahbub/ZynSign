@@ -22,3 +22,11 @@ build/
 
 # Composed store screenshots are generated from Assets/Screenshots/raw
 Assets/Screenshots/store/
+
+# CI-generated reports — produced by Scripts/ci/*, uploaded as
+# artifacts; only the README is versioned
+Reports/*
+!Reports/README.md
+
+# Engineering tooling (commitlint / commitizen)
+node_modules/

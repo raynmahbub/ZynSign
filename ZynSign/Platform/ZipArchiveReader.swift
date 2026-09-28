@@ -387,7 +387,20 @@ final class ZipArchiveReader: ArchiveReader {
         guard maximumOutputBytes > 0 else { return Data() }
         guard !compressed.isEmpty else { return Data() }
 
-        var stream = compression_stream()
+        // Xcode 26 imports the stream's pointer fields as non-nullable, so the
+        // struct cannot be seeded with `nil`. Both pointers are overwritten on
+        // every process call below before anything reads them, so a single
+        // placeholder byte satisfies the initializer and is released together
+        // with the stream (defers run in reverse order: destroy, then free).
+        let placeholder = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
+        defer { placeholder.deallocate() }
+        var stream = compression_stream(
+            dst_ptr: placeholder,
+            dst_size: 0,
+            src_ptr: UnsafePointer(placeholder),
+            src_size: 0,
+            state: nil
+        )
         let initStatus = withUnsafeMutablePointer(to: &stream) { pointer in
             compression_stream_init(pointer, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB)
         }

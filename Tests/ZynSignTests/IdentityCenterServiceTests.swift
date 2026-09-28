@@ -196,7 +196,7 @@ final class IdentityCenterServiceTests: XCTestCase {
             duration: 1,
             result: .succeeded
         )
-        await history.append(record)
+        try await history.append(record)
 
         let snapshot = try await service.snapshot()
 
@@ -293,7 +293,7 @@ final class IdentityCenterServiceTests: XCTestCase {
             duration: 1,
             result: .succeeded
         )
-        await history.append(record)
+        try await history.append(record)
 
         let recommendation = await service.recommendation(forBundleIdentifier: "com.example.covered")
 

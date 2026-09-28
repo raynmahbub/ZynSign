@@ -267,8 +267,10 @@ final class BinaryInspectorDomainTests: XCTestCase {
         }
         XCTAssertEqual(executables[0]["name"] as? String, "Example")
         XCTAssertEqual(executables[0]["verdict"] as? String, "valid")
+        let architectureObjects = executables[0]["architectures"] as? [[String: Any]]
+        let codeSignature = architectureObjects?.first?["codeSignature"] as? [String: Any]
         XCTAssertEqual(
-            (executables[0]["codeSignature"] as? [String: Any])?["entitlementKeys"] as? [String],
+            codeSignature?["entitlementKeys"] as? [String],
             ["application-identifier", "com.apple.security.application-groups"]
         )
         guard let verification = executables[0]["verification"] as? [String: Any],
@@ -496,9 +498,10 @@ final class BinaryInspectorDomainTests: XCTestCase {
     private func discovery(
         declared: [BundlePath: String] = [:],
         mainExecutableName: String? = "Example",
-        maximumNestedTargets: Int = 128
+        maximumNestedTargets: Int = 128,
+        table: [ArchiveEntry]? = nil
     ) -> BinaryBundleOverview {
-        let contents = BundleContents(entryTable: discoveryTable, bundlePath: makePath("Payload/Example.app"))
+        let contents = BundleContents(entryTable: table ?? discoveryTable, bundlePath: makePath("Payload/Example.app"))
         return BinaryTargetDiscovery.discover(
             contents: contents,
             mainExecutableName: mainExecutableName,
@@ -528,7 +531,18 @@ final class BinaryInspectorDomainTests: XCTestCase {
         let declared: [BundlePath: String] = [
             BinaryInspectionTestSupport.bundlePath("Frameworks/Core.framework"): "RenamedCore",
         ]
-        let overview = discovery(declared: declared)
+        // A bundle that declares RenamedCore carries a file of that name;
+        // discovery looks up the declared executable and drops a container
+        // whose declared file is absent, so the table must hold it.
+        let overview = discovery(
+            declared: declared,
+            table: discoveryTable + [
+                makeEntry(
+                    "Payload/Example.app/Frameworks/Core.framework/RenamedCore",
+                    uncompressedSize: 4_096
+                ),
+            ]
+        )
         XCTAssertEqual(overview.targets.map(\.name).first { $0.hasSuffix("Core") }, "RenamedCore")
     }
 

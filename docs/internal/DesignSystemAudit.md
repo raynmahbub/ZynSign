@@ -1,4 +1,4 @@
-# Design System Audit — ZS-029
+# Design System Audit
 
 **Scope:** `ZynSign/Presentation/` (every call site outside `DesignSystem/`).
 **Method:** `python3 Scripts/audit_design_tokens.py` — the same script now

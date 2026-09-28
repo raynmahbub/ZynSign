@@ -404,6 +404,14 @@ struct IPABinaryInspection {
                     diagnosticDetail: "The requested package is not a signed package ZynSign keeps."
                 )
             }
+            // Permission is not presence: a path inside the signed-packets
+            // directory that holds no file is a storage miss, and it is
+            // refused before any reader touches it.
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                throw ZynSignError.artifactNotAvailable(
+                    diagnosticDetail: "The selected package is not present in ZynSign's working storage."
+                )
+            }
             reader = makePackageReader(url)
         }
 

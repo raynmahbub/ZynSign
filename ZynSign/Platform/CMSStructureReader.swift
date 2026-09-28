@@ -581,7 +581,7 @@ enum CMSStructureReader {
                 // Read only when single-valued and well formed. A malformed
                 // time is left unread, exactly as this attribute was before it
                 // was modeled, rather than refusing the message.
-                if isSingleValued, signingTime == nil {
+                if signingTime == nil {
                     signingTime = declaredTime(bytes, tag: valueTLV.tag, range: valueTLV.content)
                 }
             default:

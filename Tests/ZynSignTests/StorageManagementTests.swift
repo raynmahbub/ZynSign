@@ -151,7 +151,12 @@ final class StorageManagementTests: XCTestCase {
 
         let report = try await management.cleanup(.oldHistoryRecords)
 
-        let remaining = (try? await store.allRecords()) ?? []
+        // A fresh reader, not the appending store: FileSigningHistoryStore
+        // caches the journal after its first read, so the second instance
+        // this test holds would still report the pre-cleanup state that
+        // management's own instance rewrote on disk.
+        let diskReader = FileSigningHistoryStore(journalLocation: layout.history, capacity: 100)
+        let remaining = (try? await diskReader.allRecords()) ?? []
         XCTAssertEqual(remaining.count, StorageCleanupPolicy.minimumRetainedHistoryRecords)
         XCTAssertGreaterThan(report.removedHistoryRecordCount, 0)
     }

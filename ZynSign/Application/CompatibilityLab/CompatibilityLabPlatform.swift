@@ -315,7 +315,7 @@ struct LabDeviceFacts: Equatable, Sendable {
 /// the identity store what is available, probes a repository through a
 /// transport that cannot reach anything, reads the export location, and
 /// builds an installation manifest.
-struct IOSCompatibilitySuite {
+struct IOSCompatibilitySuite: CompatibilitySuite {
 
     /// The releases in the matrix, oldest first.
     static let releases: [SupportedIOSRelease] = SupportedIOSRelease.allCases
@@ -324,7 +324,7 @@ struct IOSCompatibilitySuite {
     func checks(context: CompatibilityLabContext) async -> [CompatibilityCheck] {
         let runningMajor = Self.runningMajorVersion
         var collected: [CompatibilityCheck] = []
-        for release in releases {
+        for release in Self.releases {
             for workflow in CompatibilityWorkflow.allCases {
                 collected.append(
                     await check(
@@ -416,7 +416,7 @@ struct IOSCompatibilitySuite {
         case .store:
             return await storeCheck(checkID: checkID, release: release)
         case .export:
-            return exportCheck(checkID: checkID, release: release, context: context)
+            return await exportCheck(checkID: checkID, release: release, context: context)
         case .installation:
             return installationCheck(checkID: checkID, release: release)
         }
@@ -578,14 +578,14 @@ struct IOSCompatibilitySuite {
         checkID: String,
         release: SupportedIOSRelease,
         context: CompatibilityLabContext
-    ) -> CompatibilityCheck {
+    ) async -> CompatibilityCheck {
         let documents = CompositionRoot.documentsDirectory
         let writable = context.fileManager.isWritableFile(atPath: documents.path)
         var catalogReadable = false
         var catalogDetail = "not composed"
         if let environment = context.environment {
             do {
-                let held = try environment.exportCenter.heldFileNames()
+                let held = try await environment.exportCenter.heldFileNames()
                 catalogReadable = true
                 catalogDetail = "\(held.count) exported file(s) held"
             } catch {
@@ -659,7 +659,7 @@ struct IOSCompatibilitySuite {
 /// reports every other class as not run, because layout, multitasking and
 /// memory behaviour are exactly the things a device cannot vouch for on
 /// behalf of another device.
-struct DeviceCompatibilitySuite {
+struct DeviceCompatibilitySuite: CompatibilitySuite {
 
     private let facts: LabDeviceFacts
 

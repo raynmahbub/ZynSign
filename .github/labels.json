@@ -1,0 +1,18 @@
+[
+    { "name": "feature", "color": "0e8a16", "description": "New capability — drives Release Drafter's ✨ Features" },
+    { "name": "enhancement", "color": "1d76db", "description": "Improvement to an existing capability — 🚀 Improvements" },
+    { "name": "bug", "color": "d73a4a", "description": "Defect fix — 🐛 Bug Fixes" },
+    { "name": "performance", "color": "fbca04", "description": "Speed, memory, or responsiveness — ⚡ Performance" },
+    { "name": "ui", "color": "c5def5", "description": "Presentation-layer changes — 🎨 UI" },
+    { "name": "refactor", "color": "bfdadc", "description": "Restructuring without behaviour change — ♻️ Refactors" },
+    { "name": "security", "color": "5319e7", "description": "Signing, keychain, secrets — 🔒 Security" },
+    { "name": "docs", "color": "006b75", "description": "Documentation — 📚 Documentation" },
+    { "name": "ci", "color": "e99695", "description": "Workflows and Scripts/ci — 🛠 CI" },
+    { "name": "tests", "color": "bfd4f2", "description": "Test-only changes" },
+    { "name": "architecture", "color": "b60205", "description": "Touches the protected layered boundaries — senior review" },
+    { "name": "regression", "color": "b60205", "description": "A previously working behaviour broke" },
+    { "name": "maintenance", "color": "cccccc", "description": "Opened or updated by the maintenance bot" },
+    { "name": "stale", "color": "ededed", "description": "No activity — will close without response" },
+    { "name": "pinned", "color": "0052cc", "description": "Exempt from the stale bot" },
+    { "name": "ignore-for-release", "color": "ededed", "description": "Exclude from generated release notes" }
+]

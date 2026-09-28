@@ -8,7 +8,7 @@ import Foundation
 /// exported reports contain no credentials, the workspace is cleaned up. A
 /// claim nobody checks is a claim that quietly stops being true, so the Lab
 /// checks each one where it can, and says plainly what it cannot check.
-struct SecurityHardeningSuite {
+struct SecurityHardeningSuite: CompatibilitySuite {
 
     func checks(context: CompatibilityLabContext) async -> [CompatibilityCheck] {
         var results: [CompatibilityCheck] = [
@@ -180,7 +180,7 @@ struct SecurityHardeningSuite {
             nextStep: offending.isEmpty ? nil : "A log entry is carrying text it must not. Find the call site and reduce it to a slug.",
             evidence: offending.isEmpty
                 ? ["entries: \(entries.count)", "categories: \(Set(entries.map(\.category.displayName)).sorted().joined(separator: ", "))"]
-                : offending.prefix(3).map { "entry detail is not a slug" },
+                : offending.prefix(3).map { _ in "entry detail is not a slug" },
             severity: .high
         )
     }

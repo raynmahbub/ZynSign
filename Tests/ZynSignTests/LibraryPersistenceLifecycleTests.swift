@@ -235,9 +235,14 @@ final class LibraryPersistenceLifecycleTests: XCTestCase {
 
     func testRejectedPackageLeavesNoRecordAndNoArtifact() async throws {
         let session = makeSession()
+        // Leading bytes that look like a ZIP, a central directory that does
+        // not parse: preflight accepts the candidate and the structural
+        // examination rejects it as a result — the rejection this test
+        // pins. (A plain file renamed .ipa never reaches examination; the
+        // preflight throws it out before anything is copied.)
         let source = ImportFixtures.writeFile(
             named: "Broken.ipa",
-            content: Data(ZipFixtureBuilder.notAnArchive()),
+            content: Data(ZipFixtureBuilder.corruptCentralDirectory(ZipFixtureBuilder.validPackage())),
             in: sourceDirectory
         )
 

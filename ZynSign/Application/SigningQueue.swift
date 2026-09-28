@@ -274,7 +274,6 @@ final class SigningQueue: ObservableObject {
     /// re-derives locations exactly the way a fresh enqueue did.
     private let artifactURLResolver: @Sendable (ArtifactIdentifier) -> URL
 
-
     private let now: () -> Date
 
     /// The full submissions behind the listed jobs. Kept out of `Job` on
@@ -820,7 +819,8 @@ final class SigningQueue: ObservableObject {
         // The task holds the queue while it runs, so a job that is running
         // is never abandoned by the queue being released underneath it.
         let task = Task { [weak self] in
-            await self?.run(id)
+            guard let self else { return }
+            await self.run(id)
         }
         runningTasks[id] = task
     }
@@ -908,7 +908,6 @@ final class SigningQueue: ObservableObject {
             presetID: submission.presetID
         )
     }
-
 
     /// Mirrors one progress report onto its job.
     ///

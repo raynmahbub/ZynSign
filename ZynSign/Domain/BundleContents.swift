@@ -40,7 +40,7 @@
 /// Within a directory, entries are ordered with directories before other
 /// kinds and then by name, compared as Unicode scalars, so that the same
 /// table produces the same listing on every run and every device.
-struct BundleContents: Equatable, Hashable {
+public struct BundleContents: Equatable, Hashable {
 
     /// The bundle directory's own name — `Example.app`.
     let bundleName: String

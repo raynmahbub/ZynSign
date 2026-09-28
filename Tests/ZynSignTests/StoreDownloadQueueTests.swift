@@ -59,6 +59,10 @@ final class StoreDownloadQueueTests: XCTestCase {
         let queue = StoreDownloadQueue(directory: root, factory: factory)
         _ = queue.enqueue(try StoreFixtures.source().apps[0], sourceName: "Source")
         let ready = expectation(description: "Ready for explicit import")
+        // The completion handler assigns state and progress in two separate
+        // @Published mutations, so the sink observes .ready twice; XCTest's
+        // default over-fulfill assertion aborts the whole host process.
+        ready.assertForOverFulfill = false
         let observation = queue.$jobs.sink { jobs in if jobs.first?.state == .ready { ready.fulfill() } }
         let file = queue.file(for: queue.jobs[0])
         try Data([0x50, 0x4b, 0x03, 0x04, 0]).write(to: file)

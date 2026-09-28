@@ -32,6 +32,9 @@ struct InstallationWorkspaceView: View {
         var id: String { UUID().uuidString }
     }
 
+    /// Which hand-off sheet is open, when a channel just produced a package.
+    @State private var handoffSheet: HandoffSheet?
+
     // The model's notices surface here as toasts: the model writes a
     // Notice, `onChange` bridges it into the toast's presentation state,
     // and dismissal clears the Notice.
@@ -529,7 +532,7 @@ struct InstallationWorkspaceView: View {
 
             Button {
                 ZHaptics.tap()
-                model.load()
+                Task { await model.load() }
             } label: {
                 Image(systemName: "arrow.clockwise")
             }

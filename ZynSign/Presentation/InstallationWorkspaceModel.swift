@@ -142,7 +142,9 @@ final class InstallationWorkspaceModel: ObservableObject {
                 artifactHeld: row.isArtifactHeld
             ))
         })
-        return query.apply(to: installedRows, facts: facts, now: now())
+        let applied = query.apply(to: installedRows.map(\.record), facts: facts, now: now())
+        let rowsByID = Dictionary(uniqueKeysWithValues: installedRows.map { ($0.id, $0) })
+        return applied.compactMap { rowsByID[$0.id] }
     }
 
     /// The candidate rows whose readiness is clear, dashboard order:
@@ -281,7 +283,7 @@ final class InstallationWorkspaceModel: ObservableObject {
             }
             if job.kind == .fullVerification {
                 guard let exportID = job.exportID else {
-                    return Outcome(
+                    return InstallationPreparationQueue.Outcome(
                         summary: "No export is linked to this application, so there is nothing to verify.",
                         isReady: false
                     )
@@ -290,7 +292,7 @@ final class InstallationWorkspaceModel: ObservableObject {
                 notes.append("Verification: \(record.verificationStatus.displayName).")
                 ready = record.verificationStatus.isPassing && ready
             }
-            return Outcome(summary: notes.joined(separator: " "), isReady: ready)
+            return InstallationPreparationQueue.Outcome(summary: notes.joined(separator: " "), isReady: ready)
         }
     }
 
@@ -298,7 +300,7 @@ final class InstallationWorkspaceModel: ObservableObject {
     /// honestly with "nothing to prepare".
     private static func makeRunnerDisabled() -> InstallationPreparationQueue.Work {
         { _ in
-            Outcome(summary: "The workspace is not available in this build.", isReady: false)
+            InstallationPreparationQueue.Outcome(summary: "The workspace is not available in this build.", isReady: false)
         }
     }
 
@@ -449,7 +451,7 @@ final class InstallationWorkspaceModel: ObservableObject {
 
     private func reloadStorage() async {
         guard let storage else { return }
-        let installedBytes = await workspace?.installedRecordsByteCount() ?? nil
+        let installedBytes = await (workspace?.installedRecordsByteCount()).flatMap { $0 }
         var exportedBytes: Int?
         var temporary: Int?
         if let footprint = try? await storage.footprint() {
@@ -727,9 +729,9 @@ final class InstallationWorkspaceModel: ObservableObject {
             return InstallationPreparationQueue.Request(
                 kind: row.latestExportEntry?.isAvailable == true ? .fullVerification : .readiness,
                 recordID: candidate.id,
-                exportID: candidate.exportEntry?.record.id,
-                applicationName: candidate.displayName,
-                bundleIdentifier: candidate.bundleIdentifier
+                exportID: candidate.candidate.exportEntry?.record.id,
+                applicationName: candidate.candidate.displayName,
+                bundleIdentifier: candidate.candidate.bundleIdentifier
             )
         }
         queue.enqueueAll(requests)

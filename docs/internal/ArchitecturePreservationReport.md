@@ -1,4 +1,4 @@
-# Architecture Preservation Report — ZS-029 Design System Foundation
+# Architecture Preservation Report — Design System Foundation
 
 ## Summary
 

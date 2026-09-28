@@ -293,7 +293,7 @@ final class SecurityScopedArtifactIntakeTests: XCTestCase {
         let description = try intake.describeDocument(at: source)
 
         XCTAssertEqual(description.fileName, "Example.ipa")
-        XCTAssertEqual(description.byteCount, FileManager.default.attributesOfItem(atPath: source.path)[.size] as? Int)
+        XCTAssertEqual(description.byteCount, try FileManager.default.attributesOfItem(atPath: source.path)[.size] as? Int)
         XCTAssertEqual(description.kind, .regularFile)
         XCTAssertEqual(description.beginsWithArchiveSignature, true)
         // Describing is an observation: nothing was staged, and the selected

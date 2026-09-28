@@ -1,0 +1,41 @@
+# Architecture Guard (the most important check).
+#
+# ZynSign is one Swift module, so only this guard enforces the layered
+# contract: Domain purity, the Presentation security boundary, the
+# Platform service allowlist, and downward-only dependencies. Any
+# violation fails immediately. Logic: Scripts/ci/architecture_guard.sh.
+name: Architecture Guard
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: architecture-guard-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  architecture-guard:
+    name: Enforce the layered architecture contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Run the architecture guard
+        run: Scripts/ci/architecture_guard.sh
+
+      - name: Upload the architecture metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: architecture-metrics
+          path: build/metrics/architecture.txt
+          if-no-files-found: warn
+          retention-days: 14

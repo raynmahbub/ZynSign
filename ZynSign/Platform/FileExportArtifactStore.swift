@@ -191,7 +191,7 @@ final class FileExportArtifactStore: ExportArtifactStore, Sendable {
         guard !name.hasPrefix(".") else { return false }
         guard !name.unicodeScalars.contains(where: { $0.value == 0 }) else { return false }
         guard name.contains(".") else { return false }
-        return name.pathExtension.lowercased() == fileExtension.lowercased()
+        return (name as NSString).pathExtension.lowercased() == fileExtension.lowercased()
     }
 
     // MARK: - File system

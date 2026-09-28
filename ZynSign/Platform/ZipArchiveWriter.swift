@@ -248,4 +248,3 @@ struct ZipArchiveWriter: ArchiveWriter {
         return value ^ UInt32.max
     }
 }
-

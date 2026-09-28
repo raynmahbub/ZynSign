@@ -151,9 +151,16 @@ enum SigningScenarioIdentifier: String, CaseIterable, Codable, Sendable, Identif
         case .largePackage:
             return .expectation(nestedItemCount: 0, minimumEntryCount: 380)
         case .edgeCaseLayout:
-            // A nested bundle outside Frameworks and PlugIns is reported, not
-            // planned: the count is therefore recorded, not asserted.
-            return .expectation(nestedItemCount: nil, minimumEntryCount: 7)
+            // A nested bundle outside Frameworks and PlugIns is refused as
+            // unsupported rather than planned: discovery reports it by
+            // rejecting the bundle, so the count is recorded, not asserted,
+            // and no plan exists to validate.
+            return .expectation(
+                producesPlan: false,
+                nestedItemCount: nil,
+                requiresPlanValidation: false,
+                minimumEntryCount: 7
+            )
         }
     }
 }
@@ -220,7 +227,7 @@ struct SigningScenarioOutcome: Equatable, Sendable {
 /// than staging a fake one.
 ///
 /// The runner removes every file it created, whatever the outcome.
-struct SigningScenarioLab {
+struct SigningScenarioLab: CompatibilitySuite {
 
     private let digest: any MessageDigest
     private let limits: ArchiveLimits
@@ -290,9 +297,16 @@ struct SigningScenarioLab {
         let location = directory
             .appendingPathComponent("\(scenario.rawValue)-\(UUID().uuidString)", isDirectory: false)
             .appendingPathExtension("ipa")
-        // Whatever happens, the Lab leaves nothing behind. The scratch
-        // directory is swept at the end of a run as well.
-        defer { try? context.fileManager.removeItem(at: location) }
+        // Whatever happens, the Lab leaves nothing behind: the package
+        // file goes, and the directory this run created goes with it once
+        // it holds nothing more (a concurrent run may still be using it).
+        defer {
+            try? context.fileManager.removeItem(at: location)
+            if let contents = try? context.fileManager.contentsOfDirectory(atPath: directory.path),
+               contents.isEmpty {
+                try? context.fileManager.removeItem(at: directory)
+            }
+        }
         try container.write(to: location)
 
         let reader = ZipArchiveReader(location: location, limits: limits)
@@ -332,7 +346,10 @@ struct SigningScenarioLab {
                 do {
                     _ = try NestedSigningPlanValidator.validate(plan: plan)
                 } catch let failure as NestedSigningFailure {
-                    planValidationReason = "\(failure.reason.rawValue) (\(failure.category))"
+                    // The reason names the rule family; the detail names the
+                    // rule — a run nobody can reproduce must still say which
+                    // constraint refused the plan.
+                    planValidationReason = "\(failure.reason.rawValue) (\(failure.category)): \(failure.detail)"
                 } catch {
                     planValidationReason = "untyped failure"
                 }

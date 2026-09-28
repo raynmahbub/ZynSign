@@ -561,7 +561,7 @@ final class DownloadCenter: ObservableObject, DownloadTransferObserver {
     }
 
     func clearCancelled() {
-        jobs.removeAll(\.isCancelled)
+        jobs.removeAll(where: \.isCancelled)
         persist()
     }
 

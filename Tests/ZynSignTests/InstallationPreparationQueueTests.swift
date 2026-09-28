@@ -9,7 +9,7 @@ final class InstallationPreparationQueueTests: XCTestCase {
 
     private func makeQueue(
         work: @escaping InstallationPreparationQueue.Work = { _ in
-            Outcome(summary: "done", isReady: true)
+            InstallationPreparationQueue.Outcome(summary: "done", isReady: true)
         }
     ) -> InstallationPreparationQueue {
         InstallationPreparationQueue(work: work)
@@ -45,7 +45,7 @@ final class InstallationPreparationQueueTests: XCTestCase {
         let queue = makeQueue()
         queue.enqueue(request())
 
-        await wait(for: { queue.completedCount == 1 }, "The job should complete.") 
+        await wait(for: { queue.completedCount == 1 }, "The job should complete.")
 
         let job = queue.jobs[0]
         XCTAssertEqual(job.state, .completed)
@@ -67,12 +67,12 @@ final class InstallationPreparationQueueTests: XCTestCase {
             }
             try? await Task.sleep(nanoseconds: 30_000_000)
             lock.withLock { running -= 1 }
-            return Outcome(summary: "ok", isReady: true)
+            return InstallationPreparationQueue.Outcome(summary: "ok", isReady: true)
         }
         queue.enqueueAll([
-            request(recordID: ApplicationRecordIdentifier(rawValue: "a")),
-            request(recordID: ApplicationRecordIdentifier(rawValue: "b")),
-            request(recordID: ApplicationRecordIdentifier(rawValue: "c")),
+            request(recordID: ApplicationRecordIdentifier()),
+            request(recordID: ApplicationRecordIdentifier()),
+            request(recordID: ApplicationRecordIdentifier()),
         ])
 
         await wait(for: { queue.jobs.allSatisfy { $0.state == .completed } }, "All jobs should complete.")
@@ -86,12 +86,13 @@ final class InstallationPreparationQueueTests: XCTestCase {
         var continuation: AsyncStream<Void>.Continuation!
         let queue = makeQueue { _ in
             _ = await gate.stream.first(where: { _ in true })
-            return Outcome(summary: "ok", isReady: true)
+            return InstallationPreparationQueue.Outcome(summary: "ok", isReady: true)
         }
         continuation = gate.continuation
 
-        let first = queue.enqueue(request())
-        let again = queue.enqueue(request())
+        let shared = request()
+        let first = queue.enqueue(shared)
+        let again = queue.enqueue(shared)
 
         XCTAssertEqual(first.id, again.id, "Asking twice while active does not enqueue twice.")
         XCTAssertEqual(queue.jobs.count, 1)
@@ -129,10 +130,10 @@ final class InstallationPreparationQueueTests: XCTestCase {
         let gate = AsyncStream<Void>.makeStream()
         let queue = makeQueue { _ in
             _ = await gate.stream.first(where: { _ in true })
-            return Outcome(summary: "ok", isReady: true)
+            return InstallationPreparationQueue.Outcome(summary: "ok", isReady: true)
         }
-        let first = queue.enqueue(request(recordID: ApplicationRecordIdentifier(rawValue: "first")))
-        let second = queue.enqueue(request(recordID: ApplicationRecordIdentifier(rawValue: "second")))
+        let first = queue.enqueue(request(recordID: ApplicationRecordIdentifier()))
+        let second = queue.enqueue(request(recordID: ApplicationRecordIdentifier()))
 
         // Wait until the first job actually holds the single slot, so the
         // cancellation targets a job that has not started.
@@ -148,10 +149,10 @@ final class InstallationPreparationQueueTests: XCTestCase {
         let gate = AsyncStream<Void>.makeStream()
         let queue = makeQueue { _ in
             _ = await gate.stream.first(where: { _ in true })
-            return Outcome(summary: "ok", isReady: true)
+            return InstallationPreparationQueue.Outcome(summary: "ok", isReady: true)
         }
-        let runningJob = queue.enqueue(request(recordID: ApplicationRecordIdentifier(rawValue: "running")))
-        let doneJob = queue.enqueue(request(recordID: ApplicationRecordIdentifier(rawValue: "done")))
+        let runningJob = queue.enqueue(request(recordID: ApplicationRecordIdentifier()))
+        let doneJob = queue.enqueue(request(recordID: ApplicationRecordIdentifier()))
         queue.cancel(doneJob.id)
 
         queue.clearSettled()

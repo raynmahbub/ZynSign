@@ -108,7 +108,7 @@ final class CompatibilityLabIntegrationTests: XCTestCase {
     func testTheAccessibilitySuiteHonoursSystemReduceMotion() async {
         let preferences = ZynSignPreferences.shippedDefault
         let context = CompatibilityLabContext(scratchRoot: scratchRoot, preferences: preferences)
-        let checks = AccessibilityAuditSuite().checks(context: context)
+        let checks = await AccessibilityAuditSuite().checks(context: context)
         let reduceMotion = checks.first { $0.id == "accessibility.reduceMotion" }
         XCTAssertEqual(reduceMotion?.status, .passed)
         // The rows only a human can judge must say so rather than pass.

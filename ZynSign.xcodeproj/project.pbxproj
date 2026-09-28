@@ -21,8 +21,21 @@
 		AA00000000000000000000A2 /* ZynSignTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ZynSignTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		AA00000000000000000000B9 /* Exceptions for "ZynSign" folder in "ZynSign" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = AA00000000000000000000D1 /* ZynSign */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		AA00000000000000000000B1 /* ZynSign */ = {
+			exceptions = (
+				AA00000000000000000000B9 /* Exceptions for "ZynSign" folder in "ZynSign" target */,
+			);
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = ZynSign;
 			sourceTree = "<group>";

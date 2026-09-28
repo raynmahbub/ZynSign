@@ -93,7 +93,7 @@ struct TruncatedRepositoryTransport: RepositoryHealthTransport {
 /// nobody tests. What matters is not that the fetch succeeded — it cannot —
 /// but that it ends in a state the interface renders, with a category a user
 /// can act on, and never in a thrown error the screen was not built for.
-struct NetworkResilienceSuite {
+struct NetworkResilienceSuite: CompatibilitySuite {
 
     /// The source a probe is pointed at. Nothing is fetched from it: the
     /// transports below decide what happens.
@@ -299,7 +299,7 @@ struct FixedCapacityProbe: StorageCapacityProbe {
 /// stronger claim than "it does not crash": a refusal has to arrive before a
 /// byte is written, has to say what it needed, and has to leave the library
 /// exactly as it was.
-struct ResourceResilienceSuite {
+struct ResourceResilienceSuite: CompatibilitySuite {
 
     func checks(context: CompatibilityLabContext) async -> [CompatibilityCheck] {
         [
@@ -334,7 +334,7 @@ struct ResourceResilienceSuite {
             // A shortage must arrive as a storage failure the user can act
             // on: "free space and try again", not a generic refusal.
             let refused = failure.category == .storageFailure && failure.isRetryable
-            let detail = "\(failure.title): \(failure.message)" 
+            let detail = "\(failure.title): \(failure.message)"
             return check(
                 id: "resource.lowStorage.refusal",
                 title: "Insufficient storage is refused",
@@ -602,7 +602,7 @@ struct ResourceResilienceSuite {
 /// Lab executes them. The static half (no force unwraps, no `try!`, every
 /// `as!` justified) belongs to CI, which refuses the build when the
 /// inventory in `CrashSurfaceBaseline` no longer matches the code.
-struct CrashResilienceSuite {
+struct CrashResilienceSuite: CompatibilitySuite {
 
     func checks(context: CompatibilityLabContext) async -> [CompatibilityCheck] {
         [

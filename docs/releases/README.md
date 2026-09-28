@@ -16,6 +16,7 @@ The release process for ZynSign — private test first, public tag second.
 The Xcode project declares `MARKETING_VERSION 1.0.0` `CURRENT_PROJECT_VERSION 5` (`ZynSign.xcodeproj/project.pbxproj`) and `ReleaseTrain.current` is `.rc2` — verify both with `python3 Scripts/release_train.py check`. The private binary and the public release are the same binary — no rebuild between private and public.
 
 - Horizon history: tags `v0.1.0-dev`/`v0.1.1-dev`/`v0.2.0-dev` at `58e604c`; the train has since moved through `v0.1.0` → the alphas → the betas → `v1.0.0-rc.1` → `v1.0.0-rc.2` (see [release-train.md](release-train.md)).
+- The engineering-excellence release system gates and publishes every tag automatically — see [release-automation.md](release-automation.md). To retire the pre-launch tags and start the permanent version structure, follow [ReleaseResetGuide.md](ReleaseResetGuide.md).
 - The build is not signed for the App Store. Distribution is sideloading / TestFlight only; installation on iOS/iPadOS remains unavailable per [installation-compatibility.md](../architecture/installation-compatibility.md).
 - See [CHANGELOG.md](../../CHANGELOG.md) and [version-strategy.md](version-strategy.md) for exactly what is claimed.
 

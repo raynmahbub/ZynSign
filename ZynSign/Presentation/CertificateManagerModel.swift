@@ -380,7 +380,6 @@ final class CertificateManagerModel: ObservableObject {
 
     // MARK: - Filtering and ordering
 
-
     /// Whether any filter other than "all" is active.
     var hasActiveFilters: Bool {
         expirationFilter != .all || kindFilter != .all || teamFilter != nil
@@ -407,7 +406,6 @@ final class CertificateManagerModel: ObservableObject {
         }
         return seen.values.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
     }
-
 
     /// The identities the screen shows for the current search, filters, and
     /// sort. The loaded phase is never edited in place — the visible list is
@@ -623,7 +621,7 @@ final class CertificateManagerModel: ObservableObject {
             return false
         }
         do {
-            var annotation = currentAnnotation(for: item.id) ?? IdentityAnnotation()
+            var annotation = currentAnnotation(forFingerprint: item.id) ?? IdentityAnnotation()
             annotation.displayLabel = (trimmed?.isEmpty == false) ? trimmed : nil
             try annotations.setAnnotation(annotation, forFingerprint: item.id)
             await refresh()

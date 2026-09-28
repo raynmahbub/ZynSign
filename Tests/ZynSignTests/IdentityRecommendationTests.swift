@@ -9,7 +9,10 @@ final class IdentityRecommendationTests: XCTestCase {
     private let recommender = IdentityRecommender()
     private let referenceDate = IdentityCenterFixtures.referenceDate
     private let bundleID = "com.example.app"
-    private let wildcardPatterns = ["TEAMABC123.com.example.*"]
+    // A plain covering pattern: team-prefixed patterns are the legacy
+    // importer's artefact and never match a plain bundle identifier
+    // (see ProvisioningProfileSummary.pattern(_:covers:)).
+    private let wildcardPatterns = ["com.example.*"]
 
     private func history(
         fingerprintHex: String,

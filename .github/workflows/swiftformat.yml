@@ -1,0 +1,35 @@
+# SwiftFormat — check mode.
+#
+# Pull requests get a formatting *check* that never edits files. The
+# weekly maintenance workflow runs the same rule set in apply mode
+# (.github/workflows/maintenance.yml), so both sides stay in agreement
+# and formatting never creates noisy commits. Logic: Scripts/ci/format.sh.
+name: SwiftFormat
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: swiftformat-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  swiftformat-check:
+    name: SwiftFormat check
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install SwiftFormat
+        run: HOMEBREW_NO_AUTO_UPDATE=1 brew install swiftformat
+
+      - name: Check formatting (no edits)
+        run: Scripts/ci/format.sh check

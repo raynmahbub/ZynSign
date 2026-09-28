@@ -1,0 +1,11 @@
+# Swift package dependency allowlist — ZynSign.
+#
+# ZynSign is dependency-free by design: every capability is vendored so
+# the signing pipeline has no unaudited third-party code in it. Adding a
+# package means adding its repository URL here, which makes the adoption
+# a visible, reviewed decision instead of an accident.
+#
+# Format: one package repository URL per line. Example:
+#   https://github.com/example/some-package
+#
+# (no packages are allowlisted today)

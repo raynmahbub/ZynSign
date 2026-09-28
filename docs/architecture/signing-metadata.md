@@ -1,4 +1,4 @@
-# Signing metadata: entitlements, requirements, and CodeResources (ZS-029)
+# Signing metadata: entitlements, requirements, and CodeResources
 
 ## Status and evidence
 

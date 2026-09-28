@@ -404,11 +404,22 @@ struct SigningEngineCoordinator {
             //    freshly derived values. Nothing the signing stages computed
             //    is taken on trust.
             begin(.verifying, detail: "Re-reading every signed artifact")
+            guard let mainExecutablePath = BundlePath(
+                signed.reports.integrity.executablePath,
+                relativeTo: signed.reports.integrity.bundlePath
+            ) else {
+                return fail(
+                    .verifying,
+                    "The main executable lies outside the signed bundle, so verification material cannot be derived.",
+                    .internalFailure,
+                    "The signed bundle's layout could not be read, so nothing was delivered."
+                )
+            }
             let material = SigningEngineVerificationMaterial(
                 bundleName: signed.bundleName,
                 bundleIdentifier: signed.reports.integrity.bundleIdentifier,
                 executableName: signed.reports.integrity.executableName,
-                executablePath: signed.reports.integrity.executablePath,
+                executablePath: mainExecutablePath,
                 nestedTargets: signed.reports.discovery.nestedTargets.map { target in
                     SigningEngineVerificationMaterial.NestedTarget(
                         executablePath: target.executablePath,
@@ -428,7 +439,7 @@ struct SigningEngineCoordinator {
             guard verification.passed else {
                 return fail(
                     .verifying,
-                    "Independent verification refused the signed bundle: \(verification.failedCheckNames.joined(separator: ", ")).",
+                    "Independent verification refused the signed bundle: \(verification.failedCheckSummary.joined(separator: "; ")).",
                     .internalFailure,
                     "The signed bundle did not verify, so nothing was delivered."
                 )

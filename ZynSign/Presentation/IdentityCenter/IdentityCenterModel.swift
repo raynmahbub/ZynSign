@@ -150,7 +150,7 @@ final class IdentityCenterModel: ObservableObject {
             lastLoadedAt = nil
             phase = .failed(Self.failureMessage(for: error))
         }
-        if isRefreshing { isRefreshing = false }
+        if isRefreshing { self.isRefreshing = false }
     }
 
     // MARK: - Actions

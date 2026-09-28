@@ -9,7 +9,7 @@ final class SettingsSectionCatalogTests: XCTestCase {
     // MARK: - Registration
 
     func testEverySectionIsRegisteredExactlyOnce() {
-        let identifiers = SettingsSectionCatalog.all.map(\\.descriptor.identifier)
+        let identifiers = SettingsSectionCatalog.all.map(\.descriptor.identifier)
 
         XCTAssertEqual(identifiers.count, SettingsSectionIdentifier.allCases.count)
         XCTAssertEqual(Set(identifiers).count, identifiers.count)
@@ -43,7 +43,7 @@ final class SettingsSectionCatalogTests: XCTestCase {
     }
 
     func testTheEverydaySectionsAreTheEverydayOnes() {
-        let everyday = SettingsSectionCatalog.everyday.map(\\.descriptor.identifier)
+        let everyday = SettingsSectionCatalog.everyday.map(\.descriptor.identifier)
 
         XCTAssertTrue(everyday.contains(.general))
         XCTAssertTrue(everyday.contains(.signing))
@@ -58,7 +58,7 @@ final class SettingsSectionCatalogTests: XCTestCase {
     }
 
     func testAdvancedSettingsAreListedApartFromEverydayOnes() {
-        let separated = SettingsSectionCatalog.separated.map(\\.descriptor.identifier)
+        let separated = SettingsSectionCatalog.separated.map(\.descriptor.identifier)
 
         XCTAssertTrue(separated.contains(.advanced))
         XCTAssertTrue(separated.contains(.recovery))
@@ -71,7 +71,7 @@ final class SettingsSectionCatalogTests: XCTestCase {
     }
 
     func testAboutIsListedOnItsOwn() {
-        XCTAssertEqual(SettingsSectionCatalog.about.map(\\.descriptor.identifier), [.about])
+        XCTAssertEqual(SettingsSectionCatalog.about.map(\.descriptor.identifier), [.about])
     }
 
     func testEverySectionAppearsInExactlyOneGroup() {
@@ -86,24 +86,24 @@ final class SettingsSectionCatalogTests: XCTestCase {
     // MARK: - Safety of the separation
 
     func testOnlyRecoveryIsMarkedDestructive() {
-        let destructive = SettingsSectionCatalog.all.filter(\\.descriptor.isDestructive)
+        let destructive = SettingsSectionCatalog.all.filter(\.descriptor.isDestructive)
 
-        XCTAssertEqual(destructive.map(\\.descriptor.identifier), [.recovery])
+        XCTAssertEqual(destructive.map(\.descriptor.identifier), [.recovery])
     }
 
     func testOnlyAdvancedIsMarkedForExperiencedUsers() {
-        let advanced = SettingsSectionCatalog.all.filter(\\.descriptor.isAdvanced)
+        let advanced = SettingsSectionCatalog.all.filter(\.descriptor.isAdvanced)
 
         // Advanced and the Compatibility Lab: both are kept apart from
         // everyday settings, the Lab because it validates a release rather
         // than configures the app.
-        XCTAssertEqual(Set(advanced.map(\\.descriptor.identifier)), [.advanced, .compatibilityLab])
+        XCTAssertEqual(Set(advanced.map(\.descriptor.identifier)), [.advanced, .compatibilityLab])
     }
 
     func testTheValidationSectionIsTheOnlyOneMarkedValidationOnly() {
-        let validationOnly = SettingsSectionCatalog.all.filter(\\.descriptor.isValidationOnly)
+        let validationOnly = SettingsSectionCatalog.all.filter(\.descriptor.isValidationOnly)
 
-        XCTAssertEqual(validationOnly.map(\\.descriptor.identifier), [.compatibilityLab])
+        XCTAssertEqual(validationOnly.map(\.descriptor.identifier), [.compatibilityLab])
     }
 
     func testDescriptorsAreUniqueAndHashable() {

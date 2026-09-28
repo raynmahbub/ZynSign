@@ -143,7 +143,7 @@ final class CertificateTeamIdentityTests: XCTestCase {
     func testACertificateWithNoTeamInformationDeclaresNone() {
         let identity = CertificateTeamIdentity.from(name(commonName: "Some CA Leaf"))
         XCTAssertNil(identity.teamID)
-        XCTAssertEqual(identity.teamName, "Some CA Leaf")
+        XCTAssertNil(identity.teamName)
         XCTAssertFalse(identity.hasTeamInformation)
     }
 

@@ -27,6 +27,15 @@ enum IdentityHealthStatus: String, CaseIterable, Equatable, Hashable, Sendable {
         }
     }
 
+    /// The short label the interface shows beside the dot.
+    var displayName: String {
+        switch self {
+        case .healthy: return "Healthy"
+        case .warning: return "Needs attention"
+        case .blocked: return "Blocked"
+        }
+    }
+
     /// The sentence VoiceOver reads for the status alone.
     var spokenSummary: String {
         switch self {

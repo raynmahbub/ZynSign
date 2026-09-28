@@ -1433,7 +1433,7 @@ private struct DetailSectionCard<Content: View>: View {
     }
 }
 
-private struct SectionHeading: View {
+struct SectionHeading: View {
     let title: String
     let symbol: String
 
@@ -1497,12 +1497,12 @@ private struct QuickActionTile: View {
         }
         .padding(ZSpacing.sm)
         .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: ZRadius.md, style: .continuous))
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: ZRadius.card, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: ZRadius.md, style: .continuous)
+            RoundedRectangle(cornerRadius: ZRadius.card, style: .continuous)
                 .stroke(Color(.separator).opacity(0.35), lineWidth: 0.5)
         }
-        .contentShape(RoundedRectangle(cornerRadius: ZRadius.md, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: ZRadius.card, style: .continuous))
         .accessibilityElement(children: .combine)
     }
 }
@@ -1553,7 +1553,7 @@ private struct ComponentCountTile: View {
         }
         .padding(ZSpacing.sm)
         .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: ZRadius.md, style: .continuous))
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: ZRadius.card, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(count) \(title)")
     }
@@ -1734,7 +1734,7 @@ private struct BundleTreeView: View {
             }
         }
         .padding(ZSpacing.sm)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: ZRadius.md, style: .continuous))
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: ZRadius.card, style: .continuous))
         .accessibilityElement(children: .contain)
     }
 }

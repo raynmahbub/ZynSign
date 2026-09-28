@@ -1,3 +1,5 @@
+import Foundation
+
 /// What a bounded header read can say about encryption.
 ///
 /// `cryptid` is the value the load command records. Zero means the command
@@ -41,7 +43,7 @@ enum ExplorerSignaturePresence: Equatable, Hashable {
     }
 
     /// Shown wherever a signature line could be mistaken for a verdict.
-    static let disclaimer = "A signature command says only that the header names a signature region. It is not evidence the signature is valid, trusted, or that the application can be installed."
+    static let disclaimer = "A signature command says only that the header names a signature region. It is not evidence the signature is valid or that the application can be installed."
 }
 
 /// One architecture slice as far as a prefix read could see it.

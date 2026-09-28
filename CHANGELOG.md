@@ -19,7 +19,33 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
-### Changed — ZS-029: a shared design-system foundation (no behaviour change)
+### Added — engineering excellence foundation (CI/CD, no behaviour change)
+
+- **Build validation** — every PR and push to `main`/`develop` resolves
+  packages, cleans DerivedData, builds all targets, builds the test
+  targets, and runs the unit tests (`build-validation.yml`,
+  `Scripts/ci/build.sh`).
+- **Quality gates** — SwiftLint two-tier rules (`.swiftlint.yml`),
+  SwiftFormat pinned check/apply modes, complexity thresholds
+  (warnings), and Periphery dead-code reports that never delete.
+- **Architecture Guard** — the layered contract (Domain purity,
+  Presentation security boundary, Platform UI-freedom, downward-only
+  dependencies) fails CI on any new violation; known crossings are
+  frozen in a ratcheted baseline.
+- **Security suite** — Gitleaks over the full history plus the secret
+  policy scan; documentation check for links, images, orphans.
+- **Release system** — Release Drafter, automatic CHANGELOG, prerelease
+  preflight, and a gated release workflow that publishes
+  `ZynSign.ipa`, `ZynSign.sha256`, `BuildInfo.json`, and
+  `ReleaseNotes.md`. The privately tested signed IPA is never
+  overwritten.
+- **Repository health** — weekly maintenance bot, Repository Health and
+  Engineering Command Center dashboards, stale bot, automatic labels,
+  Conventional Commits (commitlint + Commitizen), CODEOWNERS, PR and
+  issue templates. See `docs/releases/release-automation.md` and
+  `docs/releases/ReleaseResetGuide.md`.
+
+### Changed — a shared design-system foundation (no behaviour change)
 
 - **Motion** — four presets (`ZMotion.fast / standard / interactive /
   relaxed`) replace 82 inline curves in 21 files; the unused second token

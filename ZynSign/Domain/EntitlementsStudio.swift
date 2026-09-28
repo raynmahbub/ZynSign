@@ -262,7 +262,7 @@ enum EntitlementStudioValue {
         case .data(let data): return "<Data: \(data.count) bytes; binary content omitted>"
         case .date(let date): return ISO8601DateFormatter().string(from: date)
         case .array(let values): return "[\n" + values.map(raw).joined(separator: ",\n") + "\n]"
-        case .dictionary(let values): return "{\n" + values.keys.sorted().map { "\(String(reflecting: $0)): \(raw(values[$0]!))" }.joined(separator: ",\n") + "\n}"
+        case .dictionary(let values): return "{\n" + values.keys.sorted().map { key in values[key].map { "\(String(reflecting: key)): \(raw($0))" } ?? "" }.joined(separator: ",\n") + "\n}"
         }
     }
 }

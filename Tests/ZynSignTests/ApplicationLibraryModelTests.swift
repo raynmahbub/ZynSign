@@ -247,6 +247,9 @@ final class ApplicationLibraryModelTests: XCTestCase {
         }
         XCTAssertEqual(settlement.kind, .rejected)
         XCTAssertEqual(settlement.failure?.message, "No application was found inside the package.")
+        // The announcement is published from the settled-import sink, which
+        // lands after the settlement itself exists.
+        await awaitCondition("The rejection was never announced.") { self.model.notice != nil }
         XCTAssertEqual(model.notice?.title, "Import Failed")
         XCTAssertEqual(model.notice?.message, "No application was found inside the package.")
         XCTAssertEqual(model.phase, .empty)

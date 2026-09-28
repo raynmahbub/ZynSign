@@ -1,0 +1,46 @@
+# Complexity guard.
+#
+# Annotates pull requests when code crosses the recommended thresholds
+# (function 80 lines, file 800 lines, nesting 4). Warnings only — the
+# guard measures and reports, it does not block. Logic lives in
+# Scripts/ci/complexity_check.sh.
+name: Complexity Check
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+
+concurrency:
+  group: complexity-check-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  complexity-check:
+    name: Complexity thresholds (warnings only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Measure against the thresholds
+        run: Scripts/ci/complexity_check.sh
+
+      - name: Publish the complexity summary
+        if: always()
+        run: |
+          set -eu
+          if [ -f build/metrics/complexity.txt ]; then
+            {
+              echo "### Complexity Guard"
+              echo '```'
+              cat build/metrics/complexity.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

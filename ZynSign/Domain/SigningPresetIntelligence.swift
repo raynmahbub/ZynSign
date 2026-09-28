@@ -299,15 +299,15 @@ enum SigningPresetMatcher {
         )
         let expirationCheck = expirationCheck(certificate: certificate, profile: resolvedProfile, now: now)
         let teamCheck = teamCheck(preset: preset, certificate: certificate, profile: resolvedProfile)
-        let bundleCheck = app.map { bundleCheck(profile: resolvedProfile, app: $0) }
+        let bundleEvaluation = app.map { bundleCheck(profile: resolvedProfile, app: $0) }
 
         let certificateBlocks = certificateCheck.status == .failing || certificateCheck.status == .unknown
         let profileBlocks = profileCheck.status == .failing || profileCheck.status == .unknown
         let expirationBlocks = expirationCheck.status == .failing
         let teamBlocks = teamCheck.status == .failing
-        let bundleBlocks = bundleCheck?.status == .failing
+        let bundleBlocks = bundleEvaluation?.status == .failing
         let hasWarning = [certificateCheck, profileCheck, expirationCheck, teamCheck].contains { $0.status == .warning }
-            || bundleCheck?.status == .warning
+            || bundleEvaluation?.status == .warning
 
         let isUsable = preset.isComplete
             && !certificateBlocks
@@ -315,7 +315,7 @@ enum SigningPresetMatcher {
             && !expirationBlocks
             && !teamBlocks
             && resolvedProfile?.fileIsPresent != false
-        let passesPreflight = app != nil && isUsable && bundleBlocks == false && bundleCheck?.status == .passing
+        let passesPreflight = app != nil && isUsable && bundleBlocks == false && bundleEvaluation?.status == .passing
 
         let overall: PresetCompatibilityReport.Overall
         if !preset.isComplete {
@@ -334,7 +334,7 @@ enum SigningPresetMatcher {
             profile: profileCheck,
             expiration: expirationCheck,
             team: teamCheck,
-            bundle: bundleCheck,
+            bundle: bundleEvaluation,
             overall: overall
         )
         return PresetCompatibilityReport(
@@ -342,7 +342,7 @@ enum SigningPresetMatcher {
             profile: profileCheck,
             expiration: expirationCheck,
             team: teamCheck,
-            bundle: bundleCheck,
+            bundle: bundleEvaluation,
             overall: overall,
             isUsable: isUsable,
             passesPreflight: passesPreflight,

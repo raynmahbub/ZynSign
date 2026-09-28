@@ -83,7 +83,7 @@ private struct ImportDropTargetModifier: ViewModifier {
                         .stroke(Color.accentColor, lineWidth: 2)
                 }
             }
-            .animation(ZMotion.fast(duration: 0.2), value: isTargeted)
+            .animation(ZMotion.fast, value: isTargeted)
     }
 
     private func receive(_ providers: [NSItemProvider]) {

@@ -5,7 +5,7 @@ import Foundation
 /// Refusals are about the address itself. A URL that passes is still untrusted:
 /// repository membership and a successful transfer are not evidence that the
 /// bytes are an application package.
-enum DownloadURLRejection: String, Equatable, Hashable, Sendable {
+enum DownloadURLRejection: String, Equatable, Hashable, Sendable, Error {
 
     case empty
     case unparsable
@@ -78,7 +78,14 @@ enum DownloadURLPolicy {
         }
         var normalized = components
         if scheme == nil || scheme?.isEmpty == true {
-            normalized.scheme = "https"
+            // Setting the scheme on components that never had one leaves the
+            // authority unparsed and no host to validate. Re-read the same
+            // text as an address, which is what "a missing scheme is read
+            // as https" promises.
+            guard let withScheme = URLComponents(string: "https://" + trimmed) else {
+                return .failure(.unparsable)
+            }
+            normalized = withScheme
         }
         guard let url = normalized.url else { return .failure(.unparsable) }
         if normalized.path.lowercased().hasSuffix(".plist") {

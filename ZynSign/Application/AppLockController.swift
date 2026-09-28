@@ -139,10 +139,18 @@ final class AppLockController: ObservableObject {
     /// authenticates once and continues. An unlocked application asks again
     /// only when the user asked for that — requiring authentication before
     /// sensitive actions is a preference, not a default behaviour.
+    ///
+    /// The ask is gated on protection itself: an unprotected application
+    /// never prompts for a sensitive action, whatever the preference says.
+    /// A preference cannot be enforced on a device with no usable
+    /// biometrics, and a ZynSign without Face ID or Touch ID must stay
+    /// usable rather than block every signing run behind an impossible
+    /// prompt.
     @discardableResult
     func authorize(_ action: SensitiveAction) async -> AuthenticationOutcome {
         if isLocked { return await unlock() }
-        guard preferences.requireAuthenticationForSensitiveActions else { return .authenticated }
+        guard isProtectionEnabled,
+              preferences.requireAuthenticationForSensitiveActions else { return .authenticated }
         return await authenticate(action: action)
     }
 

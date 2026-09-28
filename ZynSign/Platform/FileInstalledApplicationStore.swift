@@ -105,7 +105,7 @@ actor FileInstalledApplicationStore: InstalledApplicationStore {
 
     func storedByteCount() async -> Int? {
         guard let values = try? catalogLocation.resourceValues(forKeys: [.fileSizeKey]) else { return nil }
-        return Int64(values.fileSize)
+        return values.fileSize
     }
 
     // MARK: - Storage helpers
@@ -128,7 +128,7 @@ actor FileInstalledApplicationStore: InstalledApplicationStore {
         var attempts: [PendingInstallationAttempt]
     }
 
-    static func readCatalog(at location: URL) throws -> LoadedState {
+    private static func readCatalog(at location: URL) throws -> LoadedState {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: location.path, isDirectory: &isDirectory) else {
             return LoadedState(records: [], attempts: [])
@@ -149,7 +149,9 @@ actor FileInstalledApplicationStore: InstalledApplicationStore {
         }
         let envelope: Envelope
         do {
-            envelope = try JSONDecoder().decode(Envelope.self, from: data)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            envelope = try decoder.decode(Envelope.self, from: data)
         } catch {
             throw ZynSignError.installedApplicationCatalogUnreadable(
                 diagnosticDetail: "The installed-applications records are not a catalog this build recognises.",
@@ -184,7 +186,7 @@ actor FileInstalledApplicationStore: InstalledApplicationStore {
         return LoadedState(records: records, attempts: attempts)
     }
 
-    static func writeCatalog(_ state: LoadedState, to location: URL) throws {
+    private static func writeCatalog(_ state: LoadedState, to location: URL) throws {
         let envelope = Envelope(
             schemaVersion: currentSchemaVersion,
             records: state.records.sorted { $0.updatedAt > $1.updatedAt },

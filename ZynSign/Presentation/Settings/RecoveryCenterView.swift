@@ -271,7 +271,7 @@ private struct RestoreBuilderView: View {
                     Button("Stage restore for next launch") { stage() }.disabled(busy || scope.isEmpty || step == 3)
                     if step == 3 { Label("Ready. Close and reopen ZynSign to finish and verify.", systemImage: "checkmark.shield") }
                     if step == 2 {
-                        Button("Choose another backup") { manifest = nil; scope = []; password = ""; step = 0 }
+                        Button("Choose another backup") { self.manifest = nil; scope = []; password = ""; step = 0 }
                     }
                     if busy { ProgressView("Checking and staging…") }
                 }

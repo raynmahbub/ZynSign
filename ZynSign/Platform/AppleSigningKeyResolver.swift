@@ -60,12 +60,12 @@ struct AppleSigningKeyResolver: SigningIdentityKeyResolver {
               attributes[kSecAttrIsExtractable as String] as? Bool == false else {
             throw ZynSignError.identity(.platformRestriction)
         }
-        // The Core Foundation type check above establishes what the value
-        // is; this cast restates it in Swift's own terms, so a value that
-        // somehow is not a key is a structured refusal rather than a trap.
-        guard let key = value as? SecKey else {
-            throw ZynSignError.identity(.unexpectedSecurityFailure)
-        }
+        // The Core Foundation type check above proves the value is a key.
+        // The compiler rejects a conditional downcast to a Core Foundation
+        // type as always succeeding, so the forced form is the one it accepts;
+        // this is the pattern Security.framework's own samples use.
+        // swiftlint:disable:next force_cast
+        let key = value as! SecKey
         return key
     }
 }

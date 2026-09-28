@@ -24,14 +24,14 @@ final class MemoryProvisioningProfileLibrary: ProvisioningProfileLibrary, @unche
     }
 
     func allProfiles() async throws -> [ProvisioningProfileSummary] {
-        lock.withLock {
+        try lock.withLock {
             if let readError { throw readError }
             return stored.sorted(by: ProvisioningProfileSummary.sortByExpiration)
         }
     }
 
     func profile(withID id: ProvisioningProfileIdentifier) async throws -> ProvisioningProfileSummary? {
-        lock.withLock {
+        try lock.withLock {
             if let readError { throw readError }
             return stored.first { $0.id == id }
         }
@@ -137,7 +137,10 @@ enum IdentityCenterFixtures {
         profileType: ProvisioningProfileClassification = .development,
         expiresAt: Date = TestClocks.utc(2027, 6, 1),
         bundleIdentifier: String? = nil,
-        bundleIdentifierPatterns: [String] = ["TEAMABC123.com.example.*"],
+        // A plain covering pattern. Team-prefixed patterns ("TEAM.x.*")
+        // are the legacy importer's artefact and never match a plain
+        // bundle identifier; a fixture profile is meant to cover.
+        bundleIdentifierPatterns: [String] = ["com.example.*"],
         certificateFingerprints: [String] = [],
         importedAt: Date? = nil,
         allowsDebug: Bool = true,

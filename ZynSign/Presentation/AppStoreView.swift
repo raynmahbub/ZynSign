@@ -21,92 +21,142 @@ struct StoreHomeView: View {
     @State private var sourceFilter: UUID?
     @State private var results: [CatalogApp] = []
     private var filtering: Bool { !query.isEmpty || category != nil || sourceFilter != nil }
-    var body: some View {
-        NavigationStack {
-            List {
-                if !filtering {
-                    welcome
-                    destinations
-                }
-                categoryPicker
-                if !model.snapshot.sources.isEmpty { sourcePicker }
-                if filtering {
-                    Section("\(results.count) Results") {
-                        if results.isEmpty {
-                            if query.isEmpty {
-                                ContentUnavailableView("No Matching Apps", systemImage: "line.3.horizontal.decrease.circle", description: Text("Try a different repository or category filter."))
-                            } else {
-                                ContentUnavailableView.search(text: query)
-                            }
-                        }
-                        ForEach(results) { app in StoreAppLink(app: app, model: model) }
-                    }
+
+    /// The result list shown while a query, category, or source filter is on.
+    @ViewBuilder
+    private var resultsSection: some View {
+        Section("\(results.count) Results") {
+            if results.isEmpty {
+                if query.isEmpty {
+                    ContentUnavailableView("No Matching Apps", systemImage: "line.3.horizontal.decrease.circle", description: Text("Try a different repository or category filter."))
                 } else {
-                    if !model.snapshot.recentSearches.isEmpty {
-                        Section("Recent Searches") {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack { ForEach(model.snapshot.recentSearches, id: \.self) { term in
-                                    Button(term) { query = term }.buttonStyle(.bordered).frame(minHeight: 44)
-                                } }
-                            }
-                            Button("Clear Browsing & Search History", role: .destructive) { Task { await model.clearHistory() } }
-                        }
-                    }
-                    if model.apps.isEmpty {
-                        ContentUnavailableView("Your Store Starts Here", systemImage: "globe", description: Text("Add or enable a source to discover apps. Previously cached sources remain available offline."))
-                        NavigationLink("Manage Sources") { StoreSourcesView(model: model) }
-                    } else {
-                        shelf("Featured This Week", subtitle: "Apps explicitly marked featured by their repositories · not an endorsement", apps: model.apps.filter(\.featured))
-                        shelf("Trending Apps", subtitle: "Most opened on this device · not repository-wide popularity", apps: model.trending)
-                        shelf("Recently Updated", subtitle: "Latest release dates reported by sources", apps: model.apps.filter { $0.latest.date != nil }.sorted { ($0.latest.date ?? .distantPast) > ($1.latest.date ?? .distantPast) })
-                        shelf("New Releases", subtitle: "First-known releases with dates from repository history", apps: model.apps.sorted { earliest($0) > earliest($1) }.filter { earliest($0) != .distantPast })
-                        shelf("Suggestions for You", subtitle: "Based on apps you recently viewed · suggestions only", apps: model.suggestions)
-                        shelf("Saved for Later", subtitle: "Stored locally · saving never downloads", apps: model.savedApps)
-                        shelf("Continue Browsing", subtitle: "Recently viewed on this device", apps: model.continueBrowsing)
-                        shelf("Available Updates", subtitle: "Compared with your ZynSign Library records; not device installation status", apps: model.updates.map(\.app))
-                        Section("Recently Browsed Developers") {
-                            ForEach(model.recentlyViewedDevelopers, id: \.self) { developer in
-                                NavigationLink(developer) { StoreDeveloperView(developer: developer, model: model) }
-                            }
-                        }
-                        Section("Featured Collections") {
-                            Text("Collections are assembled from repository categories and release metadata, not endorsements.").font(.caption).foregroundStyle(.secondary)
-                            ForEach(model.collections) { collection in
-                                NavigationLink { StoreCollectionDetailView(collection: collection, model: model) } label: {
-                                    LabeledContent(collection.title, value: "\(collection.apps.count) apps")
-                                }
-                            }
-                        }
-                        Section("Staff Picks") {
-                            Text("No staff-curated list is configured. Explore metadata-based collections instead.").font(.subheadline).foregroundStyle(.secondary)
-                        }
-                        Section("Unified Catalog") {
-                            ForEach(model.apps) { app in StoreAppLink(app: app, model: model) }
-                        }
-                    }
+                    ContentUnavailableView.search(text: query)
                 }
             }
-            .listStyle(.insetGrouped)
-            .navigationTitle("Store")
-            .searchable(text: $query, prompt: "Apps, developers, bundle IDs, sources")
-            .onSubmit(of: .search) { Task { await model.recordSearch(query) } }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink { StoreSourcesView(model: model) } label: { Label("Sources", systemImage: "globe") }
+            ForEach(results) { app in StoreAppLink(app: app, model: model) }
+        }
+    }
+
+    /// Everything the store shows while no filter is active: recents, the
+    /// empty-state invitation, and the shelves.
+    @ViewBuilder
+    private var browseSections: some View {
+        if !model.snapshot.recentSearches.isEmpty {
+            Section("Recent Searches") {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack { ForEach(model.snapshot.recentSearches, id: \.self) { term in
+                        Button(term) { query = term }.buttonStyle(.bordered).frame(minHeight: 44)
+                    } }
                 }
-            }
-            .refreshable { await model.refreshDue() }
-            .storeNotice($model.problem)
-            .task { await model.load(library: environment.library) }
-            .task(id: query + "\u{0}" + (category ?? "") + "\u{0}" + (sourceFilter?.uuidString ?? "")) {
-                do { try await Task.sleep(nanoseconds: 100_000_000) } catch { return }
-                results = model.search(query, category: category, sourceID: sourceFilter)
-            }
-            .onChange(of: model.apps) { _, _ in results = model.search(query, category: category, sourceID: sourceFilter) }
-            .onChange(of: scenePhase) { _, phase in
-                if phase == .active { Task { await model.load(library: environment.library) } }
+                Button("Clear Browsing & Search History", role: .destructive) { Task { await model.clearHistory() } }
             }
         }
+        if model.apps.isEmpty {
+            ContentUnavailableView("Your Store Starts Here", systemImage: "globe", description: Text("Add or enable a source to discover apps. Previously cached sources remain available offline."))
+            NavigationLink("Manage Sources") { StoreSourcesView(model: model) }
+        } else {
+            shelf("Featured This Week", subtitle: "Apps explicitly marked featured by their repositories · not an endorsement", apps: model.apps.filter(\.featured))
+            shelf("Trending Apps", subtitle: "Most opened on this device · not repository-wide popularity", apps: model.trending)
+            shelf("Recently Updated", subtitle: "Latest release dates reported by sources", apps: recentlyUpdatedApps)
+            shelf("New Releases", subtitle: "First-known releases with dates from repository history", apps: newReleaseApps)
+            shelf("Suggestions for You", subtitle: "Based on apps you recently viewed · suggestions only", apps: model.suggestions)
+            shelf("Saved for Later", subtitle: "Stored locally · saving never downloads", apps: model.savedApps)
+            shelf("Continue Browsing", subtitle: "Recently viewed on this device", apps: model.continueBrowsing)
+            shelf("Available Updates", subtitle: "Compared with your ZynSign Library records; not device installation status", apps: model.updates.map(\.app))
+            Section("Recently Browsed Developers") {
+                ForEach(model.recentlyViewedDevelopers, id: \.self) { developer in
+                    NavigationLink(developer) { StoreDeveloperView(developer: developer, model: model) }
+                }
+            }
+            Section("Featured Collections") {
+                Text("Collections are assembled from repository categories and release metadata, not endorsements.").font(.caption).foregroundStyle(.secondary)
+                ForEach(model.collections) { collection in
+                    NavigationLink { StoreCollectionDetailView(collection: collection, model: model) } label: {
+                        LabeledContent(collection.title, value: "\(collection.apps.count) apps")
+                    }
+                }
+            }
+            Section("Staff Picks") {
+                Text("No staff-curated list is configured. Explore metadata-based collections instead.").font(.subheadline).foregroundStyle(.secondary)
+            }
+            Section("Unified Catalog") {
+                ForEach(model.apps) { app in StoreAppLink(app: app, model: model) }
+            }
+        }
+    }
+
+    /// Apps whose sources reported a release date, newest first — the
+    /// Recently Updated shelf.
+    private var recentlyUpdatedApps: [CatalogApp] {
+        model.apps
+            .filter { $0.latest.date != nil }
+            .sorted { ($0.latest.date ?? .distantPast) > ($1.latest.date ?? .distantPast) }
+    }
+
+    /// First-known releases with dates from repository history — the New
+    /// Releases shelf.
+    private var newReleaseApps: [CatalogApp] {
+        model.apps
+            .sorted { earliest($0) > earliest($1) }
+            .filter { earliest($0) != .distantPast }
+    }
+
+    var body: some View {
+        NavigationStack {
+            storeList
+                .listStyle(.insetGrouped)
+                .navigationTitle("Store")
+                .searchable(text: $query, prompt: "Apps, developers, bundle IDs, sources")
+                .onSubmit(of: .search) { Task { await model.recordSearch(query) } }
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        NavigationLink { StoreSourcesView(model: model) } label: { Label("Sources", systemImage: "globe") }
+                    }
+                }
+                .refreshable { await model.refreshDue() }
+                .storeNotice($model.problem)
+                .task { await model.load(library: environment.library) }
+                .task(id: searchTaskID) {
+                    do { try await Task.sleep(nanoseconds: 100_000_000) } catch { return }
+                    applySearch()
+                }
+                .onChange(of: model.apps) { _, _ in applySearch() }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { Task { await model.load(library: environment.library) } }
+                }
+        }
+    }
+
+    /// The list contents, split from `body` so the type checker solves the
+    /// sections and the modifier chain as two modest expressions.
+    @ViewBuilder
+    private var storeList: some View {
+        List {
+            if !filtering {
+                welcome
+                destinations
+            }
+            categoryPicker
+            if !model.snapshot.sources.isEmpty { sourcePicker }
+            if filtering {
+                resultsSection
+            } else {
+                browseSections
+            }
+        }
+    }
+
+    /// Re-runs the client-side search against the current query, category,
+    /// and source filter — one place instead of repeating the call in every
+    /// task and change handler that needs it.
+    private func applySearch() {
+        results = model.search(query, category: category, sourceID: sourceFilter)
+    }
+
+    /// Identity for the debounced search task: a change to any of these
+    /// inputs restarts it.
+    private var searchTaskID: String {
+        query + "\u{0}" + (category ?? "") + "\u{0}" + (sourceFilter?.uuidString ?? "")
     }
     private var welcome: some View {
         VStack(alignment: .leading, spacing: 14) {

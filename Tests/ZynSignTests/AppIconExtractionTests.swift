@@ -150,7 +150,7 @@ final class AppIconExtractionTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: workDirectory) }
 
         let extraction = AppIconExtraction(
-            readerProvider: SyntheticArchiveReaderProvider.failing(
+            readerProvider: SyntheticArchiveReaderProvider.failing(with:
                 ZynSignError.artifactStorageFailure(
                     diagnosticDetail: "no such artifact"
                 )

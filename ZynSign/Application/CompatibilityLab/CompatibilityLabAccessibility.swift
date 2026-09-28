@@ -16,7 +16,7 @@ import UIKit
 /// That is the honest shape of an accessibility gate: the machine checks the
 /// machine's decisions, a human checks the experience, and neither is allowed
 /// to stand in for the other.
-struct AccessibilityAuditSuite {
+struct AccessibilityAuditSuite: CompatibilitySuite {
 
     func checks(context: CompatibilityLabContext) async -> [CompatibilityCheck] {
         [

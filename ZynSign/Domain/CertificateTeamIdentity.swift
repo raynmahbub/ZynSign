@@ -56,14 +56,18 @@ struct CertificateTeamIdentity: Equatable, Hashable {
         if let organization = subject.organization, !organization.isEmpty {
             teamName = organization
         }
-        if teamName == nil, let commonName = subject.commonName,
+        // The common name's group still supplies the team ID when the
+        // organization already named the team — the ID and the name are
+        // read independently, and an organization never hides an ID the
+        // common name declares.
+        if teamID == nil, let commonName = subject.commonName,
            let (name, token) = trailingTeamIDGroup(in: commonName) {
             let candidate = token.uppercased()
             if isValidTeamID(candidate) {
-                if teamID == nil {
-                    teamID = candidate
+                teamID = candidate
+                if teamName == nil {
+                    teamName = name.isEmpty ? nil : name
                 }
-                teamName = name.isEmpty ? nil : name
             }
         }
 

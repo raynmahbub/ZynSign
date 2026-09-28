@@ -14,10 +14,11 @@ final class FileIdentityAnnotationsStoreTests: XCTestCase {
     private static let fingerprintA = "4aea4f8b88d249d4612ec2101efa985d75ab500640372e07ae82aa29c9c8c575"
     private static let fingerprintB = "724a8650f739ed9a6dc45099cbe66b519c8a7c9c99132f99c0917e591d9debb4"
 
-    override func setUp() {
-        super.setUp()
+    override func setUpWithError() throws {
+        try super.setUpWithError()
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ZynSignAnnotationTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         location = directory.appendingPathComponent("catalog.json")
         store = FileIdentityAnnotationsStore(catalogLocation: location)
     }

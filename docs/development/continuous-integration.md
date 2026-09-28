@@ -114,3 +114,36 @@ The RC audits have a `--json` flag each for a machine-readable result, and
 `audit_accessibility.py` can write a Compatibility Lab overlay with
 `--overlay-out`. The crash-surface audit takes `--list` to show every line it
 matched. See [the hardening pack](../hardening/README.md).
+
+## The engineering suite
+
+The workflow above remains the build-and-hygiene backbone. Around it,
+The suite is modular; every job calls a reusable script in
+`Scripts/ci/`, so CI logic never duplicates between workflows. Failing
+unit tests are surfaced as check annotations by
+`Scripts/ci/annotate_test_failures.sh`, which reads the run's result
+bundle so the failing suites are readable without opening a raw log.
+
+| Workflow | Gate type | Script |
+| --- | --- | --- |
+| `build-validation.yml` | blocking | `build.sh` — packages, clean, build all targets, build tests, run tests |
+| `swiftlint.yml` | blocking (errors) | `lint.sh` — `.swiftlint.yml` two-tier rules |
+| `swiftformat.yml` | blocking | `format.sh check` — pinned rule set |
+| `architecture-guard.yml` | blocking | `architecture_guard.sh` — 8 layer rules + ratcheted baseline |
+| `dependency-validation.yml` | blocking | `dependency_check.sh` — allowlist, dependency-free by design |
+| `security-scan.yml` | blocking | `security_scan.sh` + Gitleaks full history |
+| `docs-check.yml` | blocking (links/images) | `docs_check.sh` — links, images, orphans, quality |
+| `pr-quality.yml` | blocking (title/commits) | commitlint; Danger Swift advises |
+| `complexity-check.yml` | advisory | `complexity_check.sh` — function 80 / file 800 / nesting 4 |
+| `dead-code.yml` | advisory | `dead_code_scan.sh` — Periphery, never deletes |
+| `quality-summary.yml` | advisory | `metrics_report.sh` — Command Center per PR |
+| `release-drafter.yml` / `labeler.yml` / `stale.yml` / `maintenance.yml` | automation | release drafting, labels, staleness, weekly dashboards |
+| `prerelease.yml` / `release.yml` | release pipeline | `release_validate.sh` + quality gate + assets + publish |
+
+The architecture guard protects the layered contract documented in
+[../architecture/architecture.md](../architecture/architecture.md);
+its known grandfathered crossings are frozen in
+`Scripts/ci/architecture-baseline.txt`. Release behaviour is described
+in [../releases/release-automation.md](../releases/release-automation.md);
+recommended branch protection lives in
+[branch-protection.md](branch-protection.md).

@@ -409,7 +409,7 @@ final class SigningQueueTests: XCTestCase {
     // MARK: - Isolation
 
     func testEveryJobIsItsOwnRunAndReadsItsOwnSource() async {
-        let submissions = (0..<6).map { SigningQueueFixtures.submission(name: "Same Name") }
+        let submissions = (0..<6).map { _ in SigningQueueFixtures.submission(name: "Same Name") }
         queue.enqueue(submissions, origin: .bulkSelection)
         await waitUntilIdle()
 
