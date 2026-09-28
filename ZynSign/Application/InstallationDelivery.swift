@@ -11,6 +11,10 @@ enum InstallationDeliveryError: Error, Equatable {
     /// serve one.
     case hostingURLMustBeHTTPS
 
+    /// The operator-supplied hosting location was not a URL the platform
+    /// could parse at all.
+    case hostingURLUnparsable
+
     /// The manifest property list could not be serialized.
     case manifestSerializationFailed
 
@@ -23,6 +27,8 @@ enum InstallationDeliveryError: Error, Equatable {
         switch self {
         case .hostingURLMustBeHTTPS:
             return "The hosting address must use HTTPS. Over-the-air installation accepts only an HTTPS manifest."
+        case .hostingURLUnparsable:
+            return "The hosting address is not a valid web address. Enter the full address the installing device can reach."
         case .manifestSerializationFailed:
             return "The delivery manifest could not be produced."
         case .manifestWriteFailed:
@@ -85,8 +91,9 @@ struct InstallationDeliveryPackage: Equatable {
     /// The size of the signed container in bytes, or `nil` when the file
     /// cannot currently be reached.
     var fileSizeBytes: Int64? {
-        let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey])
-        return values.map { Int64($0.fileSize) }
+        guard let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey]),
+              let fileSize = values.fileSize else { return nil }
+        return Int64(fileSize)
     }
 }
 

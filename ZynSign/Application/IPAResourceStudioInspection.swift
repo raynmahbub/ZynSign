@@ -12,7 +12,7 @@ public struct IPAResourceStudioInspection: Sendable {
     private let readerProvider: any ArtifactArchiveReaderProvider
     private let limits: ArchiveLimits
 
-    public init(
+    init(
         library: ApplicationLibrary,
         readerProvider: any ArtifactArchiveReaderProvider,
         limits: ArchiveLimits = .default
@@ -166,7 +166,15 @@ public struct IPAResourceStudioInspection: Sendable {
 
         // 12. Build Summary
         let totalCount = discoveredIcons.count + launchAsset.totalAssetCount + images.count + fonts.count + audio.count + videos.count + locFiles.count
-        let totalBytes = (discoveredIcons.map(\.fileSize) + images.map(\.fileSize) + fonts.map(\.fileSize) + audio.map(\.fileSize) + videos.map(\.fileSize) + locFiles.map(\.fileSize)).reduce(0, +)
+        // Byte totals accumulate one source at a time so each sub-expression
+        // stays small enough for the type checker to solve quickly.
+        var totalBytes = 0
+        totalBytes += discoveredIcons.map(\.fileSize).reduce(0, +)
+        totalBytes += images.map(\.fileSize).reduce(0, +)
+        totalBytes += fonts.map(\.fileSize).reduce(0, +)
+        totalBytes += audio.map(\.fileSize).reduce(0, +)
+        totalBytes += videos.map(\.fileSize).reduce(0, +)
+        totalBytes += locFiles.map(\.fileSize).reduce(0, +)
 
         let summary = ResourceSummary(
             iconCount: discoveredIcons.count,
@@ -280,7 +288,7 @@ public struct IPAResourceStudioInspection: Sendable {
         // 2. Discover all icon files in the bundle
         for archiveEntry in table where archiveEntry.kind == .regularFile {
             guard let ap = archiveEntry.path, let bp = BundlePath(ap, relativeTo: bundleRoot) else { continue }
-            let name = bp.lastComponent
+            let name = bp.name ?? bp.rawValue
             let lower = name.lowercased()
             let ext = BundleFileClassification.fileExtension(name)
 
@@ -364,7 +372,7 @@ public struct IPAResourceStudioInspection: Sendable {
 
         for archiveEntry in table {
             guard let ap = archiveEntry.path, let bp = BundlePath(ap, relativeTo: bundleRoot) else { continue }
-            let name = bp.lastComponent
+            let name = bp.name ?? bp.rawValue
             let lower = name.lowercased()
 
             if name.hasSuffix(".storyboard") || name.hasSuffix(".storyboardc") {
@@ -414,11 +422,11 @@ public struct IPAResourceStudioInspection: Sendable {
         let activeSummary: String = {
             switch activeType {
             case .storyboard:
-                return "Active: Storyboard (\(declaredStoryboard ?? storyboardPaths.first?.lastComponent ?? "LaunchScreen"))"
+                return "Active: Storyboard (\(declaredStoryboard ?? storyboardPaths.first.flatMap { $0.name } ?? "LaunchScreen"))"
             case .launchScreenPlist:
                 return "Active: Info.plist (UILaunchScreen key)"
             case .launchScreenNib:
-                return "Active: Compiled NIB (\(launchNibs.first?.lastComponent ?? "LaunchScreen.nib"))"
+                return "Active: Compiled NIB (\(launchNibs.first.flatMap { $0.name } ?? "LaunchScreen.nib"))"
             case .launchImages:
                 return "Active: Static Launch Images (\(launchImages.count) assets)"
             case .none:
@@ -449,7 +457,7 @@ public struct IPAResourceStudioInspection: Sendable {
 
         for archiveEntry in table where archiveEntry.kind == .regularFile {
             guard let ap = archiveEntry.path, let bp = BundlePath(ap, relativeTo: bundleRoot) else { continue }
-            let name = bp.lastComponent
+            let name = bp.name ?? bp.rawValue
             let ext = BundleFileClassification.fileExtension(name)
 
             guard supportedExtensions.contains(ext) else { continue }
@@ -494,7 +502,7 @@ public struct IPAResourceStudioInspection: Sendable {
 
         for archiveEntry in table where archiveEntry.kind == .regularFile {
             guard let ap = archiveEntry.path, let bp = BundlePath(ap, relativeTo: bundleRoot) else { continue }
-            let name = bp.lastComponent
+            let name = bp.name ?? bp.rawValue
             let ext = BundleFileClassification.fileExtension(name)
 
             guard fontExtensions.contains(ext) else { continue }
@@ -528,7 +536,7 @@ public struct IPAResourceStudioInspection: Sendable {
 
         for archiveEntry in table where archiveEntry.kind == .regularFile {
             guard let ap = archiveEntry.path, let bp = BundlePath(ap, relativeTo: bundleRoot) else { continue }
-            let name = bp.lastComponent
+            let name = bp.name ?? bp.rawValue
             let ext = BundleFileClassification.fileExtension(name)
 
             guard ext == "strings" || ext == "stringsdict" else { continue }
@@ -578,7 +586,9 @@ public struct IPAResourceStudioInspection: Sendable {
                 files: files.sorted { $0.tableName.localizedStandardCompare($1.tableName) == .orderedAscending },
                 totalKeyCount: totalKeys
             )
-        }.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+        }.sorted { (lhs: LocalizationLanguageGroup, rhs: LocalizationLanguageGroup) in
+            lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
+        }
 
         return (groups, allFiles)
     }
@@ -593,7 +603,7 @@ public struct IPAResourceStudioInspection: Sendable {
 
         for archiveEntry in table where archiveEntry.kind == .regularFile {
             guard let ap = archiveEntry.path, let bp = BundlePath(ap, relativeTo: bundleRoot) else { continue }
-            let name = bp.lastComponent
+            let name = bp.name ?? bp.rawValue
             let ext = BundleFileClassification.fileExtension(name)
 
             guard audioExtensions.contains(ext) else { continue }
@@ -633,7 +643,7 @@ public struct IPAResourceStudioInspection: Sendable {
 
         for archiveEntry in table where archiveEntry.kind == .regularFile {
             guard let ap = archiveEntry.path, let bp = BundlePath(ap, relativeTo: bundleRoot) else { continue }
-            let name = bp.lastComponent
+            let name = bp.name ?? bp.rawValue
             let ext = BundleFileClassification.fileExtension(name)
 
             guard videoExtensions.contains(ext) else { continue }
@@ -675,7 +685,7 @@ public struct IPAResourceStudioInspection: Sendable {
         return try? reader.readEntryData(at: path, maximumBytes: maxBytes)
     }
 
-    public static func archivePath(for entry: BundlePath, within bundle: ArchivePath) -> ArchivePath? {
+    static func archivePath(for entry: BundlePath, within bundle: ArchivePath) -> ArchivePath? {
         var path = bundle
         for component in entry.components {
             guard let next = path.appending(component: component) else { return nil }

@@ -1,0 +1,23 @@
+{
+    "name": "zynsign-engineering-tooling",
+    "private": true,
+    "description": "Engineering tooling for ZynSign: Conventional Commits with commitlint, interactive commits with Commitizen. Not part of the application.",
+    "scripts": {
+        "commit": "cz",
+        "commitlint": "commitlint",
+        "commitlint:range": "commitlint --verbose",
+        "prepare": "husky"
+    },
+    "config": {
+        "commitizen": {
+            "path": "cz-conventional-changelog"
+        }
+    },
+    "devDependencies": {
+        "@commitlint/cli": "^19.6.0",
+        "@commitlint/config-conventional": "^19.6.0",
+        "commitizen": "^4.3.1",
+        "cz-conventional-changelog": "^3.3.0",
+        "husky": "^9.1.7"
+    }
+}

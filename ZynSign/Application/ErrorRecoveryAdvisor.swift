@@ -267,7 +267,7 @@ enum ErrorRecoveryAdvisor {
                 nextSteps: ["Use a profile from your developer account; embedded profiles in ordinary apps are far below this bound."],
                 canRetry: false
             )
-        case .emptyPayload:
+        case .emptyPayload, .malformedPayload:
             return ErrorRecoveryAdvice(
                 whatHappened: "The profile carries no payload.",
                 whatWasVerified: "The container was read and the payload inside it is empty.",
@@ -286,6 +286,13 @@ enum ErrorRecoveryAdvisor {
                 whatHappened: "The profile could not be parsed.",
                 whatWasVerified: "The platform's property-list reader refused the payload; ZynSign reports the refusal rather than guessing at it.",
                 nextSteps: ["Re-download the profile; a damaged download is the usual cause."],
+                canRetry: false
+            )
+        case .unsupportedValue:
+            return ErrorRecoveryAdvice(
+                whatHappened: "The profile carries a value ZynSign cannot use.",
+                whatWasVerified: "The field was read and its value falls outside what the profile format allows for it.",
+                nextSteps: ["Re-download the profile; if it repeats, the profile itself may be damaged."],
                 canRetry: false
             )
         }
@@ -322,6 +329,27 @@ enum ErrorRecoveryAdvisor {
                 whatWasVerified: "ZynSign read the signer information and it is absent or ambiguous, so no verification was performed.",
                 nextSteps: ["Re-download the profile; if it repeats, the profile is not one ZynSign can verify."],
                 canRetry: false
+            )
+        case .multipleSigners:
+            return ErrorRecoveryAdvice(
+                whatHappened: "The container is signed by more than one signer.",
+                whatWasVerified: "ZynSign read the signer set and it holds several signers; the profile ZynSign expects carries exactly one.",
+                nextSteps: ["Re-download the profile from your developer account."],
+                canRetry: false
+            )
+        case .signatureInvalid, .certificateParseFailed, .certificateMismatch, .unsupportedAlgorithm:
+            return ErrorRecoveryAdvice(
+                whatHappened: "The container's signature did not verify.",
+                whatWasVerified: "The signature and its certificate were checked against the container's own bytes and did not hold; no trust beyond that was established.",
+                nextSteps: ["Re-download the profile; if it repeats, the profile is not one ZynSign can verify."],
+                canRetry: false
+            )
+        case .signerCertificateUnavailable, .platformVerificationUnavailable, .unexpectedSecurityError:
+            return ErrorRecoveryAdvice(
+                whatHappened: "The platform could not complete the signature check.",
+                whatWasVerified: "ZynSign asked the platform to verify and the certificate or the verification step itself was unavailable; nothing was assumed in its place.",
+                nextSteps: ["Try again; if it repeats, re-import the profile from your developer account."],
+                canRetry: true
             )
         }
     }
@@ -373,6 +401,20 @@ enum ErrorRecoveryAdvisor {
                 whatHappened: "The signature could not be produced.",
                 whatWasVerified: "The signing operation was attempted with the resolved key and reported a failure.",
                 nextSteps: ["Try again; if it repeats, check that the identity's key is available in Certificates."],
+                canRetry: true
+            )
+        case .capabilityUnavailable, .platformLimitation:
+            return ErrorRecoveryAdvice(
+                whatHappened: "This environment cannot complete the cryptographic operation the artifact asks for.",
+                whatWasVerified: "The operation ran and the platform reported the capability missing or a limit reached; nothing was substituted for it.",
+                nextSteps: ["Try again; if it repeats, the operation exceeds what this build offers on this device."],
+                canRetry: true
+            )
+        case .unexpectedFailure:
+            return ErrorRecoveryAdvice(
+                whatHappened: "The cryptographic operation failed for a reason ZynSign did not classify.",
+                whatWasVerified: "The operation ran and reported a failure; no conclusion about the artifact's validity was drawn from it.",
+                nextSteps: ["Try again; if it repeats, re-import the artifact."],
                 canRetry: true
             )
         }

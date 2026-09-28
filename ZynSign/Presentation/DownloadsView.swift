@@ -286,26 +286,7 @@ private struct DownloadCenterScreen: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(filteredHistory) { entry in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(entry.appName).font(.body)
-                        Text([entry.version, entry.sourceName].compactMap { $0 }.joined(separator: " · "))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(entry.completedAt.formatted(date: .abbreviated, time: .shortened))
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                        Text(entry.validationSummary)
-                            .font(.footnote)
-                            .foregroundStyle(entry.validationPassed ? .secondary : .orange)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if entry.validationPassed {
-                            Button("Open App") { Task { await openHistory(entry) } }
-                                .frame(minHeight: 44)
-                                .accessibilityHint("Opens the imported app when it is in the Library. Does not delete it.")
-                        }
-                    }
-                    .padding(.vertical, 4)
-                    .accessibilityElement(children: .combine)
+                    historyRow(entry)
                 }
             }
         } header: {
@@ -397,6 +378,31 @@ private struct DownloadCenterScreen: View {
                 || $0.request.sourceName.localizedCaseInsensitiveContains(searchText)
                 || ($0.request.bundleIdentifier?.localizedCaseInsensitiveContains(searchText) ?? false)
         }
+    }
+
+    /// One row of the download history: what it was, when it finished, and
+    /// how its validation ended.
+    private func historyRow(_ entry: DownloadHistoryEntry) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(entry.appName).font(.body)
+            Text([entry.version, entry.sourceName].compactMap { $0 }.joined(separator: " · "))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(entry.completedAt.formatted(date: .abbreviated, time: .shortened))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            Text(entry.validationSummary)
+                .font(.footnote)
+                .foregroundStyle(entry.validationPassed ? Color.secondary : Color.orange)
+                .fixedSize(horizontal: false, vertical: true)
+            if entry.validationPassed {
+                Button("Open App") { Task { await openHistory(entry) } }
+                    .frame(minHeight: 44)
+                    .accessibilityHint("Opens the imported app when it is in the Library. Does not delete it.")
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
     }
 
     private func stat(_ title: String, _ count: Int) -> some View {

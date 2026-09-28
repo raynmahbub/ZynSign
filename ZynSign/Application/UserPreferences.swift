@@ -168,6 +168,85 @@ struct GeneralPreferences: Equatable, Sendable, Codable {
     var onboardingCompleted: Bool = false
 }
 
+extension GeneralPreferences {
+    /// Decodes field by field: a document written by a build with more or
+    /// fewer settings than this one still applies every field it names, and
+    /// falls back to the shipped default for every field it does not.
+    ///
+    /// The decoder lives in an extension so the struct keeps its memberwise
+    /// initializer; decoding is a boundary concern, not part of the value's
+    /// construction.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        landingTab = try container.decodeIfPresent(LandingTab.self, forKey: .landingTab) ?? .home
+        hapticFeedbackEnabled = try container.decodeIfPresent(Bool.self, forKey: .hapticFeedbackEnabled) ?? true
+        animationPreference = try container.decodeIfPresent(AnimationPreference.self, forKey: .animationPreference) ?? .standard
+        onboardingCompleted = try container.decodeIfPresent(Bool.self, forKey: .onboardingCompleted) ?? false
+    }
+}
+
+// Every group decodes field by field for the same reason: a document
+// written by a build with a different set of settings applies every field
+// it names and falls back, field by field, for every field it does not.
+// The fallbacks are the shipped defaults, kept in one place below.
+
+extension SigningPreferences {
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        preferredIdentityFingerprint = try container.decodeIfPresent(String.self, forKey: .preferredIdentityFingerprint)
+        preferredProfileName = try container.decodeIfPresent(String.self, forKey: .preferredProfileName)
+        rememberSelections = try container.decodeIfPresent(Bool.self, forKey: .rememberSelections) ?? true
+        automaticCompatibilityAnalysis = try container.decodeIfPresent(Bool.self, forKey: .automaticCompatibilityAnalysis) ?? true
+    }
+}
+
+extension SecurityPreferences {
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        biometricLockEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricLockEnabled) ?? false
+        requireAuthenticationForSensitiveActions = try container.decodeIfPresent(Bool.self, forKey: .requireAuthenticationForSensitiveActions) ?? true
+        hideSensitiveInformationWhenLocked = try container.decodeIfPresent(Bool.self, forKey: .hideSensitiveInformationWhenLocked) ?? true
+        sessionTimeout = try container.decodeIfPresent(SessionTimeout.self, forKey: .sessionTimeout) ?? .oneMinute
+        sensitiveDataVisibility = try container.decodeIfPresent(SensitiveDataVisibility.self, forKey: .sensitiveDataVisibility) ?? .masked
+    }
+}
+
+extension StoragePreferences {
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        automaticTemporaryCleanup = try container.decodeIfPresent(Bool.self, forKey: .automaticTemporaryCleanup) ?? true
+    }
+}
+
+extension DiagnosticsPreferences {
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        keepDiagnosticHistory = try container.decodeIfPresent(Bool.self, forKey: .keepDiagnosticHistory) ?? true
+        detailedTechnicalLogs = try container.decodeIfPresent(Bool.self, forKey: .detailedTechnicalLogs) ?? false
+        developerDiagnostics = try container.decodeIfPresent(Bool.self, forKey: .developerDiagnostics) ?? false
+    }
+}
+
+extension AppearancePreferences {
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        appearanceMode = try container.decodeIfPresent(AppearanceMode.self, forKey: .appearanceMode) ?? .system
+        increaseContrast = try container.decodeIfPresent(Bool.self, forKey: .increaseContrast) ?? false
+        respectsSystemTextSize = try container.decodeIfPresent(Bool.self, forKey: .respectsSystemTextSize) ?? true
+        themeIdentifier = try container.decodeIfPresent(String.self, forKey: .themeIdentifier) ?? ZynSignTheme.defaultIdentifier
+    }
+}
+
+extension AdvancedPreferences {
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        workingDirectoryBehavior = try container.decodeIfPresent(WorkingDirectoryBehavior.self, forKey: .workingDirectoryBehavior) ?? .temporary
+        temporaryCleanupPolicy = try container.decodeIfPresent(TemporaryCleanupPolicy.self, forKey: .temporaryCleanupPolicy) ?? .onExit
+        verificationStrictness = try container.decodeIfPresent(VerificationStrictness.self, forKey: .verificationStrictness) ?? .standard
+        experimentalFeatures = try container.decodeIfPresent(Set<ExperimentalFeature>.self, forKey: .experimentalFeatures) ?? []
+    }
+}
+
 /// The tab ZynSign opens on launch.
 ///
 /// The values mirror the shell's primary tabs. The mapping to a presentation
@@ -284,6 +363,7 @@ enum SessionTimeout: String, CaseIterable, Hashable, Sendable, Codable {
     case oneMinute
     case fiveMinutes
     case fifteenMinutes
+    case never
 
     var displayName: String {
         switch self {
@@ -291,6 +371,7 @@ enum SessionTimeout: String, CaseIterable, Hashable, Sendable, Codable {
         case .oneMinute: return "After 1 minute"
         case .fiveMinutes: return "After 5 minutes"
         case .fifteenMinutes: return "After 15 minutes"
+        case .never: return "Never"
         }
     }
 
@@ -301,6 +382,7 @@ enum SessionTimeout: String, CaseIterable, Hashable, Sendable, Codable {
         case .oneMinute: return 60
         case .fiveMinutes: return 300
         case .fifteenMinutes: return 900
+        case .never: return nil
         }
     }
 }
@@ -495,6 +577,23 @@ enum VerificationStrictness: String, CaseIterable, Hashable, Sendable, Codable {
 ///
 /// Adding a feature is therefore one case plus the surface it switches on —
 /// no restructuring of the settings system, and no row that lies.
-enum ExperimentalFeature: String, CaseIterable, Hashable, Sendable, Codable {
+enum ExperimentalFeature: CaseIterable, Hashable, Sendable {
     // No experimental features are implemented in this version.
+}
+
+extension ExperimentalFeature: Codable {
+    init(from decoder: Decoder) throws {
+        throw DecodingError.dataCorrupted(
+            DecodingError.Context(
+                codingPath: decoder.codingPath,
+                debugDescription: "No experimental feature exists in this version."
+            )
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        // Uninhabited: a set of features is always empty, so no element is
+        // ever encoded. The conformance exists only so UserPreferences can
+        // keep its typed property.
+    }
 }

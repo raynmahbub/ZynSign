@@ -1,0 +1,24 @@
+# Gitleaks configuration — ZynSign.
+#
+# Extends the default rule set (API keys, tokens, passwords, private
+# keys, certificates). ZynSign's sources legitimately *name* PEM headers:
+#
+#   - CompatibilityLabSecurity.swift embeds the header strings as fixed
+#     detection markers for the Lab's secret-material scan. They are
+#     literals in code, never keys.
+#   - Tests/ use synthetic certificate text as parser rejection vectors
+#     and embed no private key material.
+#
+# Both are allowlisted by path; everything else must stay clean.
+
+title = "ZynSign gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Detection markers and synthetic test fixtures — fixed strings, never secrets"
+paths = [
+    '''ZynSign/Application/CompatibilityLab/CompatibilityLabSecurity\.swift''',
+    '''(^|/)Tests/''',
+]

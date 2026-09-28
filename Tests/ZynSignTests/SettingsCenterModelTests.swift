@@ -25,6 +25,18 @@ final class SettingsCenterModelTests: XCTestCase {
         try await super.tearDown()
     }
 
+    /// The technical log receives entries from a queued write, so an
+    /// observation that wants the log's real state waits for the queued
+    /// write to land instead of racing it.
+    private func diagnosticEntries(afterEntryCount expected: Int) async -> [DiagnosticLogEntry] {
+        for _ in 0..<200 {
+            let current = await model.diagnosticEntries()
+            if current.count >= expected { return current }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        return await model.diagnosticEntries()
+    }
+
     // MARK: - Preferences
 
     func testPreferencesAreLoadedFromTheStoreWhenTheModelIsBuilt() throws {
@@ -226,7 +238,9 @@ final class SettingsCenterModelTests: XCTestCase {
 
         await model.removeOldHistoryRecords()
 
-        let remaining = (try? await store.allRecords()) ?? []
+        // A fresh reader observes the journal as cleanup left it on disk;
+        // this test's own store still holds the cache it built while appending.
+        let remaining = (try? await FileSigningHistoryStore(journalLocation: layout.history, capacity: 100).allRecords()) ?? []
         XCTAssertEqual(remaining.count, StorageCleanupPolicy.minimumRetainedHistoryRecords)
         XCTAssertEqual(remaining.first?.id, recent.id, "The most recent record is always kept.")
         for name in oldestNames {
@@ -264,6 +278,14 @@ final class SettingsCenterModelTests: XCTestCase {
             )
         )
 
+        // The cleanup itself is age-gated (an hour) so it can never race an
+        // operation still writing into the workspace; backdate the fixture so
+        // the now-allowed cleanup may actually remove it.
+        try? FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-7_200)],
+            ofItemAtPath: layout.temporary[0].appendingPathComponent("zynsign-staging-1").path
+        )
+
         model.update { $0.advanced.temporaryCleanupPolicy = .onLaunch }
         await model.cleanTemporaryWorkspaceIfPolicyAllows()
 
@@ -294,7 +316,8 @@ final class SettingsCenterModelTests: XCTestCase {
 
         await model.cleanTemporaryWorkspaceIfPolicyAllows()
 
-        XCTAssertEqual(await model.diagnosticEntryCount(), 0)
+        let entryCount = await model.diagnosticEntryCount()
+        XCTAssertEqual(entryCount, 0)
     }
 
     func testTheTechnicalLogRecordsWhenTheUserTurnsItOn() async {
@@ -302,7 +325,7 @@ final class SettingsCenterModelTests: XCTestCase {
 
         model.update { $0.general.landingTab = .profiles }
 
-        let entries = await model.diagnosticEntries()
+        let entries = await diagnosticEntries(afterEntryCount: 2)
         // Turning the log on is itself the first entry it holds, because the
         // change it records is the change that makes recording possible.
         XCTAssertEqual(entries.count, 2)
@@ -316,16 +339,21 @@ final class SettingsCenterModelTests: XCTestCase {
 
         model.update { $0.general.landingTab = .profiles }
 
-        XCTAssertEqual(await model.diagnosticEntryCount(), 0)
+        let entryCount = await model.diagnosticEntryCount()
+        XCTAssertEqual(entryCount, 0)
     }
 
     func testClearingTheTechnicalLogRemovesEveryEntry() async {
         model.update { $0.diagnostics.detailedTechnicalLogs = true }
         model.update { $0.general.landingTab = .profiles }
 
+        // Let every queued write land first; clearing while one is still in
+        // flight would leave the cleared log holding it again.
+        _ = await diagnosticEntries(afterEntryCount: 2)
         await model.clearDiagnosticLog()
 
-        XCTAssertEqual(await model.diagnosticEntryCount(), 0)
+        let entryCount = await model.diagnosticEntryCount()
+        XCTAssertEqual(entryCount, 0)
     }
 
     func testTheDiagnosticReportCarriesNoSensitiveValue() async throws {
@@ -341,7 +369,7 @@ final class SettingsCenterModelTests: XCTestCase {
                 buildVersion: "42"
             ),
             releaseSummary: "ZynSign 0.1.0 (42)",
-            storage: StorageUsageReport(usage: [:], measuredAt: Date()),
+            storage: StorageFootprint(usages: []),
             library: DiagnosticLibraryCounts(),
             preferences: model.preferences,
             technicalLog: await model.diagnosticEntries(),

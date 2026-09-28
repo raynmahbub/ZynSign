@@ -1,0 +1,20 @@
+# SwiftFormat — ZynSign.
+#
+# Two execution modes share this one rule set:
+#   check  — pull requests (Scripts/ci/format.sh check, swiftformat --lint)
+#   apply  — weekly maintenance (Scripts/ci/format.sh apply)
+#
+# Because both modes use the identical, explicitly listed rules, a green
+# check guarantees the maintenance run has nothing to change: formatting
+# never creates noisy commits. The rules are the cosmetic ones the
+# codebase already satisfies; style decisions SwiftFormat could rewrite
+# (self-insertion, wrapping, trailing commas, semicolon splitting) are
+# deliberately left off — compact semicolon-joined statements are an
+# established house style in this repository.
+
+--rules trailingSpace,consecutiveBlankLines
+
+# Consistency anchors if a listed rule ever needs context.
+--indent 4
+
+--exclude build,DerivedData,.build,.external-validation,node_modules,Reports

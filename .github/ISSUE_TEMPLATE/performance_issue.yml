@@ -1,0 +1,69 @@
+name: Performance issue
+description: Slowness, hangs, memory, storage, or battery problems
+labels: [performance]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        <div align="center">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/raynmahbub/ZynSign/main/Assets/Brand/Logo/logo-lockup-dark.svg">
+          <img src="https://raw.githubusercontent.com/raynmahbub/ZynSign/main/Assets/Brand/Logo/logo-lockup.svg" alt="ZynSign" width="360">
+        </picture>
+        </div>
+
+        Performance reports are most actionable with a measurement. Settings → Diagnostics and the Compatibility Lab performance pages produce numbers you can paste here.
+        Do not include passwords, private keys, certificates, provisioning profiles, tokens, or other secrets. Redact sensitive values before posting.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is slow, and where.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Launch / navigation slowness
+        - Signing pipeline duration
+        - Library / search responsiveness
+        - Download / store throughput
+        - Memory pressure
+        - Storage footprint
+        - Battery / background activity
+        - Animation smoothness
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: measurement
+    attributes:
+      label: Measurement
+      description: Durations, sizes, frame counts — anything numeric. Diagnostics and Compatibility Lab output welcome.
+      placeholder: e.g. signing a 45 MB IPA took 84 s (previously ~30 s)
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Device model, iOS version, storage free, installation method.
+    validations:
+      required: true

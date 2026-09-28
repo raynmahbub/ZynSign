@@ -212,7 +212,7 @@ implemented, and no behaviour may be inferred from these documents.
 - [macho-signing-integration.md](macho-signing-integration.md) — experimental
   ZS-026 single-image RSA/SHA-256 signing, detached CMS, finalized pre-hash
   layout, verification boundaries, and outstanding Apple-host test gate.
-- [signing-metadata.md](signing-metadata.md) — ZS-029 entitlements,
+- [signing-metadata.md](signing-metadata.md) — entitlements,
   requirements, and CodeResources: the typed models, canonical serialization,
   resource sealing, special-slot derivation, pipeline ordering, per-target
   nested metadata, evidence levels, and non-goals.

@@ -3,19 +3,20 @@ import XCTest
 
 /// The file-backed preferences store: what a stored document may contain, how
 /// a damaged one is handled, and how an earlier version's values are adopted.
+@MainActor
 final class FilePreferencesStoreTests: XCTestCase {
 
     private var root: URL!
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
+    override func setUp() async throws {
+        try await super.setUp()
         root = try SettingsFixtures.makeTemporaryDirectory()
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         if let root { try? FileManager.default.removeItem(at: root) }
         root = nil
-        try super.tearDownWithError()
+        try await super.tearDown()
     }
 
     // MARK: - Reading

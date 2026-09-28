@@ -232,7 +232,7 @@ struct VerifyExportedArtifact {
                         "The signature's identifier \(directory.identifier) differs from the bundle's declared identifier \(declaredBundleIdentifier)."
                     )
                 }
-                let embeddedMetadata = metadataInspector.inspect(slice: slice, artifact: executableBytes)
+                let embeddedMetadata = metadataInspector.inspect(slice: slice.slice, artifact: executableBytes)
                 switch embeddedMetadata.entitlements {
                 case .present(let entitlements):
                     collector.record(

@@ -362,7 +362,7 @@ struct IdentityCenterService {
         var defaultFingerprint: String?
         if let annotations {
             annotationsMap = (try? annotations.annotations()) ?? [:]
-            defaultFingerprint = (try? annotations.defaultIdentityFingerprint()) ?? nil
+            defaultFingerprint = (try? annotations.defaultIdentityFingerprint()).flatMap { $0 }
         }
 
         var profileSummaries: [ProvisioningProfileSummary] = []
@@ -593,7 +593,7 @@ struct IdentityCenterService {
         var defaultFingerprint: String?
         if let annotations {
             annotationsMap = (try? annotations.annotations()) ?? [:]
-            defaultFingerprint = (try? annotations.defaultIdentityFingerprint()) ?? nil
+            defaultFingerprint = (try? annotations.defaultIdentityFingerprint()).flatMap { $0 }
         }
 
         var profileSummaries: [ProvisioningProfileSummary] = []

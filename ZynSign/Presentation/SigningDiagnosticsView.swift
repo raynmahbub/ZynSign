@@ -42,7 +42,7 @@ struct SigningHealthCard: View {
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
                     LabeledContent("Last analysis") {
-                        Text(report.analyzedAt, format: .dateTime.date().hour().minute())
+                        Text(report.analyzedAt, format: .dateTime.year().month().day().hour().minute())
                     }
                     .font(.footnote)
                     SigningCompatibilitySummary(report: report)
@@ -188,8 +188,8 @@ struct SigningDiagnosticsView: View {
                     .font(.footnote).foregroundStyle(.secondary)
                 if let validationRecordURL = Self.validationRecordURL {
                     Link("Read the independent validation record", destination: validationRecordURL)
+                        .font(.footnote)
                 }
-                    .font(.footnote)
             }
         }
         .listStyle(.insetGrouped)
@@ -206,14 +206,14 @@ struct SigningDiagnosticsView: View {
             }
             if let lastReady = history.first(where: { $0.status == .ready }) {
                 LabeledContent("Last ready local scan") {
-                    Text(lastReady.analyzedAt, format: .dateTime.date().hour().minute().second())
+                    Text(lastReady.analyzedAt, format: .dateTime.year().month().day().hour().minute().second())
                 }
             } else {
                 LabeledContent("Last ready local scan", value: "None yet")
             }
             if let lastBlocked = history.first(where: { $0.status == .blocked }) {
                 LabeledContent("Last blocked local scan") {
-                    Text(lastBlocked.analyzedAt, format: .dateTime.date().hour().minute().second())
+                    Text(lastBlocked.analyzedAt, format: .dateTime.year().month().day().hour().minute().second())
                 }
             } else {
                 LabeledContent("Last blocked local scan", value: "None yet")
@@ -236,7 +236,7 @@ struct SigningDiagnosticsView: View {
                     Image(systemName: scan.status.symbol)
                         .foregroundStyle(scan.status.tint)
                         .accessibilityHidden(true)
-                    Text(scan.analyzedAt, format: .dateTime.date().hour().minute().second())
+                    Text(scan.analyzedAt, format: .dateTime.year().month().day().hour().minute().second())
                     Spacer(minLength: ZSpacing.xs)
                     Text("\(scan.score) / 100 · \(scan.status.title)")
                         .foregroundStyle(.secondary)
@@ -271,8 +271,8 @@ struct SigningDiagnosticIssueView: View {
                 Text(SigningDiagnostic.platformBoundary)
                 if let validationRecordURL = SigningDiagnosticsView.validationRecordURL {
                     Link("Read the independent validation record", destination: validationRecordURL)
+                        .font(.footnote)
                 }
-                    .font(.footnote)
             }
             Section("Recommended next step") {
                 Label(issue.suggestedAction, systemImage: "arrow.right.circle")

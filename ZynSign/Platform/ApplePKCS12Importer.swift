@@ -57,11 +57,15 @@ struct ApplePKCS12Importer: SigningIdentityImporter {
         }
 
         // The imported identity — the platform may vend it as SecIdentity or as
-        // CFTypeRef. We tolerate either and bridge to SecIdentity.
-        let rawIdentity = first[kSecImportItemIdentity as String]
-        guard let secIdentity = rawIdentity as? SecIdentity else {
+        // CFTypeRef. Prove the dynamic type the way the key resolver does, then
+        // take it in the forced form the compiler accepts: a conditional
+        // downcast to a Core Foundation type is rejected as always succeeding.
+        guard let rawIdentity = first[kSecImportItemIdentity as String],
+              CFGetTypeID(rawIdentity as CFTypeRef) == SecIdentityGetTypeID() else {
             throw ZynSignError.identity(.certificateUnavailable)
         }
+        // swiftlint:disable:next force_cast
+        let secIdentity = rawIdentity as! SecIdentity
 
         // Extract the leaf certificate and its DER.
         var certRef: SecCertificate?
@@ -130,6 +134,7 @@ struct ApplePKCS12Importer: SigningIdentityImporter {
 
 #else
 
+// swiftlint:disable:next duplicate_imports -- only Foundation import in this `#else` branch; the iOS branch's import above is a separate conditional.
 import Foundation
 
 /// Unavailable on non-iOS targets. The composition root never constructs this

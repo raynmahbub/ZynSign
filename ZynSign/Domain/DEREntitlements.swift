@@ -61,8 +61,6 @@ struct DEREntitlementsBlob: Equatable, Hashable {
     }
 }
 
-
-
 /// Deterministic DER serialization of entitlements.
 ///
 /// This encoder produces a canonical DER `SET` of `SEQUENCE { key OCTET STRING, value }`

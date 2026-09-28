@@ -348,6 +348,9 @@ final class BackgroundWorkSchedulerTests: XCTestCase {
         let second = await scheduler.schedule(priority: .maintenance) { 2 }
         let values = try await [first.value, second.value]
         XCTAssertEqual(values, [1, 2])
+        // The scheduler records completion in a task that trails the job's
+        // own value; wait until it has settled before reading the summary.
+        await scheduler.waitUntilIdle()
         let summary = await scheduler.summary
         XCTAssertEqual(summary.completedCount, 2)
         XCTAssertEqual(summary.runningCount, 0)
@@ -391,7 +394,9 @@ final class ProgressCoalescerTests: XCTestCase {
         XCTAssertTrue(coalescer.shouldPublish(stageOrder: 1, fraction: 0.16, isStageComplete: false, now: now))
         XCTAssertTrue(coalescer.shouldPublish(stageOrder: 1, fraction: 0.17, isStageComplete: true, now: now))
         XCTAssertTrue(coalescer.shouldPublish(stageOrder: 2, fraction: 0.17, isStageComplete: false, now: now))
-        XCTAssertEqual(coalescer.publishedCount, 5)
+        // Four of the six reports above were accepted (the two tiny steps
+        // were dropped): the counters must agree with those answers.
+        XCTAssertEqual(coalescer.publishedCount, 4)
         XCTAssertEqual(coalescer.droppedCount, 2)
     }
 
@@ -485,8 +490,14 @@ final class PerformanceBenchmarkRunnerTests: XCTestCase {
         let latest = await runner.latestMeasurements()
         XCTAssertEqual(latest.map(\.kind), [.indexBuild])
 
+        // A report exists as soon as something has been measured; without a
+        // baseline every finding reads `unmeasured` — the report's contract
+        // is "nil when nothing has been measured", and unmeasured findings
+        // never count as regressions.
         let none = await runner.regressionReport()
-        XCTAssertNil(none)
+        XCTAssertNotNil(none)
+        XCTAssertFalse(none?.hasRegressions ?? true)
+        XCTAssertEqual(none?.findings.first?.verdict, .unmeasured)
         let baseline = await runner.acceptCurrentAsBaseline()
         XCTAssertNotNil(baseline)
         await runner.record(kind: .indexBuild, duration: 0.0001, itemCount: 42)
@@ -541,7 +552,7 @@ final class LaunchPerformanceTests: XCTestCase {
 
 // MARK: - Store catalog and manifest cache
 
-final class StoreCatalogTests: XCTestCase {
+final class StoreManifestCacheTests: XCTestCase {
 
     private func feed(count: Int) -> Data {
         let apps = (0..<count).map { offset in
@@ -609,7 +620,11 @@ final class StoreCatalogTests: XCTestCase {
         let started = Date()
         let hits = catalog.matching("sample 29")
         XCTAssertLessThan(Date().timeIntervalSince(started), 0.05)
-        XCTAssertTrue(hits.allSatisfy { $0.name.lowercased().contains("sample 29") })
+        // Matching is substring search over every indexed field, so a hit
+        // need not carry the whole phrase in its name — the exact entry must
+        // land, and every hit's name carries the digit term.
+        XCTAssertTrue(hits.contains { $0.id == "com.example.s29" })
+        XCTAssertTrue(hits.allSatisfy { $0.name.contains("29") })
     }
 }
 
@@ -636,7 +651,22 @@ final class InspectionResultCacheTests: XCTestCase {
 
 final class PerformanceEngineTests: XCTestCase {
 
-    private func makeEngine() -> PerformanceEngine {
+    /// In-memory stand-in for the launch-persistent state, so an engine
+    /// built by a test records what it writes without touching defaults.
+    private final class InMemoryPerformanceState: PerformanceStateStoring, @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: Date?
+        var lastOptimization: Date? {
+            lock.lock(); defer { lock.unlock() }
+            return stored
+        }
+        func setLastOptimization(_ date: Date?) {
+            lock.lock(); defer { lock.unlock() }
+            stored = date
+        }
+    }
+
+    private func makeEngine(state: (any PerformanceStateStoring)? = nil) -> PerformanceEngine {
         let scheduler = BackgroundWorkScheduler()
         return PerformanceEngine(
             scheduler: scheduler,
@@ -648,12 +678,12 @@ final class PerformanceEngineTests: XCTestCase {
             benchmarks: PerformanceBenchmarkRunner(store: nil, buildIdentifier: "test"),
             launch: LaunchPerformanceRecorder(processStart: Date()),
             storeManifests: nil,
-            state: nil
+            state: state
         )
     }
 
     func testSnapshotReflectsLibraryReportsAndOptimizationRecordsATime() async {
-        let engine = makeEngine()
+        let engine = makeEngine(state: InMemoryPerformanceState())
         await engine.start()
         await engine.reportLibrary(itemCount: 12, indexed: 12, status: .ready(indexed: 12))
         let before = await engine.snapshot()

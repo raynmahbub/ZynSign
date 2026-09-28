@@ -35,6 +35,7 @@ enum SettingsFixtures {
     /// A preferences store over a document inside `root`, with legacy
     /// `UserDefaults` migration disabled — tests construct the legacy state
     /// explicitly rather than through the shared defaults.
+    @MainActor
     static func makePreferencesStore(root: URL) -> FilePreferencesStore {
         FilePreferencesStore(location: preferencesLocation(root: root), legacyDefaults: nil)
     }
@@ -230,7 +231,7 @@ final class FakeBiometricAuthenticator: BiometricAuthenticating, @unchecked Send
     private var recorded: [String] = []
 
     /// What the device offers.
-    var availability: BiometricAvailability
+    var offered: BiometricAvailability
 
     /// What an attempt answers.
     var outcome: AuthenticationOutcome
@@ -243,11 +244,11 @@ final class FakeBiometricAuthenticator: BiometricAuthenticating, @unchecked Send
         ),
         outcome: AuthenticationOutcome = .authenticated
     ) {
-        self.availability = availability
+        self.offered = availability
         self.outcome = outcome
     }
 
-    func availability() -> BiometricAvailability { availability }
+    func availability() -> BiometricAvailability { offered }
 
     func authenticate(reason: String) async -> AuthenticationOutcome {
         lock.withLock { recorded.append(reason) }

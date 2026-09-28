@@ -31,6 +31,16 @@ struct SigningEngineVerificationReport: Equatable, Sendable {
     /// The names of the checks that failed, for diagnostics.
     var failedCheckNames: [String] { checks.filter { !$0.passed }.map(\.name) }
 
+    /// Each failed check with the reason it recorded, for diagnostics.
+    ///
+    /// A name alone says which family of comparison refused the bundle;
+    /// the detail says which comparison it was — identifier, team, page
+    /// hashes, code limit — which is what a maintainer needs from a run
+    /// they cannot reproduce.
+    var failedCheckSummary: [String] {
+        checks.filter { !$0.passed }.map { "\($0.name) (\($0.detail))" }
+    }
+
     /// How many checks passed.
     var passedCheckCount: Int { checks.filter(\.passed).count }
 }
@@ -290,7 +300,7 @@ struct SigningEngineVerifier {
         material: SigningEngineVerificationMaterial,
         expectsSeal: Bool
     ) -> [SigningEngineVerificationCheck] {
-        let bytes = try? Data(contentsOf: fileURL, options: .mappedIfSafe)
+        let bytes = try? Data(contentsOf: fileURL)
         guard let bytes, bytes.count <= maximumBinaryBytes else {
             return [SigningEngineVerificationCheck(
                 name: "\(label)/code-directory",
@@ -409,10 +419,15 @@ struct SigningEngineVerifier {
         label: String,
         material: SigningEngineVerificationMaterial
     ) -> String {
-        if label == "main" { return material.executableName }
-        return material.nestedTargets
-            .first { $0.executablePath.rawValue == label }?
-            .bundleIdentifier ?? label
+        // The signing pipeline writes the bundle identifier as the main
+        // binary's CodeDirectory identifier, and for nested code the target's
+        // bundle identifier falling back to the executable's own name — this
+        // must derive exactly what that side writes.
+        if label == "main" { return material.bundleIdentifier.rawValue }
+        guard let target = material.nestedTargets.first(where: { $0.executablePath.rawValue == label }) else {
+            return label
+        }
+        return target.bundleIdentifier ?? target.executablePath.name ?? label
     }
 
     /// A parsed signed binary's structure: the slice, the decoded

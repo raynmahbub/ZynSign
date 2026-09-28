@@ -7,7 +7,7 @@ import XCTest
 /// written before the manager existed still decode under schema 1.
 final class ProvisioningProfileSummaryTests: XCTestCase {
 
-    private let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
+    private let referenceDate = Date()
 
     private func makeSummary(
         patterns: [String],

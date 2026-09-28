@@ -67,6 +67,30 @@ enum CrashSurfaceBaseline {
             construct: "preconditionFailure",
             count: 1,
             rationale: "Preview-fixture helper building a synthetic bundle path from a literal: preview-only, unreachable from the running application."
+        ),
+        Expectation(
+            file: "ZynSign/Platform/ApplePKCS12Importer.swift",
+            construct: "as!",
+            count: 1,
+            rationale: "SecIdentity bridging right after PKCS#12 import: the dictionary entry's dynamic type is proven first with CFGetTypeID == SecIdentityGetTypeID(), and Swift 6.2 rejects a conditional downcast to a Core Foundation type as always succeeding, so the forced form is the only one the compiler accepts. With the type check proven, a wrong-type trap is unreachable; Security.framework's own samples bridge identities the same way."
+        ),
+        Expectation(
+            file: "ZynSign/Platform/ApplePKCS12Importer.swift",
+            construct: "forceUnwrap",
+            count: 1,
+            rationale: "The `!` inside the single baselined `as!` on the line above: same proven SecIdentity bridge, same compiler constraint, no separate construct."
+        ),
+        Expectation(
+            file: "ZynSign/Platform/AppleSigningKeyResolver.swift",
+            construct: "as!",
+            count: 1,
+            rationale: "SecKey bridging inside loadKey: the guard directly above has already required CFGetTypeID(value) == SecKeyGetTypeID() plus the private-key class and accessibility attributes, and Swift 6.2 rejects a conditional downcast to a Core Foundation type as always succeeding, so the forced form is the only one the compiler accepts. A value that is not a key cannot reach this line."
+        ),
+        Expectation(
+            file: "ZynSign/Platform/AppleSigningKeyResolver.swift",
+            construct: "forceUnwrap",
+            count: 1,
+            rationale: "The `!` inside the single baselined `as!` on the line above: same proven SecKey bridge, same compiler constraint, no separate construct."
         )
     ]
 

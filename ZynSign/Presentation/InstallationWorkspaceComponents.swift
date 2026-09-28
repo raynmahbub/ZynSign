@@ -187,14 +187,25 @@ struct InstallationChecklistSheet: View {
 
     /// Called when the user chooses to deliver, so the presenting screen
     /// can dismiss this sheet and open the channel picker.
-    let onDeliver: () -> Void
+    var onDeliver: () -> Void
+
+    /// Called when the user chooses to record an installation after the
+    /// fact, so the presenting screen can dismiss this sheet and open the
+    /// recording sheet.
+    var onRecord: () -> Void
 
     @Environment(\.dismiss) private var dismiss
 
-    init(model: InstallationWorkspaceModel, row: InstallationWorkspaceModel.CandidateRow) {
+    init(
+        model: InstallationWorkspaceModel,
+        row: InstallationWorkspaceModel.CandidateRow,
+        onDeliver: @escaping () -> Void = {},
+        onRecord: @escaping () -> Void = {}
+    ) {
         self.model = model
         self.row = row
-        self.onDeliver = {}
+        self.onDeliver = onDeliver
+        self.onRecord = onRecord
     }
 
     /// Sets the deliver closure, which the dashboard supplies.
@@ -307,7 +318,7 @@ struct InstallationChecklistSheet: View {
             }
             Button {
                 dismiss()
-                model.recordAfterTheFactCandidate = row
+                onRecord()
             } label: {
                 Label("Record an Installation…", systemImage: "square.and.pencil")
             }

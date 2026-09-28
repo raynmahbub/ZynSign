@@ -142,7 +142,7 @@ final class ResourceStudioTests: XCTestCase {
 
         let parsed = ResourceMetadataParsers.parseWAVMetadata(from: data)
         XCTAssertNotNil(parsed.duration)
-        XCTAssertEqual(parsed.duration, 2.0, accuracy: 0.05)
+        XCTAssertEqual(parsed.duration ?? 0, 2.0, accuracy: 0.05)
         XCTAssertEqual(parsed.channels, 2)
         XCTAssertEqual(parsed.sampleRate, 44100)
     }
@@ -274,19 +274,19 @@ final class ResourceStudioTests: XCTestCase {
 
     func testQuickSummaryComputation() {
         let table = [
-            ArchiveEntry(path: ArchivePath("Payload/App.app/AppIcon60x60@2x.png")!, kind: .regularFile, uncompressedSize: 10_000),
-            ArchiveEntry(path: ArchivePath("Payload/App.app/LaunchImage.png")!, kind: .regularFile, uncompressedSize: 20_000),
-            ArchiveEntry(path: ArchivePath("Payload/App.app/photo.jpg")!, kind: .regularFile, uncompressedSize: 100_000),
-            ArchiveEntry(path: ArchivePath("Payload/App.app/font.ttf")!, kind: .regularFile, uncompressedSize: 40_000),
-            ArchiveEntry(path: ArchivePath("Payload/App.app/sound.wav")!, kind: .regularFile, uncompressedSize: 80_000),
-            ArchiveEntry(path: ArchivePath("Payload/App.app/movie.mp4")!, kind: .regularFile, uncompressedSize: 500_000),
-            ArchiveEntry(path: ArchivePath("Payload/App.app/en.lproj/Localizable.strings")!, kind: .regularFile, uncompressedSize: 5_000),
-            ArchiveEntry(path: ArchivePath("Payload/App.app/en.lproj")!, kind: .directory)
+            ArchiveEntry(path: ArchivePath(rawValue: "Payload/App.app/AppIcon60x60@2x.png")!, kind: .regularFile, uncompressedSize: 10_000),
+            ArchiveEntry(path: ArchivePath(rawValue: "Payload/App.app/LaunchImage.png")!, kind: .regularFile, uncompressedSize: 20_000),
+            ArchiveEntry(path: ArchivePath(rawValue: "Payload/App.app/photo.jpg")!, kind: .regularFile, uncompressedSize: 100_000),
+            ArchiveEntry(path: ArchivePath(rawValue: "Payload/App.app/font.ttf")!, kind: .regularFile, uncompressedSize: 40_000),
+            ArchiveEntry(path: ArchivePath(rawValue: "Payload/App.app/sound.wav")!, kind: .regularFile, uncompressedSize: 80_000),
+            ArchiveEntry(path: ArchivePath(rawValue: "Payload/App.app/movie.mp4")!, kind: .regularFile, uncompressedSize: 500_000),
+            ArchiveEntry(path: ArchivePath(rawValue: "Payload/App.app/en.lproj/Localizable.strings")!, kind: .regularFile, uncompressedSize: 5_000),
+            ArchiveEntry(path: ArchivePath(rawValue: "Payload/App.app/en.lproj")!, kind: .directory)
         ]
 
-        let contents = BundleContents(entryTable: table, bundlePath: ArchivePath("Payload/App.app")!)
+        let contents = BundleContents(entryTable: table, bundlePath: ArchivePath(rawValue: "Payload/App.app")!)
         let inspection = IPAResourceStudioInspection(
-            library: MockResourceLibrary(),
+            library: ApplicationLibrary(records: InMemoryApplicationRecordStore(), artifacts: SyntheticLibraryArtifactStore()),
             readerProvider: MockResourceReaderProvider()
         )
 
@@ -315,14 +315,6 @@ final class ResourceStudioTests: XCTestCase {
 }
 
 // MARK: - Test Mocks
-
-private final class MockResourceLibrary: ApplicationLibrary, @unchecked Sendable {
-    func entry(withID id: ApplicationRecordIdentifier) async throws -> LibraryEntry? { nil }
-    func allEntries() async throws -> [LibraryEntry] { [] }
-    func addOrUpdate(entry: LibraryEntry) async throws {}
-    func remove(id: ApplicationRecordIdentifier) async throws -> LibraryEntry? { nil }
-    func contains(id: ApplicationRecordIdentifier) async throws -> Bool { false }
-}
 
 private final class MockResourceReaderProvider: ArtifactArchiveReaderProvider, @unchecked Sendable {
     func archiveReader(for artifactID: ArtifactIdentifier) throws -> any ArchiveReader {

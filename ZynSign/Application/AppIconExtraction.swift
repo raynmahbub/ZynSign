@@ -179,9 +179,12 @@ actor AppIconExtraction {
             return directory
         }
         let infoPlist = usable.first { path in
-            guard IPALayout.isDirectChildOfPayload(path) else { return false }
             let components = path.components
-            guard components.count == 3 else { return false }
+            // The information file is a grandchild of Payload: Payload /
+            // Example.app / Info.plist — three components rooted there,
+            // inside a direct child of the payload.
+            guard components.count == 3,
+                  components[0] == IPALayout.payloadDirectoryName else { return false }
             return IPALayout.namesApplicationBundle(components[1])
                 && components[2] == IPALayout.bundleInformationFileName
         }

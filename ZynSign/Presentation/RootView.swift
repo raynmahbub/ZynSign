@@ -41,6 +41,9 @@ struct RootView: View {
     @Environment(\.applicationEnvironment) private var environment
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    /// The system's contrast choice — ZynSign follows it unless the
+    /// appearance preference asks for more.
+    @Environment(\.colorSchemeContrast) private var systemColorSchemeContrast
 
     /// The Settings Control Center's model: every preference, written once.
     @StateObject private var settings: SettingsCenterModel
@@ -116,69 +119,51 @@ struct RootView: View {
     }
 
     var body: some View {
-        TabView(selection: $selected) {
-            ForEach(visibleTabs) { section in
-                tabContent(section)
-                    .tabItem {
-                        Label(
-                            section.title,
-                            systemImage: selected == section ? section.symbolName : section.symbolNameUnselected
-                        )
-                    }
-                    .tag(section)
-                    .badge(badgeCount(for: section))
-            }
-        }
-        .tint(.primary)
-        .environment(\.thumbnailPipeline, thumbnailPipeline)
-        .environment(\.zMotion, motion)
-        .environment(\.settingsCenter, settings)
-        .environment(\.appLock, appLock)
-        .environment(\.downloadNavigation, DownloadNavigation(
-            openLibrary: { selected = .library },
-            openSigningQueue: { presentSigningQueue() }
-        ))
-        .preferredColorScheme(settings.preferences.appearance.appearanceMode.resolvedColorScheme)
-        .environment(
-            \.colorSchemeContrast,
-            settings.preferences.appearance.increaseContrast ? .increased : .standard
+        environmentRoot
+        .zToast(
+            isPresented: $isShowingDownloadToast,
+            message: visibleDownloadNotice.map { "\($0.title) — \($0.message)" } ?? "",
+            style: visibleDownloadNotice?.kind == .validationFailed ? .error : (visibleDownloadNotice?.kind == .updateAvailable ? .info : .success),
+            duration: .seconds(4)
         )
-        .transaction { transaction in
-            // ZynSign's own transitions follow the animation preference. The
-            // system's Reduce Motion setting is honoured on top of it, so a
-            // user who asked for less motion never gets more.
-            if !settings.preferences.general.animationPreference.permitsAnimation(
-                systemReduceMotion: systemReduceMotion
-            ) {
-                transaction.animation = nil
-            }
+        .onChange(of: isShowingDownloadToast) { _, isShowing in
+            guard !isShowing else { return }
+            visibleDownloadNotice = nil
+            showNextDownloadNotice(from: environment.downloadCenter?.pendingNotices ?? [])
         }
-        .onChange(of: settings.preferences.general.landingTab) { _, landingTab in
-            selected = landingTab.shellSection
+        .zToast(
+            isPresented: $isShowingQueueToast,
+            message: visibleQueueNotice.map { "\($0.title) — \($0.message)" } ?? "",
+            style: visibleQueueNotice?.kind == .jobFailed ? .error : .success,
+            duration: .seconds(4)
+        )
+        .onChange(of: isShowingQueueToast) { _, isShowing in
+            // A dismissed toast makes room for the next pending notice.
+            guard !isShowing else { return }
+            visibleQueueNotice = nil
+            showNextQueueNotice(from: environment.signingQueue.pendingNotices)
         }
-        .onChange(of: scenePhase) { _, phase in
-            switch phase {
-            case .background:
-                appLock.lockIfProtectionEnabled()
-            case .active:
-                appLock.refreshAvailability()
-                // Work the system paused while ZynSign was in the background
-                // continues now that the scene is active again.
-                environment.importHub.resume()
-            case .inactive:
-                break
-            @unknown default:
-                break
-            }
+        .focusedSceneValue(
+            \.importCommandActions,
+            ImportCommandActions(
+                openHub: { isShowingImport = true },
+                chooseFiles: { openHub(with: .chooseFiles) },
+                showHistory: { openHub(with: .history) }
+            )
+        )
+        .onOpenURL { url in acceptIncoming(url) }
+        .onReceive(environment.importHub.$items) { items in
+            reportOutcomes(of: items)
         }
-        .onReceive(inactivityTimer) { _ in
-            appLock.evaluateInactivity()
+        .task {
+            await runStartupWork()
         }
-        .overlay {
-            if appLock.isLocked {
-                AppLockOverlay()
-            }
-        }
+    }
+
+    /// Sheets, covers, and the bridges behind them, applied to the
+    /// configured root — another chain split out of `body`.
+    private var environmentRoot: some View {
+        configuredRoot
         .environment(
             \.importPresentation,
             ImportPresentation(
@@ -240,43 +225,80 @@ struct RootView: View {
                 }
             }
         }
-        .zToast(
-            isPresented: $isShowingDownloadToast,
-            message: visibleDownloadNotice.map { "\($0.title) — \($0.message)" } ?? "",
-            style: visibleDownloadNotice?.kind == .validationFailed ? .error : (visibleDownloadNotice?.kind == .updateAvailable ? .info : .success),
-            duration: .seconds(4)
+    }
+
+    /// The tabs with their environment, transaction rules, and lock
+    /// overlay, split from `body` so each chain is a modest expression
+    /// the type checker can solve on its own.
+    private var configuredRoot: some View {
+        rootTabs
+        .tint(.primary)
+        .environment(\.thumbnailPipeline, thumbnailPipeline)
+        .environment(\.zMotion, motion)
+        .environment(\.settingsCenter, settings)
+        .environment(\.appLock, appLock)
+        .environment(\.downloadNavigation, DownloadNavigation(
+            openLibrary: { selected = .library },
+            openSigningQueue: { presentSigningQueue() }
+        ))
+        .preferredColorScheme(settings.preferences.appearance.appearanceMode.resolvedColorScheme)
+        .environment(
+            \.preferredColorSchemeContrast,
+            settings.preferences.appearance.increaseContrast ? .increased : systemColorSchemeContrast
         )
-        .onChange(of: isShowingDownloadToast) { _, isShowing in
-            guard !isShowing else { return }
-            visibleDownloadNotice = nil
-            showNextDownloadNotice(from: environment.downloadCenter?.pendingNotices ?? [])
+        .transaction { transaction in
+            // ZynSign's own transitions follow the animation preference. The
+            // system's Reduce Motion setting is honoured on top of it, so a
+            // user who asked for less motion never gets more.
+            if !settings.preferences.general.animationPreference.permitsAnimation(
+                systemReduceMotion: systemReduceMotion
+            ) {
+                transaction.animation = nil
+            }
         }
-        .zToast(
-            isPresented: $isShowingQueueToast,
-            message: visibleQueueNotice.map { "\($0.title) — \($0.message)" } ?? "",
-            style: visibleQueueNotice?.kind == .jobFailed ? .error : .success,
-            duration: .seconds(4)
-        )
-        .onChange(of: isShowingQueueToast) { _, isShowing in
-            // A dismissed toast makes room for the next pending notice.
-            guard !isShowing else { return }
-            visibleQueueNotice = nil
-            showNextQueueNotice(from: environment.signingQueue.pendingNotices)
+        .onChange(of: settings.preferences.general.landingTab) { _, landingTab in
+            selected = landingTab.shellSection
         }
-        .focusedSceneValue(
-            \.importCommandActions,
-            ImportCommandActions(
-                openHub: { isShowingImport = true },
-                chooseFiles: { openHub(with: .chooseFiles) },
-                showHistory: { openHub(with: .history) }
-            )
-        )
-        .onOpenURL { url in acceptIncoming(url) }
-        .onReceive(environment.importHub.$items) { items in
-            reportOutcomes(of: items)
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .background:
+                appLock.lockIfProtectionEnabled()
+            case .active:
+                appLock.refreshAvailability()
+                // Work the system paused while ZynSign was in the background
+                // continues now that the scene is active again.
+                environment.importHub.resume()
+            case .inactive:
+                break
+            @unknown default:
+                break
+            }
         }
-        .task {
-            await runStartupWork()
+        .onReceive(inactivityTimer) { _ in
+            appLock.evaluateInactivity()
+        }
+        .overlay {
+            if appLock.isLocked {
+                AppLockOverlay()
+            }
+        }
+    }
+
+    /// The tab container, split from `body` so the type checker solves the
+    /// tab labels and the environment chain as two modest expressions.
+    private var rootTabs: some View {
+        TabView(selection: $selected) {
+            ForEach(visibleTabs) { section in
+                tabContent(section)
+                    .tabItem {
+                        Label(
+                            section.title,
+                            systemImage: selected == section ? section.symbolName : section.symbolNameUnselected
+                        )
+                    }
+                    .tag(section)
+                    .badge(badgeCount(for: section))
+            }
         }
     }
 

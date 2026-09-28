@@ -135,7 +135,7 @@ final class FileIdentityAnnotationsStore: IdentityAnnotationsStore, CustomString
         -> (annotations: [String: IdentityAnnotation], defaultFingerprint: String?) {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: location.path, isDirectory: &isDirectory) else {
-            return ([], nil)
+            return ([:], nil)
         }
         guard !isDirectory.boolValue else {
             throw ZynSignError.identityAnnotationsStorageFailure(

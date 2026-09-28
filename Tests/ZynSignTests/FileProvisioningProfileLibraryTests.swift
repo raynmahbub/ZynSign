@@ -17,8 +17,10 @@ final class FileProvisioningProfileLibraryTests: XCTestCase {
 
     func testEmptyLibraryReturnsNothing() async throws {
         let lib = FileProvisioningProfileLibrary(catalogLocation: temporaryDirectory.appendingPathComponent("profiles.json"))
-        XCTAssertEqual(try await lib.count(), 0)
-        XCTAssertEqual(try await lib.allProfiles(), [])
+        let count = try await lib.count()
+        XCTAssertEqual(count, 0)
+        let profiles = try await lib.allProfiles()
+        XCTAssertEqual(profiles, [])
     }
 
     func testUpsertAndRetrieve() async throws {
@@ -35,7 +37,8 @@ final class FileProvisioningProfileLibraryTests: XCTestCase {
             importedAt: now
         )
         try await lib.upsert(summary)
-        XCTAssertEqual(try await lib.count(), 1)
+        let count = try await lib.count()
+        XCTAssertEqual(count, 1)
         let fetched = try await lib.profile(withID: summary.id)
         XCTAssertEqual(fetched, summary)
     }
@@ -75,7 +78,8 @@ final class FileProvisioningProfileLibraryTests: XCTestCase {
         )
         try await lib.upsert(summary)
         try await lib.remove(profileWithID: summary.id)
-        XCTAssertEqual(try await lib.count(), 0)
+        let count = try await lib.count()
+        XCTAssertEqual(count, 0)
     }
 
     func testSavedProfileBytesAreBoundedAndRemovalDeletesTheUnreferencedCopy() async throws {

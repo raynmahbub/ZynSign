@@ -176,7 +176,7 @@ enum RegressionCoverageCatalog {
 /// the behaviour is frozen by the unit-test target, the Lab names the tests
 /// and reports not run, because claiming a test passed without running it
 /// would be the exact dishonesty this suite exists to prevent.
-struct RegressionSuite {
+struct RegressionSuite: CompatibilitySuite {
 
     func checks(context: CompatibilityLabContext) async -> [CompatibilityCheck] {
         RegressionCoverageCatalog.entries.map { entry in

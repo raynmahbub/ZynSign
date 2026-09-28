@@ -112,7 +112,7 @@ public struct LaunchScreenStudioView: View {
                     .foregroundStyle(Color.accentColor)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(path.lastComponent)
+                    Text(path.name ?? path.rawValue)
                         .font(.subheadline.weight(.medium))
                     Text("\(kind) · \(path.rawValue)")
                         .font(.caption)

@@ -1,0 +1,41 @@
+# GitHub auto-generated release notes — ZynSign.
+#
+# When a release is created without a hand-written body, GitHub uses
+# this configuration to group the merged pull requests. The categories
+# mirror release-drafter.yml so both systems tell the same story.
+
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+  categories:
+    - title: "✨ Features"
+      labels:
+        - feature
+    - title: "🚀 Improvements"
+      labels:
+        - enhancement
+    - title: "🐛 Bug Fixes"
+      labels:
+        - bug
+    - title: "⚡ Performance"
+      labels:
+        - performance
+    - title: "🎨 UI"
+      labels:
+        - ui
+    - title: "♻️ Refactors"
+      labels:
+        - refactor
+    - title: "🔒 Security"
+      labels:
+        - security
+    - title: "📚 Documentation"
+      labels:
+        - docs
+    - title: "🛠 CI"
+      labels:
+        - ci
+    - title: "Other Changes"
+      labels:
+        - "*"

@@ -94,7 +94,7 @@ Existing signature handling:
 
 ## Extension points for future stages
 
-- **ZS-029 (signing metadata):** now implemented. `NestedCodeSigningConfiguration`
+- **Signing metadata:** now implemented. `NestedCodeSigningConfiguration`
   carries `targetMetadata`, keyed by item identity, holding the entitlements,
   requirements, and resource seal a target states for itself. Metadata is per
   target and never inherited: a target with no entry signs with no metadata,

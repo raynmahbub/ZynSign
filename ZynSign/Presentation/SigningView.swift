@@ -30,6 +30,7 @@ struct SigningView: View {
     @Environment(\.appLock) private var appLock
     @Environment(\.signingQueuePresentation) private var signingQueuePresentation
     @State private var showQueuedToast = false
+    @State private var isPresentingWorkspace = false
     @State private var isQueueing = false
     @StateObject private var model = SigningEngineModel()
     @State private var identities: [SigningIdentity] = []
@@ -119,54 +120,7 @@ struct SigningView: View {
     }
 
     var body: some View {
-        List {
-            Section { ReleaseReadinessLink(recordID: entry.record.id) }
-            appSection
-            RecommendedPresetSection(entry: entry, origin: .signingScreen)
-            recommendedIdentitySection
-            diagnosticsSection
-            if isSigning || model.progress != nil {
-                progressSection
-            }
-            identitySection
-            profileSection
-            entitlementsSection
-            actionSection
-            resultSections
-            helpSection
-        }
-        .listStyle(.insetGrouped)
-        .navigationTitle("Sign \(entry.record.displayName ?? "Application")")
-        .navigationBarTitleDisplayMode(.inline)
-        .task {
-            await loadIdentities()
-            if ReleaseTrain.isAvailable(.entitlementsStudio) {
-                await studio.load(entry: entry, inspection: env.bundleInspection)
-            }
-        }
-        .task { await loadSavedProfiles() }
-        .task(id: scanKey) {
-            guard !scanKey.isLoading else { return }
-            guard settings.preferences.signing.automaticCompatibilityAnalysis else {
-                // The user asked not to be assessed automatically. Signing
-                // still runs its own pre-sign analysis, so nothing is left
-                // unchecked — it simply is not run until the user signs.
-                isAnalyzing = false
-                health = nil
-                analyzedFor = nil
-                return
-            }
-            await analyzeHealth()
-        }
-        .task {
-            // Re-evaluate dates and short-lived archive evidence while the
-            // screen is visible; an unchanged picker is not a perpetual pass.
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(60)) } catch { break }
-                guard !Task.isCancelled else { break }
-                scanRevision += 1
-            }
-        }
+        signingList
         .refreshable { await loadIdentities(); await loadSavedProfiles(); scanRevision += 1 }
         .onReceive(NotificationCenter.default.publisher(for: .zynsignSigningIdentityChanged)) { _ in
             Task { await loadIdentities() }
@@ -226,6 +180,60 @@ struct SigningView: View {
             } else {
                 ZHaptics.warning()
                 showErrorToast = true
+            }
+        }
+    }
+
+    /// The list contents, split from `body` so the type checker solves the
+    /// sections and the modifier chain as two modest expressions.
+    @ViewBuilder
+    private var signingList: some View {
+        List {
+            Section { ReleaseReadinessLink(recordID: entry.record.id) }
+            appSection
+            RecommendedPresetSection(entry: entry, origin: .signingScreen)
+            recommendedIdentitySection
+            diagnosticsSection
+            if isSigning || model.progress != nil {
+                progressSection
+            }
+            identitySection
+            profileSection
+            entitlementsSection
+            actionSection
+            resultSections
+            helpSection
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Sign \(entry.record.displayName ?? "Application")")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await loadIdentities()
+            if ReleaseTrain.isAvailable(.entitlementsStudio) {
+                await studio.load(entry: entry, inspection: env.bundleInspection)
+            }
+        }
+        .task { await loadSavedProfiles() }
+        .task(id: scanKey) {
+            guard !scanKey.isLoading else { return }
+            guard settings.preferences.signing.automaticCompatibilityAnalysis else {
+                // The user asked not to be assessed automatically. Signing
+                // still runs its own pre-sign analysis, so nothing is left
+                // unchecked — it simply is not run until the user signs.
+                isAnalyzing = false
+                health = nil
+                analyzedFor = nil
+                return
+            }
+            await analyzeHealth()
+        }
+        .task {
+            // Re-evaluate dates and short-lived archive evidence while the
+            // screen is visible; an unchanged picker is not a perpetual pass.
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(60)) } catch { break }
+                guard !Task.isCancelled else { break }
+                scanRevision += 1
             }
         }
     }

@@ -38,7 +38,7 @@ final class IPAExplorerTests: XCTestCase {
             file("mystery.bin", bytes: Data([0x00, 0x01])),
         ])
         XCTAssertNotNil(contents.entry(at: path("mystery.bin")))
-        XCTAssertEqual(classify(contents.entry(at: path("mystery.bin"))!), .generic)
+        XCTAssertEqual(classify(contents.entry(at: path("mystery.bin"))!.path.rawValue), .generic)
     }
 
     // MARK: - Statistics

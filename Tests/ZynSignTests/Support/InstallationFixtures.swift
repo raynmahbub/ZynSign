@@ -82,7 +82,11 @@ actor InMemoryInstalledApplicationStore: InstalledApplicationStore {
 enum InstallationFixtures {
 
     /// A fixed "now" for evaluations: later than every fixture date below.
-    static let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+    // Anchored to the real clock: readiness evaluates asset expiry against
+    // Date(), so a fixture frozen in the past would report every signing
+    // asset expired. Whole seconds keep the ISO-8601 catalog roundtrip
+    // exact, and the relative offsets below keep their shape.
+    static let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
 
     /// A date one week before `now`.
     static let lastWeek = now.addingTimeInterval(-7 * 24 * 60 * 60)
@@ -159,7 +163,7 @@ enum InstallationFixtures {
             buildVersion: buildVersion,
             fileName: fileName,
             byteCount: byteCount,
-            fingerprint: LibraryFixtures.fingerprint(seed: 0x11),
+            fingerprint: ExportFingerprint(LibraryFixtures.fingerprint(seed: 0x11)),
             createdAt: createdAt,
             signingOutcome: .succeeded,
             verificationStatus: verificationStatus,

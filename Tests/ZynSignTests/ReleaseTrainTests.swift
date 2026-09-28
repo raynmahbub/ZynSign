@@ -72,7 +72,7 @@ final class ReleaseTrainTests: XCTestCase {
         XCTAssertEqual(ReleaseStage.alpha3.features, [
             .certificateStudio, .libraryPowerFeatures,
             .smartSign, .provisioningProfileManager, .signingQueue, .signingPresets,
-            .appStore, .downloads, .entitlementsStudio,
+            .appStore, .downloads, .entitlementsStudio, .identityCenter,
         ])
         XCTAssertEqual(
             ReleaseStage.alpha2.introducedFeatures,
@@ -80,7 +80,7 @@ final class ReleaseTrainTests: XCTestCase {
         )
         XCTAssertEqual(
             ReleaseStage.alpha3.introducedFeatures,
-            [.appStore, .downloads, .entitlementsStudio]
+            [.appStore, .downloads, .entitlementsStudio, .identityCenter]
         )
         XCTAssertEqual(
             ReleaseStage.beta1.introducedFeatures,

@@ -95,7 +95,7 @@ struct PresetSigningConfirmationView: View {
                         HStack {
                             Text(check.title)
                             Spacer()
-                            ZStatusBadge(check.status.displayName, systemImage: check.symbolName, kind: PresetDisplay.checkKind(check.status))
+                            ZStatusBadge(check.status.displayName, systemImage: check.status.symbolName, kind: PresetDisplay.checkKind(check.status))
                         }
                         Text(check.detail)
                             .font(.footnote)

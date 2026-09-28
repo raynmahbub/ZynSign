@@ -52,7 +52,13 @@ final class StoreResilienceTests: XCTestCase {
         ]
         for transport in transports {
             let result = await RepositoryHealthProbe(transport: transport).probe(url: source)
-            XCTAssertEqual(result.health, .offline, "\(type(of: transport))")
+            if transport is SlowRepositoryTransport {
+                // A slow source succeeds and is measured as slow — the point
+                // of this sweep is that no outcome escapes as a thrown error.
+                XCTAssertEqual(result.health, .slow, "\(type(of: transport))")
+            } else {
+                XCTAssertEqual(result.health, .offline, "\(type(of: transport))")
+            }
         }
     }
 

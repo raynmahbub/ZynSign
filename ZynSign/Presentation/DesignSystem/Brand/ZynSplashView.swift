@@ -290,8 +290,3 @@ struct ZynSplashView: View {
     ZynSplashView {}
         .preferredColorScheme(.dark)
 }
-
-#Preview("Splash — Reduce Motion") {
-    ZynSplashView {}
-        .environment(\.accessibilityReduceMotion, true)
-}

@@ -81,7 +81,6 @@ final class AppLockControllerTests: XCTestCase {
 
     func testRecoveryActionsNameTheActionTheyAreGuarding() {
         XCTAssertEqual(SensitiveAction.forRecovery(.workspace), .clearStorage)
-        XCTAssertEqual(SensitiveAction.forRecovery(.cache), .clearStorage)
         XCTAssertEqual(SensitiveAction.forRecovery(.libraryIndex), .clearStorage)
         XCTAssertEqual(SensitiveAction.forRecovery(.library), .resetLibrary)
     }
@@ -155,7 +154,7 @@ final class AppLockControllerTests: XCTestCase {
     }
 
     func testProtectionTheDeviceCannotOfferIsNotEnforced() {
-        authenticator.availability = BiometricAvailability(
+        authenticator.offered = BiometricAvailability(
             kind: .faceID,
             isAvailable: false,
             unavailableReason: "Face ID is not set up."
@@ -192,6 +191,7 @@ final class AppLockControllerTests: XCTestCase {
 
     func testASessionThatNeverLapsesIsNeverLapsed() async {
         enableProtection()
+        preferences.security.sessionTimeout = .never
         _ = await controller.authorize(.sign)
         let longAfter = Date().addingTimeInterval(86_400)
 

@@ -121,21 +121,42 @@ jobs:
 
       - name: Build the application target
         run: |
-          set -eu
+          set -u
+          LOG="$RUNNER_TEMP/build-app.log"
+          set +e
           xcodebuild build \
             -project ZynSign.xcodeproj \
             -scheme ZynSign \
             -destination 'generic/platform=iOS Simulator' \
-            -quiet
+            -quiet 2>&1 | tee "$LOG"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            Scripts/ci/annotate_test_failures.sh "" "$LOG" || true
+          fi
+          exit "$status"
 
       - name: Run the unit-test target
         run: |
-          set -eu
+          set -u
+          LOG="$RUNNER_TEMP/unit-tests.log"
+          BUNDLE="$RUNNER_TEMP/unit-tests.xcresult"
+          rm -rf "$BUNDLE"
+          # Deliberately no -quiet: per-case failure lines back up the
+          # xcresult annotations and keep the job log readable.
+          set +e
           xcodebuild test \
             -project ZynSign.xcodeproj \
             -scheme ZynSign \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
-            -quiet
+            -destination "platform=iOS Simulator,name=$(Scripts/ci/select_simulator.sh),OS=latest" \
+            -resultBundlePath "$BUNDLE" \
+            2>&1 | tee "$LOG"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            Scripts/ci/annotate_test_failures.sh "$BUNDLE" "$LOG" || true
+          fi
+          exit "$status"
 
   # Measurement, not a gate: ZynSign-signed artifacts judged by Apple's
   # developer tooling. The job fails only when the harness cannot do its job
@@ -171,7 +192,7 @@ jobs:
           TEST_RUNNER_ZYNSIGN_EXPORT_DIR="$EXPORT_ROOT/export" xcodebuild test \
             -project ZynSign.xcodeproj \
             -scheme ZynSign \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -destination "platform=iOS Simulator,name=$(Scripts/ci/select_simulator.sh),OS=latest" \
             -only-testing:ZynSignTests/ExternalValidationExportTests \
             -quiet 2>&1 | tee "$EXPORT_ROOT/export-xcodebuild.log"
           status=${PIPESTATUS[0]}

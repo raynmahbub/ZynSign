@@ -16,13 +16,13 @@ enum InstallationPresentation {
         let calendar = Calendar.current
         if calendar.isDate(date, inSameDayAs: now) {
             let formatter = DateFormatter()
-            formatter.dateTemplate = "HH:mm"
+            formatter.setLocalizedDateFormatFromTemplate("HH:mm")
             return "Today · \(formatter.string(from: date))"
         }
         if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
            calendar.isDate(date, inSameDayAs: yesterday) {
             let formatter = DateFormatter()
-            formatter.dateTemplate = "HH:mm"
+            formatter.setLocalizedDateFormatFromTemplate("HH:mm")
             return "Yesterday · \(formatter.string(from: date))"
         }
         return DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .short)

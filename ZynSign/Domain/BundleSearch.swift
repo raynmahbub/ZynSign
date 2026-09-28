@@ -1,3 +1,5 @@
+import Foundation
+
 /// A character range in a display name, stored as offsets so it does not
 /// borrow another string's indices.
 struct ExplorerHighlight: Equatable, Hashable {
@@ -119,8 +121,8 @@ struct BundleSearchIndex: Equatable {
         candidates.reserveCapacity(min(items.count, capped))
 
         for item in items {
-            guard let candidate = Self.candidate(item, query: trimmed, bundleName: bundleName) else { continue }
-            candidates.append(candidate)
+            guard let found = Self.candidate(item, query: trimmed, bundleName: bundleName) else { continue }
+            candidates.append(Candidate(rank: found.rank, match: found.match))
         }
         candidates.sort { lhs, rhs in
             if lhs.rank != rhs.rank { return lhs.rank < rhs.rank }

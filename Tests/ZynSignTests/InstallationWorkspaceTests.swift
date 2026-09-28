@@ -289,7 +289,8 @@ final class InstallationWorkspaceTests: XCTestCase {
         let pending = try await workspace.pendingAttempts()
         XCTAssertEqual(pending.map(\.id), [attempt.id])
         XCTAssertEqual(pending.first?.exportIdentifier, candidate?.exportEntry?.record.id.rawValue)
-        XCTAssertTrue(try await workspace.installedRecords().isEmpty,
+        let installedRecords = try await workspace.installedRecords()
+        XCTAssertTrue(installedRecords.isEmpty,
                       "Starting an attempt records no installation.")
     }
 
@@ -326,8 +327,10 @@ final class InstallationWorkspaceTests: XCTestCase {
 
         try await workspace.abandonAttempt(withID: attempt.id)
 
-        XCTAssertTrue(try await workspace.pendingAttempts().isEmpty)
-        XCTAssertTrue(try await workspace.installedRecords().isEmpty,
+        let pendingAttempts = try await workspace.pendingAttempts()
+        XCTAssertTrue(pendingAttempts.isEmpty)
+        let installedRecords = try await workspace.installedRecords()
+        XCTAssertTrue(installedRecords.isEmpty,
                       "An abandoned delivery is never in the history.")
         // The artifact stays held: abandonment never touches exports.
         let entries = try await exports.entries()

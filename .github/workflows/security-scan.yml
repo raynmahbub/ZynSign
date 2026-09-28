@@ -1,0 +1,53 @@
+# Security suite.
+#
+# Two complementary scans: Gitleaks walks the full history with its
+# default rule set (API keys, tokens, passwords, certificates, private
+# keys; allowlists in .gitleaks.toml), and Scripts/ci/security_scan.sh
+# enforces the repository's own secret policy on the current tree.
+# Either one finding a secret fails the run immediately.
+#
+# GitHub Secret Scanning and push protection should also be enabled in
+# the repository settings — see docs/security/ and
+# docs/development/branch-protection.md.
+name: Security Scan
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  gitleaks:
+    name: Gitleaks (full history)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  secret-policy:
+    name: Repository secret policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Run the secret policy scan
+        run: Scripts/ci/security_scan.sh

@@ -167,7 +167,7 @@ private struct PresetCard: View {
             if let report {
                 HStack(spacing: ZSpacing.xs) {
                     ForEach(report.checks.prefix(4)) { check in
-                        ZStatusBadge(check.title, systemImage: check.symbolName, kind: PresetDisplay.checkKind(check.status))
+                        ZStatusBadge(check.title, systemImage: check.status.symbolName, kind: PresetDisplay.checkKind(check.status))
                     }
                 }
                 .accessibilityHidden(true)
@@ -228,7 +228,7 @@ struct PresetDetailView: View {
                                 HStack {
                                     Text(check.title)
                                     Spacer()
-                                    ZStatusBadge(check.status.displayName, systemImage: check.symbolName, kind: PresetDisplay.checkKind(check.status))
+                                    ZStatusBadge(check.status.displayName, systemImage: check.status.symbolName, kind: PresetDisplay.checkKind(check.status))
                                 }
                                 Text(check.detail)
                                     .font(.footnote)

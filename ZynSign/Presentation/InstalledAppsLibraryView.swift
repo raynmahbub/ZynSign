@@ -391,7 +391,7 @@ struct InstalledAppDetailView: View {
 
     private var historySection: some View {
         Section {
-            ForEach(row.record.events.reversed()) { event in
+                ForEach(row.record.events.reversed(), id: \.id) { event in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(event.kind.displayName).font(.subheadline.weight(.medium))
                     Text("\(event.versionDisplay) · \(InstallationPresentation.timestamp(event.at)) · via \(event.channel.displayName)")

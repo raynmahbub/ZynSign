@@ -55,7 +55,8 @@ final class DownloadCenterTests: XCTestCase {
     func testValidationFailureIsolatesAndDoesNotImport() async throws {
         let result = await center.enqueueUserLink("https://example.com/broken.ipa")
         guard case let .queued(id) = result else { return XCTFail("\(result)") }
-        XCTAssertTrue(await waitUntil { self.transfer.requests.count == 1 })
+        let settled = await waitUntil { self.transfer.requests.count == 1 }
+        XCTAssertTrue(settled)
         let file = try writePayload(in: transfer.requests[0].destinationDirectory)
         validator.result = DownloadArtifactValidation(
             archiveReadable: false,
@@ -98,11 +99,13 @@ final class DownloadCenterTests: XCTestCase {
         catalogs = [sampleCatalog(downloadURL: "https://cdn.example.com/Demo.ipa")]
         let first = sampleRequest(kind: DownloadRequest.kindUpdate, url: "https://cdn.example.com/Demo.ipa", bundle: "com.example.demo", version: "1.3")
         guard case let .queued(id) = await center.enqueue(first) else { return XCTFail("first") }
-        XCTAssertTrue(await waitUntil { self.transfer.requests.count == 1 })
+        let settled = await waitUntil { self.transfer.requests.count == 1 }
+        XCTAssertTrue(settled)
         let file = try writePayload(in: transfer.requests[0].destinationDirectory)
         validator.result = passingValidation()
         transfer.finish(id, .completed(fileURL: file, byteCount: 64))
-        XCTAssertTrue(await waitUntil { self.center.job(withID: id)?.isImportReady == true })
+        let settled2 = await waitUntil { self.center.job(withID: id)?.isImportReady == true }
+        XCTAssertTrue(settled2)
 
         let secondURL = "https://cdn.example.com/Demo-again.ipa"
         catalogs = [sampleCatalog(downloadURL: secondURL)]
@@ -127,11 +130,13 @@ final class DownloadCenterTests: XCTestCase {
         catalogs = [sampleCatalog(downloadURL: "https://cdn.example.com/Demo.ipa")]
         let first = sampleRequest(kind: DownloadRequest.kindUpdate, url: "https://cdn.example.com/Demo.ipa", bundle: "com.example.demo", version: "1.3")
         guard case let .queued(oldID) = await center.enqueue(first) else { return XCTFail("first") }
-        XCTAssertTrue(await waitUntil { self.transfer.requests.count == 1 })
+        let settled = await waitUntil { self.transfer.requests.count == 1 }
+        XCTAssertTrue(settled)
         let oldFile = try writePayload(in: transfer.requests[0].destinationDirectory)
         validator.result = passingValidation()
         transfer.finish(oldID, .completed(fileURL: oldFile, byteCount: 64))
-        XCTAssertTrue(await waitUntil { self.center.job(withID: oldID)?.isImportReady == true })
+        let settled2 = await waitUntil { self.center.job(withID: oldID)?.isImportReady == true }
+        XCTAssertTrue(settled2)
 
         let secondURL = "https://cdn.example.com/Demo-2.ipa"
         catalogs = [sampleCatalog(downloadURL: secondURL)]
@@ -156,7 +161,8 @@ final class DownloadCenterTests: XCTestCase {
     func testPrioritiesAndReorderingApplyOnlyToWaitingJobs() async {
         let low = await center.enqueueUserLink("https://example.com/low.ipa", priority: .low)
         guard case .queued = low else { return XCTFail("\(low)") }
-        XCTAssertTrue(await waitUntil { self.transfer.requests.count == 1 })
+        let settled = await waitUntil { self.transfer.requests.count == 1 }
+        XCTAssertTrue(settled)
         let runningID = transfer.requests[0].jobID
         let high = await center.enqueueUserLink("https://example.com/high.ipa", priority: .high)
         guard case let .queued(highID) = high else { return XCTFail("\(high)") }
@@ -175,26 +181,31 @@ final class DownloadCenterTests: XCTestCase {
 
     func testPauseWithoutResumeDataDoesNotClaimResume() async throws {
         guard case let .queued(id) = await center.enqueueUserLink("https://example.com/app.ipa") else { return XCTFail("queue") }
-        XCTAssertTrue(await waitUntil { self.transfer.requests.count == 1 })
+        let settled = await waitUntil { self.transfer.requests.count == 1 }
+        XCTAssertTrue(settled)
         center.pause(id)
         transfer.finish(id, .paused(resumeData: nil))
-        XCTAssertTrue(await waitUntil { self.center.job(withID: id)?.isPaused == true })
+        let settled2 = await waitUntil { self.center.job(withID: id)?.isPaused == true }
+        XCTAssertTrue(settled2)
         XCTAssertEqual(center.job(withID: id)?.resumeFact, .notCaptured)
         XCTAssertEqual(center.job(withID: id)?.resumeFact.explanation.contains("starts it again"), true)
     }
 
     func testPauseWithResumeDataSaysTheServerMayRefuseIt() async throws {
         guard case let .queued(id) = await center.enqueueUserLink("https://example.com/app.ipa") else { return XCTFail("queue") }
-        XCTAssertTrue(await waitUntil { self.transfer.requests.count == 1 })
+        let settled = await waitUntil { self.transfer.requests.count == 1 }
+        XCTAssertTrue(settled)
         center.pause(id)
         transfer.finish(id, .paused(resumeData: Data("resume".utf8)))
-        XCTAssertTrue(await waitUntil { self.center.job(withID: id)?.resumeFact == .held })
+        let settled2 = await waitUntil { self.center.job(withID: id)?.resumeFact == .held }
+        XCTAssertTrue(settled2)
         XCTAssertTrue(center.job(withID: id)?.resumeFact.explanation.contains("depends on the server") == true)
     }
 
     func testInterruptedJobRestoresAsFailedNeverCompleted() async throws {
         guard case let .queued(id) = await center.enqueueUserLink("https://example.com/app.ipa") else { return XCTFail("queue") }
-        XCTAssertTrue(await waitUntil { self.center.job(withID: id)?.state == .connecting })
+        let settled = await waitUntil { self.center.job(withID: id)?.state == .connecting }
+        XCTAssertTrue(settled)
         await center.flushPersistence()
 
         let restored = makeCenter()
@@ -208,11 +219,13 @@ final class DownloadCenterTests: XCTestCase {
 
     func testCompletedDownloadSurvivesRestore() async throws {
         guard case let .queued(id) = await center.enqueueUserLink("https://example.com/app.ipa") else { return XCTFail("queue") }
-        XCTAssertTrue(await waitUntil { self.transfer.requests.count == 1 })
+        let settled = await waitUntil { self.transfer.requests.count == 1 }
+        XCTAssertTrue(settled)
         let file = try writePayload(in: transfer.requests[0].destinationDirectory)
         validator.result = passingValidation()
         transfer.finish(id, .completed(fileURL: file, byteCount: 40))
-        XCTAssertTrue(await waitUntil { self.center.job(withID: id)?.isImportReady == true })
+        let settled2 = await waitUntil { self.center.job(withID: id)?.isImportReady == true }
+        XCTAssertTrue(settled2)
         await center.flushPersistence()
 
         let restored = makeCenter()
@@ -223,11 +236,13 @@ final class DownloadCenterTests: XCTestCase {
 
     func testSigningHandoffImportsAndDoesNotStartSigning() async throws {
         guard case let .queued(id) = await center.enqueueUserLink("https://example.com/app.ipa") else { return XCTFail("queue") }
-        XCTAssertTrue(await waitUntil { self.transfer.requests.count == 1 })
+        let settled = await waitUntil { self.transfer.requests.count == 1 }
+        XCTAssertTrue(settled)
         let file = try writePayload(in: transfer.requests[0].destinationDirectory)
         validator.result = passingValidation()
         transfer.finish(id, .completed(fileURL: file, byteCount: 40))
-        XCTAssertTrue(await waitUntil { self.center.job(withID: id)?.isImportReady == true })
+        let settled2 = await waitUntil { self.center.job(withID: id)?.isImportReady == true }
+        XCTAssertTrue(settled2)
         let message = await center.requestSigningHandoff(id)
         XCTAssertNil(message)
         XCTAssertEqual(importer.imported.count, 1)
@@ -237,11 +252,13 @@ final class DownloadCenterTests: XCTestCase {
 
     func testClearCompletedDoesNotDeleteASiblingLibraryFile() async throws {
         guard case let .queued(id) = await center.enqueueUserLink("https://example.com/app.ipa") else { return XCTFail("queue") }
-        XCTAssertTrue(await waitUntil { self.transfer.requests.count == 1 })
+        let settled = await waitUntil { self.transfer.requests.count == 1 }
+        XCTAssertTrue(settled)
         let file = try writePayload(in: transfer.requests[0].destinationDirectory)
         validator.result = passingValidation()
         transfer.finish(id, .completed(fileURL: file, byteCount: 40))
-        XCTAssertTrue(await waitUntil { self.center.job(withID: id)?.isImportReady == true })
+        let settled2 = await waitUntil { self.center.job(withID: id)?.isImportReady == true }
+        XCTAssertTrue(settled2)
 
         let library = root.deletingLastPathComponent().appendingPathComponent("LibrarySurvivor-\(UUID().uuidString).ipa")
         try Data("library".utf8).write(to: library)
@@ -267,10 +284,12 @@ final class DownloadCenterTests: XCTestCase {
 
     func testProgressDoesNotInventAPercentageOrMoveBackwards() async throws {
         guard case let .queued(id) = await center.enqueueUserLink("https://example.com/app.ipa") else { return XCTFail("queue") }
-        XCTAssertTrue(await waitUntil { self.center.job(withID: id)?.state == .connecting })
+        let settled = await waitUntil { self.center.job(withID: id)?.state == .connecting }
+        XCTAssertTrue(settled)
         XCTAssertNil(center.job(withID: id)?.progress.fraction)
         transfer.emit(id, DownloadTransferProgress(receivedBytes: 80, expectedBytes: 100))
-        XCTAssertTrue(await waitUntil { self.center.job(withID: id)?.progress.receivedBytes == 80 })
+        let settled2 = await waitUntil { self.center.job(withID: id)?.progress.receivedBytes == 80 }
+        XCTAssertTrue(settled2)
         XCTAssertEqual(center.job(withID: id)?.progress.fraction, 0.8)
         transfer.emit(id, DownloadTransferProgress(receivedBytes: 10, expectedBytes: 100))
         try await Task.sleep(nanoseconds: 40_000_000)

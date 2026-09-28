@@ -266,8 +266,12 @@ final class SettingsCenterModel: ObservableObject {
 
     /// Assembles the report from counts and facts, never from contents.
     private func makeDiagnosticReport() async -> DiagnosticReport {
+        // The await is hoisted out of the `??` chain: the nil-coalescing
+        // operator takes a non-async autoclosure, so an await inside it does
+        // not compile.
+        let measuredFallback = try? await storage.footprint()
         let measured = storageFootprint
-            ?? (try? await storage.footprint())
+            ?? measuredFallback
             ?? StorageFootprint.empty
         return DiagnosticReport.make(
             applicationInfo: environment.applicationInfo,
@@ -325,10 +329,12 @@ private struct SettingsCenterKey: EnvironmentKey {
     /// A standalone model, so a section rendered outside the shell — a
     /// preview, or a test — still has something to read. The shell installs
     /// the shared instance, which is the one the user's changes reach.
-    static let defaultValue = SettingsCenterModel(
-        store: FilePreferencesStore(location: CompositionRoot.preferencesDocumentLocation()),
-        environment: CompositionRoot.makeApplicationEnvironment()
-    )
+    static let defaultValue = MainActor.assumeIsolated {
+        SettingsCenterModel(
+            store: FilePreferencesStore(location: CompositionRoot.preferencesDocumentLocation()),
+            environment: CompositionRoot.makeApplicationEnvironment()
+        )
+    }
 }
 
 extension EnvironmentValues {
@@ -344,12 +350,14 @@ private struct AppLockKey: EnvironmentKey {
     /// preview, or a section presented on its own — still has one to read. The
     /// shell installs the shared instance, which is the one the user's lock
     /// state lives in.
-    static let defaultValue = AppLockController(
-        authenticator: LocalAuthenticationBiometricAuthenticator(),
-        preferences: {
-            ZynSignPreferences.shippedDefault
-        }
-    )
+    static let defaultValue = MainActor.assumeIsolated {
+        AppLockController(
+            authenticator: LocalAuthenticationBiometricAuthenticator(),
+            preferences: {
+                ZynSignPreferences.shippedDefault
+            }
+        )
+    }
 }
 
 extension EnvironmentValues {

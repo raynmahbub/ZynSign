@@ -184,6 +184,7 @@ enum LibraryOrganizationFixtures {
         build: String? = "1",
         sourceFileName: String? = nil,
         byteCount: Int = 1_024,
+        artifact: ArtifactReference? = nil,
         importedAt: Date = LibraryFixtures.importDate,
         isFavorite: Bool = false,
         availability: ArtifactAvailability = .available
@@ -196,7 +197,10 @@ enum LibraryOrganizationFixtures {
                 build: build
             ),
             sourceFileName: sourceFileName,
-            artifact: LibraryFixtures.reference(byteCount: byteCount),
+            // An explicit reference lets a verification test record exactly
+            // the fingerprint of the bytes the store will hold; the default
+            // seed fingerprint stands in wherever no content check runs.
+            artifact: artifact ?? LibraryFixtures.reference(byteCount: byteCount),
             importedAt: importedAt
         )
         let record = isFavorite ? base.with(isFavorite: true, updatedAt: importedAt) : base

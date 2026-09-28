@@ -1,23 +1,25 @@
-# Release — one tag per stop on the release train
+# Release — one tag per stop on the release train (the release system).
 #
-# ZynSign ships its finished features one release at a time
-# (docs/releases/release-train.md). For every release:
+# ZynSign ships one release at a time (docs/releases/release-train.md):
 #   python3 Scripts/release_train.py promote      # switch on the next features
 #   # update CHANGELOG + notes, private test, merge to main
 #   git tag -a v0.1.0-alpha.1 -m "ZynSign 0.1.0-alpha.1" && git push origin v0.1.0-alpha.1
 #
-# This workflow runs on the tag and
-#   1. refuses to release if the tag is not ReleaseTrain.current
-#      (Scripts/release_train.py check --tag), so a tag can never ship the
-#      wrong set of features;
-#   2. ensures CHANGELOG.md has an entry for that version
-#      (Scripts/generate_changelog.py) and commits it to the default branch
-#      if needed;
-#   3. ensures the GitHub Release exists with docs/releases/notes-v{version}.md
-#      as its body, marked pre-release for alpha / beta / rc tags.
+# This workflow runs on the tag and enforces the release quality gate
+# before anything is published:
 #
-# It is idempotent and never rebuilds the binary: the privately tested IPA
-# is the public IPA.
+#   1. validate   — release-train stage, MARKETING_VERSION, changelog,
+#                   notes, architecture, dependencies, docs, secrets
+#   2. build      — full build and unit-test run (Scripts/ci/build.sh)
+#   3. assets     — ZynSign.ipa (unsigned archive artifact), ZynSign.sha256,
+#                   BuildInfo.json, ReleaseNotes.md
+#   4. publish    — CHANGELOG entry generated if missing, GitHub Release
+#                   created/updated, assets attached (an existing
+#                   ZynSign.ipa is NEVER overwritten — the privately
+#                   tested signed IPA stays the public one)
+#
+# If any gate fails, the release stops automatically. The workflow is
+# idempotent: re-running a tag repairs missing pieces without duplicating.
 name: Release
 
 on:
@@ -27,7 +29,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version without leading v, e.g. 0.1.0"
+        description: "Version without leading v, e.g. 0.1.0-alpha.1"
         required: true
         type: string
 
@@ -40,17 +42,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  changelog-and-release:
+  meta:
+    name: Derive release metadata
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      channel: ${{ steps.meta.outputs.channel }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
     steps:
-      - name: Check out the tag (full history)
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          # when triggered by tag, checkout the tag; for dispatch, the default branch
-          ref: ${{ github.ref_type == 'tag' && github.ref_name || github.event.repository.default_branch }}
-
-      - name: Derive version and date
+      - name: Derive version, tag, and channel
         id: meta
         run: |
           set -eu
@@ -61,80 +63,299 @@ jobs:
             TAG="${GITHUB_REF_NAME}"
             VERSION="${TAG#v}"
           fi
-          DATE="$(date +%Y-%m-%d)"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "date=${DATE}" >> "$GITHUB_OUTPUT"
-          echo "Version=${VERSION} Tag=${TAG} Date=${DATE}"
+          case "${VERSION}" in
+            *-dev*)   CHANNEL="development" ;;
+            *-alpha*) CHANNEL="alpha" ;;
+            *-beta*)  CHANNEL="beta" ;;
+            *-rc*)    CHANNEL="rc" ;;
+            *)        CHANNEL="stable" ;;
+          esac
+          PRERELEASE="false"
+          [ "${CHANNEL}" != "stable" ] && PRERELEASE="true"
+          {
+            echo "version=${VERSION}"
+            echo "tag=${TAG}"
+            echo "channel=${CHANNEL}"
+            echo "prerelease=${PRERELEASE}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Version=${VERSION} Tag=${TAG} Channel=${CHANNEL} PreRelease=${PRERELEASE}"
+
+  # --- Quality gate: validation + static guards ------------------------------
+  quality-gate:
+    name: Release quality gate
+    runs-on: ubuntu-latest
+    needs: meta
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Validate the release (train stage, version, changelog, notes)
+        run: Scripts/ci/release_validate.sh "${{ needs.meta.outputs.version }}"
+
+      - name: Enforce the architecture boundaries
+        run: Scripts/ci/architecture_guard.sh
+
+      - name: Enforce the dependency allowlist
+        run: Scripts/ci/dependency_check.sh
+
+      - name: Validate the documentation
+        run: Scripts/ci/docs_check.sh
+
+      - name: Scan for secret material
+        run: Scripts/ci/security_scan.sh
+
+  secret-history:
+    name: Gitleaks over the full history
+    runs-on: ubuntu-latest
+    needs: meta
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  # --- Quality gate: the build and the tests ----------------------------------
+  build-and-test:
+    name: Build and run the unit tests
+    runs-on: macos-15
+    needs: meta
+    timeout-minutes: 45
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Select the newest stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Build and test
+        run: Scripts/ci/build.sh
+
+      - name: Upload build and test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-build-logs
+          path: build/logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+  # --- Assets: IPA, checksum, BuildInfo.json, ReleaseNotes.md ------------------
+  assets:
+    name: Produce the release assets
+    runs-on: macos-15
+    needs: [meta, quality-gate, secret-history, build-and-test]
+    timeout-minutes: 45
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Select the newest stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Archive an unsigned device build
+        run: |
+          set -eu
+          mkdir -p build/release
+          xcodebuild archive \
+            -project ZynSign.xcodeproj \
+            -scheme ZynSign \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath build/release/ZynSign.xcarchive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            -quiet
+
+      - name: Package Payload, checksum, BuildInfo.json, ReleaseNotes.md
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          CHANNEL: ${{ needs.meta.outputs.channel }}
+        run: |
+          set -eu
+          cd build/release
+          mkdir -p payload/Payload
+          cp -R ZynSign.xcarchive/Products/Applications/ZynSign.app payload/Payload/
+          (cd payload && zip -qry ../ZynSign.ipa Payload)
+
+          shasum -a 256 ZynSign.ipa > ZynSign.sha256
+
+          XCODE_VERSION="$(xcodebuild -version | head -1 | sed 's/Xcode //')"
+          SWIFT_VERSION="$(xcrun swift --version 2>/dev/null | head -1 | sed -E 's/^Apple Swift version ([0-9.]+).*/\1/')"
+          BUILD_NUMBER="$(grep -oE 'CURRENT_PROJECT_VERSION = [0-9]+' ../../ZynSign.xcodeproj/project.pbxproj | head -1 | awk '{print $3}')"
+          DEPLOY_TARGET="$(grep -oE 'IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+' ../../ZynSign.xcodeproj/project.pbxproj | head -1 | awk '{print $3}')"
+          CHECKSUM="$(awk '{print $1}' ZynSign.sha256)"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          printf '{\n' > BuildInfo.json
+          printf '  "name": "ZynSign",\n' >> BuildInfo.json
+          printf '  "version": "%s",\n' "${VERSION}" >> BuildInfo.json
+          printf '  "tag": "%s",\n' "${TAG}" >> BuildInfo.json
+          printf '  "buildNumber": "%s",\n' "${BUILD_NUMBER}" >> BuildInfo.json
+          printf '  "commit": "%s",\n' "${GITHUB_SHA}" >> BuildInfo.json
+          printf '  "buildDate": "%s",\n' "${BUILD_DATE}" >> BuildInfo.json
+          printf '  "swiftVersion": "%s",\n' "${SWIFT_VERSION}" >> BuildInfo.json
+          printf '  "xcodeVersion": "%s",\n' "${XCODE_VERSION}" >> BuildInfo.json
+          printf '  "minimumIOS": "%s",\n' "${DEPLOY_TARGET}" >> BuildInfo.json
+          printf '  "releaseChannel": "%s",\n' "${CHANNEL}" >> BuildInfo.json
+          printf '  "sha256": "%s",\n' "${CHECKSUM}" >> BuildInfo.json
+          printf '  "signed": false,\n' >> BuildInfo.json
+          printf '  "note": "Unsigned archive artifact produced by CI. The privately tested signed IPA, once attached to this release, is the public build and is never overwritten."\n' >> BuildInfo.json
+          printf '}\n' >> BuildInfo.json
+
+          NOTES="../../docs/releases/notes-v${VERSION}.md"
+          if [ -f "${NOTES}" ]; then
+            cp "${NOTES}" ReleaseNotes.md
+          else
+            {
+              echo "# ZynSign ${VERSION}"
+              echo
+              awk -v v="${VERSION}" '
+                $0 ~ "^## \\[" v "\\]" { f = 1; print; next }
+                f && /^## \[/ { exit }
+                f { print }
+              ' ../../CHANGELOG.md
+            } > ReleaseNotes.md
+          fi
+          ls -la ZynSign.ipa ZynSign.sha256 BuildInfo.json ReleaseNotes.md
+
+      - name: Upload the release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: |
+            build/release/ZynSign.ipa
+            build/release/ZynSign.sha256
+            build/release/BuildInfo.json
+            build/release/ReleaseNotes.md
+          if-no-files-found: error
+          retention-days: 30
+
+  # --- Publish: changelog + GitHub Release + assets ----------------------------
+  publish:
+    name: Publish the release
+    runs-on: ubuntu-latest
+    needs: [meta, assets]
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_type == 'tag' && github.ref_name || github.event.repository.default_branch }}
+
+      - name: Download the release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: release-assets
+
+      - name: Derive date and notes
+        id: info
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -eu
+          echo "date=$(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          if [ -f "docs/releases/notes-v${VERSION}.md" ]; then
+            echo "notes=docs/releases/notes-v${VERSION}.md" >> "$GITHUB_OUTPUT"
+          else
+            echo "notes=" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Refuse a tag that is not the current release-train stage
-        run: python3 Scripts/release_train.py check --tag "${{ steps.meta.outputs.tag }}"
+        run: python3 Scripts/release_train.py check --tag "${{ needs.meta.outputs.tag }}"
 
       - name: Generate CHANGELOG entry if missing
         id: changelog
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+          TAG: ${{ needs.meta.outputs.tag }}
         run: |
           set -eu
-          VERSION="${{ steps.meta.outputs.version }}"
-          DATE="${{ steps.meta.outputs.date }}"
-          TAG="${{ steps.meta.outputs.tag }}"
-          echo "Running generate_changelog for ${VERSION} (${TAG})"
+          DATE="$(date +%Y-%m-%d)"
           python3 Scripts/generate_changelog.py --version "${VERSION}" --tag "${TAG}" --date "${DATE}" || true
-          if git diff --quiet -- CHANGELOG.md "docs/releases/notes-v${VERSION}.md"; then
+          if git diff --quiet -- CHANGELOG.md "docs/releases/notes-v${VERSION}.md" 2>/dev/null; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No CHANGELOG change."
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "CHANGELOG changed:"
             git diff -- CHANGELOG.md | head -n 120
           fi
 
       - name: Commit CHANGELOG to the default branch (if changed)
         if: steps.changelog.outputs.changed == 'true'
+        env:
+          TAG: ${{ needs.meta.outputs.tag }}
+          VERSION: ${{ needs.meta.outputs.version }}
         run: |
           set -eu
-          VERSION="${{ steps.meta.outputs.version }}"
-          TAG="${{ steps.meta.outputs.tag }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md "docs/releases/notes-v${VERSION}.md"
+          git add CHANGELOG.md "docs/releases/notes-v${VERSION}.md" 2>/dev/null || git add CHANGELOG.md
           git commit -m "docs(changelog): auto ${TAG} — ${VERSION} release
 
           Generated by Scripts/generate_changelog.py on tag ${TAG}; see docs/releases/release-train.md."
-          # Push to the default branch that holds the tag's history, not to the tag itself.
           BRANCH="${{ github.event.repository.default_branch }}"
           git push origin "HEAD:${BRANCH}" || {
             echo "::warning::Could not push CHANGELOG to ${BRANCH} — branch may have moved. Push manually:"
             echo "  git push origin HEAD:${BRANCH}"
-            exit 0
           }
 
-      - name: Ensure GitHub Release exists with notes
+      - name: Create or update the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.meta.outputs.version }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          CHANNEL: ${{ needs.meta.outputs.channel }}
+          PRERELEASE: ${{ needs.meta.outputs.prerelease }}
         run: |
           set -eu
-          VERSION="${{ steps.meta.outputs.version }}"
-          TAG="${{ steps.meta.outputs.tag }}"
-          NOTES="docs/releases/notes-v${VERSION}.md"
+          NOTES="${{ steps.info.outputs.notes }}"
           TITLE="ZynSign ${VERSION}"
           if [ "${VERSION}" = "0.1.0" ]; then
             TITLE="ZynSign 0.1.0 Horizon"
           fi
-          # alpha / beta / rc tags are GitHub pre-releases; 0.1.0 and 1.0.0+ are not.
-          PRERELEASE=""
-          case "${VERSION}" in *-*) PRERELEASE="--prerelease" ;; esac
+          PRE_FLAG=""
+          [ "${PRERELEASE}" = "true" ] && PRE_FLAG="--prerelease"
           if gh release view "${TAG}" >/dev/null 2>&1; then
             echo "Release ${TAG} already exists — updating notes if needed."
-            if [ -f "${NOTES}" ]; then
-              gh release edit "${TAG}" --notes-file "${NOTES}" --title "${TITLE}" || true
+            if [ -n "${NOTES}" ] && [ -f "${NOTES}" ]; then
+              gh release edit "${TAG}" --notes-file "${NOTES}" --title "${TITLE}" ${PRE_FLAG} || true
             fi
           else
-            echo "Creating release ${TAG}"
-            if [ -f "${NOTES}" ]; then
-              gh release create "${TAG}" --target "${GITHUB_SHA}" --title "${TITLE}" ${PRERELEASE} --notes-file "${NOTES}" || true
+            echo "Creating release ${TAG} (channel: ${CHANNEL})"
+            if [ -n "${NOTES}" ] && [ -f "${NOTES}" ]; then
+              gh release create "${TAG}" --target "${GITHUB_SHA}" --title "${TITLE}" ${PRE_FLAG} --notes-file "${NOTES}"
             else
-              # fallback to auto-generated notes from commits
-              gh release create "${TAG}" --target "${GITHUB_SHA}" --title "${TITLE}" ${PRERELEASE} --generate-notes || true
+              gh release create "${TAG}" --target "${GITHUB_SHA}" --title "${TITLE}" ${PRE_FLAG} --generate-notes
             fi
           fi
           gh release view "${TAG}" --json tagName,title,url || true
+
+      - name: Attach assets (never overwriting an existing file)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          set -eu
+          existing="$(gh release view "${TAG}" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+          for asset in release-assets/ZynSign.ipa release-assets/ZynSign.sha256 release-assets/BuildInfo.json release-assets/ReleaseNotes.md; do
+            name="$(basename "${asset}")"
+            if printf '%s\n' "${existing}" | grep -qx "${name}"; then
+              echo "Keeping existing ${name} on the release (the privately tested IPA is never overwritten)."
+            else
+              echo "Uploading ${name}"
+              gh release upload "${TAG}" "${asset}"
+            fi
+          done
+          gh release view "${TAG}" --json assets --jq '.assets[].name'

@@ -1,0 +1,91 @@
+name: Regression report
+description: Something that worked in a previous release is now broken
+labels: [regression, bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        <div align="center">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/raynmahbub/ZynSign/main/Assets/Brand/Logo/logo-lockup-dark.svg">
+          <img src="https://raw.githubusercontent.com/raynmahbub/ZynSign/main/Assets/Brand/Logo/logo-lockup.svg" alt="ZynSign" width="360">
+        </picture>
+        </div>
+
+        A regression is behaviour that shipped working and later broke. Naming the last release where it worked pins the search window.
+        Do not include passwords, private keys, certificates, provisioning profiles, tokens, or other secrets. Redact sensitive values before posting.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Briefly describe the behaviour that broke.
+    validations:
+      required: true
+
+  - type: input
+    id: last-good
+    attributes:
+      label: Last release where it worked
+      description: Tag or version, e.g. v0.9.0-beta.2.
+      placeholder: v0.9.0-beta.2
+    validations:
+      required: true
+
+  - type: input
+    id: first-bad
+    attributes:
+      label: First release where it broke
+      description: Tag or version, if known.
+      placeholder: v1.0.0-rc.1
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: The fewer steps, the faster the fix.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour (as shipped in the last good release)
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Where the regression shows up.
+      options:
+        - Files / Import
+        - Library
+        - Signing
+        - Certificates / Identity
+        - App Store / Downloads
+        - Installation / Delivery
+        - Home / Mission Control
+        - Settings
+        - Compatibility Lab
+        - Other / unknown
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Device model, iOS version, how the build was installed (sideload / TestFlight).

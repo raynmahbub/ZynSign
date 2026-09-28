@@ -72,9 +72,19 @@ enum LabMachOImage {
     /// measurable. It carries no CodeDirectory, no hash and no CMS blob, and
     /// the check reports whatever state the production inspector records.
     static var emptyEmbeddedSignature: Data {
-        var bytes = [UInt8](repeating: 0, count: 8)
-        put(embeddedSignatureMagic, at: 0, into: &bytes)
-        put(8, at: 4, into: &bytes)
+        // SuperBlob fields are big-endian, unlike the Mach-O header `put`
+        // encodes: magic, the twelve-byte total length, and a zero count
+        // naming no entries. Eight bytes cannot even hold the header the
+        // parser reads first.
+        var bytes = [UInt8](repeating: 0, count: 12)
+        bytes[0] = 0xFA
+        bytes[1] = 0xDE
+        bytes[2] = 0x0C
+        bytes[3] = 0xC0
+        bytes[4] = 0x00
+        bytes[5] = 0x00
+        bytes[6] = 0x00
+        bytes[7] = 0x0C
         return Data(bytes)
     }
 
@@ -146,6 +156,7 @@ enum LabPackageFactory {
                 bundleName: "WithFrameworks.app",
                 executable: "WithFrameworks",
                 identifierSuffix: "frameworks",
+                resources: [],
                 signatureRegion: false
             )
             package = try appending(
@@ -159,6 +170,7 @@ enum LabPackageFactory {
                 bundleName: "WithExtensions.app",
                 executable: "WithExtensions",
                 identifierSuffix: "extensions",
+                resources: [],
                 signatureRegion: false
             )
             return try appending(
@@ -458,7 +470,14 @@ private struct LabEntryBuilder {
     }
 
     mutating func addDirectory(_ path: String) throws {
-        entries.append(ArchiveWriteEntry(path: try validated(path), kind: .directory))
+        let archivePath = try validated(path)
+        // Appending to a package re-declares parent directories the base
+        // package already carries; the writer refuses a path twice, so a
+        // directory already recorded is simply the same directory again.
+        guard !entries.contains(where: { $0.path == archivePath && $0.kind == .directory }) else {
+            return
+        }
+        entries.append(ArchiveWriteEntry(path: archivePath, kind: .directory))
     }
 
     mutating func addFile(_ path: String, content: Data, executable: Bool = false) throws {

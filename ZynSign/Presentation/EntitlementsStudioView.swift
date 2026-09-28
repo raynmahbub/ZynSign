@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 struct EntitlementStatusLabel: View {
     let status: EntitlementStudioStatus
-    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.preferredColorSchemeContrast) private var contrast
     var body: some View {
         Label(status.rawValue, systemImage: status.symbol)
             .font(.subheadline.weight(.semibold))

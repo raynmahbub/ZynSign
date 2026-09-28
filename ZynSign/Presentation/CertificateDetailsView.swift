@@ -30,6 +30,16 @@ struct CertificateDetailView: View {
     @State private var toastMessage = ""
     @State private var toastStyle: ZToast.Style = .success
 
+    /// Creates the detail screen for one registered identity.
+    ///
+    /// Written explicitly because the stored `private` and `@State`
+    /// properties would otherwise synthesize an initializer no other file
+    /// can call.
+    init(model: CertificateManagerModel, fingerprint: String) {
+        self._model = ObservedObject(wrappedValue: model)
+        self.fingerprint = fingerprint
+    }
+
     /// The item as the model holds it right now, or `nil` when the identity
     /// is no longer registered (removed while this screen was showing).
     private var item: CertificateManagerModel.CertificateItem? {

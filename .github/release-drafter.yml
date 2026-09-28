@@ -1,0 +1,113 @@
+# Release Drafter — ZynSign.
+#
+# Every merged pull request feeds the next release draft automatically:
+# categories come from labels, version bumps from the resolver, and the
+# changelog section from the template. Nothing about an upcoming release
+# is written by hand.
+#
+# The draft is preparation only — publishing still flows through the
+# release train (docs/releases/release-train.md) and the release
+# workflow's quality gate.
+
+name-template: "🚀 ZynSign v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+
+# Labels drive everything. The labeler workflow applies them from changed
+# files; the autolabeler below adds a second net from branch names and
+# conventional-commit PR titles.
+categories:
+  - title: "✨ Features"
+    labels:
+      - feature
+  - title: "🚀 Improvements"
+    labels:
+      - enhancement
+  - title: "🐛 Bug Fixes"
+    labels:
+      - bug
+  - title: "⚡ Performance"
+    labels:
+      - performance
+  - title: "🎨 UI"
+    labels:
+      - ui
+  - title: "♻️ Refactors"
+    labels:
+      - refactor
+  - title: "🔒 Security"
+    labels:
+      - security
+  - title: "📚 Documentation"
+    labels:
+      - docs
+  - title: "🛠 CI"
+    labels:
+      - ci
+
+autolabeler:
+  - label: docs
+    files:
+      - "*.md"
+      - "docs/**"
+  - label: ci
+    files:
+      - ".github/**"
+      - "Scripts/ci/**"
+  - label: tests
+    files:
+      - "Tests/**"
+  - label: ui
+    files:
+      - "ZynSign/Presentation/**"
+  - label: security
+    files:
+      - "ZynSign/Platform/Keychain*"
+      - "ZynSign/Platform/Secure*"
+      - "ZynSign/Platform/*Sign*"
+  - label: architecture
+    files:
+      - "ZynSign/Domain/**"
+  - label: bug
+    branch:
+      - '/fix\/.+/'
+    title:
+      - "/^fix.*/"
+  - label: feature
+    branch:
+      - '/feature\/.+/'
+    title:
+      - "/^feat.*/"
+
+change-template: "- $TITLE (#$NUMBER) — @$AUTHOR"
+change-title-escapes: '\<*_&'
+
+version-resolver:
+  major:
+    labels:
+      - breaking
+  minor:
+    labels:
+      - feature
+      - enhancement
+  patch:
+    labels:
+      - bug
+      - performance
+      - refactor
+      - security
+      - ci
+      - docs
+  default: patch
+
+template: |
+  ## Highlights
+
+  $CHANGES
+
+  ## Contributors
+
+  $CONTRIBUTORS
+
+  ---
+  _Drafted automatically by Release Drafter from merged pull requests.
+  Publishing follows the release train and the release quality gate._

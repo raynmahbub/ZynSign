@@ -257,7 +257,7 @@ struct DiagnosticReport: Equatable, Sendable, Codable {
         generatedAt: Date = Date()
     ) -> DiagnosticReport {
         DiagnosticReport(
-            schemaVersion: DiagnosticReport.schemaVersion,
+            schemaVersion: DiagnosticReport.schemaVersion as Int,
             generatedAt: generatedAt,
             application: ApplicationSection(
                 displayName: applicationInfo.displayName,
@@ -270,7 +270,7 @@ struct DiagnosticReport: Equatable, Sendable, Codable {
             ),
             storage: Dictionary(
                 uniqueKeysWithValues: StorageCategory.allCases.map {
-                    ($0.displayName, storage.usage(of: $0).byteCount)
+                    ($0.displayName, Int64(storage.usage(of: $0).byteCount))
                 }
             ),
             library: library,

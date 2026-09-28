@@ -29,7 +29,7 @@ import Foundation
 // MARK: - Extension Points
 
 /// Code-directory construction parameters for nested code signing, plus the
-/// per-target signing metadata established by ZS-029.
+/// per-target signing metadata established by this foundation.
 ///
 /// Metadata is keyed by target and never inherited: the entitlements,
 /// requirements, and resource seal that apply to the root application do not

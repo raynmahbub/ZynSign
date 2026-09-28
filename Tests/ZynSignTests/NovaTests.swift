@@ -59,8 +59,11 @@ final class NovaTests: XCTestCase {
     func testUsageReordersWithRecencyDecay() {
         let policy = WorkspaceLayoutPolicy()
         let now = date(hour: 14)
-        let recent = [WorkspaceUsageSignal(widget: .collections, openCount: 10, lastOpenedAt: now.addingTimeInterval(-day))]
-        let old = [WorkspaceUsageSignal(widget: .collections, openCount: 10, lastOpenedAt: now.addingTimeInterval(-90 * day))]
+        // Heavy usage so the decayed signal still clears the afternoon's
+        // fixed nudges when it is fresh, and sinks to the floor when it is
+        // not — that crossing is what reorders the two layouts.
+        let recent = [WorkspaceUsageSignal(widget: .collections, openCount: 50, lastOpenedAt: now.addingTimeInterval(-day))]
+        let old = [WorkspaceUsageSignal(widget: .collections, openCount: 50, lastOpenedAt: now.addingTimeInterval(-90 * day))]
         let recentOrder = policy.order(usage: recent, context: WorkspaceContext(), now: now, calendar: calendar)
         let oldOrder = policy.order(usage: old, context: WorkspaceContext(), now: now, calendar: calendar)
         XCTAssertTrue(recentOrder.firstIndex(of: .collections)! < oldOrder.firstIndex(of: .collections)!)

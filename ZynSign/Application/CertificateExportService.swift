@@ -51,13 +51,3 @@ struct CertificateExportService {
         return url
     }
 }
-
-extension CertificatePublicKeyInfo.Algorithm {
-    var displayName: String {
-        switch self {
-        case .rsa: return "RSA"
-        case .ec: return "EC"
-        case .unknown: return "Unknown"
-        }
-    }
-}

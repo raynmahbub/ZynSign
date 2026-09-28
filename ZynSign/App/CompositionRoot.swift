@@ -35,9 +35,10 @@ enum CompositionRoot {
         // working-directory choice decides where staging happens and the
         // storage screen measures what the choice covers.
         let preferences = makePreferencesStore()
+        let preferencesSnapshot = MainActor.assumeIsolated { preferences.snapshot }
         let biometricAuthenticator = makeBiometricAuthenticator()
         let intake = SecurityScopedArtifactIntake(
-            directory: importStagingDirectory(preferences: preferences.snapshot)
+            directory: importStagingDirectory(preferences: preferencesSnapshot)
         )
         let diagnosticHistory = makeSigningDiagnosticsHistoryStore()
         let library = makeApplicationLibrary(intake: intake, diagnosticHistory: diagnosticHistory)
@@ -58,7 +59,7 @@ enum CompositionRoot {
         let storage = makeStorageManagement(
             exports: exports,
             history: history,
-            preferences: preferences.snapshot
+            preferences: preferencesSnapshot
         )
         let appIcons = makeAppIconExtraction()
         let droppedFiles = DropInboxFileReceiver(directory: importDropInboxDirectory)
@@ -179,7 +180,7 @@ enum CompositionRoot {
         )
         environment.performanceEngine = makePerformanceEngine(
             appIcons: appIcons,
-            preferences: preferences.snapshot
+            preferences: preferencesSnapshot
         )
         return environment
     }
@@ -1615,10 +1616,12 @@ enum CompositionRoot {
     /// the shell reads it to apply appearance and locking, and the intake
     /// reads it once to learn where staging happens.
     static func makePreferencesStore() -> any PreferencesStore {
-        FilePreferencesStore(
-            location: preferencesDocumentLocation(),
-            legacyDefaults: .standard
-        )
+        MainActor.assumeIsolated {
+            FilePreferencesStore(
+                location: preferencesDocumentLocation(),
+                legacyDefaults: .standard
+            )
+        }
     }
 
     /// The on-disk location of the preferences document. It lives beside the

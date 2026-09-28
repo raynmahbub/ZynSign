@@ -148,7 +148,7 @@ final class ProvisioningProfileParserTests: XCTestCase {
         var root = validRoot()
         root[ProvisioningProfileKeys.teamName] = 42
         assertProfileFailure(
-            parser().parse(makePayload(root)),
+            try parser().parse(makePayload(root)),
             reason: .invalidFieldType
         )
     }

@@ -44,7 +44,7 @@ struct ZCard<Content: View>: View {
     private var background: some View {
         switch variant {
         case .filled: ZColors.cardBackground
-        case .material: ZColors.headerMaterial
+        case .material: Rectangle().fill(ZColors.headerMaterial)
         case .outlined: Color.clear
         }
     }

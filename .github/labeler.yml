@@ -1,0 +1,36 @@
+# Automatic PR labels — ZynSign.
+# Applied by the labeler workflow from the files a pull request changes.
+# The labels feed Release Drafter's categories (.github/release-drafter.yml).
+
+ui:
+  - changed-files:
+      - any-glob-to-any-file: ["ZynSign/Presentation/**"]
+
+architecture:
+  - changed-files:
+      - any-glob-to-any-file:
+          ["ZynSign/Domain/**", "ZynSign/App/**", "Scripts/ci/architecture*"]
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file: ["Tests/**"]
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file: ["docs/**", "**/*.md"]
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file: [".github/**", "Scripts/ci/**"]
+
+security:
+  - changed-files:
+      - any-glob-to-any-file:
+          [
+            "ZynSign/Platform/Keychain*",
+            "ZynSign/Platform/Secure*",
+            "ZynSign/Platform/*Sign*",
+            "ZynSign/Platform/*Certificate*",
+            "SECURITY.md",
+            ".gitleaks.toml",
+          ]

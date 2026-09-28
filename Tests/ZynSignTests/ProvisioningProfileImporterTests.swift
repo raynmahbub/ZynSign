@@ -318,7 +318,7 @@ private struct SyntheticCertificateParser: CertificateParser {
         )
         guard let serialNumber = CertificateSerialNumber(hexadecimal: "01"),
               let fingerprint = CertificateFingerprint(
-                hexDigest: String(repeating: "ab", count: CertificateFingerprint.hexDigestLength)
+                hexDigest: String(repeating: "ab", count: CertificateFingerprint.hexDigestLength / 2)
               ) else {
             throw ZynSignError.invalidCertificateData()
         }

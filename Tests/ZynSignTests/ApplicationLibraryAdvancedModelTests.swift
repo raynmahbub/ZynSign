@@ -319,8 +319,19 @@ final class ApplicationLibraryAdvancedModelTests: XCTestCase {
     // MARK: - Verification
 
     func testVerificationReportsEachPackage() async throws {
-        let intact = try await insert(Fixtures.entry(name: "Intact", bundleIdentifier: "com.example.intact"))
-        let vanished = try await insert(Fixtures.entry(name: "Vanished", bundleIdentifier: "com.example.vanished"))
+        // The stored bytes are zeros of the recorded size; record the
+        // fingerprint those exact bytes hash to, so the intact package
+        // verifies intact instead of against the seeded stand-in digest.
+        let intact = try await insert(Fixtures.entry(
+            name: "Intact",
+            bundleIdentifier: "com.example.intact",
+            artifact: LibraryFixtures.reference(to: Data(count: 1_024))
+        ))
+        let vanished = try await insert(Fixtures.entry(
+            name: "Vanished",
+            bundleIdentifier: "com.example.vanished",
+            artifact: LibraryFixtures.reference(to: Data(count: 1_024))
+        ))
         await model.load()
         artifacts.drop(vanished.record.artifact.artifactID)
 

@@ -93,6 +93,11 @@ final class InstallationWorkspaceModelTests: XCTestCase {
 
         await model.abandon(attempt: attempt)
 
+        // Abandon reloads through a queued task; wait for the reload to
+        // land before asserting the attempt is gone.
+        for _ in 0..<100 where !model.attempts.isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
         XCTAssertTrue(model.attempts.isEmpty, "Abandoning resolves the attempt.")
         XCTAssertTrue(model.installedRows.isEmpty, "Nothing was recorded.")
 

@@ -80,14 +80,4 @@ struct FileStorageFootprint: StorageFootprintReporting, Sendable {
         )
     }
 
-    private static func usage(of files: [URL], category: StorageCategory) -> StorageCategoryUsage {
-        var byteCount = 0
-        var fileCount = 0
-        for file in files {
-            let usage = FileSystemMeasurement.usage(of: file)
-            byteCount += usage.byteCount
-            fileCount += usage.fileCount
-        }
-        return StorageCategoryUsage(category: category, byteCount: byteCount, itemCount: fileCount)
-    }
 }

@@ -1,0 +1,27 @@
+# CODEOWNERS — ZynSign.
+#
+# Ownership follows the protected layered architecture. When branch
+# protection enables required reviews, these paths request the owner
+# automatically (see docs/development/branch-protection.md).
+#
+# Order matters: the last matching pattern wins.
+
+# Default owner for everything in the repository.
+*                                       @raynmahbub
+
+# Application layers — architecture-sensitive, senior review.
+/ZynSign/App/                           @raynmahbub
+/ZynSign/Application/                   @raynmahbub
+/ZynSign/Domain/                        @raynmahbub
+/ZynSign/Platform/                      @raynmahbub
+/ZynSign/Presentation/                  @raynmahbub
+
+# Project and pipeline.
+/ZynSign.xcodeproj/                     @raynmahbub
+/Scripts/                               @raynmahbub
+/.github/                               @raynmahbub
+
+# Documentation and release process.
+/docs/                                  @raynmahbub
+/CHANGELOG.md                           @raynmahbub
+/SECURITY.md                            @raynmahbub

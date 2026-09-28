@@ -10,7 +10,7 @@ import XCTest
 @MainActor
 final class ProvisioningProfilesModelTests: XCTestCase {
 
-    private let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
+    private let referenceDate = Date()
 
     private func makeSummary(
         name: String,
@@ -60,10 +60,10 @@ final class ProvisioningProfilesModelTests: XCTestCase {
             name: "Wonder Profile",
             teamName: "Acme Studios",
             teamIdentifier: "TEAMABC123",
+            patterns: ["com.example.*"],
             uuid: "12345678-1234-4ABC-8DEF-1234567890AB",
             applicationIdentifier: "TEAMABC123.com.example.synthetic",
-            bundleIdentifier: "com.example.synthetic",
-            patterns: ["com.example.*"]
+            bundleIdentifier: "com.example.synthetic"
         )
         XCTAssertTrue(ProvisioningProfilesModel.matches(summary, query: "wonder"))
         XCTAssertTrue(ProvisioningProfilesModel.matches(summary, query: "acme"))
@@ -159,8 +159,8 @@ final class ProvisioningProfilesModelTests: XCTestCase {
         let otherTeam = makeSummary(
             name: "Gamma",
             teamIdentifier: "TEAMZZZZZZ",
-            bundleIdentifier: "org.other.app",
             patterns: ["org.other.app"],
+            bundleIdentifier: "org.other.app",
             expirationIn: 10
         )
         let profiles = [matchingHealthy, matchingExpired, otherTeam]

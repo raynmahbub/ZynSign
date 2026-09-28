@@ -1,0 +1,54 @@
+# Dead code report.
+#
+# Periphery indexes the project and reports unused classes, methods,
+# protocols, and properties to Reports/DeadCodeReport.md, uploaded as an
+# artifact. Nothing is ever deleted automatically — a developer reviews
+# the report first. Logic: Scripts/ci/dead_code_scan.sh.
+name: Dead Code
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+  schedule:
+    # Weekly, alongside the maintenance bot.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dead-code-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  periphery:
+    name: Periphery dead code scan
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Select the newest stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install Periphery
+        run: HOMEBREW_NO_AUTO_UPDATE=1 brew install periphery
+
+      - name: Scan for dead code
+        run: Scripts/ci/dead_code_scan.sh
+
+      - name: Upload the dead code report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dead-code-report
+          path: |
+            Reports/DeadCodeReport.md
+            build/periphery-scan.json
+          if-no-files-found: error
+          retention-days: 30

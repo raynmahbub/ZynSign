@@ -36,6 +36,7 @@ final class IPABinaryInspectionTests: XCTestCase {
     private struct TestFailure: Error, CustomStringConvertible {
         let expectation: String
         init(expected: String) { self.expectation = expected }
+        static func expected(_ message: String) -> TestFailure { TestFailure(expected: message) }
         var description: String { "Expected \(expectation)" }
     }
 
@@ -58,13 +59,17 @@ final class IPABinaryInspectionTests: XCTestCase {
             infoPlistPath: infoPlist,
             executablePath: executable,
         ]
+        var tableExtras = extraEntries
         if let codeResources {
             content[codeResourcesPath] = codeResources
+            // Content alone is invisible to the bundle walker: the seal must
+            // also be listed as an entry for the inspector to find it.
+            tableExtras.append(makeEntry(codeResourcesPath, uncompressedSize: codeResources.count))
         }
         for (path, data) in extraContent where content[path] == nil {
             content[path] = data
         }
-        return SyntheticArchiveReader(entryTable: validPackageEntryTable() + extraEntries, contentByPath: content)
+        return SyntheticArchiveReader(entryTable: validPackageEntryTable() + tableExtras, contentByPath: content)
     }
 
     /// Builds one in-memory library record per reader, and the use case that
@@ -191,24 +196,24 @@ final class IPABinaryInspectionTests: XCTestCase {
         XCTAssertEqual(events.count, 5)
 
         XCTAssertEqual(report.verdict, .valid)
-        XCTAssertEqual(report.check(.codeDirectory)?.status, .passed)
-        XCTAssertEqual(report.check(.codeDirectory)?.summary, "Version 2.4 · SHA-256 · 2 pages")
-        XCTAssertEqual(report.check(.pageHashes)?.status, .passed)
-        XCTAssertEqual(report.check(.pageHashes)?.summary, "2 of 2 page hashes match")
-        XCTAssertEqual(report.check(.specialSlots)?.status, .passed)
-        XCTAssertEqual(report.check(.specialSlots)?.summary, "2 of 2 bound slots match")
-        XCTAssertEqual(report.check(.cmsSignature)?.status, .passed)
+        XCTAssertEqual(report.integrity?.check(.codeDirectory)?.status, .passed)
+        XCTAssertEqual(report.integrity?.check(.codeDirectory)?.summary, "Version 2.4 · SHA-256 · 2 pages")
+        XCTAssertEqual(report.integrity?.check(.pageHashes)?.status, .passed)
+        XCTAssertEqual(report.integrity?.check(.pageHashes)?.summary, "2 of 2 page hashes match")
+        XCTAssertEqual(report.integrity?.check(.specialSlots)?.status, .passed)
+        XCTAssertEqual(report.integrity?.check(.specialSlots)?.summary, "3 of 3 bound slots match")
+        XCTAssertEqual(report.integrity?.check(.cmsSignature)?.status, .passed)
         XCTAssertEqual(
-            report.check(.cmsSignature)?.summary,
+            report.integrity?.check(.cmsSignature)?.summary,
             "Verifies with Apple Development: Example (TEAM123456)"
         )
-        XCTAssertEqual(report.check(.requirements)?.status, .passed)
-        XCTAssertEqual(report.check(.requirements)?.summary, "Empty requirement set")
-        XCTAssertEqual(report.check(.entitlements)?.status, .passed)
-        XCTAssertEqual(report.check(.entitlements)?.summary, "2 entitlement(s) decode")
+        XCTAssertEqual(report.integrity?.check(.requirements)?.status, .passed)
+        XCTAssertEqual(report.integrity?.check(.requirements)?.summary, "Empty requirement set")
+        XCTAssertEqual(report.integrity?.check(.entitlements)?.status, .passed)
+        XCTAssertEqual(report.integrity?.check(.entitlements)?.summary, "2 entitlement(s) decode")
         // Certificate trust is never evaluated; it is shown, never counted.
-        XCTAssertEqual(report.check(.certificateTrust)?.status, .notPerformed)
-        if case .notSealed = report.integrity?.resourceIntegrity else {
+        XCTAssertEqual(report.integrity?.check(.certificateTrust)?.status, .notPerformed)
+        guard case .notSealed = report.integrity?.resourceIntegrity else {
             throw TestFailure.expected("the signature to bind no resource seal")
         }
         XCTAssertEqual(report.integrity?.verifiedAt, BinaryInspectionTestSupport.fixedDate)
@@ -227,11 +232,11 @@ final class IPABinaryInspectionTests: XCTestCase {
         let report = try completedReport(await run(useCase, .libraryRecord(records[0].id)))
 
         XCTAssertEqual(report.verdict, .failed)
-        XCTAssertEqual(report.check(.pageHashes)?.status, .failed)
-        XCTAssertEqual(report.check(.pageHashes)?.summary, "1 of 2 page hashes do not match")
+        XCTAssertEqual(report.integrity?.check(.pageHashes)?.status, .failed)
+        XCTAssertEqual(report.integrity?.check(.pageHashes)?.summary, "1 of 2 page hashes do not match")
         // The signature's other parts are still internally consistent.
-        XCTAssertEqual(report.check(.specialSlots)?.status, .passed)
-        XCTAssertEqual(report.check(.codeDirectory)?.status, .passed)
+        XCTAssertEqual(report.integrity?.check(.specialSlots)?.status, .passed)
+        XCTAssertEqual(report.integrity?.check(.codeDirectory)?.status, .passed)
         XCTAssertEqual(BinaryHealthEvaluator.evaluate(report).headline, "Code changed after signing")
     }
 
@@ -245,9 +250,9 @@ final class IPABinaryInspectionTests: XCTestCase {
 
         XCTAssertEqual(report.signaturePresence, .absent)
         XCTAssertEqual(report.verdict, .unsigned)
-        XCTAssertEqual(report.check(.codeDirectory)?.status, .warning)
-        XCTAssertEqual(report.check(.codeDirectory)?.summary, "No code signature")
-        XCTAssertEqual(report.check(.pageHashes)?.status, .notApplicable)
+        XCTAssertEqual(report.integrity?.check(.codeDirectory)?.status, .warning)
+        XCTAssertEqual(report.integrity?.check(.codeDirectory)?.summary, "No code signature")
+        XCTAssertEqual(report.integrity?.check(.pageHashes)?.status, .notApplicable)
     }
 
     func testNonMachOIsReportedNotMachO() async throws {
@@ -375,9 +380,9 @@ final class IPABinaryInspectionTests: XCTestCase {
         let report = try completedReport(await run(useCase, .libraryRecord(records[0].id)))
 
         XCTAssertEqual(report.verdict, .valid)
-        XCTAssertEqual(report.check(.specialSlots)?.status, .passed)
-        XCTAssertEqual(report.check(.specialSlots)?.summary, "4 of 4 bound slots match")
-        if case .sealedAndBound(let count) = report.integrity?.resourceIntegrity else {
+        XCTAssertEqual(report.integrity?.check(.specialSlots)?.status, .passed)
+        XCTAssertEqual(report.integrity?.check(.specialSlots)?.summary, "4 of 4 bound slots match")
+        guard case .sealedAndBound(let count) = report.integrity?.resourceIntegrity else {
             throw TestFailure.expected("the resource seal to be sealed and bound")
         }
         XCTAssertEqual(count, 1)
@@ -408,8 +413,8 @@ final class IPABinaryInspectionTests: XCTestCase {
         let report = try completedReport(await run(useCase, .libraryRecord(records[0].id)))
 
         XCTAssertEqual(report.verdict, .failed)
-        XCTAssertEqual(report.check(.specialSlots)?.status, .failed)
-        if case .sealMismatch = report.integrity?.resourceIntegrity else {
+        XCTAssertEqual(report.integrity?.check(.specialSlots)?.status, .failed)
+        guard case .sealMismatch = report.integrity?.resourceIntegrity else {
             throw TestFailure.expected("the resource integrity to report the seal changed")
         }
     }
@@ -508,10 +513,19 @@ final class IPABinaryInspectionTests: XCTestCase {
     }
 
     func testInspectTargetMatchingComparesTheSameLocation() async throws {
-        let built = BinaryInspectionFixtures.build(signedOptions())
+        // The clean side has to be a fully bound package — information file,
+        // matching seal, CMS shape — or its verdict is a warning for the
+        // missing seal instead of the valid this comparison needs.
+        let infoPlist = BinaryInspectionFixtures.propertyList(["CFBundleExecutable": "Example"])
+        let codeResources = seal(infoPlist: infoPlist)
+        var options = signedOptions()
+        options.infoPlist = infoPlist
+        options.codeResources = codeResources
+        options.cmsPayload = CodeSignatureCMSFixtures.codeSignatureShape
+        let built = BinaryInspectionFixtures.build(options)
         let tampered = BinaryInspectionFixtures.flipping(built.bytes, at: built.layout.contentOffset + 100)
-        let readerA = packageReader(executable: built.bytes)
-        let readerB = packageReader(executable: tampered)
+        let readerA = packageReader(executable: built.bytes, infoPlist: infoPlist, codeResources: codeResources)
+        let readerB = packageReader(executable: tampered, infoPlist: infoPlist, codeResources: codeResources)
         let (_, records, useCase) = try await makeUseCase(
             readers: [readerA, readerB],
             cms: BinaryInspectionTestSupport.evaluated()
@@ -540,7 +554,7 @@ final class IPABinaryInspectionTests: XCTestCase {
     }
 
     func testSignedPackageOutsideTheDirectoryIsRefusedWithoutOpening() async throws {
-        let directory = LibraryFixtures.makeTemporaryDirectory()
+        let directory = try LibraryFixtures.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let outside = directory.appendingPathComponent("Elsewhere").appendingPathExtension("ipa")
         var opened = false
