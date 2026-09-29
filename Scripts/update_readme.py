@@ -11,8 +11,9 @@ repairs the default branch weekly. It regenerates:
      from ZynSign.xcodeproj/project.pbxproj MARKETING_VERSION
   2. Honest badge — `https://img.shields.io/badge/honest-N%20wired%20·%20M%20never-green`
      from docs/product/WHAT_DOES_NOT_EXIST.md tables (counts Now Exists vs Still Honest)
-  3. Release-train line — `Current stop on the release train: **vX**`
-     from Scripts/release_train.py (the `current` stage)
+  3. Release-train line — `Current stop on the release train: **vX**
+     (marketing `Y`, build `Z`)` from Scripts/release_train.py (the `current`
+     stage) and from MARKETING_VERSION / CURRENT_PROJECT_VERSION
 
 Idempotent: if README already matches derived values, no write.
 
@@ -39,8 +40,15 @@ def read_marketing_version() -> str:
         return "0.1.0"
     return m.group(1).strip().strip('"')
 
+def read_build_number() -> str:
+    """`CURRENT_PROJECT_VERSION` (CFBundleVersion) from the Xcode project."""
+    text = PBXPROJ.read_text(encoding="utf-8")
+    m = re.search(r"CURRENT_PROJECT_VERSION\s*=\s*(\d+);", text)
+    return m.group(1) if m else "1"
+
+
 def read_release_stage() -> str | None:
-    """The release train's current stage tag, e.g. `v1.0.0-rc.2`."""
+    """The release train's current stage tag, e.g. `v0.1.0-dev.1`."""
     train = ROOT / "ZynSign" / "Application" / "ReleaseTrain.swift"
     if not train.exists():
         return None
@@ -103,12 +111,22 @@ def update_readme(check: bool = False) -> int:
         f"https://img.shields.io/badge/honest-{wired}%20wired%20·%20{never}%20never-green",
         text,
     )
-    # 3. Release-train line
+    # 3. Release-train line — the stop's tag, and the marketing version and
+    #    build number quoted next to it. All three come from the train and the
+    #    Xcode project, so the sentence cannot go stale when the train moves
+    #    (a reset changes all three at once, which is exactly when a hardcoded
+    #    parenthetical would lie).
     stage = read_release_stage()
     if stage:
         text = re.sub(
             r"(Current stop on the release train: \*\*`)[^`]+(`\*\*)",
             rf"\g<1>{stage}\g<2>",
+            text,
+        )
+        build = read_build_number()
+        text = re.sub(
+            r"(Current stop on the release train: \*\*`[^`]+`\*\* \(marketing `)[^`]+(`, build `)\d+(`\))",
+            rf"\g<1>{version}\g<2>{build}\g<3>",
             text,
         )
 
@@ -124,8 +142,13 @@ def update_readme(check: bool = False) -> int:
             return 1
         README.write_text(text, encoding="utf-8")
         print(f"README updated: version={version} honest={wired} wired · {never} never")
-        # Verify What works today still honest
-        if f"{wired} wired" not in text or f"{never} never" not in text:
+        # Verify What works today still honest. The badge URL-encodes its
+        # spaces (`10%20wired`), so accept either spelling — otherwise this
+        # warns on every run and trains everyone to ignore it.
+        def _present(count: int, word: str) -> bool:
+            return f"{count} {word}" in text or f"{count}%20{word}" in text
+
+        if not (_present(wired, "wired") and _present(never, "never")):
             print("Warning: What works today table may not match WHAT_DOES_NOT_EXIST counts", file=sys.stderr)
         return 0
     else:
