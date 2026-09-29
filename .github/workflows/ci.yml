@@ -1,9 +1,13 @@
 # ZynSign continuous integration.
 #
-# Builds the application target, runs the unit-test target on a simulator,
-# and runs repository-hygiene checks. See
+# The macOS pipeline: builds every target, runs the unit tests on a
+# simulator, checks lint and format, judges ZynSign-signed artifacts with
+# Apple's own tooling, and runs the repository-hygiene audits. See
 # docs/development/continuous-integration.md for what each job establishes
 # and what it explicitly does not claim.
+#
+# The static gates that need no Xcode live in quality.yml; the weekly deep
+# sweep (Periphery, dashboards, stale, README sync) lives in maintenance.yml.
 name: CI
 
 on:
@@ -111,6 +115,7 @@ jobs:
   build-and-test:
     name: Build and test (Xcode)
     runs-on: macos-15
+    timeout-minutes: 45
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
@@ -126,44 +131,57 @@ jobs:
           xcodebuild -version
           xcrun simctl list runtimes | head -n 20 || true
 
-      - name: Build the application target
-        run: |
-          set -u
-          LOG="$RUNNER_TEMP/build-app.log"
-          set +e
-          xcodebuild build \
-            -project ZynSign.xcodeproj \
-            -scheme ZynSign \
-            -destination 'generic/platform=iOS Simulator' \
-            -quiet 2>&1 | tee "$LOG"
-          status=${PIPESTATUS[0]}
-          set -e
-          if [ "$status" -ne 0 ]; then
-            Scripts/ci/annotate_test_failures.sh "" "$LOG" || true
-          fi
-          exit "$status"
+      # The project vendors no external packages today; the cache is wired
+      # now so the first adopted package resolves instantly.
+      - name: Restore Swift Package cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            ~/Library/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('**/Package.resolved', 'ZynSign.xcodeproj/project.pbxproj') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
 
-      - name: Run the unit-test target
-        run: |
-          set -u
-          LOG="$RUNNER_TEMP/unit-tests.log"
-          BUNDLE="$RUNNER_TEMP/unit-tests.xcresult"
-          rm -rf "$BUNDLE"
-          # Deliberately no -quiet: per-case failure lines back up the
-          # xcresult annotations and keep the job log readable.
-          set +e
-          xcodebuild test \
-            -project ZynSign.xcodeproj \
-            -scheme ZynSign \
-            -destination "platform=iOS Simulator,name=$(Scripts/ci/select_simulator.sh),OS=latest" \
-            -resultBundlePath "$BUNDLE" \
-            2>&1 | tee "$LOG"
-          status=${PIPESTATUS[0]}
-          set -e
-          if [ "$status" -ne 0 ]; then
-            Scripts/ci/annotate_test_failures.sh "$BUNDLE" "$LOG" || true
-          fi
-          exit "$status"
+      # One build-and-test run per commit, not two. Scripts/ci/build.sh
+      # resolves packages, cleans DerivedData, builds every target, builds
+      # the test targets, runs the unit tests on a resolved simulator, and
+      # annotates each failing case from the result bundle — the whole gate
+      # lives in the script, so the workflow cannot drift from it.
+      - name: Build every target and run the unit tests
+        run: Scripts/ci/build.sh
+
+      - name: Upload build and test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-test-logs
+          path: |
+            build/logs/*.log
+            build/logs/ZynSignTests.xcresult
+          if-no-files-found: warn
+          retention-days: 14
+
+  # SwiftLint and SwiftFormat in one job: a single Homebrew invocation and a
+  # single macOS runner for the pair. Lint errors block; the format check
+  # blocks too, and the weekly maintenance run applies the pinned rule set
+  # automatically so a drift repairs itself.
+  lint-and-format:
+    name: Lint and format
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install the tooling
+        run: HOMEBREW_NO_AUTO_UPDATE=1 brew install swiftlint swiftformat
+
+      - name: SwiftLint
+        run: Scripts/ci/lint.sh
+
+      - name: SwiftFormat check
+        run: Scripts/ci/format.sh check
 
   # Measurement, not a gate: ZynSign-signed artifacts judged by Apple's
   # developer tooling. The job fails only when the harness cannot do its job
