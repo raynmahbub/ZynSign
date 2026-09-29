@@ -36,9 +36,16 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
+# Crystal Flow — the shared log and summary language (Scripts/ci/crystal.sh).
+CRYSTAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=Scripts/ci/crystal.sh
+source "${CRYSTAL_DIR}/crystal.sh"
+crystal_phase "${CRYSTAL_RELEASE}" "Release" "Metadata"
+
 TRAIN=(python3 Scripts/release_train.py)
 
-fail() { echo "::error title=release-meta::$1" >&2; echo "FAIL: $1" >&2; }
+# Crystal Flow: ✗ in the log plus the GitHub ::error annotation.
+fail() { crystal_fail "$1"; }
 
 # --- derivation -------------------------------------------------------------
 
@@ -119,7 +126,7 @@ emit() {
 # --- self-test --------------------------------------------------------------
 
 # self_test — prove the derivation and the refusals on the real train, so
-# ci.yml catches a broken release pipeline on an ordinary push instead of
+# 01-build.yml catches a broken release pipeline on an ordinary push instead of
 # at the moment somebody tries to ship.
 self_test() {
     local failures=0 current actual

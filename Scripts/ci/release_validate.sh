@@ -20,6 +20,12 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
+# Crystal Flow — the shared log and summary language (Scripts/ci/crystal.sh).
+CRYSTAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=Scripts/ci/crystal.sh
+source "${CRYSTAL_DIR}/crystal.sh"
+crystal_phase "${CRYSTAL_RELEASE}" "Release" "Validation"
+
 VERSION="${1:-${VERSION:-}}"
 if [[ -z "${VERSION}" ]]; then
     echo "Usage: $0 <version without leading v>" >&2
@@ -30,9 +36,11 @@ PBXPROJ="ZynSign.xcodeproj/project.pbxproj"
 
 failures=0
 warnings=0
-fail()  { echo "::error title=release-validate::$1" >&2;   echo "FAIL: $1" >&2;    failures=$((failures + 1)); }
-warnf() { echo "::warning title=release-validate::$1";    echo "WARNING: $1";     warnings=$((warnings + 1)); }
-ok()    { echo "ok: $1"; }
+# Crystal Flow: ✓ / ⚠ / ✗ in the log, and the matching GitHub annotation when
+# running in Actions (crystal.sh emits ::warning and ::error itself).
+fail()  { crystal_fail "$1";  failures=$((failures + 1)); }
+warnf() { crystal_warn "$1";  warnings=$((warnings + 1)); }
+ok()    { crystal_ok "$1"; }
 
 echo "=== Release validation for ${TAG} ==="
 
@@ -79,7 +87,7 @@ else
     warnf "no release notes at ${notes} — the release will fall back to auto-generated notes"
 fi
 
-# 6. Deployment target sanity (assets record it in BuildInfo.json).
+# 6. Deployment target sanity (the Build Passport records it).
 deploy_target=$(grep -oE 'IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+' "${PBXPROJ}" | head -1 | awk '{print $3}')
 if [[ -n "${deploy_target}" ]]; then
     ok "iOS deployment target ${deploy_target}"

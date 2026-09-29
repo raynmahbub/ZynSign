@@ -15,6 +15,12 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
+# Crystal Flow — the shared log and summary language (Scripts/ci/crystal.sh).
+CRYSTAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=Scripts/ci/crystal.sh
+source "${CRYSTAL_DIR}/crystal.sh"
+crystal_phase "${CRYSTAL_QUALITY}" "Quality" "Complexity thresholds"
+
 STRICT=0
 [[ "${1:-}" == "--strict" ]] && STRICT=1
 

@@ -18,6 +18,12 @@
 #
 set -euo pipefail
 
+# Crystal Flow — the shared log and summary language (Scripts/ci/crystal.sh).
+CRYSTAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=Scripts/ci/crystal.sh
+source "${CRYSTAL_DIR}/crystal.sh"
+crystal_phase "${CRYSTAL_BUILD}" "Build" "Compile and test"
+
 PROJECT="${PROJECT:-ZynSign.xcodeproj}"
 SCHEME="${SCHEME:-ZynSign}"
 # Empty = resolve the first available iPhone simulator at test time

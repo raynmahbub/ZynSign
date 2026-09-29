@@ -10,12 +10,18 @@
 #   * well-known token shapes (AWS keys, GitHub tokens, Slack tokens,
 #     Stripe live keys) anywhere in sources and scripts
 #
-# The same policy runs in quality.yml's secret-policy job; this script makes
+# The same policy runs in 02-quality.yml's secret-policy job; this script makes
 # it reproducible locally and pairs with Gitleaks (used on the full history
-# by quality.yml's gitleaks job). If `gitleaks` is installed it runs too.
+# by 02-quality.yml's gitleaks job). If `gitleaks` is installed it runs too.
 #
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+# Crystal Flow — the shared log and summary language (Scripts/ci/crystal.sh).
+CRYSTAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=Scripts/ci/crystal.sh
+source "${CRYSTAL_DIR}/crystal.sh"
+crystal_phase "${CRYSTAL_QUALITY}" "Quality" "Secret policy"
 
 METRICS_DIR="build/metrics"
 mkdir -p "${METRICS_DIR}"
@@ -58,7 +64,7 @@ if command -v gitleaks >/dev/null 2>&1; then
         fail "Gitleaks found secret material in the history."
     fi
 else
-    echo "gitleaks not installed — the history scan runs in quality.yml's gitleaks job."
+    echo "gitleaks not installed — the history scan runs in 02-quality.yml's gitleaks job."
 fi
 
 echo "findings=${findings}" > "${METRICS_DIR}/security.txt"
