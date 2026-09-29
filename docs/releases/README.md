@@ -18,7 +18,7 @@ A development stop **exposes none of those staged features** in a Release build:
 The Xcode project declares `MARKETING_VERSION 0.1.0` `CURRENT_PROJECT_VERSION 1` (`ZynSign.xcodeproj/project.pbxproj`) and `ReleaseTrain.current` is `.dev1` — verify both with `python3 Scripts/release_train.py check`. The private binary and the public release are the same binary — no rebuild between private and public.
 
 - Train history: the train ran `v0.1.0` → the alphas → the betas → `v1.0.0-rc.1` → `v1.0.0-rc.2` before the reset. That work is recorded in this directory's release notes and in `docs/audits/`, and the reset changed none of the code it produced.
-- The pre-launch tags `v0.1.0-dev`/`v0.1.1-dev`/`v0.2.0-dev` at `58e604c` were **deleted on 2026-09-29**; the commit stays in history ([release-train.md](release-train.md), “Legacy tags — retired”).
+- The pre-launch tags `v0.1.0-dev`/`v0.1.1-dev`/`v0.2.0-dev` at `58e604c` were **deleted on 2026-09-29**; their notes are archived in [archive/pre-launch-releases.md](archive/pre-launch-releases.md) and the work itself is in `main` ([release-train.md](release-train.md), “Legacy tags — retired”).
 - The engineering-excellence release system gates and publishes every tag automatically — see [release-automation.md](release-automation.md). The reset that started the permanent version structure is recorded in [ReleaseResetGuide.md](ReleaseResetGuide.md).
 - The build is not signed for the App Store. Distribution is sideloading / TestFlight only; installation on iOS/iPadOS remains unavailable per [installation-compatibility.md](../architecture/installation-compatibility.md).
 - See [CHANGELOG.md](../../CHANGELOG.md) and [version-strategy.md](version-strategy.md) for exactly what is claimed.

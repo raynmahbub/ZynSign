@@ -55,8 +55,11 @@ features it always did, so `promote` switches them back on in the planned order.
 - `README.md` version badge `1.0.0` → `0.1.0` and the release-train line to
   `v0.1.0-dev.1` (marketing `0.1.0`, build `1`), written by
   `Scripts/update_readme.py`.
-- The pre-launch releases and their tags are gone from GitHub. Commit `58e604c`
-  stays in history; nothing else was removed.
+- The pre-launch releases and their tags are gone from GitHub, and their notes
+  are preserved verbatim in `docs/releases/archive/pre-launch-releases.md`.
+  Those tags pointed at `58e604c`, which was never an ancestor of `main`, so no
+  ref reaches that commit now; the work it described was merged and is in
+  `main`. Nothing else was removed.
 
 ### Fixed
 

@@ -1521,7 +1521,10 @@ stays there because it landed across several stops before the reset.
 - `README.md` version badge and release-train line, written by
   `Scripts/update_readme.py`.
 - The pre-launch releases `v0.1.0-dev`, `v0.1.1-dev`, `v0.2.0-dev` and their
-  tags were deleted from GitHub. Commit `58e604c` remains in history.
+  tags were deleted from GitHub, and their notes archived verbatim in
+  `docs/releases/archive/pre-launch-releases.md`. Those tags pointed at
+  `58e604c`, which was never an ancestor of `main`; the work itself was merged
+  and is in `main`.
 
 ### Fixed
 

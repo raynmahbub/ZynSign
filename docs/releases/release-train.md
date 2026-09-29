@@ -159,10 +159,18 @@ marked **Latest** and sorted *above* `0.1.0`, which confused anyone comparing
 versions — Release Drafter's version resolver included.
 
 They were **deleted on 2026-09-29**, releases and tags together, as step 1 of
-[ReleaseResetGuide.md](ReleaseResetGuide.md). Commit `58e604c` remains in
-history; only the release objects and their tag refs were removed.
+[ReleaseResetGuide.md](ReleaseResetGuide.md); their notes are preserved verbatim
+in [archive/pre-launch-releases.md](archive/pre-launch-releases.md).
 `gh release list` is empty, and `v0.1.0-dev.1` is the first tag on the
 permanent structure.
+
+One consequence is worth stating plainly rather than glossing: the tags all
+pointed at commit `58e604c`, which sat on a pre-merge branch and was never an
+ancestor of `main`, so with the tag refs gone it is reachable from no ref.
+GitHub still serves the object, but nothing points at it. The **work** those
+releases described is safe — it was merged and is in `main`, recorded in
+`CHANGELOG.md`. Only the release objects, their tag refs, and their notes were
+removed, which is why the notes were archived first.
 
 They were never `ReleaseStage` cases, and no stage was invented for them: a
 development stop is `0.1.0-dev.1`, not `0.1.0-dev`.

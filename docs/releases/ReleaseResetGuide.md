@@ -27,6 +27,11 @@ future reset.
 
 ## Step 1 — Delete the releases
 
+Archive the release bodies first. `--cleanup-tag` removes the tag ref, and
+these tags were the only refs pointing at their commit — so once they are gone
+the notes exist nowhere unless they were copied out. They are preserved verbatim
+in [archive/pre-launch-releases.md](archive/pre-launch-releases.md).
+
 Each command deletes the GitHub Release **and** its tag (`--cleanup-tag`).
 
 ```sh
