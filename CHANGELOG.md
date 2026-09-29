@@ -19,6 +19,53 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+## [0.1.0-alpha.3] - 2026-09-29
+
+**Alpha 3.** Market `0.1.0` build `2` (`CFBundleShortVersionString 0.1.0`,
+`CFBundleVersion 2`), tag `v0.1.0-alpha.3`, release train `.alpha3`. Notes:
+[`docs/releases/notes-v0.1.0-alpha.3.md`](docs/releases/notes-v0.1.0-alpha.3.md).
+
+Switches on **ten** staged features, seven of them first reachable in a Release
+build: Certificate Studio, Library Power Features, Smart Sign, the Provisioning
+Profile Manager, the Professional Signing Queue, Intelligent Signing Presets,
+the App Store with repository health, the Download Center, the Entitlements
+Studio, and the Developer Identity Center.
+
+Mission Control, the installation delivery hand-off, and the local activity
+journal remain staged for `beta1` and are reachable in Debug only. The three
+recorded *never* — in-app installation, pairing/JIT/mux, and off-device
+analytics — are unchanged and are still not offered by any release.
+
+### Fixed
+
+- **Settings crashed on open.** `FilesView`, `AppStoreView` and `DownloadsView`
+  each embedded a `NavigationStack` while being pushed as a `NavigationLink`
+  destination from inside Settings' own stack. Nesting a stack inside a pushed
+  destination crashes at runtime. All three now take an `embedsNavigationStack`
+  flag, following the pattern `PresetsView` already used.
+- **Two more crashes of the same class**, found by the new audit and closed:
+  `ProfilesView` and `InstallationWorkspaceView`, both pushed from Settings →
+  Browse. The second had been dormant only because its feature was gated off;
+  promoting to `alpha3` would have activated it.
+- **The Import button could silently do nothing.** It asked for a file picker
+  400 ms after asking for the Import Hub, losing the request whenever the sheet
+  took longer to present. It is now presented off the sheet's own appearance.
+- **`audit_navigation_stack.py`** refuses a pushed destination that opens its own
+  navigation stack, and runs in the hygiene job.
+
+### Changed
+
+- **The tab bar is `Files · Library · Home · App Store · Downloads · Settings`**
+  and is no longer subject to the release gate — a tab that appears and
+  disappears between releases is one a user cannot rely on. Certificates and
+  Profiles left the tab bar and are reached from Settings; a stored landing tab
+  naming one of them coalesces to Library rather than selecting nothing.
+- **Home is a command center**: the wordmark, three counts that open the area
+  they count, an updates row that appears only when something is ready, the
+  import target, a direct-link field, and the action list. A count that has not
+  been read shows a neutral block rather than a zero, so "none" and "not loaded"
+  never look alike.
+
 ## [0.0.1-dev.1] - 2026-09-29
 
 **First build — development stop 1.** Market `0.0.1` build `1`

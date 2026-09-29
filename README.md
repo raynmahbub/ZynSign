@@ -4,10 +4,10 @@
 
 <br>
 
-<a href="docs/releases/version-strategy.md"><img alt="Version" src="https://img.shields.io/badge/version-0.0.1-6D6AF0"></a>
+<a href="docs/releases/version-strategy.md"><img alt="Version" src="https://img.shields.io/badge/version-0.1.0--alpha.3-6D6AF0"></a>
 <a href="#requirements"><img alt="Platform" src="https://img.shields.io/badge/platform-iOS%2017%2B-1D1D1F"></a>
 <a href=".github/workflows/01-build.yml"><img alt="CI" src="https://img.shields.io/badge/CI-build%20%C2%B7%20test%20%C2%B7%20audits-1C8E58"></a>
-<a href="docs/product/WHAT_DOES_NOT_EXIST.md"><img alt="Honest" src="https://img.shields.io/badge/honest-10%20wired%20·%203%20never-green"></a>
+<a href="docs/product/WHAT_DOES_NOT_EXIST.md"><img alt="Honest" src="https://img.shields.io/badge/honest-7%20of%2010%20staged%20on%20%C2%B7%203%20never-green"></a>
 <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
 
 **Import an IPA, sign it with your own identity, and hand it off for install — entirely on the device, with no server and no desktop helper.**
