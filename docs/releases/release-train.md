@@ -12,6 +12,9 @@ cherry-picks, and no deleted code to restore later.
 
 | Release | Tag | Switches on | Users see |
 |---|---|---|---|
+| Dev 1 | `v0.1.0-dev.1` | — | Core only. **Current stop.** Proves the pipeline end to end against a real tag: quality gate → build + tests → version-stamped assets → publish. |
+| Dev 2 | `v0.1.0-dev.2` | — | Core only; fixes, and the private device matrix for the core |
+| Dev 3 | `v0.1.0-dev.3` | — | Core only; the last rehearsal before Horizon |
 | **Horizon** | `v0.1.0` | Core | Files · Import (`ipa`/`tipa`) · Library · Bundle Explorer · Home · Settings (About, Archive, Pairing/Analytics honesty, Appearance, Storage, Diagnostics) |
 | Alpha 1 | `v0.1.0-alpha.1` | Certificate Studio | Settings → Certificates (`.p12`/`.pfx` import, detail, public JSON export) |
 | Alpha 2 | `v0.1.0-alpha.2` | Smart Sign, Professional Signing Queue, Intelligent Signing Presets | `Sign Application…` (Library menu + detail), 9-stage pipeline, DER toggle, Live Activity, Signing Options, Library “Signed” segment, Settings → Installation, Settings → Signing Queue, Settings → Presets, recommended preset with a required confirmation that enqueues on the signing queue |
@@ -30,6 +33,13 @@ cherry-picks, and no deleted code to restore later.
 This follows [version-strategy.md](version-strategy.md): signing arrives within
 Alpha (Alpha's exit criteria need it), and the app is feature complete by the
 first Beta.
+
+The three development stops switch on nothing on purpose. They exist so the
+release machinery is proven against a real tag before a single feature is
+exposed publicly. Every feature below them is already compiled into a
+development build — a Debug build shows all of them, and
+`-ZynSignReleaseStage <stage>` previews any later stop — so a development stop
+is a pipeline proof, not a smaller app.
 
 Run `python3 Scripts/release_train.py status` to print this table from the
 code, or `python3 Scripts/release_train.py current` (`--tag`, `--stage`) to
@@ -99,7 +109,7 @@ python3 Scripts/release_train.py status             # confirm
 # 4. Commit, open a PR, merge to main
 git commit -am "release: v0.1.0-alpha.1"
 
-# 5. Tag the merged commit on main — release.yml does the rest
+# 5. Tag the merged commit on main — 🚀 Release (03-release.yml) does the rest
 git tag -a v0.1.0-alpha.1 -m "ZynSign 0.1.0-alpha.1"
 git push origin v0.1.0-alpha.1
 ```
@@ -121,13 +131,15 @@ Safety rails:
 - `ReleaseTrainTests` pin the order, that features only accumulate, that each
   feature is introduced once, and that no release exposes a feature without its
   prerequisites.
-- Alpha, beta and rc tags are published as GitHub **pre-releases**. `v0.1.0`
-  and `v1.0.0` are not.
+- Development, alpha, beta and rc tags are published as GitHub
+  **pre-releases** — `Scripts/ci/release_meta.sh` detects the channel from the
+  tag. `v0.1.0` and `v1.0.0` are not.
 
 ### Build numbers
 
-Apple requires `CFBundleShortVersionString` to be numeric, so all three alphas
-report `0.1.0` and all betas report `0.9.0`. The pre-release suffix lives only in
+Apple requires `CFBundleShortVersionString` to be numeric, so the three
+development stops and all three alphas report `0.1.0`, and all betas report
+`0.9.0`. The pre-release suffix lives only in
 the tag. `CFBundleVersion` goes up by one with every `promote`, and TestFlight
 needs that.
 
@@ -139,20 +151,22 @@ Smart Sign before Certificate Studio. After `1.0.0`, new features follow normal
 SemVer (`1.1.0`, …). Add a new `ReleaseFeature` and gate it the same way while
 it's being built.
 
-## Legacy tags
+## Legacy tags — retired
 
-The GitHub releases `v0.1.0-dev`, `v0.1.1-dev` and `v0.2.0-dev` (all at
-`58e604c`) predate this train. They have no binary assets. `v0.2.0-dev` is
-currently marked **Latest** and sorts *above* `0.1.0`, which will confuse
-anyone who compares versions. Before publishing `v0.1.0`, mark them as
-pre-releases or delete them:
+Three GitHub releases predated this train: `v0.1.0-dev`, `v0.1.1-dev` and
+`v0.2.0-dev`, all at `58e604c`, none with binary assets. `v0.2.0-dev` was
+marked **Latest** and sorted *above* `0.1.0`, which confused anyone comparing
+versions — Release Drafter's version resolver included.
 
-They are also not `ReleaseStage` cases, so they can never be released again:
-`release_train.py check --tag v0.1.0-dev` reports that the tag is not a stop on
-the train and lists the real ones, and `Scripts/ci/release_meta.sh` fails the
-run in its first job. Releasing them would mean moving backwards off the train.
+They were **deleted on 2026-09-29**, releases and tags together, as step 1 of
+[ReleaseResetGuide.md](ReleaseResetGuide.md). Commit `58e604c` remains in
+history; only the release objects and their tag refs were removed.
+`gh release list` is empty, and `v0.1.0-dev.1` is the first tag on the
+permanent structure.
 
-```sh
-gh release edit v0.2.0-dev --prerelease --latest=false
-gh release edit v0.1.1-dev --prerelease
-```
+They were never `ReleaseStage` cases, and no stage was invented for them: a
+development stop is `0.1.0-dev.1`, not `0.1.0-dev`.
+`release_train.py check --tag v0.1.0-dev` still reports that the tag is not a
+stop on the train and lists the real ones, and `Scripts/ci/release_meta.sh`
+fails the run in its first job. Re-releasing them would mean moving backwards
+off the train.

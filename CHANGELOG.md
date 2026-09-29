@@ -1468,6 +1468,95 @@ performance figures are not device figures *(Low, accepted)*.
 | `v0.1.0-alpha.3` | App Store + Repository Health, Background Downloads |
 | `v0.9.0-beta.1` | Mission Control, Installation Delivery Hand-off, Local Activity Journal |
 
+## [0.1.0-dev.1] - 2026-09-29
+
+First release on the permanent version structure — **Development stop 1** —
+tagged from `main`. Market `0.1.0` build `1` (`CFBundleShortVersionString 0.1.0`,
+`CFBundleVersion 1`), tag `v0.1.0-dev.1`, release train `.dev1`. Notes:
+[`docs/releases/notes-v0.1.0-dev.1.md`](docs/releases/notes-v0.1.0-dev.1.md).
+
+The train restarted here together with the retirement of the three pre-launch
+releases ([`docs/releases/ReleaseResetGuide.md`](docs/releases/ReleaseResetGuide.md)).
+A development stop switches on **no** staged feature: a Release build shows the
+core (Files, Import, Library, Bundle Explorer, Home, Settings) and keeps all 19
+staged features hidden until the stops that introduce them. Its purpose is to
+prove the release pipeline end to end against a real tag before any feature is
+offered publicly.
+
+**The reset moved a pointer, not a plan.** Every feature is still compiled into
+this binary, a Debug build exposes all 19, `-ZynSignReleaseStage <stage>`
+previews any later stop, and each stage after Development introduces exactly the
+features it always did — so `promote` switches them back on in the planned
+order. Nothing built was given up to restart the version numbers. The
+engineering work catalogued under `[Unreleased]` above ships in this binary; it
+stays there because it landed across several stops before the reset.
+
+### Added
+
+- **Development phase on the release train** — `.dev1`, `.dev2`, `.dev3`
+  (`0.1.0-dev.1…3`) ahead of `.horizon`, each with an empty
+  `introducedFeatures`. `Scripts/ci/release_meta.sh` already detected the
+  `development` channel and asserted it in its self-test; the train had no stop
+  for it, so the channel was unreachable.
+- **Five-workflow engineering system** — `01-build.yml` (🔨 Build),
+  `02-quality.yml` (🛡 Quality), `03-release.yml` (🚀 Release),
+  `99-command-center.yml` (⚙ Command Center), `release-drafter.yml`: twenty
+  workflows consolidated into five, 2,091 → 1,544 lines of YAML, with every gate
+  still enforced.
+- **Crystal Flow** — `Scripts/ci/crystal.sh`, one log and summary language for
+  every script (phase banners, ✓ / • / ⚠ / ✗, GitHub annotations, summary
+  cards), sourced by 13 of the 16 `Scripts/ci/*.sh`.
+- **Version-stamped release assets** — `Scripts/ci/release_assets.sh` derives
+  `ZynSign-v{tag}-unsigned.ipa`, `ZynSign-v{tag}-SHA256.txt`,
+  `BuildPassport-v{tag}.json`, `MANIFEST.md` and `ReleaseNotes.md` from the tag.
+  Nothing is hardcoded: toolchain, versions and feature counts are read at build
+  time.
+- **Release rehearsal** — `dry_run: true` runs every gate and builds the full
+  asset set without publishing.
+
+### Changed
+
+- `ReleaseTrain.current` `.rc2` → `.dev1`; `MARKETING_VERSION` `1.0.0` →
+  `0.1.0`; `CURRENT_PROJECT_VERSION` `5` → `1` in all four configurations.
+- `README.md` version badge and release-train line, written by
+  `Scripts/update_readme.py`.
+- The pre-launch releases `v0.1.0-dev`, `v0.1.1-dev`, `v0.2.0-dev` and their
+  tags were deleted from GitHub. Commit `58e604c` remains in history.
+
+### Fixed
+
+- **`ReleaseResetGuide.md` step 4 could not be executed** — it said to tag
+  `v0.1.0-dev.1`, but both release scripts refuse a version the train does not
+  contain, and the train had no development stop. The guide also claimed a reset
+  leaves the train untouched; it now records the train change a reset requires.
+- **`update_readme.py` left the README contradicting itself** — it rewrote the
+  train tag but not the `(marketing X, build Y)` beside it, and `--check` could
+  not see the drift. All three values now come from the train and the Xcode
+  project.
+- **`update_readme.py` warned on every run** that the honest counts might not
+  match, comparing `10 wired` against a badge that stores `10%20wired`.
+- **`docs/releases/README.md` step 3 told the publisher to hand-run
+  `gh release create`**, contradicting one-tag publishing: a hand-made release
+  carries assets no gate produced. The publish steps in `docs/releases/` and
+  `03-release.yml` now take the tag from `release_train.py current --tag`, so no
+  version is retyped and none can go stale.
+- Docs that stated the current stop as `v1.0.0-rc.2` now state `v0.1.0-dev.1`
+  or derive it: `docs/releases/version-strategy.md`, `release-train.md`,
+  `README.md`, `private-testing.md`, `docs/architecture/README.md`,
+  `docs/product/WHAT_DOES_NOT_EXIST.md`, and the sample outputs in
+  `docs/internal/`.
+
+### Tests
+
+- New: `testDevelopmentStagesProveThePipelineWithoutExposingFeatures`,
+  `testTheResetKeptTheWholeFeaturePlanIntact`.
+- Updated pins: `testStagesFollowTheVersionStrategy`,
+  `testMarketingVersionsAreNumericForApple`, `testTagsCarryTheLeadingV`,
+  `testNextWalksTheTrainAndStopsAtStable`,
+  `testStagesCanBeFoundByNameOrVersion`.
+- Their verdict belongs to the `Build and test (Xcode)` job; nothing here claims
+  a result before CI has produced one.
+
 ## [0.1.0] - 2026-09-25
 
 First public development build — **Horizon** — tagged from `main`.

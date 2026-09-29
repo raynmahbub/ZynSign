@@ -27,7 +27,7 @@ The weekly maintenance workflow keeps this dashboard current._
 | Dead code scan (heuristic) | 277 candidate(s) (cached full scan) |
 | Release train | ✅ pass |
 
-Current train: Current release : v1.0.0-rc.2  (stage .rc2) Xcode project   : MARKETING_VERSION 1.0.0 · build 5 
+Current train: Current release : v0.1.0-dev.1  (stage .dev1) Xcode project   : MARKETING_VERSION 0.1.0 · build 1 
 
 ## Release Readiness
 

@@ -6,11 +6,17 @@ time. No stage is entered because the previous one "looks complete", and no
 versioned release section is written in `CHANGELOG.md` for a version that
 was not actually produced.
 
-The Xcode project currently declares marketing version `1.0.0`, build `5`,
-for `v1.0.0-rc.2` (2026-09-27) — the second release candidate on the train
-below, `10 wired · 3 never`. The market version is `1.0.0` (no pre-release
+The Xcode project currently declares marketing version `0.1.0`, build `1`,
+for `v0.1.0-dev.1` (2026-09-29) — the first development stop on the train
+below, `10 wired · 3 never`. The market version is `0.1.0` (no pre-release
 suffix in `CFBundleShortVersionString`; suffixes live only in the tag/release
-name); `CFBundleVersion` is `5`. The build is not an App Store submission.
+name); `CFBundleVersion` is `1`. The build is not an App Store submission.
+
+The `wired · never` counts describe what is **built** into the binary; the
+release train decides what a Release build **shows**. Both statements are true
+at once after the reset described in
+[ReleaseResetGuide.md](ReleaseResetGuide.md): nothing was unbuilt, and a
+development stop exposes only the core.
 Every stop is distributed **privately** first (TestFlight internal + sideload
 IPA) and only after the private gate is green is the tag published publicly —
 see [private-testing.md](private-testing.md).
@@ -21,7 +27,10 @@ The fixed progression from development to stable:
 
 ```
 Development
-└── 0.1.0-dev
+├── 0.1.0-dev.1
+├── 0.1.0-dev.2
+├── 0.1.0-dev.3
+└── 0.1.0            (Horizon)
 Alpha
 ├── 0.1.0-alpha.1
 ├── 0.1.0-alpha.2
@@ -40,8 +49,8 @@ Stable
 ```
 
 Each stage below defines what its builds establish and what must hold
-before the progression advances. The counts are fixed: three Alphas,
-four Betas, three Release Candidates, then Stable.
+before the progression advances. The counts are fixed: three development
+stops, three Alphas, four Betas, three Release Candidates, then Stable.
 
 ## Feature rollout
 
@@ -56,10 +65,23 @@ covers how `ReleaseTrain.swift` and `Scripts/release_train.py` keep the code,
 
 ## Stages
 
-### Development — `0.1.0` Horizon
+### Development — `0.1.0-dev.N` → `0.1.0` Horizon
 
 Internal development and testing builds. The working tree, the test suites,
-and the host vector scripts are the product. The first public dev build is Horizon (`0.1.0`, 2026-09-25): market `0.1.0` build `4`, `9 wired · 3 never` — the delivery hand-off and the local activity journal are wired; in-app installation, Pairing/JIT/Mux, and off-device measurement stay claimed-never. It is built once and distributed **privately** first (TestFlight internal / ad-hoc IPA, see [private-testing.md](private-testing.md)); after the private matrix is all green the same commit is tagged `v0.1.0` and published to GitHub releases for sideloading/TestFlight. It is not App Store signed.
+and the host vector scripts are the product.
+
+The train restarted at `0.1.0-dev.1` on 2026-09-29, together with the
+retirement of the three pre-launch GitHub releases
+([ReleaseResetGuide.md](ReleaseResetGuide.md)). Three development stops run
+before Horizon. They switch on **no** staged feature: their job is to prove the
+release pipeline end to end — quality gate → build + tests → version-stamped
+assets → publish — against a real tag on the permanent version structure,
+before any feature is exposed publicly. A Release build of a development stop
+shows the core only (Files, Import, Library, Bundle Explorer, Home, Settings);
+a Debug build still exposes every feature, so development and UI work are never
+blocked, and `-ZynSignReleaseStage <stage>` previews any later stop.
+
+The first public dev build is Horizon (`0.1.0`, 2026-09-25): market `0.1.0` build `4`, `9 wired · 3 never` — the delivery hand-off and the local activity journal are wired; in-app installation, Pairing/JIT/Mux, and off-device measurement stay claimed-never. It is built once and distributed **privately** first (TestFlight internal / ad-hoc IPA, see [private-testing.md](private-testing.md)); after the private matrix is all green the same commit is tagged `v0.1.0` and published to GitHub releases for sideloading/TestFlight. It is not App Store signed.
 
 ### Alpha — `0.1.0-alpha.N`
 
@@ -146,7 +168,9 @@ Semantic Versioning applies:
 
 ## Current Position
 
-The current stop is `v1.0.0-rc.2` (market `1.0.0`, build `5`, 2026-09-27): fixes and polish only — every staged feature has been switched on since `v0.9.0-beta.1`, RC 1 added the Compatibility Lab, and RC 2 is the UX refinement pass. The Xcode project carries `MARKETING_VERSION 1.0.0` / `CURRENT_PROJECT_VERSION 5` and `ReleaseTrain.current = .rc2`, so the private binary and the public release are the same binary — see [private-testing.md](private-testing.md) for the private distribution (TestFlight internal or ad-hoc IPA, not a public release) and the device matrix that gates each tag. Horizon history: `v0.2.0-dev`/`v0.1.1-dev`/`v0.1.0-dev` at `58e604c`.
+The current stop is `v0.1.0-dev.1` (market `0.1.0`, build `1`, 2026-09-29): the first development release after the reset in [ReleaseResetGuide.md](ReleaseResetGuide.md). It switches on no staged feature — a Release build shows the core only, while every feature stays compiled in and visible in Debug builds. The Xcode project carries `MARKETING_VERSION 0.1.0` / `CURRENT_PROJECT_VERSION 1` and `ReleaseTrain.current = .dev1`, so the private binary and the public release are the same binary — see [private-testing.md](private-testing.md) for the private distribution (TestFlight internal or ad-hoc IPA, not a public release) and the device matrix that gates each tag.
+
+The train reached `v1.0.0-rc.2` (market `1.0.0`, build `5`, 2026-09-27) before the reset, and that history stays in this file, in [release-train.md](release-train.md), and in the audits under `docs/audits/`. The feature plan was not rewritten: `promote` walks the same stops in the same order, so each stage switches its features back on exactly as planned. The pre-launch tags `v0.2.0-dev`/`v0.1.1-dev`/`v0.1.0-dev` at `58e604c` were retired — their releases and tags are deleted, the commit remains in history.
 
 Of the blockers recorded with the final-integration review, three have
 changed since the history now included in 0.1.0 Horizon (58e604c):

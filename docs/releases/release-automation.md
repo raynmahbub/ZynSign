@@ -43,13 +43,23 @@ Every log and every summary speaks one language (Crystal Flow,
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-🚀 Release • Assets • v1.0.0-rc.2
+🚀 Release • Assets • v0.1.0-dev.1
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-✓ ZynSign-v1.0.0-rc.2-unsigned.ipa
-✓ ZynSign-v1.0.0-rc.2-SHA256.txt — c8f182eb56362394…
-✓ BuildPassport-v1.0.0-rc.2.json — 17 feature(s) visible, 2 staged later
+✓ Application bundle: build/ZynSign.xcarchive/Products/Applications/ZynSign.app
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚀 Release • Package
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+✓ ZynSign-v0.1.0-dev.1-unsigned.ipa
+✓ ZynSign-v0.1.0-dev.1-SHA256.txt — 89768317ee224905…
+✓ BuildPassport-v0.1.0-dev.1.json — 0 feature(s) visible, 19 staged later
+✓ ReleaseNotes.md — curated notes (docs/releases/notes-v0.1.0-dev.1.md)
 ✓ MANIFEST.md — 5 asset(s) listed
 ```
+
+The `0 feature(s) visible, 19 staged later` line is the release train, not a
+build setting: a development stop exposes the core only, and every staged
+feature stays compiled in until the stop that introduces it.
 
 ## Which version a run releases
 
@@ -58,7 +68,7 @@ only place the version is decided:
 
 | Trigger | Version released |
 | --- | --- |
-| Tag push (`v1.0.0-rc.2`) | the tag's version |
+| Tag push (`v0.1.0-dev.1`) | the tag's version |
 | `workflow_dispatch` with a version typed | that version |
 | `workflow_dispatch` with the field left empty | the release train's current stop |
 
@@ -74,9 +84,13 @@ ubuntu, before any macOS runner is allocated:
 
 ```
 ✗ v0.1.0-dev is not a stop on the release train, so nothing can be released for it.
-  ReleaseTrain.current is v1.0.0-rc.2; the train's stops are: …
+  ReleaseTrain.current is v0.1.0-dev.1; the train's stops are:
+    v0.1.0-dev.1, v0.1.0-dev.2, v0.1.0-dev.3, v0.1.0, v0.1.0-alpha.1, …, v3.0.0
+  The retired pre-launch tags (v0.1.0-dev, v0.1.1-dev, v0.2.0-dev) were deleted
+  on 2026-09-29 and were never stages, so `promote` cannot move to them —
+  a development stop is 0.1.0-dev.1, not 0.1.0-dev
 ::error title=release-meta::v0.1.0-dev cannot be released — it is not the release train's current stop
-     Release the current stop instead: v1.0.0-rc.2
+     Release the current stop instead: v0.1.0-dev.1
 ```
 
 `Scripts/ci/release_meta.sh --self-test` proves the derivation and every
@@ -109,9 +123,9 @@ filename carries the version and nothing is ever renamed by hand:
 
 ```
 Release Assets
-├── ZynSign-v1.0.0-rc.2-unsigned.ipa    # Payload/ zip of the archived .app
-├── ZynSign-v1.0.0-rc.2-SHA256.txt      # checksum, `shasum -a 256 -c` layout
-├── BuildPassport-v1.0.0-rc.2.json      # the build's fingerprint (internal)
+├── ZynSign-v0.1.0-dev.1-unsigned.ipa   # Payload/ zip of the archived .app
+├── ZynSign-v0.1.0-dev.1-SHA256.txt     # checksum, `shasum -a 256 -c` layout
+├── BuildPassport-v0.1.0-dev.1.json     # the build's fingerprint (internal)
 ├── MANIFEST.md                         # identity, provenance, assets, verify
 └── ReleaseNotes.md                     # docs/releases/notes-v{version}.md,
                                         # else the CHANGELOG section
@@ -123,22 +137,22 @@ when something goes wrong in the field, and what a user never has to see:
 ```json
 {
   "app": "ZynSign",
-  "version": "1.0.0-rc.2",
-  "tag": "v1.0.0-rc.2",
-  "channel": "rc",
-  "artifact": "ZynSign-v1.0.0-rc.2-unsigned.ipa",
-  "marketingVersion": "1.0.0",
-  "buildNumber": "5",
-  "commit": "3f47906",
-  "buildDate": "2026-09-29T07:12:52Z",
-  "xcode": "16.2",
-  "swift": "6.0",
+  "version": "0.1.0-dev.1",
+  "tag": "v0.1.0-dev.1",
+  "channel": "development",
+  "artifact": "ZynSign-v0.1.0-dev.1-unsigned.ipa",
+  "marketingVersion": "0.1.0",
+  "buildNumber": "1",
+  "commit": "1578a46",
+  "buildDate": "2026-09-29T07:56:39Z",
+  "xcode": "unknown",
+  "swift": "unknown",
   "ios": "17.0",
   "signed": false,
-  "checksum": "sha256:c8f182eb…",
-  "releaseTrain": "v1.0.0-rc.2",
-  "featuresVisible": 17,
-  "featuresStagedLater": 2
+  "checksum": "sha256:89768317…",
+  "releaseTrain": "v0.1.0-dev.1",
+  "featuresVisible": 0,
+  "featuresStagedLater": 19
 }
 ```
 
@@ -146,6 +160,11 @@ Every field is derived at build time — the toolchain from `xcodebuild`, the
 versions from `project.pbxproj`, the feature counts from
 `Scripts/release_train.py status`. Nothing is hardcoded, so the passport
 cannot go stale the way a written-in version number does.
+
+The sample above was captured from a rehearsal on a Linux host with no Xcode,
+which is why `xcode` and `swift` read `unknown`: the script reports what it
+could not determine instead of inventing a toolchain. On the macOS runner both
+come from the real `xcodebuild -version` and `swift --version`.
 
 The IPA is unsigned (`CODE_SIGNING_ALLOWED=NO` archive) and says so in the
 passport, the manifest and the release notes. **The privately tested signed
@@ -193,8 +212,9 @@ Release notes are assembled from merged pull requests:
 ## Conventional Commits
 
 Every commit message follows Conventional Commits; commitlint
-(`commitlint.config.js`) validates PR commits and titles in
-`pr-quality.yml`, and a husky `commit-msg` hook validates locally.
+(`commitlint.config.js`) validates PR commits and titles in the `commitlint`
+and `pr-title` jobs of `01-build.yml`, and a husky `commit-msg` hook validates
+locally.
 Allowed types: `feat fix refactor perf docs ci test build chore style`.
 Interactive authoring: `npm install && npm run commit` (Commitizen).
 

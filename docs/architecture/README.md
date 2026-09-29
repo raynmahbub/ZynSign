@@ -12,10 +12,15 @@ Architectural decisions for ZynSign are recorded here.
 ## Current State
 
 The record below is in decision order, oldest first. Where the project stands
-today: `v1.0.0-rc.2` (market `1.0.0`, build `5`) — every staged feature is
-built and switched on, the Compatibility Lab is the release gate, and the
-only feature still waiting for its release is the Signing Health Score at
-`v1.0.0` (see [../releases/release-train.md](../releases/release-train.md)).
+today: `v0.1.0-dev.1` (market `0.1.0`, build `1`) — the release train restarted
+at its first development stop
+([../releases/ReleaseResetGuide.md](../releases/ReleaseResetGuide.md)). Every
+staged feature is still built and compiled into this binary; a development stop
+exposes none of them in a Release build, a Debug build exposes all of them, and
+each later stop switches its features on in the planned order — see
+[../releases/release-train.md](../releases/release-train.md). The decisions
+below were all taken while the train ran through to `v1.0.0-rc.2`, and the reset
+changed none of them.
 
 ZynSign is at the start of development. An Xcode application target with a
 SwiftUI shell, a composition root, minimal domain types, and a unit-test target

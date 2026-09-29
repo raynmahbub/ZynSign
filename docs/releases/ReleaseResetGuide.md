@@ -20,10 +20,10 @@ structure below, and their version numbers collide with it (`v0.2.0-dev`
 is ahead of `v0.1.0-dev.1` in SemVer ordering, which confuses Release
 Drafter's version resolver and `latest` detection).
 
-The recommendation: **delete the three pre-launch releases and tags once,
-then start fresh at `v0.1.0-dev.1`.** Keeping them is also a valid
-decision — the automation works either way — but the version ordering
-noise remains until they are removed.
+The reset was **executed on 2026-09-29**: the three pre-launch releases and
+their tags were deleted, and the train restarted at `v0.1.0-dev.1`. The steps
+below are kept as the record of what was done, and as the procedure for any
+future reset.
 
 ## Step 1 — Delete the releases
 
@@ -52,9 +52,35 @@ git ls-remote --tags origin           # expect: no v0.1.x-dev / v0.2.x-dev tags
 python3 Scripts/release_train.py check
 ```
 
-The release train check must stay green — the train
+Deleting releases never touches the train
 (`ZynSign/Application/ReleaseTrain.swift` /
-`Scripts/release_train.py`) is untouched by this cleanup.
+`Scripts/release_train.py`), so this check stays green through step 2.
+
+Starting fresh at `v0.1.0-dev.1` **did** need one train change, and it is the
+part of this guide that was not obvious until it was attempted: the train had
+no development stop, so `Scripts/ci/release_meta.sh` and
+`Scripts/ci/release_validate.sh` refused the tag even though
+`release_meta.sh` already knew the `development` channel (its self-test asserts
+`channel_for 0.1.0-dev.1` → `development`). Step 4 was therefore unexecutable
+until the train gained the phase step 3 describes.
+
+What changed on 2026-09-29:
+
+- `ReleaseStage` gained `.dev1`, `.dev2`, `.dev3` (`0.1.0-dev.1…3`) ahead of
+  `.horizon`, each with an empty `introducedFeatures` — a development stop
+  proves the pipeline and exposes no staged feature.
+- `ReleaseTrain.current` moved `.rc2` → `.dev1`.
+- `MARKETING_VERSION` `1.0.0` → `0.1.0`; `CURRENT_PROJECT_VERSION` `5` → `1`
+  (a new marketing version restarts the build number, which is what
+  TestFlight's monotonic-build rule is scoped to).
+- `ReleaseTrainTests` gained the three stops and
+  `testTheResetKeptTheWholeFeaturePlanIntact`.
+
+The **feature plan was not rewritten.** Every stage after Development keeps
+exactly the features it always had, so `promote` switches them back on in the
+planned order; a Debug build exposes all of them throughout, and
+`-ZynSignReleaseStage <stage>` previews any stop. Nothing built was given up to
+restart the version numbers.
 
 ## Step 3 — Start fresh with the permanent structure
 
