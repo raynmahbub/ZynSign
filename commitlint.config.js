@@ -2,7 +2,7 @@
  * Conventional Commits — ZynSign.
  *
  * Every commit message is validated against this configuration (CI:
- * pr-quality workflow; local: husky commit-msg hook once `npm install`
+ * 01-build workflow; local: husky commit-msg hook once `npm install`
  * has run). The allowed types are exactly the playbook's list, and they
  * are the same types Release Drafter and the changelog generator read.
  *

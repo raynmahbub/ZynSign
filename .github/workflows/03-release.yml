@@ -3,7 +3,10 @@
 # ZynSign ships one release at a time (docs/releases/release-train.md):
 #   python3 Scripts/release_train.py promote      # switch on the next features
 #   # update CHANGELOG + notes, private test, merge to main
-#   git tag -a v1.0.0-rc.2 -m "ZynSign 1.0.0-rc.2" && git push origin v1.0.0-rc.2
+#   TAG="$(python3 Scripts/release_train.py current --tag)"
+#   git tag -a "$TAG" -m "ZynSign ${TAG#v}" && git push origin "$TAG"
+#
+# The tag always comes from the train, so no version is ever retyped here.
 #
 # One tag is the whole manual step. Manually (Actions → 🚀 Release → Run
 # workflow): leave the version empty to release the train's current stop, and

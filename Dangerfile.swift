@@ -1,6 +1,6 @@
 // Danger Swift — ZynSign's senior reviewer on every pull request.
 //
-// Runs from the pr-quality workflow (docker/brew danger-swift) and leaves
+// Runs from the 🔨 Build workflow, 01-build.yml (docker/brew danger-swift), and leaves
 // review comments automatically. Nothing here blocks a merge — Danger is
 // the reviewer who always shows up; the blocking gates are the CI checks.
 
