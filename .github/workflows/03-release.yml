@@ -1,16 +1,17 @@
-# Release — one tag per stop on the release train (the release system).
+# 🚀 Release — one tag per stop on the release train (the release system).
 #
 # ZynSign ships one release at a time (docs/releases/release-train.md):
 #   python3 Scripts/release_train.py promote      # switch on the next features
 #   # update CHANGELOG + notes, private test, merge to main
-#   git tag -a v0.1.0-alpha.1 -m "ZynSign 0.1.0-alpha.1" && git push origin v0.1.0-alpha.1
+#   git tag -a v1.0.0-rc.2 -m "ZynSign 1.0.0-rc.2" && git push origin v1.0.0-rc.2
 #
-# Manually (Actions → Release → Run workflow): leave the version empty to
-# release the train's current stop. A typed version is released only if it
-# is the current stop — anything else is refused by the meta job.
+# One tag is the whole manual step. Manually (Actions → 🚀 Release → Run
+# workflow): leave the version empty to release the train's current stop, and
+# set dry_run to rehearse — every gate runs and the full asset set is built,
+# but nothing is published. A typed version is released only if it is the
+# current stop; anything else is refused by the meta job.
 #
-# This workflow runs on the tag and enforces the release quality gate
-# before anything is published:
+# Stages:
 #
 #   0. meta       — which version this run releases: the tag, the dispatch
 #                   input, or the release train's current stop when neither
@@ -19,16 +20,19 @@
 #   1. validate   — release-train stage, MARKETING_VERSION, changelog,
 #                   notes, architecture, dependencies, docs, secrets
 #   2. build      — full build and unit-test run (Scripts/ci/build.sh)
-#   3. assets     — ZynSign.ipa (unsigned archive artifact), ZynSign.sha256,
-#                   BuildInfo.json, ReleaseNotes.md
+#   3. assets     — Scripts/ci/release_assets.sh: the version-stamped
+#                   unsigned IPA, its SHA256, the Build Passport, MANIFEST.md
+#                   and ReleaseNotes.md, all derived from the tag
 #   4. publish    — CHANGELOG entry generated if missing, GitHub Release
-#                   created/updated, assets attached (an existing
-#                   ZynSign.ipa is NEVER overwritten — the privately
-#                   tested signed IPA stays the public one)
+#                   created/updated, assets attached (a file already on the
+#                   release is NEVER overwritten, and the version-stamped CI
+#                   artifact cannot collide with the privately tested signed
+#                   ZynSign.ipa at all)
+#   5. verdict    — one summary card: published, rehearsed, or stopped and why
 #
 # If any gate fails, the release stops automatically. The workflow is
 # idempotent: re-running a tag repairs missing pieces without duplicating.
-name: Release
+name: 🚀 Release
 
 on:
   push:
@@ -41,6 +45,11 @@ on:
         required: false
         default: ""
         type: string
+      dry_run:
+        description: "Rehearse: run every gate and build the assets, publish nothing"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -174,73 +183,34 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             -quiet
 
-      - name: Package Payload, checksum, BuildInfo.json, ReleaseNotes.md
+      # Every asset is generated from the tag by one script — version-stamped
+      # IPA name, checksum, Build Passport, MANIFEST.md and ReleaseNotes.md —
+      # so nothing is ever renamed by hand and the naming cannot drift from
+      # the version. CI logic lives in the script, not here.
+      - name: Generate the release asset set
         env:
           VERSION: ${{ needs.meta.outputs.version }}
           TAG: ${{ needs.meta.outputs.tag }}
           CHANNEL: ${{ needs.meta.outputs.channel }}
-        run: |
-          set -eu
-          cd build/release
-          mkdir -p payload/Payload
-          cp -R ZynSign.xcarchive/Products/Applications/ZynSign.app payload/Payload/
-          (cd payload && zip -qry ../ZynSign.ipa Payload)
-
-          shasum -a 256 ZynSign.ipa > ZynSign.sha256
-
-          XCODE_VERSION="$(xcodebuild -version | head -1 | sed 's/Xcode //')"
-          SWIFT_VERSION="$(xcrun swift --version 2>/dev/null | head -1 | sed -E 's/^Apple Swift version ([0-9.]+).*/\1/')"
-          BUILD_NUMBER="$(grep -oE 'CURRENT_PROJECT_VERSION = [0-9]+' ../../ZynSign.xcodeproj/project.pbxproj | head -1 | awk '{print $3}')"
-          DEPLOY_TARGET="$(grep -oE 'IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+' ../../ZynSign.xcodeproj/project.pbxproj | head -1 | awk '{print $3}')"
-          CHECKSUM="$(awk '{print $1}' ZynSign.sha256)"
-          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          printf '{\n' > BuildInfo.json
-          printf '  "name": "ZynSign",\n' >> BuildInfo.json
-          printf '  "version": "%s",\n' "${VERSION}" >> BuildInfo.json
-          printf '  "tag": "%s",\n' "${TAG}" >> BuildInfo.json
-          printf '  "buildNumber": "%s",\n' "${BUILD_NUMBER}" >> BuildInfo.json
-          printf '  "commit": "%s",\n' "${GITHUB_SHA}" >> BuildInfo.json
-          printf '  "buildDate": "%s",\n' "${BUILD_DATE}" >> BuildInfo.json
-          printf '  "swiftVersion": "%s",\n' "${SWIFT_VERSION}" >> BuildInfo.json
-          printf '  "xcodeVersion": "%s",\n' "${XCODE_VERSION}" >> BuildInfo.json
-          printf '  "minimumIOS": "%s",\n' "${DEPLOY_TARGET}" >> BuildInfo.json
-          printf '  "releaseChannel": "%s",\n' "${CHANNEL}" >> BuildInfo.json
-          printf '  "sha256": "%s",\n' "${CHECKSUM}" >> BuildInfo.json
-          printf '  "signed": false,\n' >> BuildInfo.json
-          printf '  "note": "Unsigned archive artifact produced by CI. The privately tested signed IPA, once attached to this release, is the public build and is never overwritten."\n' >> BuildInfo.json
-          printf '}\n' >> BuildInfo.json
-
-          NOTES="../../docs/releases/notes-v${VERSION}.md"
-          if [ -f "${NOTES}" ]; then
-            cp "${NOTES}" ReleaseNotes.md
-          else
-            {
-              echo "# ZynSign ${VERSION}"
-              echo
-              awk -v v="${VERSION}" '
-                $0 ~ "^## \\[" v "\\]" { f = 1; print; next }
-                f && /^## \[/ { exit }
-                f { print }
-              ' ../../CHANGELOG.md
-            } > ReleaseNotes.md
-          fi
-          ls -la ZynSign.ipa ZynSign.sha256 BuildInfo.json ReleaseNotes.md
+        run: >-
+          Scripts/ci/release_assets.sh
+          --archive build/release/ZynSign.xcarchive
+          --out build/release/assets
 
       - name: Upload the release assets
         uses: actions/upload-artifact@v4
         with:
           name: release-assets
-          path: |
-            build/release/ZynSign.ipa
-            build/release/ZynSign.sha256
-            build/release/BuildInfo.json
-            build/release/ReleaseNotes.md
+          path: build/release/assets/
           if-no-files-found: error
           retention-days: 30
 
   # --- Publish: changelog + GitHub Release + assets ----------------------------
   publish:
     name: Publish the release
+    # Skipped entirely on a dry run: the rehearsal proves every gate and
+    # builds the assets, but never touches the public release.
+    if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     needs: [meta, assets]
     timeout-minutes: 20
@@ -345,14 +315,76 @@ jobs:
           TAG: ${{ needs.meta.outputs.tag }}
         run: |
           set -eu
+          source Scripts/ci/crystal.sh
+          crystal_phase "${CRYSTAL_RELEASE}" "Release" "Attach • ${TAG}"
+          # The asset set is version-stamped, so it is listed rather than
+          # hardcoded — adding a sixth artifact needs no change here. The
+          # never-overwrite guard keeps a re-run idempotent, and the privately
+          # tested signed IPA (ZynSign.ipa) can no longer collide with the CI
+          # artifact at all: their names differ by design.
           existing="$(gh release view "${TAG}" --json assets --jq '.assets[].name' 2>/dev/null || true)"
-          for asset in release-assets/ZynSign.ipa release-assets/ZynSign.sha256 release-assets/BuildInfo.json release-assets/ReleaseNotes.md; do
+          shopt -s nullglob
+          for asset in release-assets/*; do
             name="$(basename "${asset}")"
             if printf '%s\n' "${existing}" | grep -qx "${name}"; then
-              echo "Keeping existing ${name} on the release (the privately tested IPA is never overwritten)."
+              crystal_info "Keeping the existing ${name} on the release"
             else
-              echo "Uploading ${name}"
               gh release upload "${TAG}" "${asset}"
+              crystal_ok "Uploaded ${name}"
             fi
           done
-          gh release view "${TAG}" --json assets --jq '.assets[].name'
+          crystal_card_begin "${CRYSTAL_RELEASE}" "Release Assets" "Attached to ${TAG}" "Success"
+          while IFS= read -r name; do
+            [ -n "${name}" ] && crystal_card_row "${name}" "on the release"
+          done <<< "$(gh release view "${TAG}" --json assets --jq '.assets[].name')"
+          crystal_card_end
+
+  # --- Verdict: one card that says what happened ------------------------------
+  # A dry run stops here with a rehearsal card; a real run reports the
+  # published release. Either way the last thing in the log is a summary, not
+  # a wall of xcodebuild output.
+  verdict:
+    name: Release verdict
+    if: always()
+    runs-on: ubuntu-latest
+    needs: [meta, assets, publish]
+    timeout-minutes: 5
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Report
+        env:
+          TAG: ${{ needs.meta.outputs.tag }}
+          VERSION: ${{ needs.meta.outputs.version }}
+          CHANNEL: ${{ needs.meta.outputs.channel }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          ASSETS_RESULT: ${{ needs.assets.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+        run: |
+          set -eu
+          source Scripts/ci/crystal.sh
+          if [ "${DRY_RUN}" = "true" ]; then
+            crystal_card_begin "${CRYSTAL_RELEASE}" "Rehearsal Complete" "Every gate ran; nothing was published" "Success"
+            crystal_card_row "Candidate" "\`${TAG}\`"
+            crystal_card_row "Channel" "${CHANNEL}"
+            crystal_card_row "Assets" "${ASSETS_RESULT} — see the \`release-assets\` artifact"
+            crystal_card_row "Published" "No — dry run"
+            crystal_card_row "Next" "Tag when ready: \`git tag -a ${TAG} -m \"ZynSign ${VERSION}\" && git push origin ${TAG}\`"
+            crystal_card_end
+            exit 0
+          fi
+          if [ "${PUBLISH_RESULT}" = "success" ]; then
+            crystal_card_begin "${CRYSTAL_RELEASE}" "Release Published" "One tag, complete release" "Success"
+            crystal_card_row "Release" "\`${TAG}\`"
+            crystal_card_row "Channel" "${CHANNEL}"
+            crystal_card_row "Assets" "${ASSETS_RESULT}"
+            crystal_card_end
+            exit 0
+          fi
+          crystal_failure_card "${CRYSTAL_RELEASE}" "Release Stopped" \
+            "$([ "${ASSETS_RESULT}" != "success" ] && echo Assets || echo Publish)" \
+            "A gate failed — nothing was published, or the release is incomplete" \
+            "${GITHUB_SHA:0:7}" \
+            "the failing job's log and the \`release-assets\` / \`release-build-logs\` artifacts"
+          exit 1

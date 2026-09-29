@@ -24,7 +24,7 @@
 # All logic lives in Scripts/ci/; this file only wires triggers and jobs.
 # The macOS gates (build, tests, lint, format, external validation) are in
 # ci.yml, and the weekly deep sweep is maintenance.yml.
-name: Quality
+name: 🛡 Quality
 
 on:
   pull_request:

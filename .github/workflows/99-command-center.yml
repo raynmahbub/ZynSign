@@ -1,6 +1,7 @@
-# Weekly maintenance bot.
+# ⚙ Command Center — repository intelligence, weekly and on demand.
 #
-# Every Monday the repository inspects itself:
+# Pure diagnostics and repair: this workflow never gates a pull request and
+# never publishes a release. Every Monday the repository inspects itself:
 #
 #   reports          — SwiftLint summary, SwiftFormat check, architecture
 #                      report, dependency report, documentation report,
@@ -14,17 +15,20 @@
 #                      style commit when anything drifted
 #   readme-sync      — repairs README.md when it drifted from
 #                      MARKETING_VERSION / WHAT_DOES_NOT_EXIST.md
-#                      (quality.yml refuses the drift on a PR)
+#                      (02-quality.yml refuses the drift on a PR)
 #   label-sync       — keeps the label set exactly as .github/labels.json
 #                      declares it (idempotent)
 #   stale            — marks inactive issues and PRs stale, then closes them
+#
+# Run it any time with Actions → ⚙ Command Center → Run workflow for the
+# same diagnostics on demand.
 #
 # The Periphery dead-code scan used to run on every pull request as its own
 # workflow; it is advisory and slow (a 40-minute macOS job), so it lives here
 # where the report is published anyway. The stale bot used to run daily — a
 # weekly pass changes nothing at 60-day and 14-day thresholds.
 #
-name: Maintenance
+name: ⚙ Command Center
 
 on:
   schedule:
