@@ -85,15 +85,20 @@ Why this structure:
 
 The release train remains the source of truth for *which features* each
 tag switches on ([release-train.md](release-train.md)); the structure
-above governs the *version numbers*. `Scripts/ci/release_validate.sh`
-refuses any tag that disagrees with the train.
+above governs the *version numbers*. `Scripts/ci/release_meta.sh` refuses
+any version that disagrees with the train in the first job of both release
+workflows, and `Scripts/ci/release_validate.sh` re-checks it in the quality
+gate.
 
 ## Step 4 — Ship the first fresh release
 
 ```sh
 python3 Scripts/release_train.py status     # confirm the current stage
+python3 Scripts/release_train.py current    # the version the workflows will use
 # …private test first (docs/releases/private-testing.md)…
-# run the preflight: Actions → Prerelease Preflight → version 0.1.0-dev.1
+# run the preflight: Actions → Prerelease Preflight, version left empty —
+# Scripts/ci/release_meta.sh takes the current stop from the train, and a
+# typed version is rejected unless it is that stop
 git tag -a v0.1.0-dev.1 -m "ZynSign 0.1.0-dev.1" && git push origin v0.1.0-dev.1
 ```
 

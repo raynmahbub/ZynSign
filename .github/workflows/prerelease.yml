@@ -9,14 +9,19 @@
 # Pushing the actual tag runs release.yml, which repeats the gates and
 # publishes. Preflight is also how a maintainer verifies a candidate
 # version for the development / alpha / beta / rc channels.
+#
+# The version field is optional: left empty, the rehearsal runs for the
+# release train's current stop (Scripts/ci/release_meta.sh). Anything that
+# is not the current stop is refused by the first job.
 name: Prerelease Preflight
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Candidate version without leading v, e.g. 0.1.0-alpha.1"
-        required: true
+        description: "Candidate version without leading v — leave empty to use the train's current stop"
+        required: false
+        default: ""
         type: string
 
 permissions:
@@ -36,26 +41,26 @@ jobs:
       tag: ${{ steps.meta.outputs.tag }}
       channel: ${{ steps.meta.outputs.channel }}
     steps:
-      - name: Derive version, tag, and channel
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # Same derivation as release.yml, in the same script: the candidate is
+      # the version typed here or, when the field is left empty, the release
+      # train's current stop. A candidate that is not the current stop is
+      # refused in this job, so the rehearsal never spends 45 minutes of
+      # macOS runners on a version that release.yml would reject anyway.
+      - name: Derive and validate the candidate version
         id: meta
         env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          set -eu
-          TAG="v${VERSION}"
-          case "${VERSION}" in
-            *-dev*)   CHANNEL="development" ;;
-            *-alpha*) CHANNEL="alpha" ;;
-            *-beta*)  CHANNEL="beta" ;;
-            *-rc*)    CHANNEL="rc" ;;
-            *)        CHANNEL="stable" ;;
-          esac
-          {
-            echo "version=${VERSION}"
-            echo "tag=${TAG}"
-            echo "channel=${CHANNEL}"
-          } >> "$GITHUB_OUTPUT"
-          echo "Candidate ${TAG} on the ${CHANNEL} channel"
+          REQUESTED_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: Scripts/ci/release_meta.sh "${REQUESTED_VERSION}" "${REF_NAME}"
+
+      - name: Report the candidate
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          CHANNEL: ${{ steps.meta.outputs.channel }}
+        run: echo "Candidate ${TAG} on the ${CHANNEL} channel"
 
   validation:
     name: Validate the candidate release

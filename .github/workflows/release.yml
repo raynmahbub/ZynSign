@@ -5,9 +5,17 @@
 #   # update CHANGELOG + notes, private test, merge to main
 #   git tag -a v0.1.0-alpha.1 -m "ZynSign 0.1.0-alpha.1" && git push origin v0.1.0-alpha.1
 #
+# Manually (Actions → Release → Run workflow): leave the version empty to
+# release the train's current stop. A typed version is released only if it
+# is the current stop — anything else is refused by the meta job.
+#
 # This workflow runs on the tag and enforces the release quality gate
 # before anything is published:
 #
+#   0. meta       — which version this run releases: the tag, the dispatch
+#                   input, or the release train's current stop when neither
+#                   is given. A version that is not the current stop is
+#                   refused here, before any build starts.
 #   1. validate   — release-train stage, MARKETING_VERSION, changelog,
 #                   notes, architecture, dependencies, docs, secrets
 #   2. build      — full build and unit-test run (Scripts/ci/build.sh)
@@ -29,8 +37,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version without leading v, e.g. 0.1.0-alpha.1"
-        required: true
+        description: "Version without leading v — leave empty to release the train's current stop"
+        required: false
+        default: ""
         type: string
 
 permissions:
@@ -52,33 +61,21 @@ jobs:
       channel: ${{ steps.meta.outputs.channel }}
       prerelease: ${{ steps.meta.outputs.prerelease }}
     steps:
-      - name: Derive version, tag, and channel
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # Scripts/ci/release_meta.sh decides which version this run releases:
+      # the tag ref, the dispatch input, or — when neither is given — the
+      # release train's current stop (read from ReleaseTrain.swift through
+      # Scripts/release_train.py, never hardcoded here). It refuses anything
+      # that is not the current stop in this first job, on ubuntu, before a
+      # macOS runner is allocated for a release that cannot ship.
+      - name: Derive and validate the release version
         id: meta
-        run: |
-          set -eu
-          if [ -n "${{ inputs.version }}" ]; then
-            VERSION="${{ inputs.version }}"
-            TAG="v${VERSION}"
-          else
-            TAG="${GITHUB_REF_NAME}"
-            VERSION="${TAG#v}"
-          fi
-          case "${VERSION}" in
-            *-dev*)   CHANNEL="development" ;;
-            *-alpha*) CHANNEL="alpha" ;;
-            *-beta*)  CHANNEL="beta" ;;
-            *-rc*)    CHANNEL="rc" ;;
-            *)        CHANNEL="stable" ;;
-          esac
-          PRERELEASE="false"
-          [ "${CHANNEL}" != "stable" ] && PRERELEASE="true"
-          {
-            echo "version=${VERSION}"
-            echo "tag=${TAG}"
-            echo "channel=${CHANNEL}"
-            echo "prerelease=${PRERELEASE}"
-          } >> "$GITHUB_OUTPUT"
-          echo "Version=${VERSION} Tag=${TAG} Channel=${CHANNEL} PreRelease=${PRERELEASE}"
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: Scripts/ci/release_meta.sh "${REQUESTED_VERSION}" "${REF_NAME}"
 
   # --- Quality gate: validation + static guards ------------------------------
   quality-gate:

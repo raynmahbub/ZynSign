@@ -67,6 +67,13 @@ jobs:
       - name: Check the release train is consistent
         run: python3 Scripts/release_train.py check
 
+      # The release workflows derive their version through this script; the
+      # self-test proves the derivation and the refusals against the real
+      # train, so a broken release pipeline is caught on an ordinary push
+      # rather than at the moment somebody tries to ship.
+      - name: Check the release metadata derivation
+        run: Scripts/ci/release_meta.sh --self-test
+
       - name: Run host vector checks
         run: |
           set -eu

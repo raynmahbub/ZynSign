@@ -31,7 +31,11 @@ This follows [version-strategy.md](version-strategy.md): signing arrives within
 Alpha (Alpha's exit criteria need it), and the app is feature complete by the
 first Beta.
 
-Run `python3 Scripts/release_train.py status` to print this table from the code.
+Run `python3 Scripts/release_train.py status` to print this table from the
+code, or `python3 Scripts/release_train.py current` (`--tag`, `--stage`) to
+print just the current stop — that one-line answer is what
+`Scripts/ci/release_meta.sh` and the release workflows consume, so no version
+is ever hardcoded in YAML.
 
 ## How it works
 
@@ -104,9 +108,15 @@ Safety rails:
 
 - `release_train.py check` runs in CI (`ci.yml` → hygiene). It fails when
   `MARKETING_VERSION` disagrees with `ReleaseTrain.current`.
-- `release.yml` runs `release_train.py check --tag <tag>` first. Pushing
-  `v0.1.0-alpha.2` while the code still says `alpha1` fails the release rather
-  than publishing the wrong feature set.
+- Both release workflows derive their version through
+  `Scripts/ci/release_meta.sh`, whose first job runs
+  `release_train.py check --tag <tag>`. Pushing `v0.1.0-alpha.2` while the
+  code still says `alpha1` fails the release rather than publishing the wrong
+  feature set — and it fails before a macOS runner starts building. Its
+  `--self-test` runs in `ci.yml` → hygiene.
+- Dispatching **Release** or **Prerelease Preflight** with no version releases
+  the train's current stop (`release_train.py current`), so nobody has to
+  retype — or misremember — a version.
 - `promote` refuses to move backwards, because users would lose features.
 - `ReleaseTrainTests` pin the order, that features only accumulate, that each
   feature is introduced once, and that no release exposes a feature without its
@@ -136,6 +146,11 @@ The GitHub releases `v0.1.0-dev`, `v0.1.1-dev` and `v0.2.0-dev` (all at
 currently marked **Latest** and sorts *above* `0.1.0`, which will confuse
 anyone who compares versions. Before publishing `v0.1.0`, mark them as
 pre-releases or delete them:
+
+They are also not `ReleaseStage` cases, so they can never be released again:
+`release_train.py check --tag v0.1.0-dev` reports that the tag is not a stop on
+the train and lists the real ones, and `Scripts/ci/release_meta.sh` fails the
+run in its first job. Releasing them would mean moving backwards off the train.
 
 ```sh
 gh release edit v0.2.0-dev --prerelease --latest=false

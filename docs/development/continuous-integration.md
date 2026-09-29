@@ -12,7 +12,7 @@ there by design, as it does everywhere without
 
 | Job | Runner | Steps |
 | --- | --- | --- |
-| Repository hygiene | `ubuntu-latest` | Refuse private-key material anywhere; refuse certificate text outside `Tests/`; refuse generated artifacts and machine state (`DerivedData/`, `xcuserdata/`, `*.xcresult`, `*.xcuserstate`, `.DS_Store`); check the release train is consistent; run the host vector scripts and the external validation harness self-test; **refuse a crash surface that disagrees with its baseline; refuse an accessibility finding in the sources; refuse a regression catalogue that names a test which does not exist; build and upload the hardening report** |
+| Repository hygiene | `ubuntu-latest` | Refuse private-key material anywhere; refuse certificate text outside `Tests/`; refuse generated artifacts and machine state (`DerivedData/`, `xcuserdata/`, `*.xcresult`, `*.xcuserstate`, `.DS_Store`); check the release train is consistent; check the release metadata derivation (`release_meta.sh --self-test`); run the host vector scripts and the external validation harness self-test; **refuse a crash surface that disagrees with its baseline; refuse an accessibility finding in the sources; refuse a regression catalogue that names a test which does not exist; build and upload the hardening report** |
 | Build and test (Xcode) | `macos-15` | Select the newest stable Xcode, record the toolchain versions, build the application target for the generic iOS Simulator platform, run the `ZynSign` scheme's unit-test target on an iPhone simulator |
 | External validation (Apple tooling) | `macos-15` | Run `ExternalValidationExportTests` with `TEST_RUNNER_ZYNSIGN_EXPORT_DIR` set, judge the exported artifacts with `Tests/Host/external_validation.py run` (`codesign`, `otool`, `ditto`, `unzip`, OpenSSL, ad hoc reference signing), publish the report to the job summary, upload the report and the exports as the `external-validation` artifact, and emit one notice per artifact |
 
@@ -101,6 +101,7 @@ python3 Tests/Host/verify_zip_writer_vectors.py
 python3 Tests/Host/external_validation.py self-test
 
 python3 Scripts/release_train.py check
+Scripts/ci/release_meta.sh --self-test
 python3 Scripts/audit_crash_surface.py
 python3 Scripts/audit_accessibility.py --strict
 python3 Scripts/audit_regression_coverage.py
@@ -138,7 +139,7 @@ bundle so the failing suites are readable without opening a raw log.
 | `dead-code.yml` | advisory | `dead_code_scan.sh` — Periphery, never deletes |
 | `quality-summary.yml` | advisory | `metrics_report.sh` — Command Center per PR |
 | `release-drafter.yml` / `labeler.yml` / `stale.yml` / `maintenance.yml` | automation | release drafting, labels, staleness, weekly dashboards |
-| `prerelease.yml` / `release.yml` | release pipeline | `release_validate.sh` + quality gate + assets + publish |
+| `prerelease.yml` / `release.yml` | release pipeline | `release_meta.sh` (version derivation, fails a non-current stop in the first job) → `release_validate.sh` + quality gate + assets + publish |
 
 The architecture guard protects the layered contract documented in
 [../architecture/architecture.md](../architecture/architecture.md);

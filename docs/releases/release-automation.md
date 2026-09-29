@@ -14,20 +14,55 @@ professional release without anyone formatting anything by hand._
                                 ▼
                  ┌─────────────────────────────┐
                  │ Prerelease Preflight        │  workflow_dispatch
-                 │ validate → guards → lint →  │  (the full rehearsal;
-                 │ build → tests → asset dry   │   nothing published)
+                 │ meta → validate → guards →  │  (the full rehearsal;
+                 │ lint → build → tests →      │   nothing published)
+                 │ asset dry run               │
                  └──────────────┬──────────────┘
                                 │ green → tag pushed
                                 ▼
                  ┌─────────────────────────────┐
                  │ Release                     │  on tag v*
-                 │ quality gate → build+test → │
-                 │ assets → publish            │
+                 │ meta → quality gate →       │  (or workflow_dispatch)
+                 │ build+test → assets →       │
+                 │ publish                     │
                  └─────────────────────────────┘
 ```
 
 If any gate fails, the release stops automatically; publishing is the
 last job and runs only after everything before it passed.
+
+## Which version a run releases
+
+`Scripts/ci/release_meta.sh` is the first step of both workflows and the
+only place the version is decided:
+
+| Trigger | Version released |
+| --- | --- |
+| Tag push (`v1.0.0-rc.2`) | the tag's version |
+| `workflow_dispatch` with a version typed | that version |
+| `workflow_dispatch` with the field left empty | the release train's current stop |
+
+The train's current stop is read from `ReleaseTrain.swift` through
+`python3 Scripts/release_train.py current` — no version is hardcoded in a
+workflow, so a bare **Run workflow** always means "release what the code
+says is next".
+
+The same step refuses a version that cannot ship — a retired legacy tag
+(`v0.1.0-dev`), a stop the train has already passed, a stop that has not
+been promoted to yet, or a typo — and it refuses it in the *first* job, on
+ubuntu, before any macOS runner is allocated:
+
+```
+✗ v0.1.0-dev is not a stop on the release train, so nothing can be released for it.
+  ReleaseTrain.current is v1.0.0-rc.2; the train's stops are: …
+::error title=release-meta::v0.1.0-dev cannot be released — it is not the release train's current stop
+     Release the current stop instead: v1.0.0-rc.2
+```
+
+`Scripts/ci/release_meta.sh --self-test` proves the derivation and every
+refusal against the real train, and runs in `ci.yml` → hygiene, so a broken
+release pipeline is caught on an ordinary push rather than at the moment
+somebody tries to ship.
 
 ## Release quality gate
 
@@ -35,6 +70,7 @@ Before anything is published, `release.yml` verifies:
 
 | Gate | Where |
 | --- | --- |
+| Requested version is the train's current stop (fails in the first job) | `Scripts/ci/release_meta.sh` |
 | Tag is the release train's current stage | `Scripts/release_train.py check --tag` |
 | Version consistency (`MARKETING_VERSION`, build number, deployment target) | `Scripts/ci/release_validate.sh` |
 | CHANGELOG entry and release notes | `Scripts/ci/release_validate.sh` |
@@ -71,7 +107,8 @@ gate).
 
 ## Channels
 
-The channel is detected from the tag suffix and recorded everywhere:
+The channel is detected from the version suffix by
+`Scripts/ci/release_meta.sh` and recorded everywhere:
 
 | Suffix | Channel | GitHub prerelease |
 | --- | --- | --- |
@@ -127,5 +164,7 @@ Interactive authoring: `npm install && npm run commit` (Commitizen).
 1. `python3 Scripts/release_train.py promote` — switch on the stage's features.
 2. Update `CHANGELOG.md` `[Unreleased]` and `docs/releases/notes-v{version}.md`.
 3. Private test (see [private-testing.md](private-testing.md)).
-4. Actions → **Prerelease Preflight** with the candidate version.
-5. Tag and push — the Release workflow gates and publishes.
+4. Actions → **Prerelease Preflight** — leave the version empty to rehearse
+   the train's current stop, or type the candidate explicitly.
+5. Tag and push — the Release workflow gates and publishes. (Or run
+   **Release** manually with an empty version for the same stop.)
