@@ -297,7 +297,12 @@ jobs:
           if gh release view "${TAG}" >/dev/null 2>&1; then
             echo "Release ${TAG} already exists — updating notes if needed."
             if [ -n "${NOTES}" ] && [ -f "${NOTES}" ]; then
-              gh release edit "${TAG}" --notes-file "${NOTES}" --title "${TITLE}" ${PRE_FLAG} || true
+              # Release Drafter keeps a draft for the train's current stop, so
+              # this tag usually exists already: --draft=false is what turns
+              # that draft into the published release. The edit is load-bearing
+              # and is therefore allowed to fail the step, like every other
+              # command under `set -eu`.
+              gh release edit "${TAG}" --notes-file "${NOTES}" --title "${TITLE}" ${PRE_FLAG} --draft=false
             fi
           else
             echo "Creating release ${TAG} (channel: ${CHANNEL})"

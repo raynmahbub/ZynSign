@@ -199,9 +199,14 @@ default branch when missing. No manual editing is required; the
 Release notes are assembled from merged pull requests:
 
 - **Release Drafter** (`.github/release-drafter.yml`) keeps a running
-  draft on `main`, grouped by the nine label categories — ✨ Features,
-  🚀 Improvements, 🐛 Bug Fixes, ⚡ Performance, 🎨 UI, ♻️ Refactors,
-  🔒 Security, 📚 Documentation, 🛠 CI — with contributors and PR links.
+  draft on `main` for the release train's current stop: the tag, version and
+  pre-release flag come from `Scripts/ci/release_meta.sh`, not from the
+  label-based version-resolver, so a draft can never advertise a release the
+  train does not contain. The draft is grouped by the nine label
+  categories — ✨ Features, 🚀 Improvements, 🐛 Bug Fixes, ⚡ Performance,
+  🎨 UI, ♻️ Refactors, 🔒 Security, 📚 Documentation, 🛠 CI — with
+  contributors and PR links. Once a stop is published the draft waits for
+  the train to be promoted before the next one appears.
 - `.github/release.yml` mirrors the categories for GitHub's
   auto-generated notes.
 - Curated notes stay possible: `docs/releases/notes-v{version}.md`

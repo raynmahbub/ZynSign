@@ -135,7 +135,7 @@ jobs that genuinely need Xcode run on macOS:
 | `02-quality.yml` · 🛡 Quality | PR + push to main | 8 ubuntu jobs: `architecture-guard` · `dependency-validation` · `docs-check` · `secret-policy` · `gitleaks` · `complexity-check` · `engineering-summary` · `readme-check` | blocking, except complexity and the summary |
 | `03-release.yml` · 🚀 Release | tag `v*` + manual (`version`, `dry_run`) | `meta` → quality gate → build/test → assets → publish → verdict; `dry_run: true` is the full rehearsal and publishes nothing | blocking |
 | `99-command-center.yml` · ⚙ Command Center | weekly + manual | `reports` · `publish` · `regression-check` · `autoformat` · `readme-sync` · `label-sync` · `stale` | automation, never blocks a PR |
-| `release-drafter.yml` | push to main, PR | `update-release-draft` | automation |
+| `release-drafter.yml` | push to main, PR, manual | `update-release-draft` — drafts the train's current stop | automation |
 
 Scripts behind the gates:
 
