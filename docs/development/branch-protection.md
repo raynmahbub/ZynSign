@@ -22,19 +22,34 @@ check the moment protection is switched on._
 
 ### Required status checks
 
-| Check | Workflow |
-| --- | --- |
-| `build-and-test` | `build-validation.yml` |
-| `swiftlint` | `swiftlint.yml` |
-| `swiftformat-check` | `swiftformat.yml` |
-| `architecture-guard` | `architecture-guard.yml` |
-| `dependency-validation` | `dependency-validation.yml` |
-| `docs-check` | `docs-check.yml` |
-| `secret-policy` / `gitleaks` | `security-scan.yml` |
-| `pr-title` / `commitlint` | `pr-quality.yml` |
+GitHub matches a required check against the **job's display name**, so these
+are the exact strings to enter in Settings → Branches → Add required status
+check. Eight workflows produce them; the checks themselves did not change
+when the suite was consolidated, only the file they live in.
 
-`complexity-check`, `dead-code` (Periphery), `quality-summary`, and the
-labeling/stale bots stay advisory — they measure, they do not block.
+| Check (enter this string) | Workflow | Job |
+| --- | --- | --- |
+| `Build and test (Xcode)` | `ci.yml` | `build-and-test` |
+| `Lint and format` | `ci.yml` | `lint-and-format` |
+| `Repository hygiene` | `ci.yml` | `hygiene` |
+| `Enforce the layered architecture contract` | `quality.yml` | `architecture-guard` |
+| `Enforce the dependency allowlist` | `quality.yml` | `dependency-validation` |
+| `Links, images, orphans, markdown quality` | `quality.yml` | `docs-check` |
+| `Repository secret policy` | `quality.yml` | `secret-policy` |
+| `Gitleaks (full history)` | `quality.yml` | `gitleaks` |
+| `README freshness` | `quality.yml` | `readme-check` |
+| `Conventional PR title` | `pr-quality.yml` | `pr-title` |
+| `Conventional commit messages` | `pr-quality.yml` | `commitlint` |
+
+`Complexity thresholds (warnings only)`, `Engineering Command Center`, the
+`External validation (Apple tooling)` measurement, the weekly Periphery
+dead-code scan, and the labeling/stale/README-repair jobs stay advisory —
+they measure and report, they do not block.
+
+> Every required check must actually report on the pull request. A job that
+> is skipped by an `if:` or excluded by a `paths:` filter never produces a
+> check run, and a missing required check blocks the merge forever — so the
+> jobs above run unconditionally on every pull request.
 
 ## `develop` (if introduced)
 

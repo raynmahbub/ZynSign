@@ -13,7 +13,8 @@ there by design, as it does everywhere without
 | Job | Runner | Steps |
 | --- | --- | --- |
 | Repository hygiene | `ubuntu-latest` | Refuse private-key material anywhere; refuse certificate text outside `Tests/`; refuse generated artifacts and machine state (`DerivedData/`, `xcuserdata/`, `*.xcresult`, `*.xcuserstate`, `.DS_Store`); check the release train is consistent; check the release metadata derivation (`release_meta.sh --self-test`); run the host vector scripts and the external validation harness self-test; **refuse a crash surface that disagrees with its baseline; refuse an accessibility finding in the sources; refuse a regression catalogue that names a test which does not exist; build and upload the hardening report** |
-| Build and test (Xcode) | `macos-15` | Select the newest stable Xcode, record the toolchain versions, build the application target for the generic iOS Simulator platform, run the `ZynSign` scheme's unit-test target on an iPhone simulator |
+| Build and test (Xcode) | `macos-15` | Select the newest stable Xcode, record the toolchain versions, restore the Swift Package cache, then run `Scripts/ci/build.sh`: resolve packages, clean Derived Data, build every target, build the test targets, run the unit tests on a resolved iPhone simulator, annotate each failing case from the result bundle, and upload `build/logs/` on failure |
+| Lint and format | `macos-15` | One Homebrew install of SwiftLint and SwiftFormat, then `Scripts/ci/lint.sh` (error-severity findings block) and `Scripts/ci/format.sh check` (the pinned `.swiftformat` rule set; the weekly maintenance run applies it) |
 | External validation (Apple tooling) | `macos-15` | Run `ExternalValidationExportTests` with `TEST_RUNNER_ZYNSIGN_EXPORT_DIR` set, judge the exported artifacts with `Tests/Host/external_validation.py run` (`codesign`, `otool`, `ditto`, `unzip`, OpenSSL, ad hoc reference signing), publish the report to the job summary, upload the report and the exports as the `external-validation` artifact, and emit one notice per artifact |
 
 The hygiene job's certificate rule has one deliberate exception: synthetic
@@ -118,28 +119,43 @@ matched. See [the hardening pack](../hardening/README.md).
 
 ## The engineering suite
 
-The workflow above remains the build-and-hygiene backbone. Around it,
-The suite is modular; every job calls a reusable script in
-`Scripts/ci/`, so CI logic never duplicates between workflows. Failing
-unit tests are surfaced as check annotations by
+Eight workflows, no duplicated gates: every job calls a reusable script in
+`Scripts/ci/`, so CI logic never lives in YAML and never appears twice.
+Failing unit tests are surfaced as check annotations by
 `Scripts/ci/annotate_test_failures.sh`, which reads the run's result
 bundle so the failing suites are readable without opening a raw log.
 
-| Workflow | Gate type | Script |
-| --- | --- | --- |
-| `build-validation.yml` | blocking | `build.sh` — packages, clean, build all targets, build tests, run tests |
-| `swiftlint.yml` | blocking (errors) | `lint.sh` — `.swiftlint.yml` two-tier rules |
-| `swiftformat.yml` | blocking | `format.sh check` — pinned rule set |
-| `architecture-guard.yml` | blocking | `architecture_guard.sh` — 8 layer rules + ratcheted baseline |
-| `dependency-validation.yml` | blocking | `dependency_check.sh` — allowlist, dependency-free by design |
-| `security-scan.yml` | blocking | `security_scan.sh` + Gitleaks full history |
-| `docs-check.yml` | blocking (links/images) | `docs_check.sh` — links, images, orphans, quality |
-| `pr-quality.yml` | blocking (title/commits) | commitlint; Danger Swift advises |
-| `complexity-check.yml` | advisory | `complexity_check.sh` — function 80 / file 800 / nesting 4 |
-| `dead-code.yml` | advisory | `dead_code_scan.sh` — Periphery, never deletes |
-| `quality-summary.yml` | advisory | `metrics_report.sh` — Command Center per PR |
-| `release-drafter.yml` / `labeler.yml` / `stale.yml` / `maintenance.yml` | automation | release drafting, labels, staleness, weekly dashboards |
-| `prerelease.yml` / `release.yml` | release pipeline | `release_meta.sh` (version derivation, fails a non-current stop in the first job) → `release_validate.sh` + quality gate + assets + publish |
+The suite is split by what it needs, which is what keeps the macOS bill
+down — macOS minutes cost roughly ten times ubuntu minutes, so only the
+jobs that genuinely need Xcode run on macOS:
+
+| Workflow | Trigger | Jobs | Gate type |
+| --- | --- | --- | --- |
+| `ci.yml` | PR + every push | `hygiene` (ubuntu) · `build-and-test` · `lint-and-format` · `external-validation` (macOS) | blocking, except external validation, which measures |
+| `quality.yml` | PR + push to main | 8 ubuntu jobs: `architecture-guard` · `dependency-validation` · `docs-check` · `secret-policy` · `gitleaks` · `complexity-check` · `engineering-summary` · `readme-check` | blocking, except complexity and the summary |
+| `pr-quality.yml` | PR | `pr-title` · `commitlint` (blocking) · `label-pr` · `danger` (advisory) | blocking on title and commits |
+| `release-drafter.yml` | push to main, PR | `update-release-draft` | automation |
+| `maintenance.yml` | weekly + manual | `reports` · `publish` · `regression-check` · `autoformat` · `readme-sync` · `label-sync` · `stale` | automation, never blocks a PR |
+| `prerelease.yml` | manual | full rehearsal: `meta` → validation → gitleaks → lint/format → build/test → asset dry run → verdict | blocking, publishes nothing |
+| `release.yml` | tag `v*` + manual | `meta` → quality gate → build/test → assets → publish | blocking |
+| `private-test-build.yml` | manual | hygiene + private IPA preparation | never publishes |
+
+Scripts behind the gates:
+
+| Script | What it establishes |
+| --- | --- |
+| `build.sh` | packages, clean, build every target, build the test targets, run the unit tests, annotate failures |
+| `lint.sh` / `format.sh check` | `.swiftlint.yml` two-tier rules (errors block) · the pinned `.swiftformat` rule set |
+| `architecture_guard.sh` | 8 layer rules + the ratcheted baseline |
+| `dependency_check.sh` | the allowlist — dependency-free by design |
+| `security_scan.sh` + Gitleaks | the repository's secret policy on this tree, and over the full history |
+| `docs_check.sh` | links and images block; orphans and markdown quality warn |
+| `update_readme.py --check` | README agrees with `MARKETING_VERSION` and `WHAT_DOES_NOT_EXIST.md` |
+| `complexity_check.sh` | function 80 / file 800 / nesting 4 — advisory |
+| `dead_code_scan.sh` | Periphery, weekly, never deletes |
+| `metrics_report.sh` | the Engineering Command Center per PR, dashboards weekly |
+| `release_meta.sh` | version derivation; fails a non-current train stop in the first job |
+| `release_validate.sh` | train stage, `MARKETING_VERSION`, build number, changelog, notes |
 
 The architecture guard protects the layered contract documented in
 [../architecture/architecture.md](../architecture/architecture.md);
