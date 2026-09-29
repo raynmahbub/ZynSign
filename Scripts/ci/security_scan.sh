@@ -10,9 +10,9 @@
 #   * well-known token shapes (AWS keys, GitHub tokens, Slack tokens,
 #     Stripe live keys) anywhere in sources and scripts
 #
-# The same policy runs in CI's hygiene job; this script makes it
-# reproducible locally and pairs with Gitleaks (used on the full history
-# by the security-scan workflow). If `gitleaks` is installed it runs too.
+# The same policy runs in quality.yml's secret-policy job; this script makes
+# it reproducible locally and pairs with Gitleaks (used on the full history
+# by quality.yml's gitleaks job). If `gitleaks` is installed it runs too.
 #
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
@@ -58,7 +58,7 @@ if command -v gitleaks >/dev/null 2>&1; then
         fail "Gitleaks found secret material in the history."
     fi
 else
-    echo "gitleaks not installed — history scan runs in the security-scan workflow only."
+    echo "gitleaks not installed — the history scan runs in quality.yml's gitleaks job."
 fi
 
 echo "findings=${findings}" > "${METRICS_DIR}/security.txt"

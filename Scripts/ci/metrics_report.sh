@@ -189,7 +189,7 @@ maintenance run._
 
 | Area | Status | Detail |
 | --- | --- | --- |
-| Build & tests | see CI checks | \`build-validation.yml\` on every PR and push |
+| Build & tests | see CI checks | \`ci.yml\` on every PR and push |
 | Architecture health | $(status_icon "${ARCH_STATUS}") | ${ARCH_VIOLATIONS} violation(s) across 8 rules |
 | Test coverage surface | ✅ | ${TEST_COUNT} tests in ${TEST_FILES} files |
 | Largest Swift files | 📏 | ${WORST_FILE} |
@@ -217,7 +217,7 @@ $(tail -n +2 "${HISTORY}" 2>/dev/null | tail -10 | awk -F, '{print "| "$1" | "$2
 - \`Scripts/ci/dependency_check.sh\` → \`build/metrics/dependencies.txt\`
 - \`Scripts/ci/docs_check.sh\` → \`build/metrics/docs.txt\`
 - \`Scripts/ci/security_scan.sh\` → \`build/metrics/security.txt\`
-- \`quality-summary.yml\` posts it on every pull request; \`maintenance.yml\` commits it weekly.
+- \`quality.yml\` posts it on every pull request; \`maintenance.yml\` commits it weekly.
 EOF
 
 echo "Dashboards written: ${HEALTH}, ${COMMAND}"
