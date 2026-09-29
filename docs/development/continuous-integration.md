@@ -115,7 +115,7 @@ suites. Report it as what it is.
 The RC audits have a `--json` flag each for a machine-readable result, and
 `audit_accessibility.py` can write a Compatibility Lab overlay with
 `--overlay-out`. The crash-surface audit takes `--list` to show every line it
-matched. See [the hardening pack](../hardening/README.md).
+matched. See the Compatibility Lab (Settings → Compatibility Lab) and [private-testing.md](../releases/private-testing.md).
 
 ## The engineering suite
 

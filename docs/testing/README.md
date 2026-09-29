@@ -832,8 +832,9 @@ identifiers, or user data. See [SECURITY.md](../../SECURITY.md).
 
 ## Index
 
-- [RC hardening pack](../hardening/README.md) — the Compatibility Lab, the
-  matrices, and every check a release candidate is judged by.
+- [Release train](../releases/release-train.md) — which features each release
+  switches on, and the checks a candidate is judged by
+  ([private-testing.md](../releases/private-testing.md)).
 - [Continuous integration](../development/continuous-integration.md) — what
   each job establishes, and what it refuses.
 

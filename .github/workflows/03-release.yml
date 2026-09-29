@@ -292,9 +292,6 @@ jobs:
           set -eu
           NOTES="${{ steps.info.outputs.notes }}"
           TITLE="ZynSign ${VERSION}"
-          if [ "${VERSION}" = "0.1.0" ]; then
-            TITLE="ZynSign 0.1.0 Horizon"
-          fi
           PRE_FLAG=""
           [ "${PRERELEASE}" = "true" ] && PRE_FLAG="--prerelease"
           if gh release view "${TAG}" >/dev/null 2>&1; then

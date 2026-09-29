@@ -467,7 +467,7 @@ struct IOSCompatibilitySuite: CompatibilitySuite {
                     ? "A synthetic package was read and identified on \(release.displayName)."
                     : "A synthetic package could not be read as declared on \(release.displayName).",
                 verified: "Verified the read half of an import — structure, metadata and identity — without touching the library. Writing a library record is covered by the import regressions instead, so a Lab run never changes what the user has imported.",
-                nextStep: passed ? nil : "Compare the reported findings with docs/hardening/ios-compatibility-matrix.md.",
+                nextStep: passed ? nil : "Compare the reported findings with the platform matrix before the release.",
                 evidence: [
                     "classification: \(outcome.classification.displayName)",
                     "entries: \(outcome.entryCount)",
@@ -737,7 +737,7 @@ struct DeviceCompatibilitySuite: CompatibilitySuite {
                 passed
                     ? "ZynSign declares portrait and both landscape orientations."
                     : "ZynSign does not declare the full orientation set for this class.",
-                "Verified the orientations the bundle declares. Not verified: a human judgement of the rendered layout — that belongs to the manual pass in docs/hardening/device-compatibility-matrix.md.",
+                "Verified the orientations the bundle declares. Not verified: a human judgement of the rendered layout — that belongs to a manual pass on a real device.",
                 passed ? nil : "Add the missing orientations to the Info.plist, or record why this class does not need them.",
                 [
                     "declared: \(orientations.joined(separator: ", "))",
@@ -806,7 +806,7 @@ struct DeviceCompatibilitySuite: CompatibilitySuite {
                     facts.supportsMultipleScenes
                         ? "Multiple scenes are declared, as iPad multitasking expects."
                         : "Multiple scenes are not declared on a tablet.",
-                    "Verified what the bundle declares. Split view, Slide Over and Stage Manager themselves are a human pass — see docs/hardening/device-compatibility-matrix.md.",
+                    "Verified what the bundle declares. Split view, Slide Over and Stage Manager themselves are a human pass on a real device.",
                     facts.supportsMultipleScenes ? nil : "Enable Supports multiple scenes, or record why this build does not need it.",
                     ["supports multiple scenes: \(facts.supportsMultipleScenes)"]
                 )

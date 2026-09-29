@@ -46,8 +46,7 @@ The workflow (`.github/workflows/01-build.yml`, described in
 ## Expectations for new work
 
 - New functionality arrives with tests. The regression catalogue
-  ([../hardening/regression-suite.md](../hardening/regression-suite.md))
-  freezes behaviours by name — a change that touches a frozen behaviour names
-  the test that covers it.
+  (`Scripts/audit_regression_coverage.py`) freezes behaviours by name — a
+  change that touches a frozen behaviour names the test that covers it.
 - A check that did not run is an open question, not a pass. If a tool is
   unavailable in your environment, say so rather than implying it ran.

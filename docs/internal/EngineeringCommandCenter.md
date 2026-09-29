@@ -20,7 +20,7 @@ maintenance run._
 
 ## Current Release Train
 
-Current release : v0.1.0-dev.1  (stage .dev1) Xcode project   : MARKETING_VERSION 0.1.0 · build 1 
+Current release : v0.0.1-dev.1  (stage .dev1) Xcode project   : MARKETING_VERSION 0.0.1 · build 1 
 
 ## Trend
 

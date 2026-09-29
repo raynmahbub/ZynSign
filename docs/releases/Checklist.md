@@ -16,7 +16,6 @@ form of the process described in [release-train.md](release-train.md) and
 - [ ] `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` in `ZynSign.xcodeproj/project.pbxproj` match the release record (marketing purely numeric; the suffix lives only in the tag).
 - [ ] `CHANGELOG.md` has an entry for this version (Keep a Changelog format) — `Scripts/generate_changelog.py` can add a missing one.
 - [ ] `docs/releases/notes-v<version>.md` exists, written from [notes-template.md](notes-template.md) — no section skipped, *including* "What this release deliberately does not claim".
-- [ ] The documentation freeze is respected: [documentation-freeze.md](documentation-freeze.md).
 
 ## 3. Private gate — before any public act
 
@@ -35,7 +34,7 @@ form of the process described in [release-train.md](release-train.md) and
 
 - [ ] The README status quote, version badge, and honest badge read the new release (`python3 Scripts/update_readme.py --check`).
 - [ ] `docs/releases/README.md` "Current State" describes the new stop.
-- [ ] Any release blocker found *after* the tag is recorded in `ReleaseBlockerRecord.registry` and reflected in [../hardening/release-blockers.md](../hardening/release-blockers.md) — never silently patched into the published notes.
+- [ ] Any release blocker found *after* the tag is recorded in `ReleaseBlockerRecord.registry` and shown in the Compatibility Lab — never silently patched into the published notes.
 
 ## Rule of the gate
 

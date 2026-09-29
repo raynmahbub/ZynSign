@@ -260,13 +260,13 @@ def main() -> int:
     for row, status in statuses.items():
         print(f"      {row}: {status}")
     print()
-    print("  Not settled here — a human pass in docs/hardening/accessibility-audit.md:")
+    print("  Not settled here — a human pass on a device before the release:")
     print("      accessibility.voiceOver · accessibility.focusOrder")
     print("      the rendered contrast ratio, at every Dynamic Type size")
 
     if args.strict and (hard_coded or touch_targets):
         print(
-            "\n✗ Findings must be fixed or justified in docs/hardening/accessibility-audit.md",
+            "\n✗ Findings must be fixed, or justified in the release record",
             file=sys.stderr,
         )
         return 1

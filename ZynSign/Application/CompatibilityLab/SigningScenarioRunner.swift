@@ -447,7 +447,7 @@ struct SigningScenarioLab: CompatibilitySuite {
         if let expected = expectation.classification, first.classification != expected {
             fail(
                 "structure was classified \(first.classification.displayName), expected \(expected.displayName)",
-                "Compare the findings with docs/hardening/signing-scenario-lab.md before changing either the rule or the expectation."
+                "Compare the findings with the scenario expectations before changing either the rule or the expectation."
             )
         }
         if expectation.producesPlan && !first.planWasProduced {
@@ -477,7 +477,7 @@ struct SigningScenarioLab: CompatibilitySuite {
         if let expectedCount = expectation.nestedItemCount, first.nestedItemCount != expectedCount {
             warn(
                 "discovery located \(first.nestedItemCount) nested item(s) where the fixture declares \(expectedCount)",
-                "The fixture's declaration and discovery disagree; settle which is right before the release, and record it in docs/hardening/signing-scenario-lab.md."
+                "The fixture's declaration and discovery disagree; settle which is right before the release, and record the discrepancy in the release record."
             )
         }
 

@@ -43,17 +43,17 @@ Every log and every summary speaks one language (Crystal Flow,
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-🚀 Release • Assets • v0.1.0-dev.1
+🚀 Release • Assets • v0.0.1-dev.1
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 ✓ Application bundle: build/ZynSign.xcarchive/Products/Applications/ZynSign.app
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 🚀 Release • Package
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-✓ ZynSign-v0.1.0-dev.1-unsigned.ipa
-✓ ZynSign-v0.1.0-dev.1-SHA256.txt — 89768317ee224905…
-✓ BuildPassport-v0.1.0-dev.1.json — 0 feature(s) visible, 19 staged later
-✓ ReleaseNotes.md — curated notes (docs/releases/notes-v0.1.0-dev.1.md)
+✓ ZynSign-v0.0.1-dev.1-unsigned.ipa
+✓ ZynSign-v0.0.1-dev.1-SHA256.txt — 496f869a25dc1bd0…
+✓ BuildPassport-v0.0.1-dev.1.json — 0 feature(s) visible, 19 staged later
+✓ ReleaseNotes.md — curated notes (docs/releases/notes-v0.0.1-dev.1.md)
 ✓ MANIFEST.md — 5 asset(s) listed
 ```
 
@@ -68,7 +68,7 @@ only place the version is decided:
 
 | Trigger | Version released |
 | --- | --- |
-| Tag push (`v0.1.0-dev.1`) | the tag's version |
+| Tag push (`v0.0.1-dev.1`) | the tag's version |
 | `workflow_dispatch` with a version typed | that version |
 | `workflow_dispatch` with the field left empty | the release train's current stop |
 
@@ -77,20 +77,18 @@ The train's current stop is read from `ReleaseTrain.swift` through
 workflow, so a bare **Run workflow** always means "release what the code
 says is next".
 
-The same step refuses a version that cannot ship — a retired legacy tag
-(`v0.1.0-dev`), a stop the train has already passed, a stop that has not
-been promoted to yet, or a typo — and it refuses it in the *first* job, on
-ubuntu, before any macOS runner is allocated:
+The same step refuses a version that cannot ship — a version that is not a
+stop, a stop the train has already passed, a stop that has not been promoted
+to yet, or a typo — and it refuses it in the *first* job, on ubuntu, before
+any macOS runner is allocated:
 
 ```
-✗ v0.1.0-dev is not a stop on the release train, so nothing can be released for it.
-  ReleaseTrain.current is v0.1.0-dev.1; the train's stops are:
-    v0.1.0-dev.1, v0.1.0-dev.2, v0.1.0-dev.3, v0.1.0, v0.1.0-alpha.1, …, v3.0.0
-  The retired pre-launch tags (v0.1.0-dev, v0.1.1-dev, v0.2.0-dev) were deleted
-  on 2026-09-29 and were never stages, so `promote` cannot move to them —
-  a development stop is 0.1.0-dev.1, not 0.1.0-dev
-::error title=release-meta::v0.1.0-dev cannot be released — it is not the release train's current stop
-     Release the current stop instead: v0.1.0-dev.1
+✗ v1.2.3 is not a stop on the release train, so nothing can be released for it.
+  ReleaseTrain.current is v0.0.1-dev.1; the train's stops are:
+    v0.0.1-dev.1, v0.0.1-dev.2, v0.0.1-dev.3, v0.0.1, v0.1.0-alpha.1, …, v3.0.0
+  See docs/releases/release-train.md for the plan and the stop order.
+::error title=release-meta::v1.2.3 cannot be released — it is not the release train's current stop
+     Release the current stop instead: v0.0.1-dev.1
 ```
 
 `Scripts/ci/release_meta.sh --self-test` proves the derivation and every
@@ -123,9 +121,9 @@ filename carries the version and nothing is ever renamed by hand:
 
 ```
 Release Assets
-├── ZynSign-v0.1.0-dev.1-unsigned.ipa   # Payload/ zip of the archived .app
-├── ZynSign-v0.1.0-dev.1-SHA256.txt     # checksum, `shasum -a 256 -c` layout
-├── BuildPassport-v0.1.0-dev.1.json     # the build's fingerprint (internal)
+├── ZynSign-v0.0.1-dev.1-unsigned.ipa   # Payload/ zip of the archived .app
+├── ZynSign-v0.0.1-dev.1-SHA256.txt     # checksum, `shasum -a 256 -c` layout
+├── BuildPassport-v0.0.1-dev.1.json     # the build's fingerprint (internal)
 ├── MANIFEST.md                         # identity, provenance, assets, verify
 └── ReleaseNotes.md                     # docs/releases/notes-v{version}.md,
                                         # else the CHANGELOG section
@@ -137,20 +135,20 @@ when something goes wrong in the field, and what a user never has to see:
 ```json
 {
   "app": "ZynSign",
-  "version": "0.1.0-dev.1",
-  "tag": "v0.1.0-dev.1",
+  "version": "0.0.1-dev.1",
+  "tag": "v0.0.1-dev.1",
   "channel": "development",
-  "artifact": "ZynSign-v0.1.0-dev.1-unsigned.ipa",
-  "marketingVersion": "0.1.0",
+  "artifact": "ZynSign-v0.0.1-dev.1-unsigned.ipa",
+  "marketingVersion": "0.0.1",
   "buildNumber": "1",
-  "commit": "1578a46",
-  "buildDate": "2026-09-29T07:56:39Z",
+  "commit": "fef629f",
+  "buildDate": "2026-09-29T09:13:07Z",
   "xcode": "unknown",
   "swift": "unknown",
   "ios": "17.0",
   "signed": false,
-  "checksum": "sha256:89768317…",
-  "releaseTrain": "v0.1.0-dev.1",
+  "checksum": "sha256:496f869a…",
+  "releaseTrain": "v0.0.1-dev.1",
   "featuresVisible": 0,
   "featuresStagedLater": 19
 }
@@ -186,8 +184,8 @@ The channel is detected from the version suffix by
 | `-rc.N` | release candidate | yes |
 | _(none)_ | stable | no |
 
-See [ReleaseResetGuide.md](ReleaseResetGuide.md) for the recommended
-version progression and how to retire the pre-launch tags.
+See [version-strategy.md](version-strategy.md) for the progression, its exit
+criteria, and which stop is next.
 
 ## Automatic changelog
 

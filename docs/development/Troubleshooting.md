@@ -51,6 +51,7 @@ row.
 ## Still stuck
 
 - Reproduce with a Debug build, capture the exact `ZynSignError` text and
-  stage, and check [../audits/](../audits/) for a known finding.
+  stage, and run the Compatibility Lab (Settings → Compatibility Lab) to see
+  whether the build's own checks already report it.
 - Open a bug report with the exact code and stage
   ([the template asks for precisely that](https://github.com/raynmahbub/ZynSign/issues/new?template=bug_report.yml)).

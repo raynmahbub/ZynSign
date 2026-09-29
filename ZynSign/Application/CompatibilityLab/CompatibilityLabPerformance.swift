@@ -294,7 +294,7 @@ struct PerformanceSuite: CompatibilitySuite {
             status: .notRun,
             summary: "Frame rate is not measured in-process; it needs Instruments or an XCTest metric.",
             verified: "Nothing was measured. A frame rate ZynSign reported about itself would be a number nobody could reproduce.",
-            nextStep: "Run the scrolling protocol in docs/hardening/performance-verification.md (Instruments → Core Animation, or an XCTest os_signpost metric) and import the result through a Lab overlay.",
+            nextStep: "Run the scrolling protocol (Instruments → Core Animation, or an XCTest os_signpost metric) and import the result through a Lab overlay.",
             evidence: [
                 "protocol: 60 fps sustained on the Library grid and list with 50+ applications, at the default and the largest Dynamic Type size"
             ],

@@ -12,10 +12,10 @@ cherry-picks, and no deleted code to restore later.
 
 | Release | Tag | Switches on | Users see |
 |---|---|---|---|
-| Dev 1 | `v0.1.0-dev.1` | — | Core only. **Current stop.** Proves the pipeline end to end against a real tag: quality gate → build + tests → version-stamped assets → publish. |
-| Dev 2 | `v0.1.0-dev.2` | — | Core only; fixes, and the private device matrix for the core |
-| Dev 3 | `v0.1.0-dev.3` | — | Core only; the last rehearsal before Horizon |
-| **Horizon** | `v0.1.0` | Core | Files · Import (`ipa`/`tipa`) · Library · Bundle Explorer · Home · Settings (About, Archive, Pairing/Analytics honesty, Appearance, Storage, Diagnostics) |
+| Dev 1 | `v0.0.1-dev.1` | — | Core only. **Current stop.** Proves the pipeline end to end against a real tag: quality gate → build + tests → version-stamped assets → publish. |
+| Dev 2 | `v0.0.1-dev.2` | — | Core only; fixes, and the private device matrix for the core |
+| Dev 3 | `v0.0.1-dev.3` | — | Core only; the last rehearsal before the first build |
+| **First build** | `v0.0.1` | Core | Files · Import (`ipa`/`tipa`) · Library · Bundle Explorer · Home · Settings (About, Archive, Pairing/Analytics honesty, Appearance, Storage, Diagnostics) |
 | Alpha 1 | `v0.1.0-alpha.1` | Certificate Studio | Settings → Certificates (`.p12`/`.pfx` import, detail, public JSON export) |
 | Alpha 2 | `v0.1.0-alpha.2` | Smart Sign, Professional Signing Queue, Intelligent Signing Presets | `Sign Application…` (Library menu + detail), 9-stage pipeline, DER toggle, Live Activity, Signing Options, Library “Signed” segment, Settings → Installation, Settings → Signing Queue, Settings → Presets, recommended preset with a required confirmation that enqueues on the signing queue |
 | Alpha 3 | `v0.1.0-alpha.3` | App Store + Downloads | App Store (validated sources, repository health) and the Download Center (queue, validation, updates). Resume is reported only when resume data was captured. |
@@ -133,15 +133,16 @@ Safety rails:
   prerequisites.
 - Development, alpha, beta and rc tags are published as GitHub
   **pre-releases** — `Scripts/ci/release_meta.sh` detects the channel from the
-  tag. `v0.1.0` and `v1.0.0` are not.
+  tag. `v0.0.1` and `v1.0.0` are not.
 
 ### Build numbers
 
 Apple requires `CFBundleShortVersionString` to be numeric, so the three
-development stops and all three alphas report `0.1.0`, and all betas report
-`0.9.0`. The pre-release suffix lives only in
-the tag. `CFBundleVersion` goes up by one with every `promote`, and TestFlight
-needs that.
+development stops and the first build report `0.0.1`, all three alphas report
+`0.1.0`, and all betas report `0.9.0`. The pre-release suffix lives only in
+the tag. `CFBundleVersion` goes up by one with every `promote` and restarts at
+`1` when the marketing version restarts, which is the scope TestFlight's
+monotonic-build rule applies to.
 
 ## Changing the plan
 
@@ -150,31 +151,3 @@ tests make sure the new plan still makes sense. For example, you can't ship
 Smart Sign before Certificate Studio. After `1.0.0`, new features follow normal
 SemVer (`1.1.0`, …). Add a new `ReleaseFeature` and gate it the same way while
 it's being built.
-
-## Legacy tags — retired
-
-Three GitHub releases predated this train: `v0.1.0-dev`, `v0.1.1-dev` and
-`v0.2.0-dev`, all at `58e604c`, none with binary assets. `v0.2.0-dev` was
-marked **Latest** and sorted *above* `0.1.0`, which confused anyone comparing
-versions — Release Drafter's version resolver included.
-
-They were **deleted on 2026-09-29**, releases and tags together, as step 1 of
-[ReleaseResetGuide.md](ReleaseResetGuide.md); their notes are preserved verbatim
-in [archive/pre-launch-releases.md](archive/pre-launch-releases.md).
-`gh release list` is empty, and `v0.1.0-dev.1` is the first tag on the
-permanent structure.
-
-One consequence is worth stating plainly rather than glossing: the tags all
-pointed at commit `58e604c`, which sat on a pre-merge branch and was never an
-ancestor of `main`, so with the tag refs gone it is reachable from no ref.
-GitHub still serves the object, but nothing points at it. The **work** those
-releases described is safe — it was merged and is in `main`, recorded in
-`CHANGELOG.md`. Only the release objects, their tag refs, and their notes were
-removed, which is why the notes were archived first.
-
-They were never `ReleaseStage` cases, and no stage was invented for them: a
-development stop is `0.1.0-dev.1`, not `0.1.0-dev`.
-`release_train.py check --tag v0.1.0-dev` still reports that the tag is not a
-stop on the train and lists the real ones, and `Scripts/ci/release_meta.sh`
-fails the run in its first job. Re-releasing them would mean moving backwards
-off the train.

@@ -13,7 +13,7 @@ Everything the project knows about itself lives in this folder. Start here;
 every section below is browsable on GitHub and every page is written to be
 read, not skimmed past.
 
-![Version](https://img.shields.io/badge/version-1.0.0-orange)
+![Version](https://img.shields.io/badge/version-0.0.1-orange)
 ![Architecture](https://img.shields.io/badge/architecture-ZAS%20v1.0-lightgrey)
 ![Design](https://img.shields.io/badge/design-ZDL%20v1.0-blueviolet)
 
@@ -31,10 +31,8 @@ read, not skimmed past.
 | [design/](design/) | *How does it look and move?* — ZDL v1.0 tokens, components, motion, the brand book | [zynsign-design-language.md](design/zynsign-design-language.md) · [brand/](design/brand/README.md) |
 | [security/](security/) | *How is sensitive material handled?* — identities, profiles, release review | [signing-identities.md](security/signing-identities.md) |
 | [releases/](releases/) | *How does it ship?* — version strategy, the release train, the private → public gate | [release-train.md](releases/release-train.md) |
-| [hardening/](hardening/) | *How is a candidate judged?* — Compatibility Lab, matrices, release blockers | [compatibility-lab.md](hardening/compatibility-lab.md) |
 | [testing/](testing/) | *How is it verified?* — unit suites, host vectors, store-browser checks | [store-browser.md](testing/store-browser.md) |
 | [development/](development/) | *How do you work on it?* — CI, toolchain, release readiness | [continuous-integration.md](development/continuous-integration.md) |
-| [audits/](audits/) | *What did independent passes find?* — dated audit records | [2026-09-25-horizon-0.1.0-audit.md](audits/2026-09-25-horizon-0.1.0-audit.md) |
 
 ## Diagrams
 
