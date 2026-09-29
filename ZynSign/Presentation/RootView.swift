@@ -55,6 +55,12 @@ struct RootView: View {
     @State private var isShowingImport = false
     @State private var hubRequest: ImportHubRequest = .none
 
+    /// Certificates and Profiles are reached from Settings and from the
+    /// system handing ZynSign a `.p12` or a `.mobileprovision`, so the
+    /// shell presents them the way it presents every other area it owns.
+    @State private var isShowingCertificates = false
+    @State private var isShowingProfiles = false
+
     /// The items whose outcome has already been recorded, so an import is
     /// reported exactly once however many times the item list changes.
     @State private var reportedImportItems: Set<ImportJobIdentifier> = []
@@ -103,7 +109,7 @@ struct RootView: View {
             authenticator: environment.biometricAuthenticator,
             preferences: { model.preferences }
         ))
-        _selected = State(initialValue: model.preferences.general.landingTab.shellSection)
+        _selected = State(initialValue: model.preferences.general.landingTab.selectable.shellSection)
         _thumbnailPipeline = StateObject(wrappedValue: ThumbnailPipeline(
             engine: environment.performanceEngine,
             icons: environment.appIcons
@@ -183,6 +189,32 @@ struct RootView: View {
                 onDone: { isShowingImport = false }
             )
         }
+        .sheet(isPresented: $isShowingCertificates) {
+            NavigationStack {
+                CertificateManagerView(
+                    store: environment.identityStore,
+                    annotations: environment.identityAnnotations,
+                    importer: environment.pkcs12Importer
+                )
+            }
+        }
+        .sheet(isPresented: $isShowingProfiles) {
+            // `ProfilesView` supplies its own navigation stack, so the shell
+            // must not wrap it — nesting one inside another crashes.
+            ProfilesView(
+                profiles: environment.provisioningProfiles,
+                importer: environment.provisioningProfileImporter,
+                compatibility: environment.profileCompatibility,
+                selections: environment.profileSelections,
+                recordEvent: { name, succeeded in
+                    environment.recordAnalyticsEvent(
+                        category: .intake,
+                        name: name,
+                        succeeded: succeeded
+                    )
+                }
+            )
+        }
         .environment(
             \.signingQueuePresentation,
             SigningQueuePresentation(
@@ -257,7 +289,7 @@ struct RootView: View {
             }
         }
         .onChange(of: settings.preferences.general.landingTab) { _, landingTab in
-            selected = landingTab.shellSection
+            selected = landingTab.selectable.shellSection
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -376,16 +408,15 @@ struct RootView: View {
         }
     }
 
-    /// Tabs the user can select. Downloads is added when that feature is
-    /// available, immediately before Settings, without removing the five-tab
-    /// foundation the other sections are built on.
+    /// Tabs the user can select.
+    ///
+    /// Every section in `ShellSection.primaryTabs` is always shown. These
+    /// six are the app's navigation foundation rather than staged features:
+    /// a tab that appears and disappears between releases is a tab the user
+    /// cannot rely on, so the tab bar is not subject to the release gate.
+    /// The features *inside* the tabs keep their own gating.
     private var visibleTabs: [ShellSection] {
-        var tabs = ShellSection.primaryTabs
-        guard ReleaseTrain.isAvailable(.downloads), let settings = tabs.firstIndex(of: .settings) else {
-            return tabs
-        }
-        tabs.insert(.downloads, at: settings)
-        return tabs
+        ShellSection.primaryTabs
     }
 
     private func badgeCount(for section: ShellSection) -> Int {
@@ -462,10 +493,10 @@ struct RootView: View {
             environment.importHub.receive([url], origin: origin)
             isShowingImport = true
         } else if ext == "mobileprovision" || ext == "provisionprofile" {
-            selected = .profiles
+            isShowingProfiles = true
             ZHaptics.tap()
         } else if ext == "p12" || ext == "pfx" {
-            selected = .certificates
+            isShowingCertificates = true
             ZHaptics.tap()
         }
     }
@@ -559,15 +590,15 @@ struct RootView: View {
             // Secondary sections are linked from Settings → Browse; they are
             // not tabs. Each carries its own NavigationStack where presented.
             EmptyView()
-        case .files, .appStore:
-            // Files and the App Store are linked from Settings → Browse.
-            // Each carries its own NavigationStack where presented.
-            EmptyView()
+        case .files:
+            // As a tab this view owns the navigation stack, so it embeds one.
+            FilesView(embedsNavigationStack: true)
+        case .appStore:
+            AppStoreView(embedsNavigationStack: true)
         }
     }
 
     private func showNextDownloadNotice(from notices: [DownloadNotice]) {
-        guard ReleaseTrain.isAvailable(.downloads) else { return }
         guard visibleDownloadNotice == nil, let next = notices.first else { return }
         visibleDownloadNotice = next
         environment.downloadCenter?.acknowledgeNotice(next.id)

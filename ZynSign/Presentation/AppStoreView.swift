@@ -2,10 +2,16 @@ import SwiftUI
 
 /// Store entry point; services are composed once, not created by navigation.
 struct AppStoreView: View {
+    /// When this view is pushed into a navigation stack that already exists
+    /// — Settings → Browse — it must not wrap itself in a second one.
+    /// Nesting `NavigationStack` inside a pushed destination is a runtime
+    /// crash, not a warning.
+    var embedsNavigationStack: Bool = true
+
     @Environment(\.applicationEnvironment) private var environment
     var body: some View {
         if let model = environment.storeBrowser {
-            StoreHomeView(model: model)
+            StoreHomeView(model: model, embedsNavigationStack: embedsNavigationStack)
         } else {
             ContentUnavailableView("Store Unavailable", systemImage: "bag", description: Text("Store services are not configured."))
         }
@@ -14,6 +20,10 @@ struct AppStoreView: View {
 
 struct StoreHomeView: View {
     @ObservedObject var model: StoreBrowserModel
+
+    /// Whether this view supplies its own navigation container. False when it
+    /// is pushed into a stack the host already owns.
+    var embedsNavigationStack: Bool = true
     @Environment(\.applicationEnvironment) private var environment
     @Environment(\.scenePhase) private var scenePhase
     @State private var query = ""
@@ -102,7 +112,18 @@ struct StoreHomeView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        Group {
+            if embedsNavigationStack {
+                NavigationStack { storeScreen }
+            } else {
+                storeScreen
+            }
+        }
+    }
+
+    /// The store's content, with no navigation container of its own, so this
+    /// view can be pushed into a stack the host already owns.
+    private var storeScreen: some View {
             storeList
                 .listStyle(.insetGrouped)
                 .navigationTitle("Store")
@@ -124,7 +145,6 @@ struct StoreHomeView: View {
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active { Task { await model.load(library: environment.library) } }
                 }
-        }
     }
 
     /// The list contents, split from `body` so the type checker solves the

@@ -57,7 +57,7 @@ struct GeneralSettingsSection: View {
                 subtitle: "The tab ZynSign opens when it launches.",
                 selection: settings.binding(\.general.landingTab)
             ) {
-                ForEach(LandingTab.allCases, id: \.self) { tab in
+                ForEach(LandingTab.tabCases, id: \.self) { tab in
                     Text(tab.title).tag(tab)
                 }
             }

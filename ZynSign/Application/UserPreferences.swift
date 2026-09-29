@@ -253,20 +253,62 @@ extension AdvancedPreferences {
 /// section lives in the presentation layer, so a change to the shell's tabs
 /// does not change the stored preference.
 enum LandingTab: String, CaseIterable, Hashable, Sendable, Codable {
-    case home
+    // The six sections the shell shows as tabs, in tab-bar order.
+    case files
     case library
+    case home
+    case appStore
+    case downloads
+    case settings
+
+    // Retired from the tab bar, but still decoded so a preference saved by an
+    // earlier build round-trips instead of resetting the whole settings file.
+    // Neither is offered in the picker, and neither can be a landing
+    // destination — see `selectable`, which the shell applies at launch.
     case certificates
     case profiles
-    case settings
+
+    /// The landing tabs the user may choose from, in tab-bar order.
+    ///
+    /// Defined here rather than derived from the shell so this type stays in
+    /// the Application layer: it names *what* the user can land on, and the
+    /// Presentation layer maps that onto whatever the shell currently shows.
+    static var tabCases: [LandingTab] {
+        allCases.filter(\.isSelectableTab)
+    }
+
+    /// Whether this section is one the shell shows as a tab. Certificates
+    /// and Profiles are not, because they are reached from Settings now.
+    var isSelectableTab: Bool {
+        switch self {
+        case .files, .library, .home, .appStore, .downloads, .settings:
+            return true
+        case .certificates, .profiles:
+            return false
+        }
+    }
+
+    /// A landing destination that is still selectable.
+    ///
+    /// A preference saved by an earlier build may name Certificates or
+    /// Profiles, which are no longer tabs. Selecting one would leave the tab
+    /// bar with no matching selection, so it coalesces to Library — the
+    /// nearest tab that still shows imported applications.
+    var selectable: LandingTab {
+        isSelectableTab ? self : .library
+    }
 
     /// The navigation title of the tab.
     var title: String {
         switch self {
-        case .home: return "Home"
+        case .files: return "Files"
         case .library: return "Library"
+        case .home: return "Home"
+        case .appStore: return "Store"
+        case .downloads: return "Downloads"
+        case .settings: return "Settings"
         case .certificates: return "Certificates"
         case .profiles: return "Profiles"
-        case .settings: return "Settings"
         }
     }
 }

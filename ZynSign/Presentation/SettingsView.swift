@@ -54,12 +54,41 @@ struct SettingsView: View {
         }
     }
 
-    /// The complete areas that are not tabs: Files, Store, and
-    /// Downloads. They are reached from here so the bottom navigation stays
-    /// the five-tab foundation every other screen builds on.
+    /// The complete areas that are not tabs: Certificates, Profiles, and —
+    /// when a staged feature supplies it — the Store, Downloads, and the
+    /// Installation Workspace. Files is a tab now; the rest are reached from
+    /// here so the bottom navigation stays the six-tab foundation.
     private var browseSection: some View {
         Section {
-            NavigationLink { FilesView() } label: {
+            NavigationLink {
+                CertificateManagerView(
+                    store: environment.identityStore,
+                    annotations: environment.identityAnnotations,
+                    importer: environment.pkcs12Importer
+                )
+            } label: {
+                Label(ShellSection.certificates.title, systemImage: ShellSection.certificates.symbolName)
+            }
+            // `ProfilesView` supplies its own navigation stack, so this link
+            // must not wrap it.
+            NavigationLink {
+                ProfilesView(
+                    profiles: environment.provisioningProfiles,
+                    importer: environment.provisioningProfileImporter,
+                    compatibility: environment.profileCompatibility,
+                    selections: environment.profileSelections,
+                    recordEvent: { name, succeeded in
+                        environment.recordAnalyticsEvent(
+                            category: .intake,
+                            name: name,
+                            succeeded: succeeded
+                        )
+                    }
+                )
+            } label: {
+                Label(ShellSection.profiles.title, systemImage: ShellSection.profiles.symbolName)
+            }
+            NavigationLink { FilesView(embedsNavigationStack: false) } label: {
                 Label(ShellSection.files.title, systemImage: ShellSection.files.symbolName)
             }
             if ReleaseTrain.isAvailable(.installationWorkspace) {
@@ -72,18 +101,17 @@ struct SettingsView: View {
                     Label(ShellSection.install.title, systemImage: ShellSection.install.symbolName)
                 }
             }
-            if ReleaseTrain.isAvailable(.appStore) {
-                NavigationLink { AppStoreView() } label: {
-                    Label(ShellSection.appStore.title, systemImage: ShellSection.appStore.symbolName)
-                }
+            // Files, Store, and Downloads are tabs; these links are a second
+            // route to the same screens, kept because a tab is not always the
+            // shortest path when the user is already reading Settings.
+            NavigationLink { AppStoreView(embedsNavigationStack: false) } label: {
+                Label(ShellSection.appStore.title, systemImage: ShellSection.appStore.symbolName)
             }
-            if ReleaseTrain.isAvailable(.downloads) {
-                NavigationLink { DownloadsView() } label: {
-                    Label(ShellSection.downloads.title, systemImage: ShellSection.downloads.symbolName)
-                }
+            NavigationLink { DownloadsView(embedsNavigationStack: false) } label: {
+                Label(ShellSection.downloads.title, systemImage: ShellSection.downloads.symbolName)
             }
         } header: { Text("Browse") } footer: {
-            Text("Files, the Installation Workspace, and the Store are reached from here. Downloads is also a tab when that feature is available. Store jobs stay isolated until you import them, and Download Center cleanup never deletes imported apps.")
+            Text("Certificates, Profiles, and the Installation Workspace are reached from here. Files, Store, and Downloads are tabs. Store jobs stay isolated until you import them, and Download Center cleanup never deletes imported apps.")
         }
     }
 

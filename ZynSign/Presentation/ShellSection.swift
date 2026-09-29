@@ -2,12 +2,11 @@ import Foundation
 
 /// The sections of the ZynSign shell.
 ///
-/// The five primary tabs are the navigation foundation the whole app is
-/// built on: Home, Library, Certificates, Profiles, Settings. Three further
-/// sections — Files, App Store, Downloads — are real, complete areas that
-/// are reached from Settings → Browse rather than the tab bar; their place
-/// in the shell is a presentation decision, not a statement about the
-/// features themselves.
+/// The six primary tabs are the navigation foundation the whole app is built
+/// on: Files, Library, Home, App Store, Downloads, Settings. Certificates and
+/// Profiles are real, complete areas that are reached from Settings rather
+/// than the tab bar; their place in the shell is a presentation decision, not
+/// a statement about the features themselves.
 ///
 /// The shell is a pure presentation concern — it decides order, titles and
 /// icons, nothing about workflow logic.
@@ -26,9 +25,14 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
     var id: Self { self }
 
     /// The sections that appear as tabs in the bottom navigation, in the
-    /// order the user sees them. Home is first so a fresh install lands on
-    /// the dashboard.
-    static let primaryTabs: [ShellSection] = [.home, .library, .certificates, .profiles, .settings]
+    /// order the user sees them: Files · Library · Home · App Store ·
+    /// Downloads · Settings.
+    ///
+    /// Certificates and Profiles are deliberately *not* tabs. They remain
+    /// complete, reachable areas reached from Settings → Browse, because
+    /// the bottom bar is for the six areas a user moves between constantly
+    /// and six is already the practical ceiling on a phone.
+    static let primaryTabs: [ShellSection] = [.files, .library, .home, .appStore, .downloads, .settings]
 
     /// The navigation title of the section.
     var title: String {
@@ -116,11 +120,14 @@ extension LandingTab {
     /// shell's tabs does not change what a stored preference means.
     var shellSection: ShellSection {
         switch self {
-        case .home: return .home
+        case .files: return .files
         case .library: return .library
+        case .home: return .home
+        case .appStore: return .appStore
+        case .downloads: return .downloads
+        case .settings: return .settings
         case .certificates: return .certificates
         case .profiles: return .profiles
-        case .settings: return .settings
         }
     }
 }
