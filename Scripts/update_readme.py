@@ -3,8 +3,9 @@
 update_readme.py — keep README.md honest and version-correct when features land.
 
 README is the storefront. When you add a feature in ZynSign/** or
-docs/product/**, this script (and .github/workflows/update-readme.yml)
-regenerates the parts that must not drift:
+docs/product/**, this script regenerates the parts that must not drift.
+quality.yml refuses a stale README on a pull request; maintenance.yml
+repairs the default branch weekly. It regenerates:
 
   1. Version badge — `https://img.shields.io/badge/version-X-<colour>`
      from ZynSign.xcodeproj/project.pbxproj MARKETING_VERSION

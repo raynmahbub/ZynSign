@@ -1,13 +1,18 @@
 # PR quality gate.
 #
-# Three layers, in increasing order of strictness:
+# Four layers, in increasing order of strictness:
 #
 #   1. PR title          — must be a Conventional Commit (blocks)
 #   2. Commit messages   — every commit in the PR is linted by
 #                          commitlint against commitlint.config.js (blocks)
-#   3. Danger Swift      — the automatic senior reviewer
+#   3. Labels            — path-based labels from .github/labeler.yml;
+#                          Release Drafter reads them to group the next
+#                          release notes (advisory)
+#   4. Danger Swift      — the automatic senior reviewer
 #                          (Dangerfile.swift); advisory, never blocks
 #
+# The label *definitions* (.github/labels.json) are synced weekly by
+# maintenance.yml.
 name: PR Quality
 
 on:
@@ -67,6 +72,18 @@ jobs:
 
       - name: Lint every commit in the pull request
         run: npx --no -- commitlint --from "origin/${{ github.base_ref }}" --to HEAD --verbose
+
+  label-pr:
+    name: Label the pull request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Apply path-based labels
+        uses: actions/labeler@v5
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          configuration-path: .github/labeler.yml
+          sync-labels: false
 
   danger:
     name: Danger Swift review
