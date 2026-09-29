@@ -5,7 +5,7 @@ release_train.py — ship ZynSign one release at a time.
 The whole app is built. Each release only switches on more of it. The single
 source of truth is `ZynSign/Application/ReleaseTrain.swift`:
 
-  * `ReleaseStage`        — the ordered releases (0.1.0-dev.N → 0.1.0 → alphas
+  * `ReleaseStage`        — the ordered releases (0.0.1-dev.N → 0.0.1 → alphas
                              → betas → RCs → 1.0.0 → 2.0.0 → 3.0.0)
   * `introducedFeatures`  — what each release switches on
   * `ReleaseTrain.current` — the release this build is cut for
@@ -18,8 +18,8 @@ Usage:
         Show the current release, what it exposes, and what ships next.
 
     python3 Scripts/release_train.py current [--tag | --stage]
-        Print the current release for machines: the version (0.1.0-dev.1),
-        the tag (v0.1.0-dev.1), or the ReleaseStage case name (dev1). Scripts
+        Print the current release for machines: the version (0.0.1-dev.1),
+        the tag (v0.0.1-dev.1), or the ReleaseStage case name (dev1). Scripts
         and workflows call this instead of hardcoding a version.
 
     python3 Scripts/release_train.py check [--tag vX.Y.Z]
@@ -210,10 +210,7 @@ def cmd_check(args: argparse.Namespace) -> int:
                     f"✗ {tag} is not a stop on the release train, so nothing can be released for it.\n"
                     f"  ReleaseTrain.current is {current.tag}; the train's stops are:\n"
                     f"    {', '.join(s.tag for s in stages)}\n"
-                    f"  The retired pre-launch tags (v0.1.0-dev, v0.1.1-dev, v0.2.0-dev) were deleted\n"
-                    f"  on 2026-09-29 and were never stages, so `promote` cannot move to them —\n"
-                    f"  a development stop is 0.1.0-dev.1, not 0.1.0-dev\n"
-                    f"  (docs/releases/release-train.md, “Legacy tags — retired”).",
+                    f"  See docs/releases/release-train.md for the plan and the stop order.",
                     file=sys.stderr,
                 )
             elif names.index(requested.name) < names.index(current.name):

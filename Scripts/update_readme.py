@@ -48,7 +48,7 @@ def read_build_number() -> str:
 
 
 def read_release_stage() -> str | None:
-    """The release train's current stage tag, e.g. `v0.1.0-dev.1`."""
+    """The release train's current stage tag, e.g. `v0.0.1-dev.1`."""
     train = ROOT / "ZynSign" / "Application" / "ReleaseTrain.swift"
     if not train.exists():
         return None

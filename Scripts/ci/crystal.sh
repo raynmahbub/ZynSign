@@ -23,7 +23,7 @@
 #   crystal_phase "${CRYSTAL_BUILD}" "Build" "Setup"
 #   crystal_ok "Repository checked out"
 #   crystal_card_begin "${CRYSTAL_BUILD}" "Build Summary" "Automatic artifact naming" "Success"
-#   crystal_card_row "Version" "0.1.0-dev.1"
+#   crystal_card_row "Version" "0.0.1-dev.1"
 #   crystal_card_end
 #
 # CI logic lives in scripts, never in YAML — including the presentation.

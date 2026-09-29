@@ -147,14 +147,13 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
 /// Stages are declared in shipping order. Each stage adds features on top of
 /// the previous one; nothing is ever taken away from users in a later stage.
 enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
-    // Development — the three pre-Horizon stops described in
-    // docs/releases/ReleaseResetGuide.md. They switch on no staged feature:
-    // their job is to prove the pipeline (build, quality gate, assets,
-    // publish) end to end before any feature is exposed publicly.
-    case dev1         // 0.1.0-dev.1
-    case dev2         // 0.1.0-dev.2
-    case dev3         // 0.1.0-dev.3
-    case horizon      // 0.1.0
+    // Development — the first stops on the train. They switch on no staged
+    // feature: their job is to prove the pipeline (build, quality gate,
+    // assets, publish) end to end before any feature is exposed publicly.
+    case dev1         // 0.0.1-dev.1
+    case dev2         // 0.0.1-dev.2
+    case dev3         // 0.0.1-dev.3
+    case horizon      // 0.0.1
     case alpha1       // 0.1.0-alpha.1
     case alpha2       // 0.1.0-alpha.2
     case alpha3       // 0.1.0-alpha.3
@@ -173,10 +172,10 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
     /// The Git tag / GitHub release version, without the leading `v`.
     var version: String {
         switch self {
-        case .dev1: return "0.1.0-dev.1"
-        case .dev2: return "0.1.0-dev.2"
-        case .dev3: return "0.1.0-dev.3"
-        case .horizon: return "0.1.0"
+        case .dev1: return "0.0.1-dev.1"
+        case .dev2: return "0.0.1-dev.2"
+        case .dev3: return "0.0.1-dev.3"
+        case .horizon: return "0.0.1"
         case .alpha1: return "0.1.0-alpha.1"
         case .alpha2: return "0.1.0-alpha.2"
         case .alpha3: return "0.1.0-alpha.3"
@@ -276,13 +275,10 @@ enum ReleaseTrain {
 
     /// The release this build is cut for. Edited by `Scripts/release_train.py`.
     ///
-    /// Reset to `.dev1` on 2026-09-29 together with the retirement of the three
-    /// pre-launch GitHub releases (`docs/releases/ReleaseResetGuide.md`). Nothing
-    /// was deleted to get here: every feature below is still compiled into this
-    /// build, and a Debug build still exposes all of them (`exposesEverything`).
-    /// What changed is only which entry points a *Release* build shows — the
-    /// feature plan itself is untouched, so each `promote` switches the next
-    /// stage's features back on in the order the plan already fixed.
+    /// The first stop on the train. A development stop exposes no staged
+    /// feature: every feature is compiled into the binary, a Debug build shows
+    /// all of them (`exposesEverything`), and a Release build shows the core
+    /// until `promote` switches the next stage's features on.
     static let current: ReleaseStage = .dev1
 
     /// `UserDefaults` / launch-argument key for the Debug-only preview override.

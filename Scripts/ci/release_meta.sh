@@ -6,7 +6,7 @@
 # Both release workflows need the same four facts — version, tag, channel,
 # prerelease — and both used to derive them inline in YAML from a version a
 # human typed into a dispatch form. A stale or mistyped version (a retired
-# `0.1.0-dev`, a past stop, a typo) then travelled all the way to the quality
+# that is not a stop, a past stop, a typo) then travelled all the way to the quality
 # gate while macOS runners were already building, and the error it produced
 # did not say what to do instead.
 #
@@ -174,7 +174,7 @@ self_test() {
     expect "a feature branch name is not read as a tag" \
         "$(resolve_version "" "feature/engineering-excellence")" "${current}"
 
-    expect "channel for 0.1.0-dev.1"  "$(channel_for "0.1.0-dev.1")"    "development"
+    expect "channel for 0.0.1-dev.1"  "$(channel_for "0.0.1-dev.1")"    "development"
     expect "channel for 0.1.0-alpha.1" "$(channel_for "0.1.0-alpha.1")"  "alpha"
     expect "channel for 0.9.0-beta.2"  "$(channel_for "0.9.0-beta.2")"   "beta"
     expect "channel for 1.0.0-rc.2"    "$(channel_for "1.0.0-rc.2")"     "rc"
@@ -183,8 +183,7 @@ self_test() {
     expect "every other channel is a pre-release"   "$(prerelease_for "rc")"     "true"
 
     expect_release "${current}" "the current stop is releasable"
-    expect_refusal "0.1.0-dev"    "a legacy pre-train tag is refused"
-    expect_refusal "0.1.0"        "a past stop is refused"
+    expect_refusal "9.9.9"        "a version that is not on the train is refused"
     expect_refusal "1.0.0-rc.3"   "a future stop is refused until it is promoted"
     expect_refusal "latest"       "a non-version is refused"
     expect_refusal "1.0"          "an incomplete version is refused"

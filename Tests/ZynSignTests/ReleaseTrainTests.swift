@@ -10,8 +10,8 @@ final class ReleaseTrainTests: XCTestCase {
 
     func testStagesFollowTheVersionStrategy() {
         XCTAssertEqual(ReleaseStage.allCases.map(\.version), [
-            "0.1.0-dev.1", "0.1.0-dev.2", "0.1.0-dev.3",
-            "0.1.0",
+            "0.0.1-dev.1", "0.0.1-dev.2", "0.0.1-dev.3",
+            "0.0.1",
             "0.1.0-alpha.1", "0.1.0-alpha.2", "0.1.0-alpha.3",
             "0.9.0-beta.1", "0.9.0-beta.2", "0.9.0-beta.3", "0.9.0-beta.4",
             "1.0.0-rc.1", "1.0.0-rc.2", "1.0.0-rc.3",
@@ -27,15 +27,15 @@ final class ReleaseTrainTests: XCTestCase {
             XCTAssertEqual(parts.count, 3, "\(stage) → \(stage.marketingVersion)")
             XCTAssertTrue(parts.allSatisfy { Int($0) != nil }, "\(stage) → \(stage.marketingVersion)")
         }
-        XCTAssertEqual(ReleaseStage.dev1.marketingVersion, "0.1.0")
+        XCTAssertEqual(ReleaseStage.dev1.marketingVersion, "0.0.1")
         XCTAssertEqual(ReleaseStage.alpha2.marketingVersion, "0.1.0")
         XCTAssertEqual(ReleaseStage.beta3.marketingVersion, "0.9.0")
         XCTAssertEqual(ReleaseStage.rc1.marketingVersion, "1.0.0")
     }
 
     func testTagsCarryTheLeadingV() {
-        XCTAssertEqual(ReleaseStage.dev1.tag, "v0.1.0-dev.1")
-        XCTAssertEqual(ReleaseStage.horizon.tag, "v0.1.0")
+        XCTAssertEqual(ReleaseStage.dev1.tag, "v0.0.1-dev.1")
+        XCTAssertEqual(ReleaseStage.horizon.tag, "v0.0.1")
         XCTAssertEqual(ReleaseStage.alpha1.tag, "v0.1.0-alpha.1")
         XCTAssertEqual(ReleaseStage.stable.tag, "v1.0.0")
         XCTAssertEqual(ReleaseStage.nova.tag, "v3.0.0")
@@ -60,10 +60,10 @@ final class ReleaseTrainTests: XCTestCase {
         XCTAssertEqual(ReleaseStage(identifier: " v1.0.0 "), .stable)
         XCTAssertEqual(ReleaseStage(identifier: "3.0.0-nova.1"), .nova1)
         XCTAssertEqual(ReleaseStage(identifier: "dev1"), .dev1)
-        XCTAssertEqual(ReleaseStage(identifier: "0.1.0-dev.1"), .dev1)
-        XCTAssertEqual(ReleaseStage(identifier: "v0.1.0-dev.3"), .dev3)
+        XCTAssertEqual(ReleaseStage(identifier: "0.0.1-dev.1"), .dev1)
+        XCTAssertEqual(ReleaseStage(identifier: "v0.0.1-dev.3"), .dev3)
         XCTAssertNil(ReleaseStage(identifier: "0.2.0-dev"))
-        XCTAssertNil(ReleaseStage(identifier: "0.1.0-dev"), "a legacy pre-train tag is not a stage")
+        XCTAssertNil(ReleaseStage(identifier: "0.1.0-dev"), "a version the train does not contain is not a stage")
     }
 
     // MARK: - Features
@@ -72,7 +72,6 @@ final class ReleaseTrainTests: XCTestCase {
         XCTAssertTrue(ReleaseStage.horizon.features.isEmpty)
     }
 
-    /// The train restarted at `0.1.0-dev.1` (docs/releases/ReleaseResetGuide.md).
     /// A development stop proves the pipeline — build, quality gate, assets,
     /// publish — without exposing a staged feature, so its gate must be empty
     /// while Debug builds keep exposing everything.
@@ -92,10 +91,9 @@ final class ReleaseTrainTests: XCTestCase {
         XCTAssertEqual(ReleaseStage.dev3.next, .horizon, "Development runs into Horizon, not into Alpha")
     }
 
-    /// The reset moved the *pointer*, never the *plan*: every feature still has
-    /// exactly one introducing stage, and the stages after Development are
-    /// unchanged. Nothing built was given up to restart the version numbers.
-    func testTheResetKeptTheWholeFeaturePlanIntact() {
+    /// Every feature still has exactly one introducing stage, and the stages
+    /// after Development are unchanged: no development stop introduces one.
+    func testTheFeaturePlanIsIntact() {
         XCTAssertEqual(ReleaseStage.horizon.next, .alpha1)
         XCTAssertEqual(ReleaseStage.alpha1.features, [.certificateStudio, .libraryPowerFeatures])
         XCTAssertEqual(ReleaseStage.stable.features, Set(ReleaseFeature.allCases).subtracting(ReleaseFeature.nova))
