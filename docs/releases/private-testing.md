@@ -129,7 +129,7 @@ Both set `teamID: YOUR_TEAM_ID` (replace), `compileBitcode: false`, `signingStyl
 
 ## CI help
 
-`.github/workflows/private-test-build.yml` builds `Release` on `macos-15` for `iphoneos`/`iphonesimulator`, runs `ci.yml` hygiene + `external_validation.py self-test`, and uploads `ZynSign-private.ipa` as a **private** workflow artifact (`retention-days: 7`, not a release). Trigger: `workflow_dispatch` on the commit you intend to tag (normally `main`), with configuration **Release**. Debug exposes every feature regardless of the release train, so it is not release evidence.
+`.github/workflows/01-build.yml` in `mode: private-ipa` builds `Release` on `macos-15` for `iphoneos`, after the same hygiene, build and unit-test gates every commit gets, and uploads `ZynSign-v{tag}-Release-private.ipa` as a **private** workflow artifact (`retention-days: 7`, not a release). Trigger: `workflow_dispatch` on the commit you intend to tag (normally `main`), with configuration **Release**. The version in the artifact name comes from `Scripts/release_train.py current --tag`, never from a typed value. Debug exposes every feature regardless of the release train, so it is not release evidence.
 
 ## Checklist before you push the tag public
 

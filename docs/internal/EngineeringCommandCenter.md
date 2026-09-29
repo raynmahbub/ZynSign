@@ -8,7 +8,7 @@ maintenance run._
 
 | Area | Status | Detail |
 | --- | --- | --- |
-| Build & tests | see CI checks | `ci.yml` on every PR and push |
+| Build & tests | see CI checks | `01-build.yml` on every PR and push |
 | Architecture health | ✅ | 0 violation(s) across 8 rules |
 | Test coverage surface | ✅ | 2709 tests in 207 files |
 | Largest Swift files | 📏 | 1993 lines at ZynSign/Presentation/ApplicationDetailView.swift |
@@ -37,4 +37,4 @@ Current release : v1.0.0-rc.2  (stage .rc2) Xcode project   : MARKETING_VERSION 
 - `Scripts/ci/dependency_check.sh` → `build/metrics/dependencies.txt`
 - `Scripts/ci/docs_check.sh` → `build/metrics/docs.txt`
 - `Scripts/ci/security_scan.sh` → `build/metrics/security.txt`
-- `quality.yml` posts it on every pull request; `maintenance.yml` commits it weekly.
+- `02-quality.yml` posts it on every pull request; `99-command-center.yml` commits it weekly.

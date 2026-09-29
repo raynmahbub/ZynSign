@@ -106,15 +106,15 @@ git push origin v0.1.0-alpha.1
 
 Safety rails:
 
-- `release_train.py check` runs in CI (`ci.yml` → hygiene). It fails when
+- `release_train.py check` runs in CI (`01-build.yml` → hygiene). It fails when
   `MARKETING_VERSION` disagrees with `ReleaseTrain.current`.
 - Both release workflows derive their version through
   `Scripts/ci/release_meta.sh`, whose first job runs
   `release_train.py check --tag <tag>`. Pushing `v0.1.0-alpha.2` while the
   code still says `alpha1` fails the release rather than publishing the wrong
   feature set — and it fails before a macOS runner starts building. Its
-  `--self-test` runs in `ci.yml` → hygiene.
-- Dispatching **Release** or **Prerelease Preflight** with no version releases
+  `--self-test` runs in `01-build.yml` → hygiene.
+- Dispatching **🚀 Release** — with or without `dry_run` — with no version releases
   the train's current stop (`release_train.py current`), so nobody has to
   retype — or misremember — a version.
 - `promote` refuses to move backwards, because users would lose features.

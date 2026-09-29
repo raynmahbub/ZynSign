@@ -3,7 +3,7 @@
 generate_changelog.py — auto-create CHANGELOG.md entry on public dev release.
 
 When you push a tag like v0.1.0 (market 0.1.0, first public dev) the
-.github/workflows/release.yml workflow calls:
+.github/workflows/03-release.yml workflow calls:
 
     python3 Scripts/generate_changelog.py --version 0.1.0 --date 2026-09-25
 

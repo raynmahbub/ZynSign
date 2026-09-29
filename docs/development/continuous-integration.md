@@ -1,6 +1,6 @@
 # Continuous Integration
 
-The workflow definition lives at [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml).
+The workflow definition lives at [`.github/workflows/01-build.yml`](../../.github/workflows/01-build.yml).
 It first ran to green on hosted infrastructure on 2026-09-24: run
 35992989870 on `main`, the merge of the packaging and application-pipeline
 work, passed the hygiene job, the application build, and the full unit-test
@@ -119,7 +119,7 @@ matched. See [the hardening pack](../hardening/README.md).
 
 ## The engineering suite
 
-Eight workflows, no duplicated gates: every job calls a reusable script in
+Five workflows, no duplicated gates: every job calls a reusable script in
 `Scripts/ci/`, so CI logic never lives in YAML and never appears twice.
 Failing unit tests are surfaced as check annotations by
 `Scripts/ci/annotate_test_failures.sh`, which reads the run's result
@@ -131,14 +131,11 @@ jobs that genuinely need Xcode run on macOS:
 
 | Workflow | Trigger | Jobs | Gate type |
 | --- | --- | --- | --- |
-| `ci.yml` | PR + every push | `hygiene` (ubuntu) · `build-and-test` · `lint-and-format` · `external-validation` (macOS) | blocking, except external validation, which measures |
-| `quality.yml` | PR + push to main | 8 ubuntu jobs: `architecture-guard` · `dependency-validation` · `docs-check` · `secret-policy` · `gitleaks` · `complexity-check` · `engineering-summary` · `readme-check` | blocking, except complexity and the summary |
-| `pr-quality.yml` | PR | `pr-title` · `commitlint` (blocking) · `label-pr` · `danger` (advisory) | blocking on title and commits |
+| `01-build.yml` · 🔨 Build | PR + every push; manual (`mode: private-ipa`) | `hygiene` (ubuntu) · `build-and-test` · `lint-and-format` · `external-validation` (macOS); on a PR also `pr-title` · `commitlint` · `label-pr` (ubuntu) · `danger` (macOS); on demand `private-ipa` | blocking, except external validation (measures) and Danger (advises) |
+| `02-quality.yml` · 🛡 Quality | PR + push to main | 8 ubuntu jobs: `architecture-guard` · `dependency-validation` · `docs-check` · `secret-policy` · `gitleaks` · `complexity-check` · `engineering-summary` · `readme-check` | blocking, except complexity and the summary |
+| `03-release.yml` · 🚀 Release | tag `v*` + manual (`version`, `dry_run`) | `meta` → quality gate → build/test → assets → publish → verdict; `dry_run: true` is the full rehearsal and publishes nothing | blocking |
+| `99-command-center.yml` · ⚙ Command Center | weekly + manual | `reports` · `publish` · `regression-check` · `autoformat` · `readme-sync` · `label-sync` · `stale` | automation, never blocks a PR |
 | `release-drafter.yml` | push to main, PR | `update-release-draft` | automation |
-| `maintenance.yml` | weekly + manual | `reports` · `publish` · `regression-check` · `autoformat` · `readme-sync` · `label-sync` · `stale` | automation, never blocks a PR |
-| `prerelease.yml` | manual | full rehearsal: `meta` → validation → gitleaks → lint/format → build/test → asset dry run → verdict | blocking, publishes nothing |
-| `release.yml` | tag `v*` + manual | `meta` → quality gate → build/test → assets → publish | blocking |
-| `private-test-build.yml` | manual | hygiene + private IPA preparation | never publishes |
 
 Scripts behind the gates:
 

@@ -7,29 +7,49 @@ professional release without anyone formatting anything by hand._
 
 ```
                  ┌─────────────────────────────┐
- merged PRs ───► │ Release Drafter drafts the  │
+ merged PRs ───► │ Release Drafter drafts the  │  release-drafter.yml
  (labelled)      │ next release notes          │
                  └──────────────┬──────────────┘
-                                │ maintainer runs
+                                │ maintainer rehearses
                                 ▼
                  ┌─────────────────────────────┐
-                 │ Prerelease Preflight        │  workflow_dispatch
-                 │ meta → validate → guards →  │  (the full rehearsal;
-                 │ lint → build → tests →      │   nothing published)
-                 │ asset dry run               │
+                 │ 🚀 Release · dry_run: true  │  03-release.yml
+                 │ meta → quality gate →       │  (every gate, every
+                 │ build+test → assets →       │   asset, nothing
+                 │ verdict                     │   published)
                  └──────────────┬──────────────┘
-                                │ green → tag pushed
+                                │ green → one tag pushed
                                 ▼
                  ┌─────────────────────────────┐
-                 │ Release                     │  on tag v*
-                 │ meta → quality gate →       │  (or workflow_dispatch)
+                 │ 🚀 Release                  │  03-release.yml
+                 │ meta → quality gate →       │  on tag v*
                  │ build+test → assets →       │
-                 │ publish                     │
+                 │ publish → verdict           │
                  └─────────────────────────────┘
 ```
 
-If any gate fails, the release stops automatically; publishing is the
-last job and runs only after everything before it passed.
+One tag is the only manual step. If any gate fails, the release stops
+automatically; publishing runs only after everything before it passed, and
+the last thing in the log is a summary card rather than a wall of xcodebuild
+output.
+
+The rehearsal is the same workflow with `dry_run: true` — not a second
+pipeline that can drift from the real one. It runs every gate and builds the
+full asset set, then stops at the verdict without touching the public
+release.
+
+Every log and every summary speaks one language (Crystal Flow,
+`Scripts/ci/crystal.sh`):
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚀 Release • Assets • v1.0.0-rc.2
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+✓ ZynSign-v1.0.0-rc.2-unsigned.ipa
+✓ ZynSign-v1.0.0-rc.2-SHA256.txt — c8f182eb56362394…
+✓ BuildPassport-v1.0.0-rc.2.json — 17 feature(s) visible, 2 staged later
+✓ MANIFEST.md — 5 asset(s) listed
+```
 
 ## Which version a run releases
 
@@ -60,13 +80,13 @@ ubuntu, before any macOS runner is allocated:
 ```
 
 `Scripts/ci/release_meta.sh --self-test` proves the derivation and every
-refusal against the real train, and runs in `ci.yml` → hygiene, so a broken
+refusal against the real train, and runs in `01-build.yml` → hygiene, so a broken
 release pipeline is caught on an ordinary push rather than at the moment
 somebody tries to ship.
 
 ## Release quality gate
 
-Before anything is published, `release.yml` verifies:
+Before anything is published, `03-release.yml` verifies:
 
 | Gate | Where |
 | --- | --- |
@@ -75,8 +95,8 @@ Before anything is published, `release.yml` verifies:
 | Version consistency (`MARKETING_VERSION`, build number, deployment target) | `Scripts/ci/release_validate.sh` |
 | CHANGELOG entry and release notes | `Scripts/ci/release_validate.sh` |
 | Build and unit tests | `Scripts/ci/build.sh` |
-| SwiftLint | `Scripts/ci/lint.sh` (preflight) |
-| SwiftFormat check | `Scripts/ci/format.sh` (preflight) |
+| SwiftLint | `Scripts/ci/lint.sh` (🔨 Build, every commit) |
+| SwiftFormat check | `Scripts/ci/format.sh` (🔨 Build, every commit) |
 | Architecture Guard | `Scripts/ci/architecture_guard.sh` |
 | Dependency allowlist | `Scripts/ci/dependency_check.sh` |
 | Documentation | `Scripts/ci/docs_check.sh` |
@@ -84,26 +104,55 @@ Before anything is published, `release.yml` verifies:
 
 ## Release assets
 
-Every release uploads exactly:
+`Scripts/ci/release_assets.sh` generates the whole set from the tag, so every
+filename carries the version and nothing is ever renamed by hand:
 
 ```
 Release Assets
-├── ZynSign.ipa          # archive artifact of the Release build (unsigned in CI)
-├── ZynSign.sha256       # checksum of the IPA
-├── BuildInfo.json       # version, build number, commit SHA, build date,
-│                        # Swift version, Xcode version, supported iOS,
-│                        # release channel, checksum, signed flag
-└── ReleaseNotes.md      # docs/releases/notes-v{version}.md, or the
-                         # CHANGELOG section when no notes file exists
+├── ZynSign-v1.0.0-rc.2-unsigned.ipa    # Payload/ zip of the archived .app
+├── ZynSign-v1.0.0-rc.2-SHA256.txt      # checksum, `shasum -a 256 -c` layout
+├── BuildPassport-v1.0.0-rc.2.json      # the build's fingerprint (internal)
+├── MANIFEST.md                         # identity, provenance, assets, verify
+└── ReleaseNotes.md                     # docs/releases/notes-v{version}.md,
+                                        # else the CHANGELOG section
 ```
 
-The CI-built IPA is unsigned (`CODE_SIGNING_ALLOWED=NO` archive) and
-marked `"signed": false` in `BuildInfo.json` — it is the reproducible
-record of what the tag built. **The privately tested signed IPA remains
-the public artifact:** the publish step never overwrites an existing
-`ZynSign.ipa` on the release (see
-[private-testing.md](private-testing.md) for the private → public
-gate).
+The Build Passport is the repository's fingerprint — what a developer needs
+when something goes wrong in the field, and what a user never has to see:
+
+```json
+{
+  "app": "ZynSign",
+  "version": "1.0.0-rc.2",
+  "tag": "v1.0.0-rc.2",
+  "channel": "rc",
+  "artifact": "ZynSign-v1.0.0-rc.2-unsigned.ipa",
+  "marketingVersion": "1.0.0",
+  "buildNumber": "5",
+  "commit": "3f47906",
+  "buildDate": "2026-09-29T07:12:52Z",
+  "xcode": "16.2",
+  "swift": "6.0",
+  "ios": "17.0",
+  "signed": false,
+  "checksum": "sha256:c8f182eb…",
+  "releaseTrain": "v1.0.0-rc.2",
+  "featuresVisible": 17,
+  "featuresStagedLater": 2
+}
+```
+
+Every field is derived at build time — the toolchain from `xcodebuild`, the
+versions from `project.pbxproj`, the feature counts from
+`Scripts/release_train.py status`. Nothing is hardcoded, so the passport
+cannot go stale the way a written-in version number does.
+
+The IPA is unsigned (`CODE_SIGNING_ALLOWED=NO` archive) and says so in the
+passport, the manifest and the release notes. **The privately tested signed
+IPA remains the public artifact:** the version-stamped name means the CI
+artifact can no longer collide with it at all, and the publish step still
+never overwrites a file that is already on the release (see
+[private-testing.md](private-testing.md) for the private → public gate).
 
 ## Channels
 
@@ -164,7 +213,8 @@ Interactive authoring: `npm install && npm run commit` (Commitizen).
 1. `python3 Scripts/release_train.py promote` — switch on the stage's features.
 2. Update `CHANGELOG.md` `[Unreleased]` and `docs/releases/notes-v{version}.md`.
 3. Private test (see [private-testing.md](private-testing.md)).
-4. Actions → **Prerelease Preflight** — leave the version empty to rehearse
-   the train's current stop, or type the candidate explicitly.
-5. Tag and push — the Release workflow gates and publishes. (Or run
-   **Release** manually with an empty version for the same stop.)
+4. Actions → **🚀 Release** → `dry_run: true` — leave the version empty to
+   rehearse the train's current stop. Every gate runs and the full asset set
+   is built; nothing is published.
+5. Tag and push — the same workflow gates and publishes. One tag, complete
+   release.

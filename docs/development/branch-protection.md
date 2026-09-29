@@ -24,22 +24,22 @@ check the moment protection is switched on._
 
 GitHub matches a required check against the **job's display name**, so these
 are the exact strings to enter in Settings → Branches → Add required status
-check. Eight workflows produce them; the checks themselves did not change
+check. Five workflows produce them; the checks themselves did not change
 when the suite was consolidated, only the file they live in.
 
 | Check (enter this string) | Workflow | Job |
 | --- | --- | --- |
-| `Build and test (Xcode)` | `ci.yml` | `build-and-test` |
-| `Lint and format` | `ci.yml` | `lint-and-format` |
-| `Repository hygiene` | `ci.yml` | `hygiene` |
-| `Enforce the layered architecture contract` | `quality.yml` | `architecture-guard` |
-| `Enforce the dependency allowlist` | `quality.yml` | `dependency-validation` |
-| `Links, images, orphans, markdown quality` | `quality.yml` | `docs-check` |
-| `Repository secret policy` | `quality.yml` | `secret-policy` |
-| `Gitleaks (full history)` | `quality.yml` | `gitleaks` |
-| `README freshness` | `quality.yml` | `readme-check` |
-| `Conventional PR title` | `pr-quality.yml` | `pr-title` |
-| `Conventional commit messages` | `pr-quality.yml` | `commitlint` |
+| `Build and test (Xcode)` | `01-build.yml` | `build-and-test` |
+| `Lint and format` | `01-build.yml` | `lint-and-format` |
+| `Repository hygiene` | `01-build.yml` | `hygiene` |
+| `Enforce the layered architecture contract` | `02-quality.yml` | `architecture-guard` |
+| `Enforce the dependency allowlist` | `02-quality.yml` | `dependency-validation` |
+| `Links, images, orphans, markdown quality` | `02-quality.yml` | `docs-check` |
+| `Repository secret policy` | `02-quality.yml` | `secret-policy` |
+| `Gitleaks (full history)` | `02-quality.yml` | `gitleaks` |
+| `README freshness` | `02-quality.yml` | `readme-check` |
+| `Conventional PR title` | `01-build.yml` | `pr-title` |
+| `Conventional commit messages` | `01-build.yml` | `commitlint` |
 
 `Complexity thresholds (warnings only)`, `Engineering Command Center`, the
 `External validation (Apple tooling)` measurement, the weekly Periphery
@@ -66,4 +66,4 @@ see [../releases/release-train.md](../releases/release-train.md)); add
    automatically (its design supports both).
 2. Add `CODEOWNERS` review requests (`.github/CODEOWNERS` is already in
    place — protection makes the requests mandatory).
-3. Watch one full release cycle: preflight, tag, quality gate, publish.
+3. Watch one full release cycle: dry run, tag, quality gate, publish.

@@ -22,7 +22,7 @@ one.
 | Presentation / `RootView` | 1 | publishes the resolved motion policy to `ZMotion.permitsAnimationGlobally` next to the existing environment value |
 | Presentation / Nova | `SmartWorkspaceView.swift` | rewritten as a Domain→component mapping over the shared cards; identical output |
 | Application, Domain, Platform, App | **0 files** | — |
-| Scripts / CI | `audit_design_tokens.py` (new), `design_tokens_baseline.json` (new), `generate_brand_assets.py` (GIF check tolerance), `ci.yml` (+1 step) | guard |
+| Scripts / CI | `audit_design_tokens.py` (new), `design_tokens_baseline.json` (new), `generate_brand_assets.py` (GIF check tolerance), `01-build.yml` (+1 step) | guard |
 | Assets | `Brand/Motion/` (hero moved from `Social/`), `Assets/README.md` | organisation |
 | Docs | `design/README.md`, `design/zynsign-design-language.md` §3, `design/brand/Motion.md`, `internal/*`, `CHANGELOG.md` | accuracy |
 

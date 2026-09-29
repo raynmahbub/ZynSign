@@ -73,11 +73,11 @@ Why this structure:
 
 - **GitHub understands prereleases.** `-dev`, `-alpha`, `-beta`, `-rc`
   suffixes are flagged `--prerelease` automatically by
-  `.github/workflows/release.yml` (channel detection), so `latest`
+  `.github/workflows/03-release.yml` (channel detection), so `latest`
   always points at the newest stable.
 - **Release Drafter works perfectly** — the version resolver maps merged
   labels to the next `-dev.N` / patch / minor.
-- **CI detects channels automatically** — `BuildInfo.json` records
+- **CI detects channels automatically** — the Build Passport records
   `releaseChannel` from the tag.
 - **Rollbacks stay clean** — each tag is immutable; re-publishing means a
   new tag (`-dev.2`), never a moved tag.
@@ -96,14 +96,15 @@ gate.
 python3 Scripts/release_train.py status     # confirm the current stage
 python3 Scripts/release_train.py current    # the version the workflows will use
 # …private test first (docs/releases/private-testing.md)…
-# run the preflight: Actions → Prerelease Preflight, version left empty —
+# rehearse it: Actions → 🚀 Release → dry_run: true, version left empty —
 # Scripts/ci/release_meta.sh takes the current stop from the train, and a
 # typed version is rejected unless it is that stop
 git tag -a v0.1.0-dev.1 -m "ZynSign 0.1.0-dev.1" && git push origin v0.1.0-dev.1
 ```
 
-The tag triggers `release.yml`: quality gate → build + tests → assets
-(`ZynSign.ipa`, `ZynSign.sha256`, `BuildInfo.json`, `ReleaseNotes.md`) →
+The tag triggers `03-release.yml`: quality gate → build + tests → assets
+(`ZynSign-v{tag}-unsigned.ipa`, `ZynSign-v{tag}-SHA256.txt`,
+`BuildPassport-v{tag}.json`, `MANIFEST.md`, `ReleaseNotes.md`) →
 publish. See [release-automation.md](release-automation.md).
 
 ## Notes

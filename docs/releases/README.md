@@ -45,7 +45,7 @@ xcodebuild -exportArchive -archivePath build/ZynSign-private.xcarchive \
 
 For TestFlight internal, use `ExportOptions-private-appstore.plist` (`method: app-store`) and upload via Xcode Organizer — add testers to group `Horizon Private` (no external review). Templates live in [`ExportOptions-private-adhoc.plist`](ExportOptions-private-adhoc.plist) and [`ExportOptions-private-appstore.plist`](ExportOptions-private-appstore.plist) (`teamID: YOUR_TEAM_ID`).
 
-Or trigger `.github/workflows/private-test-build.yml` manually (`workflow_dispatch` → `Release`) — it builds for simulator, runs hygiene + host vectors, and uploads the private IPA as a workflow artifact (retention 7 days, **not** a release).
+Or trigger `.github/workflows/01-build.yml` manually (`workflow_dispatch` → `mode: private-ipa`, configuration **Release**) — the hygiene, build and test gates run first, then it archives and exports the ad-hoc IPA and uploads it as a workflow artifact (retention 7 days, **not** a release).
 
 **Step 2 — Private test matrix.** See [private-testing.md](private-testing.md) — Import / Library / Certificate / Smart Sign / Repository health / Downloads background / Mission Control / Honest 8-10 / Diagnostics — must be all green on two real devices (one iOS 17, one iOS 18) plus simulator smoke. Log the result in that file.
 

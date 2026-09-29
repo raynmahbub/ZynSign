@@ -29,7 +29,7 @@ uploads it on every push.
 
 ## What CI enforces
 
-The workflow (`.github/workflows/ci.yml`, described in
+The workflow (`.github/workflows/01-build.yml`, described in
 [continuous-integration.md](continuous-integration.md)) runs, on every push:
 
 1. **Hygiene** — no private key or certificate material outside test
