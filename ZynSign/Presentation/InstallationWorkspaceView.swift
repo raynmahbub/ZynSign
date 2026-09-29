@@ -15,6 +15,12 @@ import SwiftUI
 /// own section and each reachable from here.
 struct InstallationWorkspaceView: View {
 
+    /// When this view is pushed into a navigation stack the host already
+    /// owns — Settings → Browse — it must not wrap itself in a second one.
+    /// Nesting `NavigationStack` inside a pushed destination crashes at
+    /// runtime, not with a warning.
+    var embedsNavigationStack: Bool = true
+
     /// The workspace use case. `nil` in compositions without the feature;
     /// the screen then reports itself unavailable rather than showing an
     /// empty dashboard that could be mistaken for "nothing installed".
@@ -57,9 +63,14 @@ struct InstallationWorkspaceView: View {
         var id: String { attempt.id.rawValue }
     }
 
-    init(workspace: InstallationWorkspace?, storage: StorageManagement? = nil) {
+    init(
+        workspace: InstallationWorkspace?,
+        storage: StorageManagement? = nil,
+        embedsNavigationStack: Bool = true
+    ) {
         self.workspace = workspace
         self.storage = storage
+        self.embedsNavigationStack = embedsNavigationStack
         _model = StateObject(wrappedValue: InstallationWorkspaceModel(
             workspace: workspace,
             storage: storage
@@ -67,10 +78,12 @@ struct InstallationWorkspaceView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            content
-                .navigationTitle("Install")
-                .toolbar { toolbar }
+        Group {
+            if embedsNavigationStack {
+                NavigationStack { contentChain }
+            } else {
+                contentChain
+            }
         }
         .task { await model.load() }
         .sheet(item: $checklistCandidate) { row in
@@ -113,6 +126,14 @@ struct InstallationWorkspaceView: View {
             guard !isShowing else { return }
             model.notice = nil
         }
+    }
+
+    /// The workspace's content, with no navigation container of its own, so
+    /// this view can be pushed into a stack the host already owns.
+    private var contentChain: some View {
+            content
+                .navigationTitle("Install")
+                .toolbar { toolbar }
     }
 
     @ViewBuilder

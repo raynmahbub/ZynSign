@@ -69,8 +69,8 @@ struct SettingsView: View {
             } label: {
                 Label(ShellSection.certificates.title, systemImage: ShellSection.certificates.symbolName)
             }
-            // `ProfilesView` supplies its own navigation stack, so this link
-            // must not wrap it.
+            // `ProfilesView` supplies its own navigation stack, so it is
+            // told the host owns this one.
             NavigationLink {
                 ProfilesView(
                     profiles: environment.provisioningProfiles,
@@ -83,7 +83,8 @@ struct SettingsView: View {
                             name: name,
                             succeeded: succeeded
                         )
-                    }
+                    },
+                    embedsNavigationStack: false
                 )
             } label: {
                 Label(ShellSection.profiles.title, systemImage: ShellSection.profiles.symbolName)
@@ -95,7 +96,8 @@ struct SettingsView: View {
                 NavigationLink {
                     InstallationWorkspaceView(
                         workspace: environment.installationWorkspace,
-                        storage: environment.storageManagement
+                        storage: environment.storageManagement,
+                        embedsNavigationStack: false
                     )
                 } label: {
                     Label(ShellSection.install.title, systemImage: ShellSection.install.symbolName)

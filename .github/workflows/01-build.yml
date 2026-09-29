@@ -126,6 +126,9 @@ jobs:
       - name: Audit accessibility in the sources
         run: python3 Scripts/audit_accessibility.py --strict
 
+      - name: Refuse a pushed destination that opens its own stack
+        run: python3 Scripts/audit_navigation_stack.py
+
       - name: Check the regression catalogue names real tests
         run: python3 Scripts/audit_regression_coverage.py
 
