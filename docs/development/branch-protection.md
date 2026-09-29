@@ -22,19 +22,34 @@ check the moment protection is switched on._
 
 ### Required status checks
 
-| Check | Workflow |
-| --- | --- |
-| `build-and-test` | `build-validation.yml` |
-| `swiftlint` | `swiftlint.yml` |
-| `swiftformat-check` | `swiftformat.yml` |
-| `architecture-guard` | `architecture-guard.yml` |
-| `dependency-validation` | `dependency-validation.yml` |
-| `docs-check` | `docs-check.yml` |
-| `secret-policy` / `gitleaks` | `security-scan.yml` |
-| `pr-title` / `commitlint` | `pr-quality.yml` |
+GitHub matches a required check against the **job's display name**, so these
+are the exact strings to enter in Settings → Branches → Add required status
+check. Five workflows produce them; the checks themselves did not change
+when the suite was consolidated, only the file they live in.
 
-`complexity-check`, `dead-code` (Periphery), `quality-summary`, and the
-labeling/stale bots stay advisory — they measure, they do not block.
+| Check (enter this string) | Workflow | Job |
+| --- | --- | --- |
+| `Build and test (Xcode)` | `01-build.yml` | `build-and-test` |
+| `Lint and format` | `01-build.yml` | `lint-and-format` |
+| `Repository hygiene` | `01-build.yml` | `hygiene` |
+| `Enforce the layered architecture contract` | `02-quality.yml` | `architecture-guard` |
+| `Enforce the dependency allowlist` | `02-quality.yml` | `dependency-validation` |
+| `Links, images, orphans, markdown quality` | `02-quality.yml` | `docs-check` |
+| `Repository secret policy` | `02-quality.yml` | `secret-policy` |
+| `Gitleaks (full history)` | `02-quality.yml` | `gitleaks` |
+| `README freshness` | `02-quality.yml` | `readme-check` |
+| `Conventional PR title` | `01-build.yml` | `pr-title` |
+| `Conventional commit messages` | `01-build.yml` | `commitlint` |
+
+`Complexity thresholds (warnings only)`, `Engineering Command Center`, the
+`External validation (Apple tooling)` measurement, the weekly Periphery
+dead-code scan, and the labeling/stale/README-repair jobs stay advisory —
+they measure and report, they do not block.
+
+> Every required check must actually report on the pull request. A job that
+> is skipped by an `if:` or excluded by a `paths:` filter never produces a
+> check run, and a missing required check blocks the merge forever — so the
+> jobs above run unconditionally on every pull request.
 
 ## `develop` (if introduced)
 
@@ -51,4 +66,4 @@ see [../releases/release-train.md](../releases/release-train.md)); add
    automatically (its design supports both).
 2. Add `CODEOWNERS` review requests (`.github/CODEOWNERS` is already in
    place — protection makes the requests mandatory).
-3. Watch one full release cycle: preflight, tag, quality gate, publish.
+3. Watch one full release cycle: dry run, tag, quality gate, publish.

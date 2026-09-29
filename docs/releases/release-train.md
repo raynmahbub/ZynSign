@@ -12,7 +12,10 @@ cherry-picks, and no deleted code to restore later.
 
 | Release | Tag | Switches on | Users see |
 |---|---|---|---|
-| **Horizon** | `v0.1.0` | Core | Files · Import (`ipa`/`tipa`) · Library · Bundle Explorer · Home · Settings (About, Archive, Pairing/Analytics honesty, Appearance, Storage, Diagnostics) |
+| Dev 1 | `v0.0.1-dev.1` | — | Core only. **Current stop.** Proves the pipeline end to end against a real tag: quality gate → build + tests → version-stamped assets → publish. |
+| Dev 2 | `v0.0.1-dev.2` | — | Core only; fixes, and the private device matrix for the core |
+| Dev 3 | `v0.0.1-dev.3` | — | Core only; the last rehearsal before the first build |
+| **First build** | `v0.0.1` | Core | Files · Import (`ipa`/`tipa`) · Library · Bundle Explorer · Home · Settings (About, Archive, Pairing/Analytics honesty, Appearance, Storage, Diagnostics) |
 | Alpha 1 | `v0.1.0-alpha.1` | Certificate Studio | Settings → Certificates (`.p12`/`.pfx` import, detail, public JSON export) |
 | Alpha 2 | `v0.1.0-alpha.2` | Smart Sign, Professional Signing Queue, Intelligent Signing Presets | `Sign Application…` (Library menu + detail), 9-stage pipeline, DER toggle, Live Activity, Signing Options, Library “Signed” segment, Settings → Installation, Settings → Signing Queue, Settings → Presets, recommended preset with a required confirmation that enqueues on the signing queue |
 | Alpha 3 | `v0.1.0-alpha.3` | App Store + Downloads | App Store (validated sources, repository health) and the Download Center (queue, validation, updates). Resume is reported only when resume data was captured. |
@@ -31,7 +34,18 @@ This follows [version-strategy.md](version-strategy.md): signing arrives within
 Alpha (Alpha's exit criteria need it), and the app is feature complete by the
 first Beta.
 
-Run `python3 Scripts/release_train.py status` to print this table from the code.
+The three development stops switch on nothing on purpose. They exist so the
+release machinery is proven against a real tag before a single feature is
+exposed publicly. Every feature below them is already compiled into a
+development build — a Debug build shows all of them, and
+`-ZynSignReleaseStage <stage>` previews any later stop — so a development stop
+is a pipeline proof, not a smaller app.
+
+Run `python3 Scripts/release_train.py status` to print this table from the
+code, or `python3 Scripts/release_train.py current` (`--tag`, `--stage`) to
+print just the current stop — that one-line answer is what
+`Scripts/ci/release_meta.sh` and the release workflows consume, so no version
+is ever hardcoded in YAML.
 
 ## How it works
 
@@ -95,31 +109,40 @@ python3 Scripts/release_train.py status             # confirm
 # 4. Commit, open a PR, merge to main
 git commit -am "release: v0.1.0-alpha.1"
 
-# 5. Tag the merged commit on main — release.yml does the rest
+# 5. Tag the merged commit on main — 🚀 Release (03-release.yml) does the rest
 git tag -a v0.1.0-alpha.1 -m "ZynSign 0.1.0-alpha.1"
 git push origin v0.1.0-alpha.1
 ```
 
 Safety rails:
 
-- `release_train.py check` runs in CI (`ci.yml` → hygiene). It fails when
+- `release_train.py check` runs in CI (`01-build.yml` → hygiene). It fails when
   `MARKETING_VERSION` disagrees with `ReleaseTrain.current`.
-- `release.yml` runs `release_train.py check --tag <tag>` first. Pushing
-  `v0.1.0-alpha.2` while the code still says `alpha1` fails the release rather
-  than publishing the wrong feature set.
+- Both release workflows derive their version through
+  `Scripts/ci/release_meta.sh`, whose first job runs
+  `release_train.py check --tag <tag>`. Pushing `v0.1.0-alpha.2` while the
+  code still says `alpha1` fails the release rather than publishing the wrong
+  feature set — and it fails before a macOS runner starts building. Its
+  `--self-test` runs in `01-build.yml` → hygiene.
+- Dispatching **🚀 Release** — with or without `dry_run` — with no version releases
+  the train's current stop (`release_train.py current`), so nobody has to
+  retype — or misremember — a version.
 - `promote` refuses to move backwards, because users would lose features.
 - `ReleaseTrainTests` pin the order, that features only accumulate, that each
   feature is introduced once, and that no release exposes a feature without its
   prerequisites.
-- Alpha, beta and rc tags are published as GitHub **pre-releases**. `v0.1.0`
-  and `v1.0.0` are not.
+- Development, alpha, beta and rc tags are published as GitHub
+  **pre-releases** — `Scripts/ci/release_meta.sh` detects the channel from the
+  tag. `v0.0.1` and `v1.0.0` are not.
 
 ### Build numbers
 
-Apple requires `CFBundleShortVersionString` to be numeric, so all three alphas
-report `0.1.0` and all betas report `0.9.0`. The pre-release suffix lives only in
-the tag. `CFBundleVersion` goes up by one with every `promote`, and TestFlight
-needs that.
+Apple requires `CFBundleShortVersionString` to be numeric, so the three
+development stops and the first build report `0.0.1`, all three alphas report
+`0.1.0`, and all betas report `0.9.0`. The pre-release suffix lives only in
+the tag. `CFBundleVersion` goes up by one with every `promote` and restarts at
+`1` when the marketing version restarts, which is the scope TestFlight's
+monotonic-build rule applies to.
 
 ## Changing the plan
 
@@ -128,16 +151,3 @@ tests make sure the new plan still makes sense. For example, you can't ship
 Smart Sign before Certificate Studio. After `1.0.0`, new features follow normal
 SemVer (`1.1.0`, …). Add a new `ReleaseFeature` and gate it the same way while
 it's being built.
-
-## Legacy tags
-
-The GitHub releases `v0.1.0-dev`, `v0.1.1-dev` and `v0.2.0-dev` (all at
-`58e604c`) predate this train. They have no binary assets. `v0.2.0-dev` is
-currently marked **Latest** and sorts *above* `0.1.0`, which will confuse
-anyone who compares versions. Before publishing `v0.1.0`, mark them as
-pre-releases or delete them:
-
-```sh
-gh release edit v0.2.0-dev --prerelease --latest=false
-gh release edit v0.1.1-dev --prerelease
-```

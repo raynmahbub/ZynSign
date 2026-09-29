@@ -46,7 +46,7 @@ struct AccessibilityAuditSuite: CompatibilitySuite {
             summary: followsSystem
                 ? "ZynSign follows the system text size, currently \(category)."
                 : "ZynSign is set not to follow the system text size.",
-            verified: "Verified the preference and the size category the system reports. Verified elsewhere: that every screen actually reflows at the accessibility sizes — that is the human pass in docs/hardening/accessibility-audit.md.",
+            verified: "Verified the preference and the size category the system reports. Verified elsewhere: that every screen actually reflows at the accessibility sizes — that is a human pass on a device before the release.",
             nextStep: followsSystem ? nil : "Turn on Settings → Appearance → Follow System Text Size, or record why this build overrides it.",
             evidence: [
                 "content size category: \(category)",
@@ -113,7 +113,7 @@ struct AccessibilityAuditSuite: CompatibilitySuite {
             status: .notRun,
             summary: "Not executed: a screen cannot hear itself read.",
             verified: "Nothing was audited. VoiceOver running at the time of the run: \(Self.isVoiceOverRunning).",
-            nextStep: "Run the VoiceOver protocol in docs/hardening/accessibility-audit.md — every primary screen, one swipe at a time — and import the result through a Lab overlay.",
+            nextStep: "Run the VoiceOver protocol before the release — every primary screen, one swipe at a time — and import the result through a Lab overlay.",
             evidence: [
                 "protocol: every control is reachable, labelled, and reads its state; no row depends on gesture alone",
                 "VoiceOver currently running: \(Self.isVoiceOverRunning)"
@@ -129,7 +129,7 @@ struct AccessibilityAuditSuite: CompatibilitySuite {
             status: .notRun,
             summary: "Not executed: contrast needs the rendered pixels, not the tokens that choose them.",
             verified: "Nothing was measured. ZynSign's semantic colors come from the platform's system colors, whose contrast the platform maintains in both appearances; that is why the static audit looks for hard-coded colors instead of ratios.",
-            nextStep: "Run the contrast protocol in docs/hardening/accessibility-audit.md (Accessibility Inspector, or screenshots through a contrast tool) and import the result through a Lab overlay.",
+            nextStep: "Run the contrast protocol (Accessibility Inspector, or screenshots through a contrast tool) and import the result through a Lab overlay.",
             evidence: [
                 "protocol: 4.5:1 for body text, 3:1 for large text and control boundaries, in light and dark appearance",
                 "static check: Scripts/audit_accessibility.py refuses hard-coded colors outside DesignTokens"
@@ -145,7 +145,7 @@ struct AccessibilityAuditSuite: CompatibilitySuite {
             status: .notRun,
             summary: "Not executed: target size is a rendered geometry, measured by the Accessibility Inspector.",
             verified: "Nothing was measured. The host audit (Scripts/audit_accessibility.py) refuses fixed frames smaller than 44×44 in the sources, which is the half of the check a machine can make.",
-            nextStep: "Run the touch-target protocol in docs/hardening/accessibility-audit.md, or import the host audit's result through a Lab overlay.",
+            nextStep: "Run the touch-target protocol, or import the host audit's result through a Lab overlay.",
             evidence: [
                 "protocol: every tappable control is at least 44×44 points, and adjacent targets do not overlap"
             ],
@@ -160,7 +160,7 @@ struct AccessibilityAuditSuite: CompatibilitySuite {
             status: .notRun,
             summary: "Not executed: focus order is what a reader experiences, not a value the app can read back.",
             verified: "Nothing was audited.",
-            nextStep: "Run the focus-order protocol in docs/hardening/accessibility-audit.md (VoiceOver and keyboard) and import the result through a Lab overlay.",
+            nextStep: "Run the focus-order protocol (VoiceOver and keyboard) and import the result through a Lab overlay.",
             evidence: [
                 "protocol: the order follows the visual order on every screen; sheets take focus and return it where it came from"
             ],

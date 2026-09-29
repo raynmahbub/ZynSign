@@ -6,11 +6,15 @@ time. No stage is entered because the previous one "looks complete", and no
 versioned release section is written in `CHANGELOG.md` for a version that
 was not actually produced.
 
-The Xcode project currently declares marketing version `1.0.0`, build `5`,
-for `v1.0.0-rc.2` (2026-09-27) — the second release candidate on the train
-below, `10 wired · 3 never`. The market version is `1.0.0` (no pre-release
+The Xcode project currently declares marketing version `0.0.1`, build `1`,
+for `v0.0.1-dev.1` (2026-09-29) — the first development stop on the train
+below, `10 wired · 3 never`. The market version is `0.0.1` (no pre-release
 suffix in `CFBundleShortVersionString`; suffixes live only in the tag/release
-name); `CFBundleVersion` is `5`. The build is not an App Store submission.
+name); `CFBundleVersion` is `1`. The build is not an App Store submission.
+
+The `wired · never` counts describe what is **built** into the binary; the
+release train decides what a Release build **shows**. Both are true at once: a
+development stop exposes the core while every feature stays compiled in.
 Every stop is distributed **privately** first (TestFlight internal + sideload
 IPA) and only after the private gate is green is the tag published publicly —
 see [private-testing.md](private-testing.md).
@@ -21,7 +25,10 @@ The fixed progression from development to stable:
 
 ```
 Development
-└── 0.1.0-dev
+├── 0.0.1-dev.1
+├── 0.0.1-dev.2
+├── 0.0.1-dev.3
+└── 0.0.1            (the first build)
 Alpha
 ├── 0.1.0-alpha.1
 ├── 0.1.0-alpha.2
@@ -40,26 +47,43 @@ Stable
 ```
 
 Each stage below defines what its builds establish and what must hold
-before the progression advances. The counts are fixed: three Alphas,
-four Betas, three Release Candidates, then Stable.
+before the progression advances. The counts are fixed: three development
+stops, three Alphas, four Betas, three Release Candidates, then Stable.
 
 ## Feature rollout
 
 The app is fully built, and its features are released gradually along this
 sequence. [release-train.md](release-train.md) says which features each tag
-switches on (0.1.0 core → alpha.1 Certificate Studio → alpha.2 Smart Sign →
+switches on (0.0.1 core → alpha.1 Certificate Studio → alpha.2 Smart Sign →
 alpha.3 App Store + Downloads → beta.1 the rest, feature complete). It also
 covers how `ReleaseTrain.swift` and `Scripts/release_train.py` keep the code,
 `MARKETING_VERSION`, and the tag in step. Marketing versions stay numeric
-(`0.1.0` for the alphas, `0.9.0` for the betas, `1.0.0` for the RCs), and
+(`0.0.1` for the development stops and the first build, `0.1.0` for the alphas,
+`0.9.0` for the betas, `1.0.0` for the RCs), and
 `CFBundleVersion` increases with every release.
 
 ## Stages
 
-### Development — `0.1.0` Horizon
+### Development — `0.0.1-dev.N` → `0.0.1`
 
 Internal development and testing builds. The working tree, the test suites,
-and the host vector scripts are the product. The first public dev build is Horizon (`0.1.0`, 2026-09-25): market `0.1.0` build `4`, `9 wired · 3 never` — the delivery hand-off and the local activity journal are wired; in-app installation, Pairing/JIT/Mux, and off-device measurement stay claimed-never. It is built once and distributed **privately** first (TestFlight internal / ad-hoc IPA, see [private-testing.md](private-testing.md)); after the private matrix is all green the same commit is tagged `v0.1.0` and published to GitHub releases for sideloading/TestFlight. It is not App Store signed.
+and the host vector scripts are the product.
+
+Three development stops run before the first build. They switch on **no**
+staged feature: their job is to prove the release pipeline end to end —
+quality gate → build + tests → version-stamped assets → publish — against a
+real tag, before any feature is exposed publicly. A Release build of a
+development stop shows the core only (Files, Import, Library, Bundle Explorer,
+Home, Settings); a Debug build exposes every feature, so development and UI work
+are never blocked, and `-ZynSignReleaseStage <stage>` previews any later stop.
+
+The first build is `0.0.1`: market `0.0.1`, `10 wired · 3 never` — the delivery
+hand-off and the local activity journal are among the wired rows; in-app
+installation, Pairing/JIT/Mux, and off-device measurement stay claimed-never. It
+is built once and distributed **privately** first (TestFlight internal / ad-hoc
+IPA, see [private-testing.md](private-testing.md)); after the private matrix is
+green the same commit is tagged `v0.0.1` and published for
+sideloading/TestFlight. It is not App Store signed.
 
 ### Alpha — `0.1.0-alpha.N`
 
@@ -146,18 +170,18 @@ Semantic Versioning applies:
 
 ## Current Position
 
-The current stop is `v1.0.0-rc.2` (market `1.0.0`, build `5`, 2026-09-27): fixes and polish only — every staged feature has been switched on since `v0.9.0-beta.1`, RC 1 added the Compatibility Lab, and RC 2 is the UX refinement pass. The Xcode project carries `MARKETING_VERSION 1.0.0` / `CURRENT_PROJECT_VERSION 5` and `ReleaseTrain.current = .rc2`, so the private binary and the public release are the same binary — see [private-testing.md](private-testing.md) for the private distribution (TestFlight internal or ad-hoc IPA, not a public release) and the device matrix that gates each tag. Horizon history: `v0.2.0-dev`/`v0.1.1-dev`/`v0.1.0-dev` at `58e604c`.
+The current stop is `v0.0.1-dev.1` (market `0.0.1`, build `1`, 2026-09-29): the first development release on the train. It switches on no staged feature — a Release build shows the core only, while every feature stays compiled in and visible in Debug builds. The Xcode project carries `MARKETING_VERSION 0.0.1` / `CURRENT_PROJECT_VERSION 1` and `ReleaseTrain.current = .dev1`, so the private binary and the public release are the same binary — see [private-testing.md](private-testing.md) for the private distribution (TestFlight internal or ad-hoc IPA, not a public release) and the device matrix that gates each tag.
 
 Of the blockers recorded with the final-integration review, three have
-changed since the history now included in 0.1.0 Horizon (58e604c):
+changed since:
 
-- IPA packaging and the complete application pipeline exist and, since
-  0.1.0-dev and carried into 0.1.0 Horizon, the pipeline is composed in the application environment and
-  reachable from `Library`/`Application Detail` and `Settings → Certificates`.
+- IPA packaging and the complete application pipeline exist: the pipeline is
+  composed in the application environment and reachable from
+  `Library`/`Application Detail` and `Settings → Certificates`.
 - Certificate import via `SecPKCS12Import` (`.p12`/`.pfx`) and the `tipa` alias
   are now composed and covered by the interface.
 - The test suites pass on hosted CI, on a simulator, which is not device evidence; external validation (ZS-031) still shows Apple's desktop verifier accepts ZynSign's single-image signatures but rejects the pipeline's bundles, and the signature format fails the requirements Apple documents for iOS 15 and later ([external-validation.md](../architecture/external-validation.md)). "Signing for supported artifacts" and "verification" in the Alpha criteria are therefore not established.
 
-Installation remains unavailable: no supported arbitrary-IPA installation mechanism is available to an iOS/iPadOS application, and the pure installation assessment reports installation as unavailable with exact limitations (see [installation-compatibility.md](../architecture/installation-compatibility.md)). Whether installation belongs in a release is unresolved (architecture decision 24). `0.1.0` Horizon is honest about that limitation and about the facts that its synthetic `empty` entitlements are only compatible with the test fixture profile, that no App Store submission is attempted, and that on-device signing of real developer identities and profiles has not yet been demonstrated until the private device matrix passes (see private-testing.md).
+Installation remains unavailable: no supported arbitrary-IPA installation mechanism is available to an iOS/iPadOS application, and the pure installation assessment reports installation as unavailable with exact limitations (see [installation-compatibility.md](../architecture/installation-compatibility.md)). Whether installation belongs in a release is unresolved (architecture decision 24). ZynSign is honest about that limitation and about the facts that its synthetic `empty` entitlements are only compatible with the test fixture profile, that no App Store submission is attempted, and that on-device signing of real developer identities and profiles has not yet been demonstrated until the private device matrix passes (see private-testing.md).
 
-Alpha exits when the criteria above hold; until they do, the project stays in development and says so. The first step after Horizon publishes is device validation of certificate import, `tipa` handling, and single-target signing with real provisioning profiles — exactly the private matrix in [private-testing.md](private-testing.md).
+Alpha exits when the criteria above hold; until they do, the project stays in development and says so. The next step is device validation of certificate import, `tipa` handling, and single-target signing with real provisioning profiles — exactly the private matrix in [private-testing.md](private-testing.md).

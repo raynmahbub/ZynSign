@@ -14,6 +14,12 @@
 #
 set -euo pipefail
 
+# Crystal Flow — the shared log and summary language (Scripts/ci/crystal.sh).
+CRYSTAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=Scripts/ci/crystal.sh
+source "${CRYSTAL_DIR}/crystal.sh"
+crystal_phase "${CRYSTAL_QUALITY}" "Quality" "SwiftLint"
+
 FIX=0
 if [[ "${1:-}" == "--fix" ]]; then
     FIX=1

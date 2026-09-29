@@ -2,12 +2,12 @@
 """
 generate_changelog.py — auto-create CHANGELOG.md entry on public dev release.
 
-When you push a tag like v0.1.0 (market 0.1.0, first public dev) the
-.github/workflows/release.yml workflow calls:
+When you push a release tag the
+.github/workflows/03-release.yml workflow calls:
 
-    python3 Scripts/generate_changelog.py --version 0.1.0 --date 2026-09-25
+    python3 Scripts/generate_changelog.py --version 0.0.1 --date 2026-09-29
 
-If CHANGELOG.md already has ## [0.1.0] the script is a no-op (idempotent).
+If CHANGELOG.md already has that version's section the script is a no-op (idempotent).
 Otherwise it inserts a new section after ## [Unreleased], built from
 git log since the previous tag, grouped by conventional-commit prefix.
 
@@ -25,8 +25,8 @@ Grouped sections:
 Also writes docs/releases/notes-v{version}.md for `gh release --notes-file`.
 
 Usage locally:
-    python3 Scripts/generate_changelog.py --version 0.1.0
-    python3 Scripts/generate_changelog.py --version 0.1.0 --dry-run
+    python3 Scripts/generate_changelog.py --version 0.0.1
+    python3 Scripts/generate_changelog.py --version 0.0.1 --dry-run
 """
 from __future__ import annotations
 import argparse
@@ -138,7 +138,7 @@ def build_entry(version: str, date: str, groups: dict[str, list[str]]) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--version", required=True, help="e.g. 0.1.0 or 0.1.0-dev (without leading v)")
+    ap.add_argument("--version", required=True, help="e.g. 0.0.1 or 0.0.1-dev.1 (without leading v)")
     ap.add_argument("--date", default=datetime.date.today().isoformat())
     ap.add_argument("--tag", default=None, help="full tag e.g. v0.1.0 (default v{version})")
     ap.add_argument("--dry-run", action="store_true")

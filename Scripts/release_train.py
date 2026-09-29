@@ -5,7 +5,8 @@ release_train.py — ship ZynSign one release at a time.
 The whole app is built. Each release only switches on more of it. The single
 source of truth is `ZynSign/Application/ReleaseTrain.swift`:
 
-  * `ReleaseStage`        — the ordered releases (0.1.0 → alphas → betas → RCs → 1.0.0)
+  * `ReleaseStage`        — the ordered releases (0.0.1-dev.N → 0.0.1 → alphas
+                             → betas → RCs → 1.0.0 → 2.0.0 → 3.0.0)
   * `introducedFeatures`  — what each release switches on
   * `ReleaseTrain.current` — the release this build is cut for
 
@@ -15,6 +16,11 @@ Xcode project in step with it.
 Usage:
     python3 Scripts/release_train.py status
         Show the current release, what it exposes, and what ships next.
+
+    python3 Scripts/release_train.py current [--tag | --stage]
+        Print the current release for machines: the version (0.0.1-dev.1),
+        the tag (v0.0.1-dev.1), or the ReleaseStage case name (dev1). Scripts
+        and workflows call this instead of hardcoding a version.
 
     python3 Scripts/release_train.py check [--tag vX.Y.Z]
         CI gate. Fails when MARKETING_VERSION disagrees with ReleaseTrain.current,
@@ -156,6 +162,19 @@ def cmd_status(_: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_current(args: argparse.Namespace) -> int:
+    """Print the current release in a machine-readable form (one line)."""
+    stages, current_name, _ = load_train()
+    current = find_stage(stages, current_name)
+    if args.stage:
+        print(current.name)
+    elif args.tag:
+        print(current.tag)
+    else:
+        print(current.version)
+    return 0
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     stages, current_name, _ = load_train()
     current = find_stage(stages, current_name)
@@ -184,11 +203,30 @@ def cmd_check(args: argparse.Namespace) -> int:
     if args.tag:
         tag = args.tag if args.tag.startswith("v") else f"v{args.tag}"
         if tag != current.tag:
-            print(
-                f"✗ Releasing tag {tag} but ReleaseTrain.current is {current.tag}.\n"
-                f"  Promote first (python3 Scripts/release_train.py promote {tag}), commit, then tag.",
-                file=sys.stderr,
-            )
+            names = [s.name for s in stages]
+            requested = next((s for s in stages if s.tag == tag), None)
+            if requested is None:
+                print(
+                    f"✗ {tag} is not a stop on the release train, so nothing can be released for it.\n"
+                    f"  ReleaseTrain.current is {current.tag}; the train's stops are:\n"
+                    f"    {', '.join(s.tag for s in stages)}\n"
+                    f"  See docs/releases/release-train.md for the plan and the stop order.",
+                    file=sys.stderr,
+                )
+            elif names.index(requested.name) < names.index(current.name):
+                print(
+                    f"✗ {tag} is a past stop: the train has already moved on to {current.tag}.\n"
+                    f"  Past stops are never re-released — `promote` refuses to move backwards\n"
+                    f"  because users would lose features. Release the current stop ({current.tag}),\n"
+                    f"  or promote to a later one first.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"✗ Releasing tag {tag} but ReleaseTrain.current is {current.tag}.\n"
+                    f"  Promote first (python3 Scripts/release_train.py promote {requested.name}), commit, then tag.",
+                    file=sys.stderr,
+                )
             ok = False
 
     if ok:
@@ -245,6 +283,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("status").set_defaults(func=cmd_status)
+    p_current = sub.add_parser("current", help="print the current release (machine-readable)")
+    p_current.add_argument("--tag", action="store_true", help="print the tag form (vX.Y.Z[-suffix])")
+    p_current.add_argument("--stage", action="store_true", help="print the ReleaseStage case name")
+    p_current.set_defaults(func=cmd_current)
     p_check = sub.add_parser("check")
     p_check.add_argument("--tag")
     p_check.set_defaults(func=cmd_check)

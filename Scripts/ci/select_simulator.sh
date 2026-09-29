@@ -5,7 +5,7 @@
 # Prints the name of the first available iPhone simulator. CI images and
 # Xcode releases drift — device names and runtimes appear and disappear —
 # so no workflow hardcodes "iPhone 16" anymore; they resolve the device
-# through this script instead (build.sh and the ci.yml test steps).
+# through this script instead (build.sh and the 01-build.yml test steps).
 #
 # If the runner has no iPhone simulator at all, the iOS runtime is
 # downloaded once (per runner) and selection retried. The toolchain

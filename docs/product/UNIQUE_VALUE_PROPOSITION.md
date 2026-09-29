@@ -16,7 +16,7 @@ Instead of competing on one feature, ZynSign wins on the **complete experience**
 
 ## Why Users Would Choose ZynSign
 
-| What users want | ZynSign advantage | Where it lives in `0.1.0-dev` |
+| What users want | ZynSign advantage | Where it lives |
 |---|---|---|
 | Easy setup | Guided onboarding | `App/RootView` 6-tab shell + `Settings → Certificates` import flow |
 | Easy signing | Smart Sign workflow | `SigningView` + `ZProgressRing` + `ZSigningStatusMachine` (9 stages) + `ZToast` |
@@ -141,7 +141,7 @@ Implemented as `CertificateRow`/`CertificateDetailView` with `ZStatusBadge` + `K
 | Risky updates | Independent packages horizon + `CompositionRoot` feature flags |
 | Slow onboarding | Predictable `Domain/Application/Platform/Presentation` + `CompositionRoot` in 100 lines |
 
-That means **faster feature development and fewer regressions** — `0.1.0-dev` (`614b3d4`/`f52ca3d`) already proves it: DesignSystem added in 1 file, Signing status machine in 1 file, no manager rewrite.
+That means **faster feature development and fewer regressions** — the codebase already proves it: DesignSystem added in 1 file, Signing status machine in 1 file, no manager rewrite.
 
 ## The ZynSign Identity
 
@@ -153,5 +153,5 @@ If someone asks, *“Why ZynSign?”* the answer shouldn’t be “because it ha
 
 ---
 
-*Product north star for `0.1.0-dev` Genesis through `1.0.0` Stable. Every feature added via `Feature/Views/ViewModels/Components/UseCases/Models/Navigation/Tests` must satisfy this document and `ZDL v1.0`.*
+*Product north star from the first build through `1.0.0` Stable. Every feature added via `Feature/Views/ViewModels/Components/UseCases/Models/Navigation/Tests` must satisfy this document and `ZDL v1.0`.*
 

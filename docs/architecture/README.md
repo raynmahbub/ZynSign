@@ -12,10 +12,11 @@ Architectural decisions for ZynSign are recorded here.
 ## Current State
 
 The record below is in decision order, oldest first. Where the project stands
-today: `v1.0.0-rc.2` (market `1.0.0`, build `5`) — every staged feature is
-built and switched on, the Compatibility Lab is the release gate, and the
-only feature still waiting for its release is the Signing Health Score at
-`v1.0.0` (see [../releases/release-train.md](../releases/release-train.md)).
+today: `v0.0.1-dev.1` (market `0.0.1`, build `1`) — the first development stop on
+the release train. Every staged feature is built and compiled into this binary;
+a development stop exposes none of them in a Release build, a Debug build
+exposes all of them, and each later stop switches its features on in the planned
+order — see [../releases/release-train.md](../releases/release-train.md).
 
 ZynSign is at the start of development. An Xcode application target with a
 SwiftUI shell, a composition root, minimal domain types, and a unit-test target
@@ -245,6 +246,27 @@ implemented, and no behaviour may be inferred from these documents.
   known-divergence register from the first hosted runs.
 - [ipa-explorer.md](ipa-explorer.md) — the read-only IPA explorer: entry-table
   tree, bounded previews, and what a Mach-O or profile page does not establish.
+- [backup-recovery.md](backup-recovery.md) — the Backup & Workspace Recovery
+  Center: the export allowlist, the trust boundary, restore semantics, and what
+  a backup deliberately leaves out.
+- [binary-signature-inspector.md](binary-signature-inspector.md) — the Binary &
+  Signature Inspector: its entry points, what it reads, and what a signature
+  view does not establish.
+- [developer-identity-center.md](developer-identity-center.md) — the Developer
+  Identity Center: the unified identity workspace, its inspectors, health and
+  conflict reporting, and expiration forecasting.
+- [download-center.md](download-center.md) — the Download Center and update
+  engine: the transfer pipeline, validation before import, and honest resume.
+- [entitlements-studio.md](entitlements-studio.md) — the Entitlements Studio:
+  read-only entitlement and profile-compatibility inspection, and its limits.
+- [performance-engine.md](performance-engine.md) — the Performance Engine:
+  library and index counts, cache statistics, benchmarks with regression
+  detection, and manual optimization.
+- [resource-asset-studio.md](resource-asset-studio.md) — the Resource & Asset
+  Studio: rich-media inspection of an app's resources, with bounded previews.
+- [store-browser.md](store-browser.md) — the Store Browser and repository
+  ecosystem: validated sources, repository health, and what an imported package
+  does not establish.
 - [macho-signing-design-review.md](macho-signing-design-review.md) — historical
   design proposal and prerequisites; the integration document records the
   implemented scope and evidence.

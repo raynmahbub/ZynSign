@@ -1,6 +1,6 @@
 # Pairing / JIT / Mux / OpenSSL Linkage — Feasibility Record
 
-> **Status: Rejected — never composed** · Scope: `0.1.0-dev → 0.2.0 Horizon` ·
+> **Status: Rejected — never composed** · Scope: every release on the train ·
 > Code boundary: `ZynSign/Application/PairingCapability.swift` ·
 > Product statement: [`docs/product/WHAT_DOES_NOT_EXIST.md`](../product/WHAT_DOES_NOT_EXIST.md)
 

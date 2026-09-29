@@ -1,0 +1,233 @@
+# Quality gates — every static check that does not need Xcode.
+#
+# One workflow, eight parallel ubuntu jobs. Each job keeps the name it had
+# when it was its own workflow, so a required-status-check list written
+# against the old suite (docs/development/branch-protection.md) resolves
+# unchanged, and a failure still says exactly which gate failed.
+#
+#   architecture-guard    — the layered contract: Domain purity, the
+#                           Presentation security boundary, the Platform
+#                           service allowlist, downward-only dependencies
+#   dependency-validation — ZynSign vendors everything; a new Swift package
+#                           must be allowlisted deliberately
+#   docs-check            — broken links and missing images fail; orphans and
+#                           markdown quality warn
+#   secret-policy         — the repository's own secret rules on this tree
+#   gitleaks              — the same rules over the full history
+#   complexity-check      — thresholds (function 80 / file 800 / nesting 4),
+#                           advisory: it measures and reports, never blocks
+#   engineering-summary   — the Engineering Command Center: dashboards in the
+#                           step summary and one maintained PR comment
+#   readme-check          — README must not drift from MARKETING_VERSION and
+#                           WHAT_DOES_NOT_EXIST.md
+#
+# All logic lives in Scripts/ci/; this file only wires triggers and jobs.
+# The macOS gates (build, tests, lint, format, external validation) are in
+# ci.yml, and the weekly deep sweep is maintenance.yml.
+name: 🛡 Quality
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# The newest commit is the one whose verdict matters; superseded PR runs stop.
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  architecture-guard:
+    name: Enforce the layered architecture contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Run the architecture guard
+        run: Scripts/ci/architecture_guard.sh
+
+      - name: Upload the architecture metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: architecture-metrics
+          path: build/metrics/architecture.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+  dependency-validation:
+    name: Enforce the dependency allowlist
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Check declared packages against the allowlist
+        run: Scripts/ci/dependency_check.sh
+
+  docs-check:
+    name: Links, images, orphans, markdown quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Validate the documentation
+        run: Scripts/ci/docs_check.sh
+
+  secret-policy:
+    name: Repository secret policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Run the secret policy scan
+        run: Scripts/ci/security_scan.sh
+
+  gitleaks:
+    name: Gitleaks (full history)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Full history on purpose: a secret committed and then removed is still
+      # a secret. Allowlists live in .gitleaks.toml.
+      - name: Check out the repository (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  complexity-check:
+    name: Complexity thresholds (warnings only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Measure against the thresholds
+        run: Scripts/ci/complexity_check.sh
+
+      - name: Publish the complexity summary
+        if: always()
+        run: |
+          set -eu
+          if [ -f build/metrics/complexity.txt ]; then
+            {
+              echo "### Complexity Guard"
+              echo '```'
+              cat build/metrics/complexity.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  engineering-summary:
+    name: Engineering Command Center
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # QUICK=1 runs the fast guards itself and skips Periphery, so this job
+      # is self-contained; the full dashboards are committed weekly by
+      # maintenance.yml.
+      - name: Run the quick metrics report
+        run: QUICK=1 Scripts/ci/metrics_report.sh
+
+      - name: Publish the step summary
+        if: always()
+        run: |
+          set -eu
+          {
+            echo "## 📊 Engineering Command Center"
+            echo ""
+            cat docs/internal/RepositoryHealth.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update the PR comment
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          MARKER="<!-- zynsign-quality-summary -->"
+          readiness="$(grep -oE 'Release readiness score \| \*\*[0-9]+%\*\*' docs/internal/RepositoryHealth.md | grep -oE '[0-9]+%' | head -1)"
+          arch="$(grep -oE 'violations=[0-9]+' build/metrics/architecture.txt | cut -d= -f2 || echo '?')"
+          broken="$(grep -oE 'broken_links=[0-9]+' build/metrics/docs.txt | cut -d= -f2 || echo '?')"
+          findings="$(grep -oE 'findings=[0-9]+' build/metrics/complexity.txt | cut -d= -f2 || echo '?')"
+          BODY="${MARKER}
+          ## 📊 Engineering Command Center
+
+          | Area | Status |
+          | --- | --- |
+          | Release readiness | **${readiness:-n/a}** |
+          | Architecture violations | ${arch:-?} |
+          | Broken doc links | ${broken:-?} |
+          | Complexity findings (warnings only) | ${findings:-?} |
+
+          Dashboards: \`docs/internal/RepositoryHealth.md\` · \`docs/internal/EngineeringCommandCenter.md\` — updated weekly by the maintenance bot.
+          _Generated by the Quality workflow at commit ${GITHUB_SHA:0:7}._"
+          BODY="$(printf '%s\n' "${BODY}" | sed 's/^          //')"
+          API="repos/${GITHUB_REPOSITORY}/issues/${{ github.event.pull_request.number }}/comments"
+          EXISTING="$(gh api "${API}?per_page=100" --jq '.[] | select(.body | startswith("'"${MARKER}"'")) | .id' | head -1 || true)"
+          if [ -n "${EXISTING}" ]; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${EXISTING}" -f body="${BODY}" >/dev/null
+          else
+            gh api "${API}" -f body="${BODY}" >/dev/null
+          fi
+          echo "PR comment updated."
+
+      - name: Upload the dashboards
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: engineering-command-center
+          path: |
+            docs/internal/RepositoryHealth.md
+            docs/internal/EngineeringCommandCenter.md
+            docs/internal/metrics-history.csv
+            build/metrics/
+          if-no-files-found: warn
+          retention-days: 14
+
+  readme-check:
+    name: README freshness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # README is the storefront: it must agree with MARKETING_VERSION and the
+      # counts in docs/product/WHAT_DOES_NOT_EXIST.md. When it drifts, fix it
+      # with `python3 Scripts/update_readme.py` — the weekly maintenance run
+      # also repairs the default branch automatically.
+      - name: Refuse a stale README
+        run: |
+          set -eu
+          if ! python3 Scripts/update_readme.py --check; then
+            echo "::error title=readme-check::README.md is stale — run 'python3 Scripts/update_readme.py' and commit the result"
+            exit 1
+          fi

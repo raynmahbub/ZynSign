@@ -147,7 +147,7 @@ struct NetworkResilienceSuite: CompatibilitySuite {
                 ? "A slow source is measured and reported as slow."
                 : "A slow source was classified \(result.health.rawValue).",
             verified: "Verified that a response crossing the 800 ms policy threshold is reported as slow rather than as a failure, and that the latency is measured rather than assumed.",
-            nextStep: passed ? nil : "Check the Fast/Slow thresholds in RepositoryHealthProbe against the policy in docs/hardening/network-resilience.md.",
+            nextStep: passed ? nil : "Check the Fast/Slow thresholds in RepositoryHealthProbe against the network policy before the release.",
             evidence: ["health: \(result.health.rawValue)"],
             measurements: [
                 CompatibilityMeasurement(
@@ -253,7 +253,7 @@ struct NetworkResilienceSuite: CompatibilitySuite {
             summary: passed
                 ? "A transfer that ends early is reported with a reason rather than silently accepted."
                 : "A partial transfer produced no reportable state.",
-            verified: "Verified the classification of a short body through the probe. Not verified: the background session's own resume behaviour, which needs a real transfer and is covered by the manual pass in docs/hardening/network-resilience.md.",
+            verified: "Verified the classification of a short body through the probe. Not verified: the background session's own resume behaviour, which needs a real transfer and is covered by a manual pass on a real network.",
             nextStep: passed ? nil : "A partial transfer must end in a state the Downloads screen can offer to retry.",
             evidence: ["category: \(result.errorCategory ?? "none")"]
         )
@@ -419,7 +419,7 @@ struct ResourceResilienceSuite: CompatibilitySuite {
             summary: settled
                 ? "A \(held * chunkSize / 1_024 / 1_024) MB spike was taken and released without leaving the footprint behind."
                 : "The footprint did not return to its baseline after a bounded spike.",
-            verified: "Verified that a bounded allocation is released and the resident set settles. Not verified: behaviour under a system memory warning — the Lab cannot raise one, and the manual pass in docs/hardening/resource-resilience.md covers it.",
+            verified: "Verified that a bounded allocation is released and the resident set settles. Not verified: behaviour under a system memory warning — the Lab cannot raise one, and a manual pass under real storage and memory pressure covers it.",
             nextStep: settled ? nil : "Look for caches that hold what they should evict; AppIconExtraction and the library index are the two that grow.",
             evidence: [
                 "baseline: \(Self.rendered(before))",
@@ -456,7 +456,7 @@ struct ResourceResilienceSuite: CompatibilitySuite {
                     ? "A package with \(outcome.entryCount) entries was read and planned in \(elapsed) ms."
                     : "The large package was classified \(outcome.classification.displayName).",
                 verified: "Verified that a package at ordinary large-application size is read, structured and planned within the benchmark, without extracting it.",
-                nextStep: passed ? nil : "Compare the findings with docs/hardening/resource-resilience.md.",
+                nextStep: passed ? nil : "Compare the findings with the resource policy before the release.",
                 evidence: [
                     "entries: \(outcome.entryCount)",
                     "bytes: \(outcome.containerByteCount)",

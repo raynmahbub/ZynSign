@@ -2,7 +2,7 @@
 
 > Test privately, publish publicly. No tag is pushed public until the private build is green on your devices.
 
-This document is the single checklist for the **private test** that gates every release on the [release train](release-train.md) — the current candidate is `v1.0.0-rc.2` (market `1.0.0`, build `5`). It is the professional way to ship: internal → external, with the same binary discipline.
+This document is the single checklist for the **private test** that gates every release on the [release train](release-train.md). The current candidate is whatever `python3 Scripts/release_train.py current --tag` prints — `v0.0.1-dev.1` (market `0.0.1`, build `1`) at the time of writing. It is the professional way to ship: internal → external, with the same binary discipline.
 
 ## Release train scope
 
@@ -11,10 +11,11 @@ finished app. Test the **Release configuration**, which shows exactly
 `ReleaseTrain.current`. For each release:
 
 1. Check Settings → Diagnostics → Build → **Release** shows the expected tag
-   (for example `v1.0.0-rc.2 · 16 of 17 staged features`).
-2. Run the matrix rows for features visible in this release. For `v1.0.0-rc.2`
-   that is every row below — the only staged feature still hidden is the
-   Signing Health Score, which ships at `v1.0.0`.
+   (for example `v0.0.1-dev.1 · 0 of 19 staged features`). That string is
+   `ReleaseGate.summary`, derived from the train — never retype it here.
+2. Run the matrix rows for the features visible in this release. For a
+   development stop (`v0.0.1-dev.1…3`) that is the **core only**: Import,
+   Library, Files, Bundle Explorer, Home, the honest rows, and Diagnostics.
 3. Confirm that features not yet released are **absent**: no App Store or
    Downloads tab, no Certificates row, no “Sign Application…”, no Mission Control
    card, no “Deliver…”, and no Activity Journal.
@@ -26,8 +27,8 @@ release that switches them on.
 
 ## Principle
 
-* **Private build = same code, same version, no public tag.** It is built from `main` at the commit you intend to publish (the release-train state you are about to tag; for the current candidate `v1.0.0-rc.2`, market `1.0.0` build `5`), with `MARKETING_VERSION 1.0.0` `CURRENT_PROJECT_VERSION 5`, but distributed only to your trusted testers.
-* **Public build = same commit, same binary, new tag.** After private green, you push `v1.0.0-rc.2` and publish the GitHub release. The market version does not change between private and public — the build is not rebuilt to avoid binary drift.
+* **Private build = same code, same version, no public tag.** It is built from `main` at the commit you intend to publish (the release-train state you are about to tag), carrying the `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` that `python3 Scripts/release_train.py status` prints for the current stop — for `v0.0.1-dev.1` that is market `0.0.1`, build `1` — but distributed only to your trusted testers.
+* **Public build = same commit, same binary, new tag.** After private green, you push the current stop's tag and `🚀 Release` publishes the GitHub release. The market version does not change between private and public — the build is not rebuilt to avoid binary drift.
 
 ## When to run
 
@@ -58,7 +59,7 @@ xcodebuild -exportArchive -archivePath build/ZynSign-private.xcarchive \
 
 Private, review-free for internal testers, same binary review as public later.
 
-1. **Apple Developer → App Store Connect → My Apps → ZynSign → TestFlight → Internal Testing** → create group `Horizon Private` → add your Apple IDs.
+1. **Apple Developer → App Store Connect → My Apps → ZynSign → TestFlight → Internal Testing** → create group `ZynSign Internal` → add your Apple IDs.
 2. **Archive for App Store** (same as above but `method: app-store`):
 
 ```sh
@@ -77,7 +78,7 @@ xcrun altool --upload-app -f build/private-appstore/ZynSign.ipa -t ios -u YOUR_A
 # or: fastlane pilot upload --ipa build/private-appstore/ZynSign.ipa --distribute_external false
 ```
 
-4. **TestFlight → Internal Testing → Horizon Private → select build 1.0.0 (5)** → `Add Testers`.
+4. **TestFlight → Internal Testing → ZynSign Internal → select build 0.0.1 (1)** → `Add Testers`.
 
 No external review, no public page, no public tag yet.
 
@@ -103,20 +104,19 @@ Log results in `docs/releases/private-testing.md` (append a dated table) — the
 
 ## From private green to public publish
 
-1. **Do not rebuild.** The public release is the *same commit* you privately tested (today: `main` HEAD after the release-train merge, `1.0.0`/`5`).
-2. **Changelog ready?** `CHANGELOG.md` `1.0.0-rc.2` must match the binary you tested (RC 2 polish included; notes at `docs/releases/notes-v1.0.0-rc.2.md`).
-3. **Tag and publish (one command after green):**
+1. **Do not rebuild.** The public release is the *same commit* you privately tested — `main` HEAD, carrying the market version and build number that `python3 Scripts/release_train.py status` prints.
+2. **Changelog and notes ready?** `CHANGELOG.md` must have a section for the version you are about to tag, and `docs/releases/notes-v{version}.md` should exist. `Scripts/ci/release_validate.sh` checks both: a missing section or notes file is a warning and `🚀 Release` will generate one, but a release that skips the changelog is a process error, so write them.
+3. **Tag and publish (one tag after green):**
 
 ```sh
-git tag -a v1.0.0-rc.2 -m "ZynSign 1.0.0-rc.2 — release candidate 2 (private-tested)" HEAD
-git push origin tag v1.0.0-rc.2
-gh release create v1.0.0-rc.2 --target main \
-  --title "ZynSign 1.0.0-rc.2 — release candidate 2" \
-  --notes-file docs/releases/notes-v1.0.0-rc.2.md
-# Attach the *same* IPA you privately tested only if you want an asset — otherwise sideload/TestFlight is the distribution
+TAG="$(python3 Scripts/release_train.py current --tag)"
+git tag -a "$TAG" -m "ZynSign ${TAG#v} (private-tested)" HEAD
+git push origin "$TAG"
 ```
 
-4. **Market version is already correct:** `MARKETING_VERSION 1.0.0` `CURRENT_PROJECT_VERSION 5` (`ZynSign.xcodeproj/project.pbxproj` …). For the next build, `python3 Scripts/release_train.py promote` sets `ReleaseTrain.current`, `MARKETING_VERSION`, and bumps `CURRENT_PROJECT_VERSION` +1 (→ `6`).
+   Pushing the tag is the whole manual step. `🚀 Release` then runs the quality gate, builds and tests, generates `ZynSign-v{tag}-unsigned.ipa`, `ZynSign-v{tag}-SHA256.txt`, `BuildPassport-v{tag}.json`, `MANIFEST.md` and `ReleaseNotes.md`, and publishes the GitHub release. Rehearse it first with Actions → 🚀 Release → `dry_run: true`. Do **not** hand-run `gh release create` for a train stop — that is how a release ends up carrying assets no gate produced.
+
+4. **Market version is already correct:** `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `ZynSign.xcodeproj/project.pbxproj` are written by the train (`0.0.1` / `1` for `v0.0.1-dev.1`). For the next stop, `python3 Scripts/release_train.py promote` sets `ReleaseTrain.current` and `MARKETING_VERSION`, and bumps `CURRENT_PROJECT_VERSION` +1.
 
 ## ExportOptions templates
 
@@ -129,16 +129,16 @@ Both set `teamID: YOUR_TEAM_ID` (replace), `compileBitcode: false`, `signingStyl
 
 ## CI help
 
-`.github/workflows/private-test-build.yml` builds `Release` on `macos-15` for `iphoneos`/`iphonesimulator`, runs `ci.yml` hygiene + `external_validation.py self-test`, and uploads `ZynSign-private.ipa` as a **private** workflow artifact (`retention-days: 7`, not a release). Trigger: `workflow_dispatch` on the commit you intend to tag (normally `main`), with configuration **Release**. Debug exposes every feature regardless of the release train, so it is not release evidence.
+`.github/workflows/01-build.yml` in `mode: private-ipa` builds `Release` on `macos-15` for `iphoneos`, after the same hygiene, build and unit-test gates every commit gets, and uploads `ZynSign-v{tag}-Release-private.ipa` as a **private** workflow artifact (`retention-days: 7`, not a release). Trigger: `workflow_dispatch` on the commit you intend to tag (normally `main`), with configuration **Release**. The version in the artifact name comes from `Scripts/release_train.py current --tag`, never from a typed value. Debug exposes every feature regardless of the release train, so it is not release evidence.
 
 ## Checklist before you push the tag public
 
-- [ ] Private matrix all green on 2 real devices (log appended below)
-- [ ] `Product → Archive` succeeds (Release, `MARKETING_VERSION 1.0.0` `CURRENT_PROJECT_VERSION 5`)
+- [ ] Private matrix all green on 2 real devices (log appended below) — the rows for the features this stop exposes
+- [ ] `Product → Archive` succeeds (Release, with the `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` that `release_train.py status` prints)
 - [ ] `Diagnostics` redacted, `Settings → Analytics` off-device `0 events sent` + 6 guarantees, journal Clear/Export work, Charles shows no telemetry
-- [ ] `CHANGELOG.md` `1.0.0-rc.2` matches binary, `README.md` `1.0.0` badges, `WHAT_DOES_NOT_EXIST.md` `10 wired · 3 never`
+- [ ] `CHANGELOG.md` has a section for this version, `python3 Scripts/update_readme.py --check` is green, `WHAT_DOES_NOT_EXIST.md` counts match the README badge (`10 wired · 3 never`)
 - [ ] No `/.ai/`, no `Generated by`, no private keys in `git diff`
-- [ ] Tag annotated, `gh release` `--target main`
+- [ ] Tag annotated and taken from `release_train.py current --tag`; publishing is left to `🚀 Release`, never to a hand-run `gh release create`
 
 ---
 

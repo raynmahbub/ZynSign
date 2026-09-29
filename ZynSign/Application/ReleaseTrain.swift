@@ -147,7 +147,13 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
 /// Stages are declared in shipping order. Each stage adds features on top of
 /// the previous one; nothing is ever taken away from users in a later stage.
 enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
-    case horizon      // 0.1.0
+    // Development — the first stops on the train. They switch on no staged
+    // feature: their job is to prove the pipeline (build, quality gate,
+    // assets, publish) end to end before any feature is exposed publicly.
+    case dev1         // 0.0.1-dev.1
+    case dev2         // 0.0.1-dev.2
+    case dev3         // 0.0.1-dev.3
+    case horizon      // 0.0.1
     case alpha1       // 0.1.0-alpha.1
     case alpha2       // 0.1.0-alpha.2
     case alpha3       // 0.1.0-alpha.3
@@ -166,7 +172,10 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
     /// The Git tag / GitHub release version, without the leading `v`.
     var version: String {
         switch self {
-        case .horizon: return "0.1.0"
+        case .dev1: return "0.0.1-dev.1"
+        case .dev2: return "0.0.1-dev.2"
+        case .dev3: return "0.0.1-dev.3"
+        case .horizon: return "0.0.1"
         case .alpha1: return "0.1.0-alpha.1"
         case .alpha2: return "0.1.0-alpha.2"
         case .alpha3: return "0.1.0-alpha.3"
@@ -199,6 +208,7 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
     /// Features this stage introduces (in addition to all earlier stages).
     var introducedFeatures: Set<ReleaseFeature> {
         switch self {
+        case .dev1, .dev2, .dev3: return []   // pipeline proof; no staged feature yet
         case .horizon: return []
         case .alpha1: return [.certificateStudio, .libraryPowerFeatures]
         case .alpha2: return [.smartSign, .provisioningProfileManager, .signingQueue, .signingPresets]
@@ -264,7 +274,12 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
 enum ReleaseTrain {
 
     /// The release this build is cut for. Edited by `Scripts/release_train.py`.
-    static let current: ReleaseStage = .rc2
+    ///
+    /// The first stop on the train. A development stop exposes no staged
+    /// feature: every feature is compiled into the binary, a Debug build shows
+    /// all of them (`exposesEverything`), and a Release build shows the core
+    /// until `promote` switches the next stage's features on.
+    static let current: ReleaseStage = .dev1
 
     /// `UserDefaults` / launch-argument key for the Debug-only preview override.
     static let previewDefaultsKey = "ZynSignReleaseStage"

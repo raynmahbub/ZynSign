@@ -1,10 +1,15 @@
 # Release Drafter.
 #
 # On every merge to main the next release draft updates itself from the
-# merged pull requests (categories, version, contributors — see
+# merged pull requests (categories and contributors — see
 # .github/release-drafter.yml). On pull-request events the same
 # configuration autolabels, so the categories stay populated even when
 # the file-based labeler is not enough.
+#
+# The draft's version is not inferred from labels. It is the release train's
+# current stop, read out of the repository with Scripts/ci/release_meta.sh,
+# which refuses any version the train does not contain — so a draft can
+# never advertise a release that is not on the train.
 name: Release Drafter
 
 on:
@@ -12,6 +17,7 @@ on:
     branches: [main]
   pull_request_target:
     types: [opened, reopened, synchronize]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,7 +30,51 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # The train lives in the repository, so the draft is derived from it
+      # rather than from a version typed into this workflow. Under
+      # pull_request_target this checks out the base branch, which is the
+      # branch whose train is being released; the pull request's own head is
+      # never checked out.
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # release_meta.sh writes version= tag= channel= prerelease= to
+      # $GITHUB_OUTPUT, and stops the job for a version that is not a stop on
+      # the train. Reading it here keeps the draft and the train in step by
+      # construction instead of by convention.
+      - name: Read the release train's current stop
+        id: meta
+        run: bash Scripts/ci/release_meta.sh
+
+      # A draft is the *next* release. Once this stop is published, the next
+      # release is a different stop, and moving to it is a train promotion to
+      # make deliberately — so the draft waits rather than rewriting the notes
+      # of a release that is already out.
+      - name: Is this stop already published?
+        id: state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -eu
+          published="$(gh release view "${TAG}" --json isDraft \
+            --jq 'if .isDraft then "no" else "yes" end' 2>/dev/null || echo no)"
+          echo "published=${published}" >> "$GITHUB_OUTPUT"
+          if [ "${published}" = "yes" ]; then
+            echo "${TAG} is already published — the draft waits for the train to be promoted."
+          fi
+
       - name: Draft the next release
+        if: steps.state.outputs.published != 'yes'
         uses: release-drafter/release-drafter@v6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # These override the label-based version-resolver and the
+          # $RESOLVED_VERSION template in .github/release-drafter.yml, so the
+          # draft title and tag follow the train. `publish` stays at its
+          # default: drafting only.
+          name: "🚀 ZynSign ${{ steps.meta.outputs.tag }}"
+          tag: ${{ steps.meta.outputs.tag }}
+          version: ${{ steps.meta.outputs.version }}
+          prerelease: ${{ steps.meta.outputs.prerelease }}

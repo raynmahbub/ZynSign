@@ -7,7 +7,9 @@
 #
 # The draft is preparation only — publishing still flows through the
 # release train (docs/releases/release-train.md) and the release
-# workflow's quality gate.
+# workflow's quality gate. The workflow passes the train's current stop as
+# the tag and version, so the version-resolver below is the fallback for a
+# configuration used without that workflow, not the source of truth.
 
 name-template: "🚀 ZynSign v$RESOLVED_VERSION"
 tag-template: "v$RESOLVED_VERSION"
