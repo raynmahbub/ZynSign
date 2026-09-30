@@ -109,7 +109,9 @@ struct RootView: View {
             authenticator: environment.biometricAuthenticator,
             preferences: { model.preferences }
         ))
-        _selected = State(initialValue: model.preferences.general.landingTab.selectable.shellSection)
+        _selected = State(initialValue: Self.visibleSelection(
+            for: model.preferences.general.landingTab.selectable.shellSection
+        ))
         _thumbnailPipeline = StateObject(wrappedValue: ThumbnailPipeline(
             engine: environment.performanceEngine,
             icons: environment.appIcons
@@ -289,7 +291,7 @@ struct RootView: View {
             }
         }
         .onChange(of: settings.preferences.general.landingTab) { _, landingTab in
-            selected = landingTab.selectable.shellSection
+            selected = Self.visibleSelection(for: landingTab.selectable.shellSection)
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -408,15 +410,34 @@ struct RootView: View {
         }
     }
 
-    /// Tabs the user can select.
+    /// Tabs the user can select at this release stop.
     ///
-    /// Every section in `ShellSection.primaryTabs` is always shown. These
-    /// six are the app's navigation foundation rather than staged features:
-    /// a tab that appears and disappears between releases is a tab the user
-    /// cannot rely on, so the tab bar is not subject to the release gate.
-    /// The features *inside* the tabs keep their own gating.
+    /// The bar follows the release gate: a section whose staged feature has
+    /// not shipped yet is not offered, so a development stop shows the core
+    /// (Files, Library, Home, Settings) and nothing else. Those four are
+    /// always present, so there is always somewhere to land.
     private var visibleTabs: [ShellSection] {
         ShellSection.primaryTabs
+    }
+
+    /// The tab to actually select for a requested section.
+    ///
+    /// A landing preference saved by a later build can name a tab this stop
+    /// does not show — a development build reading a preference written at
+    /// alpha.3, for instance. Selecting a tab that is not rendered leaves the
+    /// bar with no selection and the content area blank, so the request is
+    /// clamped to a tab that exists. Library is the fallback, matching how
+    /// `LandingTab.selectable` retires sections the shell no longer shows.
+    static func visibleSelection(for section: ShellSection) -> ShellSection {
+        visibleSelection(for: section, in: ShellSection.primaryTabs)
+    }
+
+    /// The clamp itself, against an explicit tab list — so the fallback is
+    /// testable at a stop where the section is missing, which the live train
+    /// only reaches in a Release build.
+    static func visibleSelection(for section: ShellSection, in tabs: [ShellSection]) -> ShellSection {
+        if tabs.contains(section) { return section }
+        return tabs.contains(.library) ? .library : (tabs.first ?? .settings)
     }
 
     private func badgeCount(for section: ShellSection) -> Int {

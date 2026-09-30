@@ -92,6 +92,7 @@ def update_readme(check: bool = False) -> int:
     text = original
 
     version = read_marketing_version()
+    stage = read_release_stage()
     wired, never = count_what()
     # Fallback to known 7/3 if parsing fails
     if wired == 0:
@@ -100,9 +101,23 @@ def update_readme(check: bool = False) -> int:
         never = 3
 
     # 1. Version badge — any colour suffix is preserved.
+    #
+    # The badge carries the whole staged version, not just the marketing part:
+    # `0.1.0--alpha.3` distinguishes the alpha from the beta that will share
+    # MARKETING_VERSION 0.1.0. A `-` is doubled because shields.io reads a
+    # single `-` as the field separator.
+    #
+    # The pattern must be able to match a badge that is already suffixed, or
+    # the rewrite silently stops happening the first time the train leaves a
+    # development stop — which is what used to occur here: `[^-]+` could not
+    # cross the `-`, and `(?:--dev)?` only ever covered `--dev`. The badge
+    # then froze at its development value and `--check`, which compares the
+    # rewritten text, could not see it. Anchoring the colour to exactly six
+    # hex digits keeps the non-greedy version group from eating into it.
+    badge_version = (stage or f"v{version}").lstrip("v").replace("-", "--")
     text = re.sub(
-        r"https://img\.shields\.io/badge/version-[^-]+(?:--dev)?-(?P<colour>[0-9A-Za-z]+)",
-        lambda m: f"https://img.shields.io/badge/version-{version}-{m.group('colour')}",
+        r"(https://img\.shields\.io/badge/version-)[0-9A-Za-z.\-]+?(-[0-9A-Fa-f]{6})\b",
+        lambda m: f"{m.group(1)}{badge_version}{m.group(2)}",
         text,
     )
     # 2. Honest badge
@@ -116,7 +131,6 @@ def update_readme(check: bool = False) -> int:
     #    Xcode project, so the sentence cannot go stale when the train moves
     #    (a reset changes all three at once, which is exactly when a hardcoded
     #    parenthetical would lie).
-    stage = read_release_stage()
     if stage:
         text = re.sub(
             r"(Current stop on the release train: \*\*`)[^`]+(`\*\*)",

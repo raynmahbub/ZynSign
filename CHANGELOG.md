@@ -19,6 +19,53 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+## [0.0.1-dev.2] - 2026-09-30
+
+**Development 2.** Market `0.0.1` build `3` (`CFBundleShortVersionString 0.0.1`,
+`CFBundleVersion 3`), tag `v0.0.1-dev.2`, release train `.dev2`. Notes:
+[`docs/releases/notes-v0.0.1-dev.2.md`](docs/releases/notes-v0.0.1-dev.2.md).
+
+Switches on **no** staged feature — like `dev.1`, this stop proves the pipeline
+and the core, and a Release build shows Files · Library · Home · Settings.
+
+### Fixed
+
+- **The release gate was not being applied to four shipped entry points.**
+  Certificate Studio (declared `alpha.1`), Profiles (`alpha.2`), the Store
+  (`alpha.3`) and Downloads (`alpha.3`) were all reachable in every build,
+  including a development stop documented as showing the core only. Each
+  section now declares the feature that unlocks it (`ShellSection.requiredFeature`)
+  and both the tab bar and Settings → Browse honour it. A tab that is gated out
+  cannot be remembered as a landing destination either: `RootView.visibleSelection`
+  clamps a saved preference to a tab the stop actually shows, so the bar can
+  never end up with no selection and a blank content area.
+- **Smart Workspace ran on every build.** `CompositionRoot` constructed
+  `SmartWorkspaceService` unconditionally, so a Release build wrote
+  `SmartWorkspace.json` on every signing session and every application detail
+  view from `dev.1` onward — state for a screen nothing presents. The service
+  is staged for `rc.2` and is now constructed only at that stop.
+- **The README version badge stopped updating at the first pre-release.** The
+  pattern could not match a badge that already carried a suffix (`[^-]+` cannot
+  cross the `-`, and `(?:--dev)?` covered only `--dev`), so the badge froze the
+  moment the train left a bare version — and `update_readme.py --check`, which
+  compares the rewritten text, could not see it. Verified against all six
+  version forms.
+
+### Added
+
+- **`release_train.py rewind STAGE`** — move the declared stop back to an
+  earlier one. `promote` refuses to move backwards because a released stop must
+  never be re-released and no user may lose a feature; this command keeps that
+  guarantee by refusing any target at or behind the highest stop that already
+  carries a tag, and fails closed when it cannot read the tags. It exists
+  because the declared stop had run ahead of what had actually shipped: the
+  branch said `alpha.3` while only `dev.1` was ever released, so no tag could be
+  cut for the stop that was really next.
+- **`Scripts/ci/local_lint.py`** — a local pre-flight for the exact rules the
+  two quality gates enforce, so blocking findings are visible without a macOS
+  runner.
+
+
 ## [0.1.0-alpha.3] - 2026-09-29
 
 **Alpha 3.** Market `0.1.0` build `2` (`CFBundleShortVersionString 0.1.0`,

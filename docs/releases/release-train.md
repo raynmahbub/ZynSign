@@ -13,12 +13,12 @@ cherry-picks, and no deleted code to restore later.
 | Release | Tag | Switches on | Users see |
 |---|---|---|---|
 | Dev 1 | `v0.0.1-dev.1` | — | Core only. Proved the pipeline end to end against a real tag: quality gate → build + tests → version-stamped assets → publish. |
-| Dev 2 | `v0.0.1-dev.2` | — | Core only; fixes, and the private device matrix for the core |
+| Dev 2 | `v0.0.1-dev.2` | — | **Current stop.** Core only; fixes, and the private device matrix for the core |
 | Dev 3 | `v0.0.1-dev.3` | — | Core only; the last rehearsal before the first build |
 | **First build** | `v0.0.1` | Core | Files · Import (`ipa`/`tipa`) · Library · Bundle Explorer · Home · Settings (About, Archive, Pairing/Analytics honesty, Appearance, Storage, Diagnostics) |
 | Alpha 1 | `v0.1.0-alpha.1` | Certificate Studio | Settings → Certificates (`.p12`/`.pfx` import, detail, public JSON export) |
 | Alpha 2 | `v0.1.0-alpha.2` | Smart Sign, Professional Signing Queue, Intelligent Signing Presets | `Sign Application…` (Library menu + detail), 9-stage pipeline, DER toggle, Live Activity, Signing Options, Library “Signed” segment, Settings → Installation, Settings → Signing Queue, Settings → Presets, recommended preset with a required confirmation that enqueues on the signing queue |
-| Alpha 3 | `v0.1.0-alpha.3` | App Store, Downloads, Entitlements Studio, Identity Center | **Current stop.** App Store (validated sources, repository health), the Download Center (queue, validation, updates; resume is reported only when resume data was captured), the Entitlements Studio (read-only inspection, DER `0x20400`) and the Developer Identity Center. Cumulative with Alpha 1 and 2: seven of the ten staged features are on in a Release build here. |
+| Alpha 3 | `v0.1.0-alpha.3` | App Store, Downloads, Entitlements Studio, Identity Center | App Store (validated sources, repository health), the Download Center (queue, validation, updates; resume is reported only when resume data was captured), the Entitlements Studio (read-only inspection, DER `0x20400`) and the Developer Identity Center. Cumulative with Alpha 1 and 2: seven of the ten staged features are on in a Release build here. |
 | Beta 1 | `v0.9.0-beta.1` | Mission Control, Delivery Hand-off, Activity Journal | Home → Refresh Everything · Sign → Deliver… (OTA manifest, link, QR) · Settings → Analytics → Local Activity Journal. **Feature complete.** |
 | Beta 2 | `v0.9.0-beta.2` | Installation Workspace | Settings → Browse → Install · Home → Install · signing success → Installation Workspace… (readiness checklists, Installed Apps Library, confirmed deliveries and history, bulk preparation, storage) |
 | Beta 3–4 | `v0.9.0-beta.3…4` | Batch Signing (Beta 3) | Fixes plus the batch signing workspace |

@@ -24,15 +24,61 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
 
     var id: Self { self }
 
-    /// The sections that appear as tabs in the bottom navigation, in the
-    /// order the user sees them: Files · Library · Home · App Store ·
-    /// Downloads · Settings.
+    /// The tab-capable sections, in the order the user sees them:
+    /// Files · Library · Home · App Store · Downloads · Settings.
     ///
     /// Certificates and Profiles are deliberately *not* tabs. They remain
     /// complete, reachable areas reached from Settings → Browse, because
     /// the bottom bar is for the six areas a user moves between constantly
     /// and six is already the practical ceiling on a phone.
-    static let primaryTabs: [ShellSection] = [.files, .library, .home, .appStore, .downloads, .settings]
+    ///
+    /// This is the full list, not the list a given release shows — use
+    /// `primaryTabs` for that.
+    static let allTabs: [ShellSection] = [.files, .library, .home, .appStore, .downloads, .settings]
+
+    /// The staged feature that unlocks this section, or `nil` when the
+    /// section is part of the core shell and always present.
+    ///
+    /// The release train exposes features progressively, so a section that
+    /// belongs to a staged feature must not be reachable before its stop.
+    /// Certificates, Profiles, the Store, Downloads, Presets and the
+    /// Installation Workspace all arrive at a named stop; Files, Library,
+    /// Home and Settings are the core the dev stops exist to prove.
+    var requiredFeature: ReleaseFeature? {
+        switch self {
+        case .certificates: return .certificateStudio
+        case .profiles: return .provisioningProfileManager
+        case .appStore: return .appStore
+        case .downloads: return .downloads
+        case .presets: return .signingPresets
+        case .install: return .installationWorkspace
+        case .home, .library, .settings, .files: return nil
+        }
+    }
+
+    /// The tabs a release shows, given an availability test.
+    ///
+    /// Taking the test as a parameter — rather than reading the train
+    /// directly — is what lets the gating be tested at every stop without
+    /// pretending the test host is running at some other stage.
+    static func primaryTabs(where isAvailable: (ReleaseFeature) -> Bool) -> [ShellSection] {
+        allTabs.filter { $0.requiredFeature.map(isAvailable) ?? true }
+    }
+
+    /// The sections that appear as tabs in the bottom navigation at the
+    /// release this build is cut for.
+    ///
+    /// A tab can therefore be absent before its stop. That is a deliberate
+    /// change of direction: the bar used to be exempt from the gate, because
+    /// a tab that comes and goes is a tab a user cannot rely on. The release
+    /// strategy outranks that argument — a development stop exists to prove
+    /// the pipeline and is documented as showing the core only, so a Store
+    /// tab in it would misrepresent the release. Every caller that remembers
+    /// a tab across launches must go through `RootView.visibleSelection(for:)`,
+    /// which clamps to a tab this stop actually shows.
+    static var primaryTabs: [ShellSection] {
+        primaryTabs(where: ReleaseTrain.isAvailable)
+    }
 
     /// The navigation title of the section.
     var title: String {

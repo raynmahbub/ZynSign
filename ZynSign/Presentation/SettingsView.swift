@@ -54,40 +54,46 @@ struct SettingsView: View {
         }
     }
 
-    /// The complete areas that are not tabs: Certificates, Profiles, and —
-    /// when a staged feature supplies it — the Store, Downloads, and the
-    /// Installation Workspace. Files is a tab now; the rest are reached from
-    /// here so the bottom navigation stays the six-tab foundation.
+    /// The areas reached from Settings: Certificates, Profiles, the
+    /// Installation Workspace, and second routes to the Store and Downloads.
+    ///
+    /// Every entry is behind its release stop, so this section shrinks to
+    /// Files alone at a development stop and grows as the train advances.
+    /// Files is the one entry that is always here — it is core.
     private var browseSection: some View {
         Section {
-            NavigationLink {
-                CertificateManagerView(
-                    store: environment.identityStore,
-                    annotations: environment.identityAnnotations,
-                    importer: environment.pkcs12Importer
-                )
-            } label: {
-                Label(ShellSection.certificates.title, systemImage: ShellSection.certificates.symbolName)
+            if ReleaseTrain.isAvailable(.certificateStudio) {
+                NavigationLink {
+                    CertificateManagerView(
+                        store: environment.identityStore,
+                        annotations: environment.identityAnnotations,
+                        importer: environment.pkcs12Importer
+                    )
+                } label: {
+                    Label(ShellSection.certificates.title, systemImage: ShellSection.certificates.symbolName)
+                }
             }
             // `ProfilesView` supplies its own navigation stack, so it is
             // told the host owns this one.
-            NavigationLink {
-                ProfilesView(
-                    profiles: environment.provisioningProfiles,
-                    importer: environment.provisioningProfileImporter,
-                    compatibility: environment.profileCompatibility,
-                    selections: environment.profileSelections,
-                    recordEvent: { name, succeeded in
-                        environment.recordAnalyticsEvent(
-                            category: .intake,
-                            name: name,
-                            succeeded: succeeded
-                        )
-                    },
-                    embedsNavigationStack: false
-                )
-            } label: {
-                Label(ShellSection.profiles.title, systemImage: ShellSection.profiles.symbolName)
+            if ReleaseTrain.isAvailable(.provisioningProfileManager) {
+                NavigationLink {
+                    ProfilesView(
+                        profiles: environment.provisioningProfiles,
+                        importer: environment.provisioningProfileImporter,
+                        compatibility: environment.profileCompatibility,
+                        selections: environment.profileSelections,
+                        recordEvent: { name, succeeded in
+                            environment.recordAnalyticsEvent(
+                                category: .intake,
+                                name: name,
+                                succeeded: succeeded
+                            )
+                        },
+                        embedsNavigationStack: false
+                    )
+                } label: {
+                    Label(ShellSection.profiles.title, systemImage: ShellSection.profiles.symbolName)
+                }
             }
             NavigationLink { FilesView(embedsNavigationStack: false) } label: {
                 Label(ShellSection.files.title, systemImage: ShellSection.files.symbolName)
@@ -106,14 +112,18 @@ struct SettingsView: View {
             // Files, Store, and Downloads are tabs; these links are a second
             // route to the same screens, kept because a tab is not always the
             // shortest path when the user is already reading Settings.
-            NavigationLink { AppStoreView(embedsNavigationStack: false) } label: {
-                Label(ShellSection.appStore.title, systemImage: ShellSection.appStore.symbolName)
+            if ReleaseTrain.isAvailable(.appStore) {
+                NavigationLink { AppStoreView(embedsNavigationStack: false) } label: {
+                    Label(ShellSection.appStore.title, systemImage: ShellSection.appStore.symbolName)
+                }
             }
-            NavigationLink { DownloadsView(embedsNavigationStack: false) } label: {
-                Label(ShellSection.downloads.title, systemImage: ShellSection.downloads.symbolName)
+            if ReleaseTrain.isAvailable(.downloads) {
+                NavigationLink { DownloadsView(embedsNavigationStack: false) } label: {
+                    Label(ShellSection.downloads.title, systemImage: ShellSection.downloads.symbolName)
+                }
             }
         } header: { Text("Browse") } footer: {
-            Text("Certificates, Profiles, and the Installation Workspace are reached from here. Files, Store, and Downloads are tabs. Store jobs stay isolated until you import them, and Download Center cleanup never deletes imported apps.")
+            Text("Files is always here. Certificates, Profiles, the Store, Downloads, and the Installation Workspace appear from here as their release stop arrives; Store and Downloads are also tabs. Store jobs stay isolated until you import them, and Download Center cleanup never deletes imported apps.")
         }
     }
 
