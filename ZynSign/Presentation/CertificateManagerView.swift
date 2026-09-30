@@ -1010,7 +1010,7 @@ private struct ShareSheet: UIViewControllerRepresentable {
 
 // MARK: - Previews
 
-private let previewEnvironment = CompositionRoot.makeApplicationEnvironment()
+private let previewEnvironment = CompositionRoot.fallbackEnvironment
 
 #Preview("Certificates (empty)") {
     NavigationStack {

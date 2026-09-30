@@ -118,7 +118,7 @@ struct RootView: View {
     /// environment, and installed into the hierarchy — so the Settings area,
     /// the Security Center, and the lock overlay all act on the same
     /// preferences and the same lock state.
-    init(environment: ApplicationEnvironment = CompositionRoot.makeApplicationEnvironment()) {
+    init(environment: ApplicationEnvironment) {
         let model = SettingsCenterModel(store: environment.preferencesStore, environment: environment)
         _settings = StateObject(wrappedValue: model)
         _appLock = StateObject(wrappedValue: AppLockController(
@@ -733,5 +733,8 @@ private struct DownloadNoticeBridge: View {
 }
 
 #Preview {
-    RootView().environment(\.applicationEnvironment, CompositionRoot.makeApplicationEnvironment())
+    // One environment for the shell and for the hierarchy it installs it in:
+    // the shared composition-root fallback, never a second graph built here.
+    RootView(environment: CompositionRoot.fallbackEnvironment)
+        .environment(\.applicationEnvironment, CompositionRoot.fallbackEnvironment)
 }

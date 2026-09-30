@@ -109,11 +109,18 @@ no signing state. Since 0.1.0-dev the identity store (and the PKCS#12 importer) 
 ## Protection policy
 
 Registry items use `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and
-`kSecAttrSynchronizable = false`. Borrowed keys must resolve as non-synchronizable
-private-key items and report the same accessibility and non-extractability. Missing
-or incompatible protection evidence fails closed; the adapter never weakens
-existing protections to make a test pass. An attribute report is not an
-experimentally proven non-exportability guarantee.
+`kSecAttrSynchronizable = false`. Borrowed keys must resolve as
+non-synchronizable private-key items kept under a class that is unreadable
+while the device is locked — `SigningKeyProtectionRule.permittedAccessibilityClasses`
+is the exact set (`WhenUnlockedThisDeviceOnly`, `WhenUnlocked`,
+`WhenPasscodeSetThisDeviceOnly`), and a class this build does not know, or none
+at all, is refused. Non-extractability is required in the strict direction only:
+a key the platform reports as exportable is refused, while an attribute the
+platform does not report at all is treated as its own import — an imported
+private key's raw bytes cannot be read back, and the attribute is not always
+surfaced. Missing or incompatible protection evidence otherwise fails closed;
+the adapter never weakens existing protections to make a test pass. An
+attribute report is not an experimentally proven non-exportability guarantee.
 
 **Imported keys are the platform's, not ours.** `SecPKCS12Import` takes no
 attribute dictionary, so the private key and certificate it stores carry the

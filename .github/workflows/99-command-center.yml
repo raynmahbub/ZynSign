@@ -1,27 +1,39 @@
 # ⚙ Command Center — repository intelligence, weekly and on demand.
 #
-# Pure diagnostics and repair: this workflow never gates a pull request and
-# never publishes a release. Every Monday the repository inspects itself:
+# Reports by default, repairs only when asked: this workflow never gates a pull
+# request and never publishes a release. Every Monday the repository inspects
+# itself and uploads the result — **nothing is committed, formatted, relabelled
+# or closed by a scheduled run.** The repair jobs publish, auto-format, sync
+# README and labels, and run the stale bot; they run only for a manual dispatch
+# that names `mode: repair`. That is the rule the workflow now enforces by
+# construction: scheduled automation reads, analyses, and reports, and a
+# repository change needs a person to ask for it.
+#
+# Every Monday the repository inspects itself:
 #
 #   reports          — SwiftLint summary, SwiftFormat check, architecture
 #                      report, dependency report, documentation report,
 #                      Periphery dead-code report, complexity report,
 #                      and the regenerated dashboards
-#   publish          — commits docs/internal/ dashboard + history updates
-#                      (documentation only — production code is never
+#   publish          — repair only: commits docs/internal/ dashboard + history
+#                      updates (documentation only — production code is never
 #                      modified by this workflow)
-#   regression-check — opens a maintenance issue when quality dropped
-#   autoformat       — applies the SwiftFormat rule set as one clean
-#                      style commit when anything drifted
-#   readme-sync      — repairs README.md when it drifted from
+#   regression-check — compares this run with the last; it opens a maintenance
+#                      issue in repair mode and writes the same finding to the
+#                      run summary in report mode
+#   autoformat       — repair only: applies the SwiftFormat rule set as one
+#                      clean style commit when anything drifted
+#   readme-sync      — repair only: repairs README.md when it drifted from
 #                      MARKETING_VERSION / WHAT_DOES_NOT_EXIST.md
 #                      (02-quality.yml refuses the drift on a PR)
-#   label-sync       — keeps the label set exactly as .github/labels.json
-#                      declares it (idempotent)
-#   stale            — marks inactive issues and PRs stale, then closes them
+#   label-sync       — repair only: keeps the label set exactly as
+#                      .github/labels.json declares it (idempotent)
+#   stale            — repair only: marks inactive issues and PRs stale, then
+#                      closes them
 #
-# Run it any time with Actions → ⚙ Command Center → Run workflow for the
-# same diagnostics on demand.
+# Run it any time with Actions → ⚙ Command Center → Run workflow for the same
+# diagnostics on demand — `report` to look, `repair` to let it change the
+# repository.
 #
 # The Periphery dead-code scan used to run on every pull request as its own
 # workflow; it is advisory and slow (a 40-minute macOS job), so it lives here
@@ -35,6 +47,14 @@ on:
     # Monday 06:00 UTC.
     - cron: "0 6 * * 1"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "report = analyse and upload only; repair = also publish dashboards, format, sync README and labels, and run the stale bot"
+        type: choice
+        options:
+          - report
+          - repair
+        default: report
 
 permissions:
   contents: write
@@ -44,6 +64,11 @@ permissions:
 concurrency:
   group: maintenance
   cancel-in-progress: false
+
+# Repairs are opt-in. A scheduled run — and a manual run that did not name
+# `repair` — analyses and uploads; it does not write to the repository.
+env:
+  REPAIR: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'repair' }}
 
 jobs:
   reports:
@@ -88,6 +113,15 @@ jobs:
       - name: Regenerate the dashboards
         run: Scripts/ci/metrics_report.sh
 
+      - name: Record whether this run may repair
+        run: |
+          if [ "${REPAIR}" = "true" ]; then
+            echo "**Repair mode.** The publish, auto-format, README, label and stale jobs will run after this one." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "**Report mode.** Nothing was committed, formatted, relabelled, or closed." >> "$GITHUB_STEP_SUMMARY"
+            echo "Run *Actions → ⚙ Command Center → Run workflow* with mode **repair** to apply what the reports below list." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Upload the maintenance bundle
         uses: actions/upload-artifact@v4
         with:
@@ -102,7 +136,8 @@ jobs:
           retention-days: 30
 
   publish:
-    name: Commit the dashboard updates
+    name: Commit the dashboard updates (repair mode)
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'repair'
     runs-on: ubuntu-latest
     needs: reports
     timeout-minutes: 15
@@ -148,7 +183,7 @@ jobs:
           fi
 
   regression-check:
-    name: Open an issue if quality decreased
+    name: Report a quality regression (opens an issue in repair mode)
     runs-on: ubuntu-latest
     needs: reports
     timeout-minutes: 10
@@ -201,10 +236,20 @@ jobs:
 
           _Opened automatically by the maintenance workflow. Nothing was changed automatically — review first._"
           BODY="$(printf '%s\n' "${BODY}" | sed 's/^          //')"
+          if [ "${REPAIR}" != "true" ]; then
+            echo "::warning::${TITLE} — report mode, so no issue was opened. Re-run with mode=repair to record it."
+            {
+              echo "## Quality regression"
+              echo
+              printf '%s\n' "${BODY}"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           gh issue create --title "${TITLE}" --label maintenance --body "${BODY}"
 
   autoformat:
-    name: Apply SwiftFormat (single clean style commit)
+    name: Apply SwiftFormat (single clean style commit, repair mode)
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'repair'
     runs-on: macos-15
     needs: reports
     timeout-minutes: 20
@@ -250,7 +295,8 @@ jobs:
           fi
 
   readme-sync:
-    name: Repair a stale README
+    name: Repair a stale README (repair mode)
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'repair'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -298,7 +344,8 @@ jobs:
           fi
 
   label-sync:
-    name: Sync the label definitions
+    name: Sync the label definitions (repair mode)
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'repair'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -327,7 +374,8 @@ jobs:
           done
 
   stale:
-    name: Mark and close inactive work
+    name: Mark and close inactive work (repair mode)
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'repair'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

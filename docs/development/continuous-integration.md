@@ -134,7 +134,7 @@ jobs that genuinely need Xcode run on macOS:
 | `01-build.yml` · 🔨 Build | PR + every push; manual (`mode: private-ipa`) | `hygiene` (ubuntu) · `build-and-test` · `lint-and-format` · `external-validation` (macOS); on a PR also `pr-title` · `commitlint` · `label-pr` (ubuntu) · `danger` (macOS); on demand `private-ipa` | blocking, except external validation (measures) and Danger (advises) |
 | `02-quality.yml` · 🛡 Quality | PR + push to main | 8 ubuntu jobs: `architecture-guard` · `dependency-validation` · `docs-check` · `secret-policy` · `gitleaks` · `complexity-check` · `engineering-summary` · `readme-check` | blocking, except complexity and the summary |
 | `03-release.yml` · 🚀 Release | tag `v*` + manual (`version`, `dry_run`) | `meta` → quality gate → build/test → assets → publish → verdict; `dry_run: true` is the full rehearsal and publishes nothing | blocking |
-| `99-command-center.yml` · ⚙ Command Center | weekly + manual | `reports` · `publish` · `regression-check` · `autoformat` · `readme-sync` · `label-sync` · `stale` | automation, never blocks a PR |
+| `99-command-center.yml` · ⚙ Command Center | weekly + manual (`mode: report` default, `mode: repair`) | always `reports` · `regression-check`; only in repair mode `publish` · `autoformat` · `readme-sync` · `label-sync` · `stale` | automation, never blocks a PR; the scheduled run writes nothing to the repository |
 | `release-drafter.yml` | push to main, PR, manual | `update-release-draft` — drafts the train's current stop | automation |
 
 Scripts behind the gates:

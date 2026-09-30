@@ -329,10 +329,16 @@ private struct SettingsCenterKey: EnvironmentKey {
     /// A standalone model, so a section rendered outside the shell — a
     /// preview, or a test — still has something to read. The shell installs
     /// the shared instance, which is the one the user's changes reach.
+    ///
+    /// The fallback reads the one shared composition-root fallback rather
+    /// than building a composition of its own, so a preview that reads this
+    /// key and `\.applicationEnvironment` sees the same preferences store and
+    /// the same library instead of two that disagree.
     static let defaultValue = MainActor.assumeIsolated {
-        SettingsCenterModel(
-            store: FilePreferencesStore(location: CompositionRoot.preferencesDocumentLocation()),
-            environment: CompositionRoot.makeApplicationEnvironment()
+        let environment = CompositionRoot.fallbackEnvironment
+        return SettingsCenterModel(
+            store: environment.preferencesStore,
+            environment: environment
         )
     }
 }
@@ -350,12 +356,14 @@ private struct AppLockKey: EnvironmentKey {
     /// preview, or a section presented on its own — still has one to read. The
     /// shell installs the shared instance, which is the one the user's lock
     /// state lives in.
+    ///
+    /// It reads the same shared fallback the other environment keys do, so a
+    /// preview's lock and its settings agree about the preferences file.
     static let defaultValue = MainActor.assumeIsolated {
-        AppLockController(
-            authenticator: LocalAuthenticationBiometricAuthenticator(),
-            preferences: {
-                ZynSignPreferences.shippedDefault
-            }
+        let environment = CompositionRoot.fallbackEnvironment
+        return AppLockController(
+            authenticator: environment.biometricAuthenticator,
+            preferences: { ZynSignPreferences.shippedDefault }
         )
     }
 }

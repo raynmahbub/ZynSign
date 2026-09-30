@@ -470,7 +470,7 @@ private struct SignedOutputShareSheet: UIViewControllerRepresentable {
 // MARK: - Preview
 
 private struct SigningJobDetailPreviewHost: View {
-    private let environment = CompositionRoot.makeApplicationEnvironment()
+    private let environment = CompositionRoot.fallbackEnvironment
     var body: some View {
         NavigationStack {
             if let first = environment.signingQueue.jobs.first {

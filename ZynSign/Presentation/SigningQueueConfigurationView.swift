@@ -584,7 +584,7 @@ struct SigningQueueConfigurationRequest: Identifiable, Equatable {
 // MARK: - Preview
 
 private struct SigningQueueConfigurationPreviewHost: View {
-    private let environment = CompositionRoot.makeApplicationEnvironment()
+    private let environment = CompositionRoot.fallbackEnvironment
     @State private var request: SigningQueueConfigurationRequest?
 
     var body: some View {

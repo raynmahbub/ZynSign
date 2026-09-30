@@ -224,5 +224,5 @@ private enum AboutDocument {
     NavigationStack {
         AboutSettingsSection()
     }
-    .environment(\.applicationEnvironment, CompositionRoot.makeApplicationEnvironment())
+    .environment(\.applicationEnvironment, CompositionRoot.fallbackEnvironment)
 }

@@ -65,7 +65,14 @@ publishes the notes for the stop being cut. The `CFBundleVersion` is assigned by
   `ApplePKCS12Importer` additionally *asks* for the device-only class before
   registering and does not assume the answer — the resolver reads the key's
   actual attributes back, so a platform that honours the upgrade gets it and a
-  platform that cannot still produces a working, verified identity.
+  platform that cannot still produces a working, verified identity. The rule
+  itself is now a pure type (`SigningKeyProtectionRule.permits`) so it is
+  exercised on every run of the test suite, not only in a signed test host with
+  `ZYNSIGN_RUN_KEYCHAIN_TESTS=1`; the opt-in Keychain fixture was corrected
+  too, because it asked for `kSecAttrIsExtractable` inside
+  `kSecPrivateKeyAttrs`, where the platform ignores it, so the key it created
+  was exportable — the opposite of the shape the application actually
+  registers.
 - **An Open In or share-sheet hand-off could be received and never shown.** The
   presentation was requested in the frame ZynSign comes back to the foreground,
   where UIKit drops it without an error, and the state that asked for it stayed
@@ -97,6 +104,20 @@ publishes the notes for the stop being cut. The `CFBundleVersion` is assigned by
   Installation Workspace sheet wrapped the view in a stack *and* asked it to
   embed its own (`embedsNavigationStack` now `false`, as the Settings push
   already does).
+- **An environment default could build a second application.** The
+  `\.applicationEnvironment` key's default, the two Settings keys' defaults
+  (`\.settingsCenter`, `\.appLock`), and `RootView.init`'s default argument
+  each called `CompositionRoot.makeApplicationEnvironment()` — the whole graph:
+  stores, file caches, background schedulers, and the recovery pass, on the
+  main thread, inside whatever view first read the key. A preview, a screen
+  built on its own, or any view rendered outside the shell therefore got a
+  second library and a second set of preferences that could disagree with the
+  shell's, and the construction is main-actor-bound (`MainActor.assumeIsolated`
+  around the preferences read), so evaluating it off the main actor traps.
+  There is now one shared fallback, `CompositionRoot.fallbackEnvironment`,
+  built at most once per process and read by all three keys; `RootView` takes
+  its environment as a required argument, so the run path cannot construct a
+  composition by omission, and every preview reads the shared instance.
 - **A Home shortcut could select a tab that does not exist.** The onboarding
   checklist's *Add a certificate* and *Import a provisioning profile* rows set
   the tab selection to `.certificates` and `.profiles`, neither of which is a
@@ -166,6 +187,22 @@ publishes the notes for the stop being cut. The `CFBundleVersion` is assigned by
   refresh spinner fades instead of appearing over the list in one frame.
   Progress within a stage is deliberately not animated: a copy reports ten times
   a second, and animating that would be motion without meaning.
+- **The Import Hub's own *Choose Files* button raised the picker after an
+  invented wait.** Every post-picker presentation waits one settle beat, and
+  the hub's picker request waited it even when the hub's sheet had long since
+  settled — 400 ms added to the app's primary import action, for a transition
+  that was already over. The hub now records when its sheet settles and raises
+  the picker on the next frame when it has, keeping the beat only for the case
+  it exists for: a request that lands while the sheet is still animating in.
+- **The weekly Command Center run no longer changes the repository.** It
+  committed regenerated dashboards, applied SwiftFormat, repaired the README,
+  synced labels, and ran the stale bot on a schedule — writes to the default
+  branch (or a PR) that nobody asked for at the moment they landed. Those five
+  jobs now run only for a manual dispatch that names `mode: repair`; the
+  scheduled run — and any dispatch that does not ask — analyses, uploads the
+  bundle, compares the measurement with the last one, and reports what it found
+  in the run summary, including a quality regression it would otherwise have
+  opened an issue for.
 - **Store and Downloads stay in the tab bar at every release stop.** They are
   primary navigation, and gating them made a development build look like it had
   lost working features. `ShellSection.allTabs` keeps all six destinations, but

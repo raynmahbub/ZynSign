@@ -747,5 +747,5 @@ struct ProfileImportSummaryView: View {
         profiles: CompositionRoot.makeProvisioningProfileLibrary(),
         importer: nil
     )
-    .environment(\.applicationEnvironment, CompositionRoot.makeApplicationEnvironment())
+    .environment(\.applicationEnvironment, CompositionRoot.fallbackEnvironment)
 }

@@ -137,8 +137,14 @@ Compiled in and reachable in Debug; absent in Release.
   `SigningKeyProtectionRule` now requires what the app depends on — private,
   non-synchronizable, unreadable while locked, not reported as exportable — and
   the importer asks for the device-only class without assuming the answer.
-  Still needs a device: the rule and the importer's call are compile- and
-  test-verified only.
+  The rule is a pure type with its own test file, so the decision itself is
+  covered by the ordinary test suite; the opt-in signed-host Keychain test's
+  fixture was also corrected (it placed `kSecAttrIsExtractable` where the
+  platform ignores it, so it built an exportable key). Still needs a device:
+  the importer's call and the Keychain read-back are compile- and
+  test-verified only. The one case to report from a device is an identity that
+  imports and then shows *unsupported*: that means the platform reports the key
+  as exportable, which the rule refuses on purpose.
 - **The shell lists six sections and draws five.** `tabBarItemLimit` caps
   `primaryTabs`, because UIKit folds a sixth tab into a *More* list it pushes
   from its own navigation controller, and a pushed tab view with its own stack
@@ -156,7 +162,16 @@ Compiled in and reachable in Debug; absent in Release.
   or share-sheet request that lands as ZynSign returns to the foreground is held
   until the scene is active instead of being presented in the frame UIKit drops,
   and a package picked inside Files waits the shared settle before the Import
-  Hub is raised.
+  Hub is raised. The hub's own *Choose Files* no longer waits that beat once its
+  sheet has settled, so the primary import action is a frame away rather than
+  400 ms away.
+- **The composition root can no longer be built by accident.** Every environment
+  default, and `RootView`'s environment argument, used to construct a complete
+  `ApplicationEnvironment` on first read; a screen rendered outside the shell
+  would have run against a second library and a second set of preferences (and
+  the construction is main-actor-bound, so reading it off the main actor traps).
+  One shared `CompositionRoot.fallbackEnvironment` now serves every fallback.
+  Compile- and audit-verified only, like the rest of this list.
 - **The private device matrix has never run.** Per `docs/releases/Checklist.md`
   §3, every release including this one is *Blocked* until a Release build is
   exercised on two real devices (one iOS 17, one iOS 18) plus a simulator smoke.

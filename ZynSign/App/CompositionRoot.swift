@@ -13,6 +13,25 @@ import Foundation
 /// the layers beneath the choice depend only on the port.
 enum CompositionRoot {
 
+    /// The environment used by contexts that render ZynSign's views without
+    /// the application's own: SwiftUI previews, and tests that build a screen
+    /// or a model directly.
+    ///
+    /// It is one instance, built at most once per process, because the
+    /// environment keys that fall back to it (`\.applicationEnvironment`,
+    /// `\.settingsCenter`, `\.appLock`) would otherwise each construct a
+    /// complete application graph — separate stores, separate file caches,
+    /// separate background schedulers — and a preview (or a section presented
+    /// on its own) would read preferences and a library that the rest of the
+    /// pass does not share. The running application never reads it: the shell
+    /// installs the environment built once in `ZynSignApp` before any view is
+    /// rendered.
+    ///
+    /// Built on the main actor, like `makeApplicationEnvironment()` itself,
+    /// and never as the side effect of a view reading an environment default:
+    /// a caller that needs it asks for it explicitly.
+    static let fallbackEnvironment: ApplicationEnvironment = makeApplicationEnvironment()
+
     static func backupFileURL(for item: BackupHistoryItem) -> URL {
         libraryRootDirectory.appendingPathComponent("Recovery/Backups/" + item.fileName)
     }

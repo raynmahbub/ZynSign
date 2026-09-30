@@ -808,5 +808,5 @@ private struct OnboardingStepRow: View {
 
 #Preview("Dashboard") {
     HomeView()
-        .environment(\.applicationEnvironment, CompositionRoot.makeApplicationEnvironment())
+        .environment(\.applicationEnvironment, CompositionRoot.fallbackEnvironment)
 }

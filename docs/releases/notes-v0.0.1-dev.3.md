@@ -112,7 +112,11 @@ not pretend it was made.
   the device-only class before registering and does not assume the answer; the
   resolver reads the key's actual attributes back, so a platform that honours
   the upgrade gets device-only protection and one that cannot still produces a
-  working, verified identity.
+  working, verified identity. The rule is a pure type, exercised by the ordinary
+  test suite rather than only by the opt-in signed-host Keychain test, and that
+  test's fixture was corrected: it asked for `kSecAttrIsExtractable` inside
+  `kSecPrivateKeyAttrs`, where the platform ignores it, so it built an
+  exportable key — the one shape the resolver refuses.
 - **An Open In or share-sheet hand-off could be received and never shown.** The
   presentation was requested in the frame ZynSign returns to the foreground,
   where UIKit drops it with no error, and the state that asked for it stayed
@@ -124,6 +128,17 @@ not pretend it was made.
   frame the document picker was still dismissing. It waits the same settle every
   other post-picker presentation waits (`PresentationSettle`), so the hand-off
   lands instead of leaving the hub closed with the package queued behind it.
+- **An environment default could build a second application graph.** The
+  defaults for `\.applicationEnvironment`, `\.settingsCenter`, `\.appLock`,
+  and `RootView`'s environment argument each constructed a complete
+  `ApplicationEnvironment` — stores, caches, schedulers, and the recovery pass —
+  on first read. They now share one fallback built at most once per process
+  (`CompositionRoot.fallbackEnvironment`), and `RootView` takes its environment
+  as a required argument, so no screen can silently render a second library and
+  a second set of preferences.
+- **The Import Hub's *Choose Files* no longer pays a settle beat it does not
+  need.** The picker waits the beat only while the hub's sheet is still settling;
+  once it has, the picker is raised on the next frame.
 - **Profile picker failures are announced.** `ProvisioningProfilesModel` returned
   early on every non-`.success` picker result; only cancellation stays quiet now,
   and any other failure raises a typed notice.

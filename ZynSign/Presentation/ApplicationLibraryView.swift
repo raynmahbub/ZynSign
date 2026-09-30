@@ -1552,7 +1552,7 @@ struct ApplicationLibraryFailureView: View {
 
 // MARK: - Previews
 
-private let previewEnvironment = CompositionRoot.makeApplicationEnvironment()
+private let previewEnvironment = CompositionRoot.fallbackEnvironment
 
 private enum PreviewFixtures {
     static func identity(

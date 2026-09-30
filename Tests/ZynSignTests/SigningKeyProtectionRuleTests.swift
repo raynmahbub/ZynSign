@@ -5,101 +5,111 @@ import Security
 
 /// The rule that decides whether a stored signing key may sign.
 ///
-/// These tests exist because the rule is what `.p12` import hit: an identity
-/// imported through `SecPKCS12Import` carries the Keychain's default
-/// protection class, because that function takes no attribute dictionary and
-/// iOS offers no supported way to re-protect a private key after creation.
-/// A rule that demanded one exact class therefore refused every identity the
-/// platform could actually produce, and the user saw "The required identity
-/// protection is not available" no matter what they did. The cases below pin
-/// both halves: the platform's own import must pass, and every protection
-/// weaker than *unreadable while locked* must still fail.
+/// These tests exist because of a specific, shipped failure: registration
+/// required an imported private key to carry
+/// `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, but `SecPKCS12Import` takes
+/// no attribute dictionary, so the items it stores carry the Keychain's
+/// default class — and every identity the platform could produce for a `.p12`
+/// import was refused as unprotected. The first two cases pin both halves:
+/// the class ZynSign asks for is accepted, and so is the class the platform
+/// actually supplies; everything weaker is still refused.
 final class SigningKeyProtectionRuleTests: XCTestCase {
 
-    private let accessibility = kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String
-    private let privateKeyClass = kSecAttrKeyClassPrivate as String
+    private let deviceOnly = kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String
+    private let unlocked = kSecAttrAccessibleWhenUnlocked as String
+    private let privateKey = kSecAttrKeyClassPrivate as String
 
-    func testPermitsTheDeviceOnlyClassZynSignAsksFor() {
+    func testAcceptsTheDeviceOnlyClassZynSignAsksFor() {
         XCTAssertTrue(SigningKeyProtectionRule.permits(
-            keyClass: privateKeyClass,
-            accessibility: kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String,
+            keyClass: privateKey,
+            accessibility: deviceOnly,
             synchronizable: false,
             isExtractable: false
         ))
     }
 
-    /// The case that made import possible: `SecPKCS12Import` stores its items
-    /// under the Keychain's default class and cannot be asked for another.
-    func testPermitsTheKeychainsDefaultClassThatAnImportedKeyCarries() {
+    /// The regression: this is the class a key imported through
+    /// `SecPKCS12Import` carries, and the one the old rule refused.
+    func testAcceptsTheKeychainsDefaultClassAnImportedKeyCarries() {
         XCTAssertTrue(SigningKeyProtectionRule.permits(
-            keyClass: privateKeyClass,
-            accessibility: kSecAttrAccessibleWhenUnlocked as String,
+            keyClass: privateKey,
+            accessibility: unlocked,
             synchronizable: false,
             isExtractable: false
         ))
     }
 
-    /// Some versions do not surface `kSecAttrIsExtractable`. DTS is explicit
-    /// that an imported private key's bytes cannot be read back, so absence is
-    /// the platform's own import rather than evidence of exportability.
-    func testPermitsAnImportedKeyWithUnreportedExtractability() {
+    func testAcceptsThePasscodeSetClassAndAnUnreportedExtractabilityAttribute() {
         XCTAssertTrue(SigningKeyProtectionRule.permits(
-            keyClass: privateKeyClass,
-            accessibility: accessibility,
+            keyClass: privateKey,
+            accessibility: kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly as String,
             synchronizable: false,
             isExtractable: nil
         ))
     }
 
-    /// A key whose protection lets it be read while the device is locked is
-    /// refused, whatever else it reports.
-    func testPermitsOnlyUnlockedOnlyProtectionClasses() {
-        for refused in [
+    func testRefusesEveryClassThatStaysReadableWhileTheDeviceIsLocked() {
+        let refused = [
             kSecAttrAccessibleAfterFirstUnlock as String,
             kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String,
             kSecAttrAccessibleAlways as String,
-            kSecAttrAccessibleAlwaysThisDeviceOnly as String
-        ] {
+            kSecAttrAccessibleAlwaysThisDeviceOnly as String,
+            "com.example.not-a-real-class"
+        ]
+        for accessibility in refused {
             XCTAssertFalse(SigningKeyProtectionRule.permits(
-                keyClass: privateKeyClass,
-                accessibility: refused,
+                keyClass: privateKey,
+                accessibility: accessibility,
                 synchronizable: false,
                 isExtractable: false
-            ), "\(refused) must not be accepted")
+            ), "\(accessibility) must not be accepted")
         }
-        XCTAssertTrue(SigningKeyProtectionRule.permittedAccessibilityClasses.contains(accessibility))
     }
 
-    /// An unreported class is not a licence to sign: the rule fails closed.
-    func testRefusesAnUnreportedOrUnknownProtectionClass() {
+    func testRefusesAKeyWithNoReportedProtectionClass() {
         XCTAssertFalse(SigningKeyProtectionRule.permits(
-            keyClass: privateKeyClass, accessibility: nil, synchronizable: false, isExtractable: false
-        ))
-        XCTAssertFalse(SigningKeyProtectionRule.permits(
-            keyClass: privateKeyClass, accessibility: "unknown-class", synchronizable: false, isExtractable: false
-        ))
-    }
-
-    func testRefusesAKeyThatCanSyncOrIsNotAPrivateKey() {
-        XCTAssertFalse(SigningKeyProtectionRule.permits(
-            keyClass: privateKeyClass, accessibility: accessibility, synchronizable: true, isExtractable: false
-        ))
-        XCTAssertFalse(SigningKeyProtectionRule.permits(
-            keyClass: kSecAttrKeyClassPublic as String, accessibility: accessibility,
-            synchronizable: false, isExtractable: false
-        ))
-        XCTAssertFalse(SigningKeyProtectionRule.permits(
-            keyClass: nil, accessibility: accessibility, synchronizable: false, isExtractable: false
+            keyClass: privateKey,
+            accessibility: nil,
+            synchronizable: false,
+            isExtractable: false
         ))
     }
 
-    /// A key the platform says can be exported is refused even though its
-    /// protection class is the one ZynSign prefers.
+    func testRefusesASynchronizableKeyOrOneThatIsNotPrivate() {
+        XCTAssertFalse(SigningKeyProtectionRule.permits(
+            keyClass: privateKey,
+            accessibility: unlocked,
+            synchronizable: true,
+            isExtractable: false
+        ))
+        XCTAssertFalse(SigningKeyProtectionRule.permits(
+            keyClass: kSecAttrKeyClassPublic as String,
+            accessibility: unlocked,
+            synchronizable: false,
+            isExtractable: false
+        ))
+        XCTAssertFalse(SigningKeyProtectionRule.permits(
+            keyClass: nil,
+            accessibility: unlocked,
+            synchronizable: false,
+            isExtractable: false
+        ))
+    }
+
+    /// A key the platform reports as exportable is refused even when
+    /// everything else about it is in order.
     func testRefusesAKeyThePlatformReportsAsExportable() {
         XCTAssertFalse(SigningKeyProtectionRule.permits(
-            keyClass: privateKeyClass, accessibility: accessibility,
-            synchronizable: false, isExtractable: true
+            keyClass: privateKey,
+            accessibility: deviceOnly,
+            synchronizable: false,
+            isExtractable: true
         ))
+    }
+
+    func testPermittedClassesAreExactlyTheUnlockedOnlySet() {
+        XCTAssertEqual(SigningKeyProtectionRule.permittedAccessibilityClasses, [deviceOnly, unlocked,
+            kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly as String])
     }
 }
 #endif
