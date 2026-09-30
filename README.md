@@ -7,7 +7,7 @@
 <a href="docs/releases/version-strategy.md"><img alt="Version" src="https://img.shields.io/badge/version-0.1.0--alpha.3-6D6AF0"></a>
 <a href="#requirements"><img alt="Platform" src="https://img.shields.io/badge/platform-iOS%2017%2B-1D1D1F"></a>
 <a href=".github/workflows/01-build.yml"><img alt="CI" src="https://img.shields.io/badge/CI-build%20%C2%B7%20test%20%C2%B7%20audits-1C8E58"></a>
-<a href="docs/product/WHAT_DOES_NOT_EXIST.md"><img alt="Honest" src="https://img.shields.io/badge/honest-7%20of%2010%20staged%20on%20%C2%B7%203%20never-green"></a>
+<a href="docs/product/WHAT_DOES_NOT_EXIST.md"><img alt="Honest" src="https://img.shields.io/badge/honest-10%20wired%20·%203%20never-green"></a>
 <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
 
 **Import an IPA, sign it with your own identity, and hand it off for install — entirely on the device, with no server and no desktop helper.**
@@ -114,7 +114,7 @@ python3 Scripts/compose_screenshots.py --preview # App Store screenshot template
 
 Design and brand: [`docs/design/`](docs/design/README.md) · [brand book](docs/design/brand/README.md) · the passes that need a human run in the app's **Compatibility Lab** (Settings → Compatibility Lab, Debug and internal builds).
 
-Ground rules are in [`CONTRIBUTING.md`](CONTRIBUTING.md); release procedure in [`docs/releases/`](docs/releases/README.md). Current stop on the release train: **`v0.0.1-dev.1`** (marketing `0.0.1`, build `1`).
+Ground rules are in [`CONTRIBUTING.md`](CONTRIBUTING.md); release procedure in [`docs/releases/`](docs/releases/README.md). Current stop on the release train: **`v0.1.0-alpha.3`** (marketing `0.1.0`, build `2`).
 
 **Roadmap:** `v2.0.0` deepens the platform; `v3.0.0 “Nova”` makes it a complete iOS signing workspace — Smart Workspace, Nova Assistant (on-device, suggestions only), Install Health Pro, App Studio, Binary Studio, Repository Hub, Trust Center. Plan and architecture mapping: [`docs/product/ROADMAP-v3.0-nova.md`](docs/product/ROADMAP-v3.0-nova.md).
 
