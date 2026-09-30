@@ -42,6 +42,17 @@ struct ApplicationLibraryView: View {
     @State private var entryPendingRemoval: LibraryEntry? = nil
     @State private var selectionPendingRemoval: [LibraryEntry] = []
     @State private var hasAppliedStoredPreferences = false
+
+    /// Whether the concealed vault is open for this session. While closed,
+    /// concealed records stay out of the list entirely.
+    @State private var vaultOpen = false
+
+    /// The record identifiers the vault conceals, as last read.
+    @State private var concealedRecordIDs: Set<ApplicationRecordIdentifier> = []
+
+    /// While a vault unlock attempt is running.
+    @State private var isUnlockingVault = false
+
     @AppStorage(LibraryPreferenceKeys.showsGrid) private var showsGrid = false
     @AppStorage(LibraryPreferenceKeys.sortOrder) private var storedSortOrder = LibrarySortMode.recentlyImported.rawValue
     @AppStorage(LibraryPreferenceKeys.scope) private var storedScope = LibraryScope.all.storageValue
@@ -104,6 +115,7 @@ struct ApplicationLibraryView: View {
                 .importDropTarget()
         }
         .task { await prepare() }
+        .task { loadVaultState() }
         .onChange(of: storedScope) { _, newValue in
             applyStoredScope(newValue)
         }
@@ -281,7 +293,7 @@ struct ApplicationLibraryView: View {
                 .listRowBackground(Color.clear)
             } else {
                 Section {
-                    ForEach(model.renderedIDs, id: \.self) { id in
+                    ForEach(visibleRenderedIDs, id: \.self) { id in
                         libraryRow(id)
                             .onAppear { model.rowDidAppear(id) }
                     }
@@ -320,7 +332,7 @@ struct ApplicationLibraryView: View {
                         columns: [GridItem(.adaptive(minimum: gridMinimumWidth), spacing: ZSpacing.sm)],
                         spacing: ZSpacing.sm
                     ) {
-                        ForEach(model.renderedIDs, id: \.self) { id in
+                        ForEach(visibleRenderedIDs, id: \.self) { id in
                             gridCard(id)
                                 .onAppear { model.rowDidAppear(id) }
                         }
@@ -649,16 +661,18 @@ struct ApplicationLibraryView: View {
     private func destination(for route: LibraryRoute) -> some View {
         switch route {
         case .details(let id):
-            LibraryDetailDestination(
-                model: model,
-                recordID: id,
-                bundleInspection: bundleInspection,
-                detailsInspection: detailsInspection,
-                features: features,
-                onSign: { path.append(.sign(id)) },
-                onMove: { presentCollectionPicker(for: [id]) },
-                onDelete: { entry in entryPendingRemoval = entry }
-            )
+            LockedRecordGate(recordID: id) {
+                LibraryDetailDestination(
+                    model: model,
+                    recordID: id,
+                    bundleInspection: bundleInspection,
+                    detailsInspection: detailsInspection,
+                    features: features,
+                    onSign: { path.append(.sign(id)) },
+                    onMove: { presentCollectionPicker(for: [id]) },
+                    onDelete: { entry in entryPendingRemoval = entry }
+                )
+            }
         case .sign(let id):
             if let entry = model.entry(for: id) {
                 SigningView(entry: entry)
@@ -783,6 +797,45 @@ struct ApplicationLibraryView: View {
 
     // MARK: - Toolbar
 
+    /// The identifiers the list shows once the vault's concealment is
+    /// applied: concealed records disappear while the vault is closed.
+    private var visibleRenderedIDs: [ApplicationRecordIdentifier] {
+        guard !vaultOpen, !concealedRecordIDs.isEmpty else { return model.renderedIDs }
+        return model.renderedIDs.filter { !concealedRecordIDs.contains($0) }
+    }
+
+    /// Reads the vault state from the protection service.
+    private func loadVaultState() {
+        guard let protection = environment.appProtection else {
+            concealedRecordIDs = []
+            return
+        }
+        let concealed = (try? protection.concealedRecordIDs()) ?? []
+        concealedRecordIDs = Set(concealed.compactMap(ApplicationRecordIdentifier.init(rawValue:)))
+    }
+
+    /// Asks the user to authenticate, then opens the vault for this session.
+    private func unlockVault() {
+        guard !isUnlockingVault else { return }
+        isUnlockingVault = true
+        Task {
+            let outcome = await environment.biometricAuthenticator.authenticate(
+                reason: "Unlock the concealed applications in your library."
+            )
+            if outcome.isAuthenticated {
+                vaultOpen = true
+                environment.appProtection?.session.isOpen = true
+            }
+            isUnlockingVault = false
+        }
+    }
+
+    /// Closes the vault; concealed records leave the list again.
+    private func closeVault() {
+        vaultOpen = false
+        environment.appProtection?.session.isOpen = false
+    }
+
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
@@ -813,6 +866,23 @@ struct ApplicationLibraryView: View {
                     SigningQueueToolbarButton(queue: environment.signingQueue) {
                         signingQueuePresentation.present()
                     }
+                }
+                if !concealedRecordIDs.isEmpty || vaultOpen {
+                    Button {
+                        if vaultOpen { closeVault() } else { unlockVault() }
+                    } label: {
+                        if isUnlockingVault {
+                            ProgressView()
+                        } else {
+                            Label(
+                                vaultOpen ? "Close Vault" : "Open Vault",
+                                systemImage: vaultOpen ? "lock.open" : "lock.shield"
+                            )
+                        }
+                    }
+                    .accessibilityHint(vaultOpen
+                        ? "Conceals hidden applications again."
+                        : "Authenticates, then shows the concealed applications for this session.")
                 }
                 if features.powerFeatures, case .loaded = model.phase {
                     filterMenu

@@ -59,6 +59,13 @@ struct AboutSettingsSection: View {
                 Text("© 2026 ZynSign")
                     .foregroundStyle(.secondary)
             }
+            NavigationLink { VersionHistoryView() } label: {
+                ZSettingsLabel(
+                    title: "Version History",
+                    subtitle: "Every release stop and what it switched on.",
+                    symbol: "clock.arrow.circlepath"
+                )
+            }
         } header: {
             Text("ZynSign")
         } footer: {

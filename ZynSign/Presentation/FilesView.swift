@@ -140,6 +140,10 @@ struct FilesView: View {
 
     private var fileList: some View {
         List {
+            if !model.canGoUp, let gauge = environment.storageGauge {
+                StorageGaugeCard(reading: gauge.reading(for: model.currentDirectory))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            }
             if model.canGoUp {
                 Button { model.goUp() } label: {
                     Label(".. Up", systemImage: "arrow.up.left")
@@ -198,6 +202,10 @@ final class FilesViewModel: ObservableObject {
 
     var title: String { currentURL.lastPathComponent.isEmpty ? "Files" : currentURL.lastPathComponent }
     var canGoUp: Bool { !history.isEmpty }
+
+    /// The directory currently shown. The storage gauge measures the volume
+    /// this directory lives on.
+    var currentDirectory: URL { currentURL }
 
     init(root: URL? = nil) {
         if let root { currentURL = root }
@@ -350,4 +358,77 @@ private struct ShareSheet: UIViewControllerRepresentable {
 private struct ShareURL: Identifiable {
     let url: URL
     var id: String { url.absoluteString }
+}
+
+/// The storage gauge: the volume's used/free split as a progress bar, with
+/// the application's own footprint underneath. The card is pure rendering —
+/// the facts and the pressure classification come from `StorageGaugeService`.
+struct StorageGaugeCard: View {
+    @Environment(\.appTheme) private var theme
+    let reading: StorageGaugeReading
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: ZSpacing.sm) {
+            HStack {
+                Label("Storage", systemImage: "internaldrive")
+                    .font(ZynSignTokens.Typography.headline)
+                Spacer()
+                pressureBadge
+            }
+            if let used = reading.usedFraction {
+                ProgressView(value: used)
+                    .tint(pressureTint)
+                HStack {
+                    Text("Used \(StorageGaugeReading.humanReadable(usedBytes))")
+                    Spacer()
+                    Text("Free \(StorageGaugeReading.humanReadable(reading.facts.availableBytes))")
+                }
+                .font(ZynSignTokens.Typography.caption)
+                .foregroundStyle(.secondary)
+                if let appUsage = reading.facts.appUsageBytes {
+                    Text("ZynSign occupies \(StorageGaugeReading.humanReadable(appUsage)).")
+                        .font(ZynSignTokens.Typography.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            } else {
+                Text("The volume did not report its capacity.")
+                    .font(ZynSignTokens.Typography.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(ZSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: ZynSignTokens.Radius.card, style: .continuous)
+                .fill(ZynSignTokens.Color.secondaryGroupedBackground)
+        )
+    }
+
+    private var usedBytes: Int? {
+        guard let total = reading.facts.totalBytes, let available = reading.facts.availableBytes else { return nil }
+        return max(0, total - available)
+    }
+
+    private var pressureTint: Color {
+        switch reading.pressure {
+        case .critical: return ZynSignTokens.Color.error
+        case .attention: return ZynSignTokens.Color.warning
+        case .comfortable: return theme.accent
+        case .unknown: return ZynSignTokens.Color.neutral
+        }
+    }
+
+    private var pressureBadge: some View {
+        Group {
+            switch reading.pressure {
+            case .comfortable:
+                ZStatusBadge(reading.pressure.displayName, systemImage: "checkmark.circle", kind: .success)
+            case .attention:
+                ZStatusBadge(reading.pressure.displayName, systemImage: "exclamationmark.triangle", kind: .warning)
+            case .critical:
+                ZStatusBadge(reading.pressure.displayName, systemImage: "exclamationmark.octagon", kind: .error)
+            case .unknown:
+                ZStatusBadge(reading.pressure.displayName, systemImage: "questionmark.circle", kind: .neutral)
+            }
+        }
+    }
 }

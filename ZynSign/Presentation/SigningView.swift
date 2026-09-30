@@ -53,6 +53,11 @@ struct SigningView: View {
     @State private var showSuccessToast = false
     @State private var showErrorToast = false
     @State private var emitDEREntitlements = false
+
+    /// The tweak staging picker, and the plan it produced. The plan is
+    /// validated by the tweak library before it can exist at all.
+    @State private var showTweakPicker = false
+    @State private var stagedTweakPlan: TweakInjectionPlan?
     @State private var health: SigningDiagnosticsAnalysis?
     @State private var analyzedFor: SigningScanKey?
     @State private var isAnalyzing = true
@@ -157,6 +162,16 @@ struct SigningView: View {
                 }
             }
         }
+        .sheet(isPresented: $showTweakPicker) {
+            NavigationStack {
+                if let tweaks = env.tweakLibrary {
+                    TweakLibraryView(service: tweaks) { plan in
+                        stagedTweakPlan = plan
+                        showTweakPicker = false
+                    }
+                }
+            }
+        }
         .alert("Sign anyway?", isPresented: $isConfirmingStrictSign) {
             Button("Cancel", role: .cancel) { isSigningConfirmed = false }
             Button("Sign") { startSigning() }
@@ -174,6 +189,7 @@ struct SigningView: View {
             if new == .signed {
                 ZHaptics.success()
                 rememberSelections()
+                writeStagedTweakManifest()
                 withAnimation(ZMotion.interactive) { successScale = 1.08 }
                 withAnimation(ZMotion.interactive?.delay(0.18)) { successScale = 1 }
                 showSuccessToast = true
@@ -560,6 +576,24 @@ struct SigningView: View {
                  : "Only XML entitlements are emitted. If iOS 15+ requires DER for your target, use a signer with verified DER support.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if env.tweakLibrary != nil {
+                Button { ZHaptics.tap(); showTweakPicker = true } label: {
+                    if let plan = stagedTweakPlan {
+                        Label("Staged Tweaks (\(plan.entries.count))", systemImage: "puzzlepiece.extension.fill")
+                    } else {
+                        Label("Stage Tweaks…", systemImage: "puzzlepiece.extension")
+                    }
+                }
+                .disabled(isSigning)
+                if let plan = stagedTweakPlan {
+                    Text("Staging plan: \(plan.entries.count) tweak(s), \(StorageGaugeReading.humanReadable(plan.totalBytes)). A manifest recording the plan is written beside the signed output; the pipeline signs the container it is given.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Clear Staged Tweaks", role: .destructive) { stagedTweakPlan = nil }
+                        .font(.caption)
+                        .disabled(isSigning)
+                }
+            }
             if liveActivity.isActive, let state = liveActivity.currentState {
                 HStack(spacing: ZSpacing.xs) {
                     ZStatusBadge(state.stage, systemImage: "livephoto", kind: .info)
@@ -1190,6 +1224,25 @@ struct SigningView: View {
                 preferences.signing.preferredProfileName = profile.name
             }
         }
+    }
+
+    /// Writes the staged-tweak manifest beside the signed output.
+    ///
+    /// The manifest is the written record of the staging plan the signing
+    /// session carried: what was selected, where each payload belongs, and
+    /// the fingerprint that identifies its bytes. The pipeline signs the
+    /// container it is given; the manifest never claims otherwise. A write
+    /// failure is silent — the signing already succeeded and delivered, and
+    /// the manifest is a companion record, not part of the signature.
+    private func writeStagedTweakManifest() {
+        guard let plan = stagedTweakPlan,
+              let service = env.tweakLibrary,
+              let outputURL = model.result?.outputURL else { return }
+        guard let data = try? service.manifestData(for: plan) else { return }
+        let manifestURL = outputURL
+            .deletingPathExtension()
+            .appendingPathExtension("tweaks.json")
+        try? data.write(to: manifestURL, options: .atomic)
     }
 
     /// Mirrors the engine's own progress into the Live Activity while the

@@ -139,6 +139,16 @@ struct SettingsView: View {
                 NavigationLink { SigningOptionsView() } label: {
                     ZSettingsLabel(title: "Signing Options", subtitle: "Review supported pipeline behavior.", symbol: "slider.horizontal.3")
                 }
+                if let tweaks = environment.tweakLibrary {
+                    NavigationLink { TweakLibraryView(service: tweaks) } label: {
+                        ZSettingsLabel(title: "Tweak Library", subtitle: "Import and organize payloads for signing sessions.", symbol: "puzzlepiece.extension")
+                    }
+                }
+                if let revocation = environment.revocationService {
+                    NavigationLink { RevocationCenterView(service: revocation, identityStore: environment.identityStore) } label: {
+                        ZSettingsLabel(title: "Revocation Center", subtitle: "Check how reachable a certificate's revocation channels are.", symbol: "shield.checkered")
+                    }
+                }
                 if signingQueuePresentation.isAvailable {
                     Button { signingQueuePresentation.present() } label: {
                         ZSettingsLabel(title: "Signing Queue", subtitle: "Review and manage queued signing jobs.", symbol: "tray.full")
@@ -181,6 +191,11 @@ struct SettingsView: View {
                     }
                     NavigationLink { DownloadsView(embedsNavigationStack: false) } label: {
                         ZSettingsLabel(title: "Downloads", subtitle: "Manage transfer jobs and review downloaded packages.", symbol: "arrow.down.circle")
+                    }
+                    if let feeds = environment.releaseFeeds {
+                        NavigationLink { ReleaseFeedsView(provider: feeds, library: environment.library) } label: {
+                            ZSettingsLabel(title: "Release Feeds", subtitle: "Follow repository releases and track app updates.", symbol: "shippingbox")
+                        }
                     }
                 }
             } else {
