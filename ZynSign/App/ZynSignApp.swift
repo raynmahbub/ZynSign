@@ -13,9 +13,11 @@ import SwiftUI
 /// lock — the same objects the rest of the interface reads.
 ///
 /// The launch splash — `ZynSplashView` (Liquid Glass Z·Pen) — is shown once
-/// per cold launch over `RootView` until its 1.9s fluid timeline completes
-/// (tap skips). It is the same Liquid Glass mark used everywhere else, animated
-/// with a brief, quiet fade that respects Reduce Motion.
+/// per cold launch over `RootView` and removed on the frame its own fade
+/// completes. The layer owns its entry and exit animation entirely; animating
+/// the removal here as well is what made the handover read as a jump.
+/// Tapping skips it, and Reduce Motion shortens it — both decisions live in
+/// `ZynSplashView`, which is the only place that knows the timeline.
 @main
 struct ZynSignApp: App {
 
@@ -32,13 +34,13 @@ struct ZynSignApp: App {
                     .environment(\.applicationEnvironment, environment)
 
                 if showSplash {
-                    ZynSplashView {
-                        withAnimation(.spring(response: 0.45, dampingFraction: 0.86)) {
-                            showSplash = false
-                        }
-                    }
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                    .zIndex(1)
+                    // No animation here on purpose. `ZynSplashView` fades
+                    // itself out and calls back on the frame it reaches zero
+                    // opacity; animating the *removal* as well put a second
+                    // spring on the same layer, which is what read as a jump
+                    // when the launch screen let go.
+                    ZynSplashView { showSplash = false }
+                        .zIndex(1)
                 }
             }
         }

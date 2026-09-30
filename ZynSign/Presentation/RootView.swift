@@ -443,6 +443,13 @@ struct RootView: View {
         switch section {
         case .library: return activeSigningJobBadge
         case .downloads: return activeDownloadBadge
+        case .settings:
+            // When Downloads has no slot of its own, its progress follows the
+            // destination it is opened from — Settings → Updates — rather than
+            // silently disappearing with the tab. A download the user cannot
+            // see progress on reads as a hang, and this keeps that from being
+            // a side effect of the bar's five-item ceiling.
+            return ShellSection.primaryTabs.contains(.downloads) ? 0 : activeDownloadBadge
         default: return 0
         }
     }
@@ -565,7 +572,7 @@ struct RootView: View {
     private func tabContent(_ section: ShellSection) -> some View {
         switch section {
         case .home:
-            HomeView(onOpenSection: { selected = $0 })
+            HomeView(onOpenSection: { selected = ShellSection.tab(toOpen: $0) })
         case .library:
             ApplicationLibraryView(
                 library: environment.library,

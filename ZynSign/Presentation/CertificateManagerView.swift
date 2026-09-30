@@ -593,11 +593,31 @@ struct CertificateManagerView: View {
             }
             pendingData = data
             pendingFileName = url.lastPathComponent
-            showPasswordSheet = true
+            // The document picker is still being dismissed when this handler
+            // runs, and asking for another presentation in the same frame is
+            // dropped: no password sheet, no error, and the picked bytes stay
+            // pending forever. Same race `RootView.presentSigningQueue()` and
+            // `SigningView` already guard against — settle first, then present.
+            presentPasswordSheetAfterPickerSettles()
         case .failure(let error):
             let ns = error as NSError
             if ns.domain == NSCocoaErrorDomain && ns.code == NSUserCancelledError { return }
             presentToast("The file picker could not provide the selected file.", style: .error)
+        }
+    }
+
+    /// Presents the password sheet once the picker's own dismissal has landed.
+    ///
+    /// The window is the one `SigningView` and `SigningQueueConfigurationView`
+    /// already wait out: a presentation requested while another is dismissing is
+    /// dropped by UIKit without an error, which is why a `.p12` could be chosen
+    /// and nothing at all appeared to happen afterwards. The bytes stay in
+    /// `pendingData` meanwhile, so a slow device costs a beat, not the import.
+    private func presentPasswordSheetAfterPickerSettles() {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard pendingData != nil, pendingFileName != nil, !showPasswordSheet else { return }
+            showPasswordSheet = true
         }
     }
 
