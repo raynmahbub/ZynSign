@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct StoreSourcesView: View {
     @ObservedObject var model: StoreBrowserModel
@@ -24,7 +25,23 @@ struct StoreSourcesView: View {
                     }
                 }
             }
-            if sources.isEmpty { ContentUnavailableView("No Matching Sources", systemImage: "globe", description: Text("Add a repository URL or change your search.")) }
+            if sources.isEmpty {
+                Section {
+                    ContentUnavailableView(
+                        model.snapshot.sources.isEmpty ? "No Repositories Yet" : "No Matching Repositories",
+                        systemImage: "globe",
+                        description: Text(model.snapshot.sources.isEmpty
+                            ? "Add a repository URL to browse its catalog."
+                            : "Change your search or add another repository.")
+                    )
+                    if model.snapshot.sources.isEmpty {
+                        Button { add = true } label: {
+                            Label("Add Repository", systemImage: "plus")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+            }
             ForEach(sources) { source in
                 Section {
                     NavigationLink { StoreSourceDetailView(id: source.id, model: model) } label: {
@@ -49,7 +66,7 @@ struct StoreSourcesView: View {
         }
         .navigationTitle("Sources")
         .searchable(text: $query, prompt: "Source name or URL")
-        .toolbar { Button { add = true } label: { Label("Add Source", systemImage: "plus") }.keyboardShortcut("n", modifiers: .command) }
+        .toolbar { Button { add = true } label: { Label("Add Repository", systemImage: "plus") }.keyboardShortcut("n", modifiers: .command) }
         .sheet(isPresented: $add) { StoreAddSourceView(model: model) }
         .confirmationDialog("Remove \(removing?.name ?? "source")?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible) {
             Button("Remove Source", role: .destructive) { if let source = removing { Task { await model.remove(source.id) } }; removing = nil }
@@ -68,20 +85,28 @@ private struct StoreAddSourceView: View {
                 Section("Repository URL") {
                     TextField("https://example.com/source.json", text: $raw)
                         .keyboardType(.URL).textContentType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .accessibilityLabel("Source HTTPS URL")
+                        .accessibilityLabel("Repository HTTPS URL")
+                    Button {
+                        if let link = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines),
+                           !link.isEmpty {
+                            raw = link
+                        }
+                    } label: {
+                        Label("Paste Repository URL", systemImage: "doc.on.clipboard")
+                    }
                 }
                 Section {
                     Text("ZynSign checks reachability, manifest structure, required fields, and duplicates before saving. Only HTTPS sources and assets are supported.")
                     Text("A successful check does not verify the publisher or establish trust.").font(.callout.weight(.semibold))
                     if let problem = model.problem { Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
                     if model.adding { ProgressView("Validating source…") }
-                    Button("Validate & Add Source") {
+                    Button("Validate & Add Repository") {
                         model.problem = nil
                         Task { if await model.add(raw) { dismiss() } }
                     }.disabled(model.adding || raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-            .navigationTitle("Add Source")
+            .navigationTitle("Add Repository")
             .toolbar { Button("Cancel") { dismiss() }.disabled(model.adding) }
             .interactiveDismissDisabled(model.adding)
         }

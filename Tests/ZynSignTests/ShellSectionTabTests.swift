@@ -102,12 +102,10 @@ final class ShellSectionTabTests: XCTestCase {
 
     // MARK: - Release gating
 
-    /// A development stop is documented as showing the core only, so the tab
-    /// bar there is Files, Library, Home and Settings and nothing else.
-    func testDevelopmentStopShowsOnlyTheCoreTabs() {
-        XCTAssertEqual(ShellSection.primaryTabs { _ in false }, [
-            .files, .library, .home, .settings,
-        ])
+    /// Store and Downloads remain stable shell destinations even when a
+    /// release gate closes staged workflow capabilities.
+    func testDevelopmentStopKeepsStoreAndDownloadsDiscoverable() {
+        XCTAssertEqual(ShellSection.primaryTabs { _ in false }, ShellSection.allTabs)
     }
 
     /// With every feature available the six shipped tabs are all present, in
