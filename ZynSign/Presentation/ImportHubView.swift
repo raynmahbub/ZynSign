@@ -46,6 +46,11 @@ struct ImportHubView: View {
     /// A `chooseFiles` request that arrived before the sheet finished
     /// presenting, waiting for the hub to be on screen.
     @State private var wantsFilePickerOnAppear = false
+    /// Whether the hub's own sheet has finished appearing. `presentPendingFilePick`
+    /// is driven by `.task` before this turns true, and by the request itself
+    /// after — a request that lands while the sheet is still animating in has
+    /// nowhere to go otherwise, and the picker is simply never raised.
+    @State private var isOnScreen = false
     @State private var pickerFailure: String?
     @State private var isShowingResolutionCenter = false
     @State private var archiveSelection: ItemToken?
@@ -148,7 +153,12 @@ struct ImportHubView: View {
             .onChange(of: request, initial: true) { _, newValue in
                 handle(newValue)
             }
-            .task { await presentPendingFilePick() }
+            .task {
+                // The hub is on screen from here; a `chooseFiles` request that
+                // arrives later can present straight away.
+                isOnScreen = true
+                await presentPendingFilePick()
+            }
         .onChange(of: hub.lastFinishedBatch) { _, entry in
             announce(entry)
         }
@@ -599,24 +609,35 @@ struct ImportHubView: View {
         case .chooseFiles:
             // The picker cannot be presented until this sheet is itself on
             // screen — asking earlier fails silently, with no picker and no
-            // error. Flag the request and present from `presentPendingFilePick`,
-            // which runs off the sheet's own appearance rather than a guessed
-            // delay, so a slow device or a cold launch no longer loses it.
+            // error. Record the request, then try: `.task` below covers a
+            // request that arrived before the hub existed, and this call
+            // covers one that arrives while it is already up. Whichever runs
+            // first consumes the flag, so the picker opens exactly once.
             wantsFilePickerOnAppear = true
+            if isOnScreen { Task { await presentPendingFilePick() } }
         case .history:
             isShowingHistory = true
         }
         request = .none
     }
 
-    /// Presents the picker once the hub is on screen and the run loop has
-    /// settled. Runs on appear, so it fires after the sheet's transition has
-    /// actually finished.
+    /// Presents the picker once the hub is on screen and its own transition
+    /// has settled.
+    ///
+    /// Called twice by design and taking effect once: from the hub's `.task`,
+    /// for a request that arrived before the view existed, and from
+    /// `handle(_:)`, for one that arrives while it is up. The pending flag is
+    /// cleared before the picker is raised, so neither path can present twice.
     private func presentPendingFilePick() async {
         guard wantsFilePickerOnAppear else { return }
-        // One yield so the transition's presentation completes before a
-        // second controller is put on screen.
+        // A yield alone is not the transition: a sheet takes hundreds of
+        // milliseconds to come up, and a second controller put on screen
+        // inside that window is the drop this whole path exists to avoid. The
+        // wait is the one `RootView.presentSigningQueue()` uses, so the app
+        // settles its presentations in one measurable beat rather than
+        // several invented ones.
         await Task.yield()
+        try? await Task.sleep(nanoseconds: 400_000_000)
         guard wantsFilePickerOnAppear else { return }
         wantsFilePickerOnAppear = false
         isShowingPicker = true

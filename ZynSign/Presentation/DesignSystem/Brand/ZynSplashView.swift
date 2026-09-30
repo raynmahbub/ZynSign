@@ -7,18 +7,19 @@ import SwiftUI
 /// `ZynSignMark` (Liquid Glass tile + transparent white Z·Pen) so the mark
 /// the user sees at launch is pixel-identical to every later surface.
 ///
-/// Animation (when Reduce Motion is off):
-///  - Logo: initial scale 0.82 + y 14 + blur 12 → spring to 1.0 with bouncy liquid feel
-///  - Glass shimmer: a diagonal white sweep across the tile (masked to the rounded rect)
-///  - Wordmark + tagline: staged fade + slide up
-///  - Ambient glow: pulsing blurred halo behind the mark
-///  - Haptics: light → medium → selection → success across the timeline
+/// The whole timeline is 360 ms in and 180 ms out (180 ms + 120 ms under
+/// Reduce Motion), and **every animation inside it has to finish inside it**.
+/// That is the point of this file's shape: a launch layer that is removed while
+/// a sub-animation is still mid-flight is seen as a jump, because the frame
+/// behind it is the real UI, still laying itself out.
 ///
-/// The splash uses a short fade and no launch haptics so it does not delay
-/// the first useful frame or compete with startup work.
+/// So there is no looping glow, no shimmer sweep, and no launch haptics — the
+/// mark fades up, the wordmark and version follow within the window, and the
+/// exit is one fade owned by this view alone (`ZynSignApp` removes the layer
+/// without animating it a second time).
 ///
 /// The splash is VoiceOver-hidden (live launch, not content) and auto-dismisses
-/// after a short transition or on tap.
+/// after the window or on tap.
 struct ZynSplashView: View {
     var onFinished: () -> Void = {}
 
@@ -28,9 +29,7 @@ struct ZynSplashView: View {
     @State private var logoAppeared = false
     @State private var wordmarkAppeared = false
     @State private var taglineAppeared = false
-    @State private var shimmerActive = false
     @State private var dismissing = false
-    @State private var glowPulse = false
 
     private var isDark: Bool { colorScheme == .dark }
 
@@ -43,7 +42,9 @@ struct ZynSplashView: View {
             VStack(spacing: 22) {
                 // Logo with ambient glow
                 ZStack {
-                    // Pulsing halo behind the tile — the liquid glow
+                    // Ambient halo behind the tile — the liquid glow, at rest:
+                    // a looping pulse can never finish inside a 360 ms window,
+                    // and a loop that is cut off mid-swing is the jump.
                     Circle()
                         .fill(
                             RadialGradient(
@@ -58,9 +59,7 @@ struct ZynSplashView: View {
                         )
                         .frame(width: 260, height: 260)
                         .blur(radius: 18)
-                        .scaleEffect(glowPulse ? 1.08 : 0.92)
                         .opacity(logoAppeared ? 1 : 0)
-                        .animation(reduceMotion ? nil : .easeInOut(duration: 2.0).repeatForever(autoreverses: true), value: glowPulse)
 
                     // The canonical mark — Liquid Glass tile + white Z·Pen
                     splashMark
@@ -80,8 +79,8 @@ struct ZynSplashView: View {
                         .opacity(taglineAppeared ? 1 : 0)
                         .offset(y: taglineAppeared ? 0 : 6)
                 }
-                .animation(reduceMotion ? .easeOut(duration: 0.25) : .spring(response: 0.5, dampingFraction: 0.82), value: wordmarkAppeared)
-                .animation(reduceMotion ? .easeOut(duration: 0.25).delay(0.12) : .spring(response: 0.5, dampingFraction: 0.82).delay(0.12), value: taglineAppeared)
+                .animation(.easeOut(duration: 0.22), value: wordmarkAppeared)
+                .animation(.easeOut(duration: 0.22).delay(0.06), value: taglineAppeared)
             }
             .padding(.horizontal, 32)
 
@@ -93,7 +92,7 @@ struct ZynSplashView: View {
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(isDark ? Color.white.opacity(0.32) : Color.primary.opacity(0.28))
                     .opacity(taglineAppeared ? 1 : 0)
-                    .animation(.easeOut(duration: 0.4).delay(reduceMotion ? 0.2 : 0.9), value: taglineAppeared)
+                    .animation(.easeOut(duration: 0.2).delay(0.1), value: taglineAppeared)
                     .padding(.bottom, 28)
             }
         }
@@ -104,13 +103,10 @@ struct ZynSplashView: View {
                 .ignoresSafeArea()
         )
         .opacity(dismissing ? 0 : 1)
-        .scaleEffect(dismissing ? (reduceMotion ? 1 : 0.96) : 1)
-        .blur(radius: dismissing ? (reduceMotion ? 0 : 6) : 0)
-        .animation(reduceMotion ? .easeOut(duration: 0.28) : .spring(response: 0.45, dampingFraction: 0.86), value: dismissing)
+        .animation(.easeOut(duration: reduceMotion ? 0.12 : 0.18), value: dismissing)
         .accessibilityHidden(true)
         .onTapGesture {
             guard !dismissing else { return }
-            ZHaptics.tap()
             dismiss()
         }
         .task {
@@ -129,51 +125,12 @@ struct ZynSplashView: View {
                 .offset(y: logoAppeared ? 0 : (reduceMotion ? 0 : 14))
                 .opacity(logoAppeared ? 1 : 0)
                 .blur(radius: logoAppeared ? 0 : (reduceMotion ? 0 : 10))
-                .animation(
-                    reduceMotion
-                        ? .easeOut(duration: 0.32)
-                        : .spring(response: 0.88, dampingFraction: 0.68),
-                    value: logoAppeared
-                )
-                // Glass shimmer sweep — diagonal highlight sliding across the tile
-                .overlay {
-                    if !reduceMotion {
-                        shimmerOverlay(size: markSize)
-                            .clipShape(RoundedRectangle(cornerRadius: markSize * ZynSignMark.cornerRatio, style: .continuous))
-                            .allowsHitTesting(false)
-                    }
-                }
+                .animation(.easeOut(duration: 0.24), value: logoAppeared)
                 // Subtle drop shadow for depth against the background
                 .shadow(color: Color.black.opacity(isDark ? 0.22 : 0.14), radius: 24, x: 0, y: 12)
                 .shadow(color: (isDark ? ZynBrand.indigoDarkTop : ZynBrand.indigoTop).opacity(0.18), radius: 32, x: 0, y: 8)
         }
         .frame(width: markSize, height: markSize)
-    }
-
-    private func shimmerOverlay(size: CGFloat) -> some View {
-        // A thin diagonal white band that sweeps from -1 to +1
-        let bandWidth: CGFloat = size * 0.42
-        return GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            LinearGradient(
-                colors: [
-                    Color.white.opacity(0),
-                    Color.white.opacity(0.0),
-                    Color.white.opacity(0.55),
-                    Color.white.opacity(0.0),
-                    Color.white.opacity(0)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .frame(width: bandWidth, height: h * 1.6)
-            .rotationEffect(.degrees(18))
-            .offset(x: shimmerActive ? w + bandWidth : -bandWidth - 24, y: -h * 0.3)
-            .blur(radius: 1.2)
-            .opacity(shimmerActive ? 1 : 0)
-        }
-        .allowsHitTesting(false)
     }
 
     // MARK: - Background
@@ -232,21 +189,24 @@ struct ZynSplashView: View {
         // this view, so the splash should never feel like a loading screen.
         // A single low-amplitude fade is smoother on older devices than the
         // previous sequence of shimmer, glow, and repeated haptics.
-        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : .easeOut(duration: 0.2)) {
+        withAnimation(.easeOut(duration: reduceMotion ? 0.12 : 0.2)) {
             logoAppeared = true
             wordmarkAppeared = true
             taglineAppeared = true
-            glowPulse = true
-            shimmerActive = !reduceMotion
         }
         try? await Task.sleep(for: .milliseconds(reduceMotion ? 180 : 360))
         dismiss()
     }
 
+    /// Fades out, then tells the app to drop the layer.
+    ///
+    /// The sleep matches the fade's own duration exactly, so the layer is
+    /// removed on the frame it reaches zero opacity — never a frame early (a
+    /// half-faded splash disappears and the root view snaps in) and never a
+    /// frame late (an invisible layer keeps eating hit-tests).
     private func dismiss() {
         guard !dismissing else { return }
         dismissing = true
-        // Remove the launch layer as soon as its brief fade is complete.
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(reduceMotion ? 120 : 180))
             onFinished()

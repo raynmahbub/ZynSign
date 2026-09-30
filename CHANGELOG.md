@@ -19,6 +19,146 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+**Development 3.** Market `0.0.1`, tag `v0.0.1-dev.3`, release train `.dev3` —
+the last development stop, and it switches on no staged `ReleaseFeature` of its
+own (`ReleaseStage.dev3.introducedFeatures` is empty). What the stop carries is
+everything merged since the `v0.0.1-dev.2` tag: the Settings index rebuild, the
+shell decision to keep primary navigation open at every stop, the clearer
+picker and repository failures behind it, and the release machinery that
+publishes the notes for the stop being cut. The `CFBundleVersion` is assigned by
+`python3 Scripts/release_train.py promote` rather than claimed here. Notes:
+[`docs/releases/notes-v0.0.1-dev.3.md`](docs/releases/notes-v0.0.1-dev.3.md).
+
+> **Gate drift to settle before the tag.** `dev.2` closed the gate on four entry
+> points; keeping Store and Downloads discoverable opened them again on purpose.
+> `certificateStudio`, `provisioningProfileManager`, `appStore` and `downloads`
+> no longer have a live check anywhere in the Presentation layer: each is still
+> declared on `ShellSection.requiredFeature`, but `primaryTabs(where:)` returns
+> `true` for the Store and Downloads before consulting it, and Settings → Signing
+> offers the Certificates and Profiles rows unconditionally. A Release build at
+> `dev.3` therefore exposes four areas the train assigns to `v0.1.0-alpha.1`
+> (Certificate Studio), `v0.1.0-alpha.2` (Provisioning Profile Manager) and
+> `v0.1.0-alpha.3` (App Store, Download Center). Either re-gate the staged
+> *actions* behind each tab, or move these four surfaces into `v0.0.1` and let
+> the alphas keep what they actually switch on — but the code and
+> `docs/releases/release-train.md` have to agree before the tag is cut.
+
+### Fixed
+
+- **The tab bar was over the platform's ceiling, and the folded tab crashed.**
+  `ShellSection.allTabs` lists six sections; a phone tab bar draws five and
+  folds the rest into a system *More* list that *pushes* the overflow. Every tab
+  view owns a `NavigationStack` (`RootView.tabContent`), so the folded tab
+  nested one stack in another — the fault
+  `Scripts/audit_navigation_stack.py` exists to stop, in the one form it cannot
+  see, because the push is UIKit's and appears nowhere in this repository. Which
+  section folded depended on width and gate state, so one build showed a missing
+  Store tab and crashed on Settings. `primaryTabs(where:)` is capped at
+  `tabBarItemLimit` (five) and takes the overflow from `tabOverflowOrder`,
+  Downloads first, keeping the survivors in declared order; Downloads stays
+  openable from Settings → Updates and Store → Download Jobs, and its badge
+  follows it there. Locked by
+  `ShellSectionTabTests.testTabBarNeverExceedsThePlatformCeiling` and
+  `testTheCapDropsOnlyTheLeastWantedSectionAndKeepsTheRestInOrder`.
+- **A Home shortcut could select a tab that does not exist.** The onboarding
+  checklist's *Add a certificate* and *Import a provisioning profile* rows set
+  the tab selection to `.certificates` and `.profiles`, neither of which is a
+  tab; `TabView` with an unmatched selection draws no selection and an empty
+  content area, which reads as a tap that did nothing rather than as a bug.
+  `ShellSection.tab(toOpen:)` resolves a slotless section to the surface that
+  hosts it, and `RootView` routes every `onOpenSection` through it.
+- **A picked `.p12` never opened its password sheet.** The sheet was raised from
+  inside the `.fileImporter` completion, in the frame the document picker is
+  still dismissing, where UIKit drops a presentation silently — the file was
+  read, its bytes held in `pendingData`, and nothing appeared to happen. It now
+  waits out the same settle `RootView.presentSigningQueue()` uses for exactly
+  this reason. This is the mechanism behind the long-standing *certificate
+  import does nothing* report; it still needs a device to be called verified.
+- **The Import Hub had one frame, and one chance, to open its picker.**
+  `chooseFiles` set a flag that only the hub's own `.task` consumed, so a
+  request that landed after the hub appeared was dropped on the floor, and the
+  single `Task.yield()` it waited on is not the sheet's transition. Both
+  orderings consume the flag now, guarded so the picker opens exactly once.
+- **The splash let go while it was still animating.** The shortened launch
+  timeline kept the old internals: a `repeatForever` glow pulse, a shimmer
+  sweep, a footer on a `0.9 s` delay, and two owners of the exit —
+  `ZynSplashView` animated itself out while `ZynSignApp` removed it with a
+  spring and a scale/slide. Every stage now finishes inside the 360 ms window
+  and the view alone owns the fade, so the handover to `RootView` is one
+  motion.
+- **A profile picker that failed in silence.** `ProvisioningProfilesModel.handlePickerResult`
+  returned early on any non-`.success` result, so a profile the picker could not
+  open — not yet downloaded from iCloud, unreadable, refused — disappeared with
+  no message at all. Cancellation is now the only quiet path; every other failure
+  raises a **Couldn't Open Profile** notice carrying the typed
+  `ZynSignError.userMessage` when there is one. Locked by
+  `ProvisioningProfilesModelTests.testPickerFailureIsSurfacedButCancellationStaysQuiet`.
+- **The tag-time pipeline could overwrite the release's own notes.**
+  `Scripts/generate_changelog.py` wrote `docs/releases/notes-v<version>.md`
+  unconditionally, and the publish job hands that *path* to
+  `gh release --notes-file` after regenerating it — so a hand-written note for
+  the stop being released was replaced by a git-log summary in the published
+  Release. It now promotes a curated `[Unreleased]` entry verbatim into the
+  versioned section (Keep a Changelog semantics, leaving `[Unreleased]` empty)
+  and never touches an existing notes file; the commit scrape runs only when
+  `[Unreleased]` is empty.
+
+### Added
+
+- **A searchable, reorderable Settings index.** Settings opens on ten
+  categories — Signing, Updates, General, Devices, Servers, Miscellaneous,
+  Diagnostics, Reset, About, Socials — each wired to flows that already existed
+  rather than to new ones. `.searchable` filters the category list and its rows,
+  an empty result gets `ContentUnavailableView.search`, and drag-to-reorder in
+  edit mode persists the order under `zynsign.settings.categoryOrder`.
+- **Add a repository from where you noticed it was missing.** The Store's empty
+  state now distinguishes *No Repositories Yet* from *No Matching Repositories*
+  and, in the former, offers the **Add Repository** button inline; the sheet
+  takes a **Paste Repository URL** action for a link already on the pasteboard.
+
+### Changed
+
+- **Store and Downloads stay in the tab bar at every release stop.** They are
+  primary navigation, and gating them made a development build look like it had
+  lost working features. `ShellSection.allTabs` keeps all six destinations, but
+  `primaryTabs(where:)` short-circuits the gate for `.appStore` and `.downloads`
+  before it reads `requiredFeature`, so that property now governs only the
+  sections reached from Settings — Presets and the Installation Workspace. The
+  list is what a build *could* show; the bar is the capped result, so Store and
+  Downloads are exempt from the gate but not from the five-item ceiling, and
+  Downloads is the first to yield a slot. See the drift note above. A saved
+  landing preference for either tab remains valid, and
+  `testDevelopmentStopKeepsStoreAndDownloadsDiscoverable` pins the policy,
+  replacing the test that asserted the opposite.
+- **Certificates and Profiles are reached from Settings → Signing.** The old
+  Settings → Browse index is gone; *Signing Setup* now holds the `.p12` / `.pfx`
+  and `.mobileprovision` import rows and their management views unconditionally,
+  which is what makes Certificate Studio and the Profile Manager reachable in a
+  development build. Repository, saved-app and download views moved to
+  Settings → Updates, source URLs also to Settings → Servers.
+- **Import says what it does.** The final action reads *Add 1 App to Library*
+  rather than *Import 1 App*, and the hub states that selecting a file only
+  previews it — nothing is stored until that last tap.
+- **"Source" is now "repository" in the Store.** *Manage Repositories*,
+  *Add Repository*, *Validate & Add Repository* and the matching accessibility
+  label — the object a user adds is a repository, and the source list is where
+  its catalog came from.
+- **The release documents describe the gate the code actually runs.**
+  `docs/releases/release-train.md` gains a gate map naming which features have a
+  live check and which do not, `docs/product/FEATURE_STATUS.md` is re-counted
+  against this tree, and the sentences that hardcoded a version —
+  `MARKETING_VERSION 0.1.0 · build 2 · .alpha3` in `docs/releases/README.md` and
+  `docs/releases/version-strategy.md` — are gone along with a duplicated
+  distribution bullet. Numbers come from `python3 Scripts/release_train.py status`
+  instead of prose, so a stale line cannot outlive the stop it described; that
+  command now prints the six-tab shell as what a development stop shows, rather
+  than naming four tabs.
+- **The launch splash stopped waiting on a schedule.** The ~1.9 s spring,
+  shimmer and haptic sequence is a single fade — 0.36 s, 0.18 s under Reduce
+  Motion — with no launch haptics, so the splash cannot delay the first useful
+  frame. Splash and prominent-button text uses `Color.primary` instead of a
+  hardcoded white, so contrast follows the appearance.
+
 ## [0.0.1-dev.2] - 2026-09-30
 
 **Development 2.** Market `0.0.1` build `3` (`CFBundleShortVersionString 0.0.1`,

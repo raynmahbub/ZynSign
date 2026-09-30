@@ -33,10 +33,40 @@ final class ShellSectionTabTests: XCTestCase {
         }
     }
 
-    /// Six is the practical ceiling for a phone tab bar; this test fails
-    /// before someone quietly adds a seventh.
-    func testTabBarStaysWithinTheSixTabBudget() {
-        XCTAssertLessThanOrEqual(ShellSection.allTabs.count, 6)
+    /// Six sections want a slot and the platform draws five. The bar is capped
+    /// at `tabBarItemLimit` because past it UIKit stops *drawing* tabs and
+    /// starts *pushing* them into a "More" list of its own — and a folded tab
+    /// here is a crash, not an inconvenience: every tab view carries its own
+    /// `NavigationStack` (`RootView.tabContent`), and a stack inside a pushed
+    /// destination is the nested-stack fault the navigation audit exists to
+    /// stop. The audit cannot see this one, because the push is UIKit's.
+    ///
+    /// So `allTabs` may grow and `primaryTabs` may not.
+    func testTabBarNeverExceedsThePlatformCeiling() {
+        XCTAssertEqual(ShellSection.tabBarItemLimit, 5)
+        XCTAssertGreaterThan(ShellSection.allTabs.count, ShellSection.tabBarItemLimit,
+                             "the cap is guarding nothing if every section fits")
+        XCTAssertEqual(ShellSection.primaryTabs { _ in true }.count, ShellSection.tabBarItemLimit)
+        XCTAssertEqual(ShellSection.primaryTabs { _ in false }.count, ShellSection.tabBarItemLimit)
+        for feature in ReleaseFeature.allCases {
+            XCTAssertEqual(ShellSection.primaryTabs { $0 == feature }.count,
+                           ShellSection.tabBarItemLimit,
+                           "\(feature) produced a bar over the ceiling")
+        }
+    }
+
+    /// The cap must drop the least-wanted section and leave the survivors in
+    /// their declared order — silently renumbering Files and Library because a
+    /// fifth tab appeared is not an acceptable way to stay inside five.
+    func testTheCapDropsOnlyTheLeastWantedSectionAndKeepsTheRestInOrder() {
+        XCTAssertEqual(ShellSection.primaryTabs { _ in true },
+                       [.files, .library, .home, .appStore, .settings])
+        XCTAssertFalse(ShellSection.primaryTabs { _ in true }.contains(.downloads),
+                       "Downloads is the section that yields a slot")
+        for kept in [ShellSection.files, .library, .home, .appStore, .settings] {
+            XCTAssertTrue(ShellSection.primaryTabs { _ in false }.contains(kept),
+                          "\(kept) lost its tab; it is core navigation")
+        }
     }
 
     /// Certificates and Profiles moved out of the tab bar. They must stay
@@ -103,18 +133,45 @@ final class ShellSectionTabTests: XCTestCase {
     // MARK: - Release gating
 
     /// Store and Downloads remain stable shell destinations even when a
-    /// release gate closes staged workflow capabilities.
+    /// release gate closes staged workflow capabilities — so a development
+    /// build never shows a Store tab for one stop and hides it for the next.
+    /// Downloads keeps its place in the *set*; it is the first to yield its
+    /// slot to the five-item ceiling, and Settings → Updates is where it
+    /// lives when it does.
     func testDevelopmentStopKeepsStoreAndDownloadsDiscoverable() {
-        XCTAssertEqual(ShellSection.primaryTabs { _ in false }, ShellSection.allTabs)
+        let tabs = ShellSection.primaryTabs { _ in false }
+        XCTAssertTrue(tabs.contains(.appStore), "a gated build hid the Store tab")
+        XCTAssertTrue(ShellSection.allTabs.contains(.downloads))
+        XCTAssertEqual(ShellSection.tab(toOpen: .downloads), .settings,
+                       "a folded Downloads must land on the surface that hosts it")
     }
 
-    /// With every feature available the six shipped tabs are all present, in
-    /// the order the user sees them.
-    func testEveryFeatureAvailableShowsTheSixShippedTabs() {
-        XCTAssertEqual(ShellSection.primaryTabs { _ in true }, ShellSection.allTabs)
-        XCTAssertEqual(ShellSection.primaryTabs { _ in true }, [
-            .files, .library, .home, .appStore, .downloads, .settings,
-        ])
+    /// With every feature available, the bar is the first five sections in
+    /// order. A Debug build has every gate open, which is precisely why the
+    /// ceiling is enforced here rather than assumed: this is the one build a
+    /// developer actually runs, and it used to be the one that crashed.
+    func testEveryFeatureAvailableShowsTheCappedBarInDeclaredOrder() {
+        XCTAssertEqual(ShellSection.primaryTabs { _ in true },
+                       Array(ShellSection.allTabs.filter { $0 != .downloads }))
+    }
+
+    /// Sections without a slot are hosted by another surface, and asking for
+    /// one must not hand `TabView` a selection value it cannot match. That is
+    /// not a no-op — the bar loses its selection and the content area goes
+    /// empty, which is how "tapping Add a certificate does nothing" behaves.
+    func testASectionWithoutASlotResolvesToItsHost() {
+        XCTAssertEqual(ShellSection.tab(toOpen: .certificates), .settings)
+        XCTAssertEqual(ShellSection.tab(toOpen: .profiles), .settings)
+        XCTAssertEqual(ShellSection.tab(toOpen: .presets), .settings)
+        XCTAssertEqual(ShellSection.tab(toOpen: .install), .settings)
+        XCTAssertEqual(ShellSection.tab(toOpen: .downloads), .settings)
+    }
+
+    /// A section that does have a slot is never rerouted through Settings.
+    func testASectionWithASlotOpensItself() {
+        for tab in ShellSection.primaryTabs {
+            XCTAssertEqual(ShellSection.tab(toOpen: tab), tab)
+        }
     }
 
     /// Every section that is not core must name the feature that unlocks it,

@@ -13,11 +13,11 @@ cherry-picks, and no deleted code to restore later.
 | Release | Tag | Switches on | Users see |
 |---|---|---|---|
 | Dev 1 | `v0.0.1-dev.1` | — | Core only. Proved the pipeline end to end against a real tag: quality gate → build + tests → version-stamped assets → publish. |
-| Dev 2 | `v0.0.1-dev.2` | — | **Current stop.** Core only; fixes, and the private device matrix for the core |
-| Dev 3 | `v0.0.1-dev.3` | — | Core only; the last rehearsal before the first build |
-| **First build** | `v0.0.1` | Core | Files · Import (`ipa`/`tipa`) · Library · Bundle Explorer · Home · Settings (About, Archive, Pairing/Analytics honesty, Appearance, Storage, Diagnostics) |
-| Alpha 1 | `v0.1.0-alpha.1` | Certificate Studio | Settings → Certificates (`.p12`/`.pfx` import, detail, public JSON export) |
-| Alpha 2 | `v0.1.0-alpha.2` | Smart Sign, Professional Signing Queue, Intelligent Signing Presets | `Sign Application…` (Library menu + detail), 9-stage pipeline, DER toggle, Live Activity, Signing Options, Library “Signed” segment, Settings → Installation, Settings → Signing Queue, Settings → Presets, recommended preset with a required confirmation that enqueues on the signing queue |
+| Dev 2 | `v0.0.1-dev.2` | — | *(released 2026-09-30)* Core only; the gate closing on four entry points, and the private device matrix for the core |
+| Dev 3 | `v0.0.1-dev.3` | — | **Next stop.** Core, with the six-tab shell kept whole — Store and Downloads stay in the bar — plus the searchable Settings index. The last rehearsal before the first build |
+| **First build** | `v0.0.1` | Core | Files · Import (`ipa`/`tipa`) · Library · Bundle Explorer · Home · Settings (Signing, Updates, Devices, Servers, Appearance, Storage, Diagnostics, Reset, About, Socials) |
+| Alpha 1 | `v0.1.0-alpha.1` | Certificate Studio | Settings → Signing → Certificates (`.p12`/`.pfx` import, detail, public JSON export) |
+| Alpha 2 | `v0.1.0-alpha.2` | Smart Sign, Provisioning Profile Manager, Professional Signing Queue, Intelligent Signing Presets | `Sign Application…` (Library menu + detail), 9-stage pipeline, DER toggle, Live Activity, Signing Options, Library “Signed” segment, Settings → Installation, Settings → Signing Queue, Settings → Presets, recommended preset with a required confirmation that enqueues on the signing queue |
 | Alpha 3 | `v0.1.0-alpha.3` | App Store, Downloads, Entitlements Studio, Identity Center | App Store (validated sources, repository health), the Download Center (queue, validation, updates; resume is reported only when resume data was captured), the Entitlements Studio (read-only inspection, DER `0x20400`) and the Developer Identity Center. Cumulative with Alpha 1 and 2: seven of the ten staged features are on in a Release build here. |
 | Beta 1 | `v0.9.0-beta.1` | Mission Control, Delivery Hand-off, Activity Journal | Home → Refresh Everything · Sign → Deliver… (OTA manifest, link, QR) · Settings → Analytics → Local Activity Journal. **Feature complete.** |
 | Beta 2 | `v0.9.0-beta.2` | Installation Workspace | Settings → Browse → Install · Home → Install · signing success → Installation Workspace… (readiness checklists, Installed Apps Library, confirmed deliveries and history, bulk preparation, storage) |
@@ -30,14 +30,32 @@ cherry-picks, and no deleted code to restore later.
 | Nova preview | `v3.0.0-nova.1` | `.nova1` | Nova Assistant |
 | Nova | `v3.0.0` | `.nova` | The remaining areas — see [../product/ROADMAP-v3.0-nova.md](../product/ROADMAP-v3.0-nova.md) |
 
+> **An em dash in "Switches on" does not mean "shows only the core".** The
+> column reports which `ReleaseFeature` a stop introduces. Since `dev.3` the
+> six-tab shell is a stable destination at every stop — Store and Downloads are
+> navigation — and Settings → Signing leads to certificate and profile import
+> and management. `ReleaseStage.introducedFeatures` never describes that; the
+> gate map below does. Where the two disagree the map wins, and the map is
+> currently explicit: `certificateStudio`, `provisioningProfileManager`,
+> `appStore` and `downloads` have no live check, so a development build exposes
+> them. `dev.3` made that change implicitly; the next commit either re-gates the
+> staged actions behind those tabs or moves these four areas into `v0.0.1`.
+
 This follows [version-strategy.md](version-strategy.md): signing arrives within
 Alpha (Alpha's exit criteria need it), and the app is feature complete by the
 first Beta.
 
-The three development stops switch on nothing on purpose. They exist so the
-release machinery is proven against a real tag before a single feature is
-exposed publicly. Every feature below them is already compiled into a
-development build — a Debug build shows all of them, and
+The three development stops switch on no staged `ReleaseFeature` of their own.
+They exist so the release machinery is proven against a real tag before the
+first public feature surface ships. "No staged feature" is not "the core only":
+since `dev.3` the shell keeps all six tab-capable sections at every stop, and
+the certificate, profile, repository and download surfaces behind two of them
+are reachable from Settings. Six sections are not six tabs: UIKit draws five and
+folds the sixth into a list it pushes, which is why `ShellSection.primaryTabs`
+is capped and Downloads gives up its slot to Settings → Updates. What a development build holds back is the staged *work* — signing,
+presets, the queue, identity, installation, the workspace, Nova. Every feature
+below them is already compiled into a development build — a Debug build shows
+all of them, and
 `-ZynSignReleaseStage <stage>` previews any later stop — so a development stop
 is a pipeline proof, not a smaller app.
 
@@ -59,21 +77,28 @@ The single source of truth is
 - `ReleaseTrain.current` — **the one line that decides what a build shows.**
 - `ReleaseTrain.isAvailable(_:)` — what the Presentation layer checks.
 
-Gated entry points:
+Gated entry points — **the authority on what a Release build shows**. A row
+that reads "no live gate" is reachable at every stop, including a development
+one, whatever the `Switches on` column above says for that stop:
 
 | Feature | Where it is checked |
 |---|---|
-| `certificateStudio` | `SettingsView` → Certificates row |
+| `certificateStudio` | **No live gate since `dev.3`.** `SettingsView` → Signing → "Certificates" opens `CertificateManagerView` (import and management) with no stage check |
+| `provisioningProfileManager` | **No live gate since `dev.3`.** `SettingsView` → Signing → "Provisioning Profiles"; the only surviving check sits inside the never-presented `SmartWorkspaceView` |
+| `appStore` | **No live gate since `dev.3`.** `ShellSection.primaryTabs(where:)` returns the tab unconditionally, so the `requiredFeature` value on the section is never consulted for it; `HomeView`'s Sources sheet is likewise ungated |
+| `downloads` | **No live gate since `dev.3`.** As above, plus Settings → Updates → "Downloads" |
 | `smartSign` | `ApplicationDetailView` + `LibraryTabView` “Sign Application…”, “Signed” segment, Settings → Signing Options / Installation, Home “Signed” stat |
-| `appStore` | `RootView` App Store tab, Home “Sources” stat and tip |
-| `downloads` | `RootView` Downloads tab, Settings → Browse, Home source refresh |
 | `missionControl` | `HomeView` Mission Control card |
 | `deliveryHandoff` | `SigningView` “Deliver…”, Settings → Installation hand-off section |
 | `activityJournal` | Settings → Analytics journal sections, **and** `ApplicationEnvironment.recordAnalyticsEvent`, so nothing is recorded before users can see and clear it |
 | `libraryPowerFeatures` | `LibraryFeatureAvailability` in the Library: statistics card, scope bar (smart collections and collections), filter menu and chips, the four extra orders, collection sheets, bulk actions beyond Delete, quick actions beyond Favorite/Details/Delete; `HomeView` Favorites card. Signing-derived parts (Signed/Unsigned/Recently Signed/Expiring Soon, the Sign action) also require `smartSign` |
+| `signingQueue`, `signingPresets`, `identityCenter`, `entitlementsStudio`, `installationWorkspace`, `performanceDashboard`, `smartWorkspace`, `batchSigning`, `signingHealthScore`, `novaAssistant` | Checked at their own surfaces (Settings → Signing tools, `RecommendedPresetSection`, `ApplicationDetailView`, `ShellSection.requiredFeature` for the Install section, `Settings/AdvancedSettingsSection`, `Nova/SmartWorkspaceView`); none of them is reachable before its stop |
 
-Settings → Diagnostics → Build shows the active release (`v0.1.0 · 0 of 7
-staged features`), so testers can confirm what they're running.
+Settings → Diagnostics → Build shows the active release (`v0.0.1-dev.3 · 0 of 19
+staged features`), so testers can confirm what they're running. The count is
+`ReleaseFeature.allCases`, and it counts only the gates the stop has passed —
+which is exactly why an open area is invisible to that line and visible in this
+table.
 
 ### Debug vs Release builds
 
