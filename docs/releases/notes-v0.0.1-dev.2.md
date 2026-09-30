@@ -2,10 +2,7 @@
 
 Market `0.0.1` · build `3` · channel **development** · pre-release.
 
-A development stop. It switches on **no** staged feature: a Release build here
-shows the core — Files, Library, Home, Settings — and nothing else. Every
-feature is compiled in and reachable in Debug, and each switches on at its own
-stop.
+A development stop. Staged capabilities remain gated, while the Store and Downloads stay visible as stable navigation destinations and Certificates and Profiles remain reachable for importing.
 
 ## What this stop is for
 
@@ -16,12 +13,12 @@ shipped. That is what changed here.
 
 ## Fixed
 
-- Certificate Studio, Profiles, the Store and Downloads are now behind their
-  release stops. Before this, a development build showed all four.
-- The tab bar follows the gate. At this stop it is Files · Library · Home ·
-  Settings; the Store and Downloads tabs arrive at `v0.1.0-alpha.3`. A saved
-  landing preference naming a hidden tab is clamped to Library instead of
-  selecting nothing.
+- Staged signing, identity-center and installation workflows remain behind
+  their release stops, but the core import routes for Certificates and Profiles
+  are always accessible in Settings → Browse.
+- Store and Downloads remain visible in the tab bar at every stop. Their
+  presence no longer depends on a release-stage override, and saved landing
+  preferences continue to select their matching tabs.
 - Smart Workspace no longer runs before its stop. It had been writing
   `SmartWorkspace.json` on every signing session at every stage since `dev.1`,
   for a screen nothing presents.
@@ -38,4 +35,4 @@ pairs a device or speaks usbmuxd, and never measures off-device. See
 
 `Scripts/ci/release_validate.sh 0.0.1-dev.2` and the full local gate set pass.
 The private device matrix in [`private-testing.md`](private-testing.md) covers
-the core only at this stop.
+the core and the always-visible repository and identity import entry points.

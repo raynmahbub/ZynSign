@@ -1,68 +1,116 @@
 import SwiftUI
 import UIKit
 
-/// The Settings Control Center.
-///
-/// Settings is an index, not a form. Everything a user can configure lives in
-/// its own section, reached from here, and every section is a peer of every
-/// other: the hub lists what the catalog holds and nothing more, so a new
-/// section is a new file rather than a new case in this view.
-///
-/// The order is deliberate — what ZynSign is, what else it can show you, the
-/// preferences you will actually change, the honest capability screens, the
-/// settings kept apart from everyday use, and finally what the application is
-/// and ships with.
+/// Searchable, reorderable settings home. Every category opens an existing
+/// settings workflow; unavailable platform capabilities are stated honestly
+/// rather than presented as working controls.
 struct SettingsView: View {
 
     @Environment(\.applicationEnvironment) private var environment
     @Environment(\.signingQueuePresentation) private var signingQueuePresentation
+    @Environment(\.importPresentation) private var importPresentation
+    @AppStorage("zynsign.settings.categoryOrder") private var storedCategoryOrder = ""
+    @State private var searchText = ""
+    @State private var editMode: EditMode = .inactive
+
+    private var orderedCategories: [SettingsCategory] {
+        let storedIDs = storedCategoryOrder.split(separator: ",").compactMap {
+            SettingsCategory(rawValue: String($0))
+        }
+        var result = storedIDs.reduce(into: [SettingsCategory]()) { result, category in
+            if !result.contains(category) { result.append(category) }
+        }
+        result.append(contentsOf: SettingsCategory.allCases.filter { !result.contains($0) })
+        return result
+    }
+
+    private var visibleCategories: [SettingsCategory] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return orderedCategories }
+        return orderedCategories.filter {
+            $0.title.localizedCaseInsensitiveContains(query)
+                || $0.summary.localizedCaseInsensitiveContains(query)
+        }
+    }
 
     var body: some View {
         NavigationStack {
             List {
-                summarySection
-                Section { ReleaseReadinessLink() }
-                browseSection
-                preferencesSection
-                workflowSection
-                separatedSection
-                aboutSection
-            }
-            .navigationTitle("Settings")
-        }
-    }
-
-    // MARK: - ZynSign
-
-    /// What this build is, in one row. The rest is in About.
-    private var summarySection: some View {
-        Section {
-            HStack(spacing: ZSpacing.md) {
-                ZynSignAppMark(size: 52)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(environment.applicationInfo.displayName)
-                        .font(.headline)
-                    Text("Version \(environment.applicationInfo.marketingVersion) (\(environment.applicationInfo.buildVersion))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                ForEach(visibleCategories) { category in
+                    NavigationLink {
+                        destination(for: category)
+                    } label: {
+                        SettingsCategoryRow(category: category)
+                    }
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .listRowBackground(Color.clear)
                 }
-                Spacer(minLength: 0)
+                .onMove(perform: moveCategories)
+
+                if searchText.isEmpty, editMode == .inactive {
+                    Section {
+                        Button {
+                            withAnimation(.snappy) { editMode = .active }
+                        } label: {
+                            Label("Change the order", systemImage: "arrow.up.arrow.down")
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                    }
+                }
             }
-            .accessibilityElement(children: .combine)
-        } footer: {
-            Text("Every preference is saved as you change it. Nothing here waits for a confirmation — except the one reset in Recovery that deletes imported applications, which says what it will delete and asks twice.")
+            .listStyle(.insetGrouped)
+            .environment(\.editMode, $editMode)
+            .searchable(text: $searchText, prompt: "Search Settings")
+            .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(editMode == .active ? "Done" : "Edit") {
+                        withAnimation(.snappy) {
+                            editMode = editMode == .active ? .inactive : .active
+                        }
+                    }
+                    .disabled(!searchText.isEmpty)
+                }
+            }
+            .overlay {
+                if !searchText.isEmpty && visibleCategories.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                }
+            }
         }
     }
 
-    /// The areas reached from Settings: Certificates, Profiles, the
-    /// Installation Workspace, and second routes to the Store and Downloads.
-    ///
-    /// Every entry is behind its release stop, so this section shrinks to
-    /// Files alone at a development stop and grows as the train advances.
-    /// Files is the one entry that is always here — it is core.
-    private var browseSection: some View {
-        Section {
-            if ReleaseTrain.isAvailable(.certificateStudio) {
+    private func moveCategories(from source: IndexSet, to destination: Int) {
+        guard searchText.isEmpty else { return }
+        var reordered = orderedCategories
+        reordered.move(fromOffsets: source, toOffset: destination)
+        storedCategoryOrder = reordered.map(\.rawValue).joined(separator: ",")
+    }
+
+    @ViewBuilder
+    private func destination(for category: SettingsCategory) -> some View {
+        switch category {
+        case .signing: signingCategory
+        case .updates: updatesCategory
+        case .general: generalCategory
+        case .devices: devicesCategory
+        case .servers: serversCategory
+        case .miscellaneous: miscellaneousCategory
+        case .diagnostics: diagnosticsCategory
+        case .reset: RecoverySettingsSection()
+        case .about: AboutSettingsSection()
+        case .socials: socialsCategory
+        }
+    }
+
+    private var signingCategory: some View {
+        List {
+            Section("Signing Setup") {
+                NavigationLink { SigningPreferencesSection() } label: {
+                    ZSettingsLabel(title: "Signing Preferences", subtitle: "Default identity, profile, and selection behavior.", symbol: "slider.horizontal.3")
+                }
                 NavigationLink {
                     CertificateManagerView(
                         store: environment.identityStore,
@@ -70,12 +118,8 @@ struct SettingsView: View {
                         importer: environment.pkcs12Importer
                     )
                 } label: {
-                    Label(ShellSection.certificates.title, systemImage: ShellSection.certificates.symbolName)
+                    ZSettingsLabel(title: "Certificates", subtitle: "Import and manage .p12 / .pfx identities.", symbol: "signature")
                 }
-            }
-            // `ProfilesView` supplies its own navigation stack, so it is
-            // told the host owns this one.
-            if ReleaseTrain.isAvailable(.provisioningProfileManager) {
                 NavigationLink {
                     ProfilesView(
                         profiles: environment.provisioningProfiles,
@@ -83,169 +127,318 @@ struct SettingsView: View {
                         compatibility: environment.profileCompatibility,
                         selections: environment.profileSelections,
                         recordEvent: { name, succeeded in
-                            environment.recordAnalyticsEvent(
-                                category: .intake,
-                                name: name,
-                                succeeded: succeeded
-                            )
+                            environment.recordAnalyticsEvent(category: .intake, name: name, succeeded: succeeded)
                         },
                         embedsNavigationStack: false
                     )
                 } label: {
-                    Label(ShellSection.profiles.title, systemImage: ShellSection.profiles.symbolName)
+                    ZSettingsLabel(title: "Provisioning Profiles", subtitle: "Import, inspect, and select profiles.", symbol: "person.text.rectangle")
                 }
             }
-            NavigationLink { FilesView(embedsNavigationStack: false) } label: {
-                Label(ShellSection.files.title, systemImage: ShellSection.files.symbolName)
-            }
-            if ReleaseTrain.isAvailable(.installationWorkspace) {
-                NavigationLink {
-                    InstallationWorkspaceView(
-                        workspace: environment.installationWorkspace,
-                        storage: environment.storageManagement,
-                        embedsNavigationStack: false
-                    )
-                } label: {
-                    Label(ShellSection.install.title, systemImage: ShellSection.install.symbolName)
-                }
-            }
-            // Files, Store, and Downloads are tabs; these links are a second
-            // route to the same screens, kept because a tab is not always the
-            // shortest path when the user is already reading Settings.
-            if ReleaseTrain.isAvailable(.appStore) {
-                NavigationLink { AppStoreView(embedsNavigationStack: false) } label: {
-                    Label(ShellSection.appStore.title, systemImage: ShellSection.appStore.symbolName)
-                }
-            }
-            if ReleaseTrain.isAvailable(.downloads) {
-                NavigationLink { DownloadsView(embedsNavigationStack: false) } label: {
-                    Label(ShellSection.downloads.title, systemImage: ShellSection.downloads.symbolName)
-                }
-            }
-        } header: { Text("Browse") } footer: {
-            Text("Files is always here. Certificates, Profiles, the Store, Downloads, and the Installation Workspace appear from here as their release stop arrives; Store and Downloads are also tabs. Store jobs stay isolated until you import them, and Download Center cleanup never deletes imported apps.")
-        }
-    }
-
-    /// The everyday preference sections, listed from the catalog.
-    ///
-    /// The hub knows their titles and where they go; it knows nothing about
-    /// what is inside them, which is what lets a section be added, extended,
-    /// or reordered without touching this view.
-    private var preferencesSection: some View {
-        Section {
-            ForEach(SettingsSectionCatalog.everyday) { section in
-                NavigationLink { section.destination() } label: {
-                    ZSettingsLabel(
-                        title: section.descriptor.title,
-                        subtitle: section.descriptor.summary,
-                        symbol: section.descriptor.symbolName
-                    )
-                }
-            }
-        } header: { Text("Preferences") } footer: {
-            Text("General, signing, security, storage, diagnostics, and appearance. Each section explains what it changes and what it cannot.")
-        }
-    }
-
-    /// The honest capability screens: what ZynSign does, and what it
-    /// deliberately does not.
-    private var workflowSection: some View {
-        Section {
-            if ReleaseTrain.isAvailable(.smartSign) {
+            Section("Signing Tools") {
                 NavigationLink { SigningOptionsView() } label: {
-                    Label("Signing Options", systemImage: "slider.horizontal.3")
+                    ZSettingsLabel(title: "Signing Options", subtitle: "Review supported pipeline behavior.", symbol: "slider.horizontal.3")
                 }
-            }
-            if signingQueuePresentation.isAvailable {
-                Button { signingQueuePresentation.present() } label: {
-                    Label("Signing Queue", systemImage: "tray.full")
+                if signingQueuePresentation.isAvailable {
+                    Button { signingQueuePresentation.present() } label: {
+                        ZSettingsLabel(title: "Signing Queue", subtitle: "Review and manage queued signing jobs.", symbol: "tray.full")
+                    }
                 }
-                .accessibilityHint("Opens the signing queue dashboard.")
-            }
-            if ReleaseTrain.isAvailable(.signingPresets) {
-                NavigationLink {
-                    PresetsView(embedsNavigationStack: false)
-                } label: {
-                    Label("Signing Presets", systemImage: "rectangle.stack")
+                if ReleaseTrain.isAvailable(.signingPresets) {
+                    NavigationLink { PresetsView(embedsNavigationStack: false) } label: {
+                        ZSettingsLabel(title: "Signing Presets", subtitle: "Manage reusable signing configurations.", symbol: "rectangle.stack")
+                    }
                 }
-                .accessibilityHint("Opens saved signing presets. Choosing one does not sign.")
             }
             if ReleaseTrain.isAvailable(.identityCenter), let identityCenter = environment.identityCenter {
-                NavigationLink {
-                    IdentityCenterView(service: identityCenter)
-                } label: {
-                    Label("Developer Identity", systemImage: "person.badge.key.fill")
+                Section {
+                    NavigationLink { IdentityCenterView(service: identityCenter) } label: {
+                        ZSettingsLabel(title: "Developer Identity Center", subtitle: "Teams, identity health, conflicts, and expiration.", symbol: "person.badge.key")
+                    }
                 }
-                .accessibilityHint("Opens the Developer Identity Center: teams, certificates, profiles, health, and conflicts.")
             }
-            NavigationLink { ArchiveSettingsView() } label: {
-                Label("Archive & Extraction", systemImage: "doc.zipper")
+        }
+        .navigationTitle("Signing")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var updatesCategory: some View {
+        List {
+            Section {
+                Text("Updates are reviewed before download. ZynSign does not silently switch repositories, import packages, sign them, or install them.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            if let store = environment.storeBrowser {
+                Section("Repositories & Updates") {
+                    NavigationLink { StoreUpdatesView(model: store) } label: {
+                        ZSettingsLabel(title: "Updates", subtitle: "Compare repository releases with your library.", symbol: "arrow.triangle.2.circlepath")
+                    }
+                    NavigationLink { StoreSavedAppsView(model: store) } label: {
+                        ZSettingsLabel(title: "Saved Apps", subtitle: "Review apps saved for later; saving never downloads.", symbol: "bookmark")
+                    }
+                    NavigationLink { StoreSourcesView(model: store) } label: {
+                        ZSettingsLabel(title: "Repositories", subtitle: "Add, validate, refresh, and remove source URLs.", symbol: "globe")
+                    }
+                    NavigationLink { DownloadsView(embedsNavigationStack: false) } label: {
+                        ZSettingsLabel(title: "Downloads", subtitle: "Manage transfer jobs and review downloaded packages.", symbol: "arrow.down.circle")
+                    }
+                }
+            } else {
+                Section {
+                    ContentUnavailableView("Updates Unavailable", systemImage: "arrow.triangle.2.circlepath", description: Text("Repository and download services are not configured in this build."))
+                }
+            }
+        }
+        .navigationTitle("Updates")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var generalCategory: some View {
+        List {
+            Section("App Preferences") {
+                NavigationLink { GeneralSettingsSection() } label: {
+                    ZSettingsLabel(title: "General", subtitle: "Landing tab, feedback, motion, and onboarding.", symbol: "gearshape")
+                }
+                NavigationLink { AppearanceSettingsSection() } label: {
+                    ZSettingsLabel(title: "Appearance", subtitle: "Color scheme, contrast, text size, and theme.", symbol: "circle.lefthalf.filled")
+                }
+                NavigationLink { StorageManagerSection() } label: {
+                    ZSettingsLabel(title: "Storage", subtitle: "Review app storage and manage local data.", symbol: "externaldrive")
+                }
+            }
+            Section("Notifications") {
+                Label("In-app notices are used for import, download, and signing results.", systemImage: "bell.badge")
+                Text("This build has no separate push-notification or automatic-update switch. Transfer and update decisions remain under your control.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("General")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var devicesCategory: some View {
+        List {
+            Section {
+                Text("ZynSign can inspect and prepare files on this device. It does not pair with Apple TV, Watch, Mac, or Vision Pro, and it does not enable JIT.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            if ReleaseTrain.isAvailable(.installationWorkspace) {
+                Section("Device Handoff") {
+                    NavigationLink {
+                        InstallationWorkspaceView(
+                            workspace: environment.installationWorkspace,
+                            storage: environment.storageManagement,
+                            embedsNavigationStack: false
+                        )
+                    } label: {
+                        ZSettingsLabel(title: "Installation Workspace", subtitle: "Review delivery readiness and handoff history; ZynSign does not install apps.", symbol: "arrow.down.app")
+                    }
+                }
             }
             if ReleaseTrain.isAvailable(.smartSign) {
-                NavigationLink { InstallationSettingsView() } label: {
-                    Label("Installation", systemImage: "arrow.down.app")
+                Section("Capability") {
+                    NavigationLink { InstallationSettingsView() } label: {
+                        ZSettingsLabel(title: "Installation Capability", subtitle: "See the platform limits and supported handoff behavior.", symbol: "checkmark.shield")
+                    }
                 }
             }
-            NavigationLink { PairingHonestView() } label: {
-                Label("Pairing / JIT / Mux", systemImage: "cable.connector")
-            }
-            NavigationLink { AnalyticsHonestView() } label: {
-                Label("Analytics", systemImage: "chart.bar.doc.horizontal")
-            }
-        } header: { Text("Workflow") } footer: {
-            Text(workflowFooter)
-        }
-    }
-
-    /// The Workflow footer only describes screens this release shows.
-    private var workflowFooter: String {
-        var parts: [String] = []
-        if ReleaseTrain.isAvailable(.deliveryHandoff) {
-            parts.append("Installation is a delivery hand-off — ZynSign still never installs.")
-        } else if ReleaseTrain.isAvailable(.smartSign) {
-            parts.append("Installation is reported as unavailable — ZynSign never installs.")
-        }
-        parts.append("Pairing/JIT/Mux is a documented never.")
-        if ReleaseTrain.isAvailable(.activityJournal) {
-            parts.append("Analytics is a local, on-device journal with off-device measurement permanently off.")
-        } else {
-            parts.append("Off-device analytics is permanently off.")
-        }
-        parts.append("See each screen for the typed reason and the doc link.")
-        return parts.joined(separator: " ")
-    }
-
-    /// Advanced and recovery, listed apart from everyday settings.
-    private var separatedSection: some View {
-        Section {
-            ForEach(SettingsSectionCatalog.separated) { section in
-                NavigationLink { section.destination() } label: {
-                    ZSettingsLabel(
-                        title: section.descriptor.title,
-                        subtitle: section.descriptor.summary,
-                        symbol: section.descriptor.symbolName
-                    )
+            Section("Unsupported Capabilities") {
+                NavigationLink { PairingHonestView() } label: {
+                    ZSettingsLabel(title: "Pairing / JIT / Mux", subtitle: "See supported boundaries and feasibility notes.", symbol: "cable.connector")
                 }
             }
-        } header: { Text("Advanced & Recovery") } footer: {
-            Text("Advanced changes how ZynSign works internally. Recovery restores a known-good state without taking anything you imported — with one labelled exception.")
         }
+        .navigationTitle("Devices")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
-    /// About, last: what this build is and what ships with it.
-    private var aboutSection: some View {
-        Section {
-            ForEach(SettingsSectionCatalog.about) { section in
-                NavigationLink { section.destination() } label: {
-                    ZSettingsLabel(
-                        title: section.descriptor.title,
-                        subtitle: section.descriptor.summary,
-                        symbol: section.descriptor.symbolName
-                    )
+    private var serversCategory: some View {
+        List {
+            Section("Repository Connections") {
+                if let store = environment.storeBrowser {
+                    NavigationLink { StoreSourcesView(model: store) } label: {
+                        ZSettingsLabel(title: "Repository Sources", subtitle: "Manage HTTPS catalogs used for discovery and downloads.", symbol: "globe")
+                    }
+                }
+                Text("Repository feeds are read when you choose to add or refresh them. Their metadata is unverified; adding a source does not establish trust.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("Not Available") {
+                Label("WebDAV and an always-on file server are not implemented.", systemImage: "externaldrive.badge.questionmark")
+                Label("Remote signing is not implemented. Signing stays on this device.", systemImage: "signature")
+            }
+        }
+        .navigationTitle("Servers")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var miscellaneousCategory: some View {
+        List {
+            Section("Files & Archives") {
+                NavigationLink { FilesView(embedsNavigationStack: false) } label: {
+                    ZSettingsLabel(title: "Files", subtitle: "Browse ZynSign's local files and exports.", symbol: "folder")
+                }
+                NavigationLink { ArchiveSettingsView() } label: {
+                    ZSettingsLabel(title: "Archive & Extraction", subtitle: "Review supported formats and safe extraction limits.", symbol: "doc.zipper")
+                }
+                NavigationLink { AdvancedSettingsSection() } label: {
+                    ZSettingsLabel(title: "Advanced", subtitle: "Working directory, cleanup policy, and verification strictness.", symbol: "slider.horizontal.3")
+                }
+                if importPresentation.isAvailable {
+                    Button { importPresentation.chooseFiles() } label: {
+                        ZSettingsLabel(title: "Import Files", subtitle: "Choose an IPA, TIPA, or supported archive.", symbol: "square.and.arrow.down")
+                    }
                 }
             }
-        } header: { Text("About") }
+            Section("Recovery") {
+                NavigationLink { RecoveryCenterView() } label: {
+                    ZSettingsLabel(title: "Backup & Restore", subtitle: "Create an encrypted backup or selectively restore data.", symbol: "lock.shield")
+                }
+            }
+        }
+        .navigationTitle("Miscellaneous")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var diagnosticsCategory: some View {
+        List {
+            Section("Troubleshooting") {
+                NavigationLink { DiagnosticsPreferencesSection() } label: {
+                    ZSettingsLabel(title: "Diagnostics", subtitle: "Control local logs and prepare diagnostic reports.", symbol: "stethoscope")
+                }
+                NavigationLink { AnalyticsHonestView() } label: {
+                    ZSettingsLabel(title: "Analytics & Activity", subtitle: "Review what stays on-device and what is never sent.", symbol: "chart.bar.doc.horizontal")
+                }
+                ReleaseReadinessLink()
+            }
+            if CompatibilityLabAvailability.isCompiledIn {
+                Section("Validation") {
+                    NavigationLink { CompatibilityLabSection() } label: {
+                        ZSettingsLabel(title: "Compatibility Lab", subtitle: "Run release and compatibility checks.", symbol: "checkmark.shield")
+                    }
+                }
+            }
+            if ReleaseTrain.isAvailable(.performanceDashboard), let engine = environment.performanceEngine {
+                Section("Performance") {
+                    NavigationLink {
+                        PerformanceDashboardSection(
+                            model: PerformanceDashboardModel(
+                                engine: engine,
+                                benchmarkSuite: { CompositionRoot.makePerformanceBenchmarks(environment: environment) }
+                            )
+                        )
+                    } label: {
+                        ZSettingsLabel(title: "Performance", subtitle: "Inspect caches, memory, indexes, and benchmarks.", symbol: "speedometer")
+                    }
+                }
+            }
+        }
+        .navigationTitle("Diagnostics")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var socialsCategory: some View {
+        List {
+            Section("ZynSign Community") {
+                if let repositoryURL = URL(string: "https://github.com/raynmahbub/ZynSign") {
+                    Link(destination: repositoryURL) {
+                        ZSettingsLabel(title: "GitHub Repository", subtitle: "Source code, releases, and project discussions.", symbol: "chevron.left.forwardslash.chevron.right")
+                    }
+                }
+                if let issueURL = URL(string: "https://github.com/raynmahbub/ZynSign/issues/new/choose") {
+                    Link(destination: issueURL) {
+                        ZSettingsLabel(title: "Report an Issue", subtitle: "Send a bug report or feature request on GitHub.", symbol: "ladybug")
+                    }
+                }
+            }
+            Section {
+                Text("GitHub opens in your browser. Do not include signing keys, passwords, provisioning secrets, or private app files in an issue.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("Socials")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private enum SettingsCategory: String, CaseIterable, Identifiable {
+    case signing, updates, general, devices, servers, miscellaneous, diagnostics, reset, about, socials
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .signing: return "Signing"
+        case .updates: return "Updates"
+        case .general: return "General"
+        case .devices: return "Devices"
+        case .servers: return "Servers"
+        case .miscellaneous: return "Miscellaneous"
+        case .diagnostics: return "Diagnostics"
+        case .reset: return "Reset"
+        case .about: return "About"
+        case .socials: return "Socials"
+        }
+    }
+    var summary: String {
+        switch self {
+        case .signing: return "Certificates, profiles, signing defaults, and tools"
+        case .updates: return "Repositories, available updates, and downloads"
+        case .general: return "Appearance, tabs, app behavior, and storage"
+        case .devices: return "Supported device handoff and capability status"
+        case .servers: return "Repository connections and server capabilities"
+        case .miscellaneous: return "Files, archives, imports, and backups"
+        case .diagnostics: return "Logs, health checks, and troubleshooting"
+        case .reset: return "Restore preferences or recover app data"
+        case .about: return "Version, documents, and acknowledgements"
+        case .socials: return "Find the project or report a problem"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .signing: return "signature"
+        case .updates: return "arrow.triangle.2.circlepath"
+        case .general: return "gearshape"
+        case .devices: return "iphone.gen3"
+        case .servers: return "server.rack"
+        case .miscellaneous: return "square.grid.2x2"
+        case .diagnostics: return "stethoscope"
+        case .reset: return "arrow.counterclockwise"
+        case .about: return "info.circle"
+        case .socials: return "bubble.left.and.bubble.right"
+        }
+    }
+}
+
+private struct SettingsCategoryRow: View {
+    let category: SettingsCategory
+
+    var body: some View {
+        HStack(spacing: ZSpacing.md) {
+            Image(systemName: category.symbol)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 48, height: 48)
+                .background(Color.accentColor.opacity(0.13), in: RoundedRectangle(cornerRadius: ZRadius.card, style: .continuous))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: ZSpacing.xxs) {
+                Text(category.title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text(category.summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(ZSpacing.sm)
+        .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: ZRadius.lg, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: ZRadius.lg, style: .continuous)
+                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

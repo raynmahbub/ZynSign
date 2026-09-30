@@ -188,6 +188,19 @@ final class ProvisioningProfilesModelTests: XCTestCase {
 
     // MARK: - Import failure notices
 
+    func testPickerFailureIsSurfacedButCancellationStaysQuiet() {
+        let model = ProvisioningProfilesModel(profiles: nil, importer: nil)
+        let pickerFailure = NSError(domain: "ProfilePicker", code: 17)
+
+        model.handlePickerResult(.failure(pickerFailure))
+        XCTAssertEqual(model.notice?.title, "Couldn't Open Profile")
+        XCTAssertFalse(model.notice?.message.isEmpty ?? true)
+
+        model.clearNotice()
+        model.handlePickerResult(.failure(NSError(domain: NSCocoaErrorDomain, code: NSUserCancelledError)))
+        XCTAssertNil(model.notice)
+    }
+
     func testInputTooLargeFailureUsesGenericNoticeTitle() {
         let error = ZynSignError.provisioningProfileInputTooLarge(
             diagnosticDetail: "synthetic"

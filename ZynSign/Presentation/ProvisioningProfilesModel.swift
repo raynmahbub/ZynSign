@@ -356,16 +356,26 @@ final class ProvisioningProfilesModel: ObservableObject {
     // MARK: - Import
 
     /// Records how the system picker closed and, when a file was chosen,
-    /// imports it. The importer owns validation; a refused file is announced
-    /// with the typed reason and nothing is stored. A successful import
-    /// presents the import summary sheet and re-reads the library.
+    /// imports it. Cancellation stays quiet; picker failures and refused files
+    /// are announced instead of disappearing. A successful import presents
+    /// the import summary sheet and re-reads the library.
     func handlePickerResult(_ result: Result<[URL], any Error>) {
-        guard case .success(let urls) = result else {
-            return // The user closed the picker without choosing. Ordinary.
-        }
-        guard let url = urls.first else {
+        let urls: [URL]
+        switch result {
+        case .success(let selectedURLs):
+            urls = selectedURLs
+        case .failure(let error):
+            let cocoaError = error as NSError
+            guard !(cocoaError.domain == NSCocoaErrorDomain && cocoaError.code == NSUserCancelledError),
+                  !(error is CancellationError) else { return }
+            notice = Notice(
+                title: "Couldn't Open Profile",
+                message: (error as? ZynSignError)?.userMessage
+                    ?? "The selected profile could not be opened. Save it to Files and try again."
+            )
             return
         }
+        guard let url = urls.first else { return }
         guard let importer, let profiles else { return }
         isImporting = true
         Task {

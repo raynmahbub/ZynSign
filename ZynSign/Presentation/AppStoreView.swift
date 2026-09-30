@@ -26,6 +26,7 @@ struct StoreHomeView: View {
     var embedsNavigationStack: Bool = true
     @Environment(\.applicationEnvironment) private var environment
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var colorScheme
     @State private var query = ""
     @State private var category: String?
     @State private var sourceFilter: UUID?
@@ -63,7 +64,7 @@ struct StoreHomeView: View {
         }
         if model.apps.isEmpty {
             ContentUnavailableView("Your Store Starts Here", systemImage: "globe", description: Text("Add or enable a source to discover apps. Previously cached sources remain available offline."))
-            NavigationLink("Manage Sources") { StoreSourcesView(model: model) }
+            NavigationLink("Manage Repositories") { StoreSourcesView(model: model) }
         } else {
             shelf("Featured This Week", subtitle: "Apps explicitly marked featured by their repositories · not an endorsement", apps: model.apps.filter(\.featured))
             shelf("Trending Apps", subtitle: "Most opened on this device · not repository-wide popularity", apps: model.trending)
@@ -189,7 +190,9 @@ struct StoreHomeView: View {
                 Label("Includes saved metadata. Refresh a source to check for changes.", systemImage: "internaldrive").font(.caption)
             }
         }
-        .foregroundStyle(.white).padding(22).frame(maxWidth: .infinity, alignment: .leading)
+        .foregroundStyle(colorScheme == .dark ? Color.white : Color.primary)
+        .padding(22)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(LinearGradient(colors: [Color.accentColor, Color.accentColor.opacity(0.7)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: ZRadius.xl))
         .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
     }

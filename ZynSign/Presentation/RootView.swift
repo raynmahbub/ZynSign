@@ -412,10 +412,9 @@ struct RootView: View {
 
     /// Tabs the user can select at this release stop.
     ///
-    /// The bar follows the release gate: a section whose staged feature has
-    /// not shipped yet is not offered, so a development stop shows the core
-    /// (Files, Library, Home, Settings) and nothing else. Those four are
-    /// always present, so there is always somewhere to land.
+    /// Store and Downloads remain stable shell destinations; the other
+    /// staged tab sections continue to follow the release gate. The core
+    /// tabs are always present, so there is always somewhere to land.
     private var visibleTabs: [ShellSection] {
         ShellSection.primaryTabs
     }

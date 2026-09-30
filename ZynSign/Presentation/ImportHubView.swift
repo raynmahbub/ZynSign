@@ -419,7 +419,7 @@ struct ImportHubView: View {
                 Button("Review Conflict Choices") { isShowingResolutionCenter = true }
                     .font(.footnote.weight(.semibold))
             }
-            Text("Nothing is stored until you import. Deselected apps are skipped; your files are never changed.")
+            Text("Selecting a file only previews it. Tap Add to Library below to finish importing. Deselected apps are skipped; your original files are never changed.")
         }
     }
 
@@ -467,9 +467,9 @@ struct ImportHubView: View {
     private var importTitle: String {
         let count = hub.selectedReadyItems.count
         switch count {
-        case 0: return "Select Apps to Import"
-        case 1: return "Import 1 App"
-        default: return "Import \(count) Apps"
+        case 0: return "Select Apps to Add to Library"
+        case 1: return "Add 1 App to Library"
+        default: return "Add \(count) Apps to Library"
         }
     }
 
