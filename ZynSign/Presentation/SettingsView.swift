@@ -420,7 +420,7 @@ private struct SettingsCategoryRow: View {
                 .frame(width: 48, height: 48)
                 .background(Color.accentColor.opacity(0.13), in: RoundedRectangle(cornerRadius: ZRadius.card, style: .continuous))
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: ZSpacing.xxs) {
                 Text(category.title)
                     .font(.headline)
                     .foregroundStyle(.primary)
