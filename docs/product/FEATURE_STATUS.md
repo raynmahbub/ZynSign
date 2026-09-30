@@ -122,22 +122,41 @@ Compiled in and reachable in Debug; absent in Release.
 
 ### 6. Bugs and unverified paths
 
-- **`.p12`/`.pfx` import has a root cause, and a fix, but no device run yet.**
-  The password sheet was presented from inside the `.fileImporter` completion —
-  the frame the picker is still dismissing, where UIKit drops a presentation
-  with no error. That explains a silent nothing after a successful file choice,
-  which is what the report said. Deferred to the settle the signing queue uses.
+- **`.p12`/`.pfx` import had two root causes and neither has a device run yet.**
+  The first was presentation: the password sheet was raised from inside the
+  `.fileImporter` completion — the frame the picker is still dismissing, where
+  UIKit drops a presentation with no error — so a successful file choice looked
+  like nothing happened; every post-picker presentation now waits the one shared
+  settle (`PresentationSettle`). The second was protection policy, and it was
+  absolute: registration required the imported key to carry
+  `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and an explicit
+  non-extractability attribute, but `SecPKCS12Import` stores its items under the
+  Keychain's default class and iOS offers no supported way to re-protect a
+  private key after creation. Every identity the platform could produce for an
+  import was refused with *The required identity protection is not available*.
+  `SigningKeyProtectionRule` now requires what the app depends on — private,
+  non-synchronizable, unreadable while locked, not reported as exportable — and
+  the importer asks for the device-only class without assuming the answer.
+  Still needs a device: the rule and the importer's call are compile- and
+  test-verified only.
 - **The shell lists six sections and draws five.** `tabBarItemLimit` caps
   `primaryTabs`, because UIKit folds a sixth tab into a *More* list it pushes
   from its own navigation controller, and a pushed tab view with its own stack
   is the nested-stack crash. `Scripts/audit_navigation_stack.py` cannot see
   that instance: the push is UIKit's. Anything that changes the tab set has to
-  go through `ShellSection`, not around it.
+  go through `ShellSection`, not around it. The same class of fault existed in
+  Signing's Installation Workspace sheet — a sheet-local `NavigationStack`
+  wrapping a view whose `embedsNavigationStack` defaulted to `true` — and is now
+  `false` there, matching the Settings push.
 - **Navigation fixes are compile- and audit-verified only.** CI proves the code
   builds and `audit_navigation_stack.py` proves no pushed view opens its own
   stack. Only a real run proves the runtime agrees.
 - **The import-picker race fix is the same** — statically verified, never
-  observed working.
+  observed working. The hand-off paths around it are now closed too: an Open In
+  or share-sheet request that lands as ZynSign returns to the foreground is held
+  until the scene is active instead of being presented in the frame UIKit drops,
+  and a package picked inside Files waits the shared settle before the Import
+  Hub is raised.
 - **The private device matrix has never run.** Per `docs/releases/Checklist.md`
   §3, every release including this one is *Blocked* until a Release build is
   exercised on two real devices (one iOS 17, one iOS 18) plus a simulator smoke.

@@ -297,7 +297,14 @@ struct ImportHubView: View {
             }
         }
         .listStyle(.insetGrouped)
+        // Items arriving and leaving animate once. Phase changes animate the
+        // same way: an item moving from In Progress to the preview settles
+        // into place instead of jumping between sections, and the finished
+        // summary arrives rather than appearing. Progress within a phase is
+        // deliberately not part of the trigger — a copying item reports ten
+        // times a second, and animating that would be motion without meaning.
         .animation(ZMotion.fast, value: hub.items.map(\.id))
+        .animation(ZMotion.fast, value: hub.items.map(\.phase))
     }
 
     private var howItWorks: some View {
@@ -633,11 +640,11 @@ struct ImportHubView: View {
         // A yield alone is not the transition: a sheet takes hundreds of
         // milliseconds to come up, and a second controller put on screen
         // inside that window is the drop this whole path exists to avoid. The
-        // wait is the one `RootView.presentSigningQueue()` uses, so the app
-        // settles its presentations in one measurable beat rather than
-        // several invented ones.
+        // wait is the shared settle every post-dismissal presentation uses, so
+        // the app settles its presentations in one measurable beat rather
+        // than several invented ones.
         await Task.yield()
-        try? await Task.sleep(nanoseconds: 400_000_000)
+        try? await Task.sleep(for: PresentationSettle.beat)
         guard wantsFilePickerOnAppear else { return }
         wantsFilePickerOnAppear = false
         isShowingPicker = true

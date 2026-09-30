@@ -95,6 +95,35 @@ not pretend it was made.
 
 ### Fixed
 
+- **A `.p12` could never finish importing, and the rule that stopped it asked
+  the platform for something it cannot give.** Registration required the
+  imported private key to carry `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`
+  and an explicitly reported non-extractability attribute. `SecPKCS12Import`
+  takes no attribute dictionary, so its items carry the Keychain's default class
+  (`kSecAttrAccessibleWhenUnlocked`), and iOS has no supported way to re-protect
+  a private key after creation — `SecItemUpdate` on `kSecAttrAccessible` needs
+  the item's data, which a private key never returns. Every identity the
+  platform could legally produce for an import was refused with *The required
+  identity protection is not available*, no matter what the user did.
+  `SigningKeyProtectionRule` now requires the property signed identities depend
+  on — a private key, never synchronizable, unreadable while the device is
+  locked, and not reported as exportable — and is pinned by
+  `SigningKeyProtectionRuleTests`. `ApplePKCS12Importer` additionally asks for
+  the device-only class before registering and does not assume the answer; the
+  resolver reads the key's actual attributes back, so a platform that honours
+  the upgrade gets device-only protection and one that cannot still produces a
+  working, verified identity.
+- **An Open In or share-sheet hand-off could be received and never shown.** The
+  presentation was requested in the frame ZynSign returns to the foreground,
+  where UIKit drops it with no error, and the state that asked for it stayed
+  set — the Import Hub, certificate sheet, or profile sheet never opened, and
+  asking again changed nothing. The shell now holds the request and honours it
+  the moment the scene is active.
+- **A package picked inside Files never reached the Import Hub.** `FilesView`
+  handed the package to the hub and asked the shell to present it in the same
+  frame the document picker was still dismissing. It waits the same settle every
+  other post-picker presentation waits (`PresentationSettle`), so the hand-off
+  lands instead of leaving the hub closed with the package queued behind it.
 - **Profile picker failures are announced.** `ProvisioningProfilesModel` returned
   early on every non-`.success` picker result; only cancellation stays quiet now,
   and any other failure raises a typed notice.
@@ -154,12 +183,15 @@ Carried in `ReleaseBlockerRecord.registry` and shown in the Compatibility Lab:
   actual signature needs an identity and a profile on the device.)*
 - **Performance figures measured on a simulator are not device figures.**
   *(low, accepted — they are reported as simulator measurements.)*
-- **IPA/tIPA import is still unconfirmed on a device.** The two presentation
-  faults above cover the picker never appearing and a picked file going nowhere;
-  neither has been watched working on hardware. `ImportablePackage.contentTypes`
-  is deliberately broad (`.data`, `.zip`, `.archive`, `.item` and Apple's IPA
-  UTI), so a file the picker cannot see is a different bug from the ones fixed
-  here and is not claimed as solved.
+- **IPA/tIPA import is still unconfirmed on a device.** The presentation faults
+  above cover the picker never appearing, a picked file going nowhere, and a
+  hand-off that arrives as ZynSign comes back to the foreground; none has been
+  watched working on hardware, and the pipeline behind them is unchanged.
+  `ImportablePackage.contentTypes` is deliberately broad (`.data`, `.zip`,
+  `.archive`, `.item` and Apple's IPA UTI), so a file the picker cannot see is a
+  different bug from the ones fixed here and is not claimed as solved. If a
+  device still refuses an `.ipa` or `.tipa`, the Import Hub names the item's
+  reason and the failed item's details are the next thing to read.
 
 ### What this release deliberately does not claim
 
@@ -184,9 +216,13 @@ Carried in `ReleaseBlockerRecord.registry` and shown in the Compatibility Lab:
 ### Testing
 
 New unit tests: `ProvisioningProfilesModelTests.testPickerFailureIsSurfacedButCancellationStaysQuiet`,
-and `ShellSectionTabTests.testDevelopmentStopKeepsStoreAndDownloadsDiscoverable`
+`ShellSectionTabTests.testDevelopmentStopKeepsStoreAndDownloadsDiscoverable`
 (replacing `testDevelopmentStopShowsOnlyTheCoreTabs`, which asserted the old
-policy). **Their results belong to CI** — the `Build and test (Xcode)` job is the
+policy), and `SigningKeyProtectionRuleTests` — the rule that decides whether a
+stored signing key may sign, pinning both halves of it: the Keychain's default
+class that an imported key actually carries must pass, and every class that
+leaves a key readable while the device is locked, plus a key reported as
+exportable, must fail. **Their results belong to CI** — the `Build and test (Xcode)` job is the
 judge, and this note claims nothing about them until it has run: no macOS
 toolchain is available in the environment that wrote these notes, so
 `xcodebuild` and XCTest were not executed.

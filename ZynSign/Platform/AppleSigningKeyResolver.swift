@@ -3,7 +3,22 @@ import Foundation
 import Security
 
 /// Resolves only existing, protected private keys in the app's Keychain scope.
-/// No private-key import/export, protection mutation, or generation occurs here.
+/// No private-key import/export or generation occurs here.
+///
+/// The protection the resolver requires is the one ZynSign actually depends
+/// on — a private key that cannot be read while the device is locked — rather
+/// than one exact Keychain class. The distinction is not academic: an identity
+/// imported from a `.p12` arrives through `SecPKCS12Import`, which takes no
+/// attribute dictionary and therefore stores its items with the Keychain's
+/// default class, and iOS offers no supported way to re-protect a private key
+/// after it exists (`SecItemUpdate` on `kSecAttrAccessible` needs the item's
+/// data, which a private key never returns). Requiring the device-only class
+/// *exactly* therefore refused every identity the platform could legally
+/// produce for an import, which is what made `.p12` import fail with
+/// "The required identity protection is not available" no matter what the
+/// user did. `ApplePKCS12Importer` still asks for the device-only class before
+/// registering, so a platform that honours the upgrade gets it; the resolver
+/// verifies what it actually got.
 struct AppleSigningKeyResolver: SigningIdentityKeyResolver {
     func resolve(_ record: StoredSigningIdentity) throws -> any SigningCapability {
         let id = try record.id
@@ -53,11 +68,14 @@ struct AppleSigningKeyResolver: SigningIdentityKeyResolver {
               CFGetTypeID(value as CFTypeRef) == SecKeyGetTypeID() else {
             throw ZynSignError.identity(.unexpectedSecurityFailure)
         }
-        guard attributes[kSecAttrKeyClass as String] as? String == kSecAttrKeyClassPrivate as String,
-              attributes[kSecAttrAccessible as String] as? String
-                == kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String,
-              (attributes[kSecAttrSynchronizable as String] as? Bool ?? false) == false,
-              attributes[kSecAttrIsExtractable as String] as? Bool == false else {
+        // Exactly the protection `SigningKeyProtectionRule` describes, read
+        // from the key itself rather than assumed from how it was made.
+        guard SigningKeyProtectionRule.permits(
+            keyClass: attributes[kSecAttrKeyClass as String] as? String,
+            accessibility: attributes[kSecAttrAccessible as String] as? String,
+            synchronizable: attributes[kSecAttrSynchronizable as String] as? Bool,
+            isExtractable: attributes[kSecAttrIsExtractable as String] as? Bool
+        ) else {
             throw ZynSignError.identity(.platformRestriction)
         }
         // The Core Foundation type check above proves the value is a key.
@@ -67,6 +85,67 @@ struct AppleSigningKeyResolver: SigningIdentityKeyResolver {
         // swiftlint:disable:next force_cast
         let key = value as! SecKey
         return key
+    }
+}
+
+/// The protection a stored signing key must carry for ZynSign to sign with it.
+///
+/// The rule is a pure decision over the attributes the Keychain reports, split
+/// out of the resolver so the test suite can exercise it directly: the
+/// resolver's other work needs a real Keychain, but this is the part that
+/// decides whether an imported key is acceptable — and the part that made
+/// `.p12` import impossible when it demanded one exact class.
+///
+/// What is required is the property signed identities depend on: a private
+/// key, never one that can sync to iCloud Keychain, unreadable while the
+/// device is locked, and not reported as exportable.
+///
+/// - `WhenUnlockedThisDeviceOnly` is what ZynSign asks for, and what the
+///   importer requests before registering an imported key.
+/// - `WhenUnlocked` is the Keychain's default, which `SecPKCS12Import` stores
+///   its items under because it takes no attribute dictionary and iOS offers
+///   no supported way to re-protect a private key after creation. Refusing it
+///   refused every identity the platform could legally produce for an import.
+/// - `WhenPasscodeSetThisDeviceOnly` is stronger than either.
+///
+/// Everything else — `AfterFirstUnlock`, the `Always` family, a class this
+/// build does not know, or no reported class at all — fails closed. So does a
+/// key the platform reports as exportable. An *unreported* extractability
+/// attribute does not: DTS is explicit that an imported private key's raw
+/// bytes cannot be read back, and the attribute is not always surfaced, so
+/// absence is treated as the platform's own import rather than as evidence
+/// the key can be exported. `docs/architecture/on-device-signing-feasibility.md`
+/// records that distinction as an attribute report, not as an experimentally
+/// proven non-exportability guarantee.
+enum SigningKeyProtectionRule {
+
+    /// The accessibility classes a signing key may carry.
+    static let permittedAccessibilityClasses: Set<String> = [
+        kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String,
+        kSecAttrAccessibleWhenUnlocked as String,
+        kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly as String
+    ]
+
+    /// Whether a key the Keychain reports with these attributes may sign.
+    ///
+    /// - Parameters:
+    ///   - keyClass: `kSecAttrKeyClass`, or `nil` when unreported.
+    ///   - accessibility: `kSecAttrAccessible`, or `nil` when unreported.
+    ///   - synchronizable: `kSecAttrSynchronizable`, or `nil` when unreported.
+    ///   - isExtractable: `kSecAttrIsExtractable`, or `nil` when unreported.
+    static func permits(
+        keyClass: String?,
+        accessibility: String?,
+        synchronizable: Bool?,
+        isExtractable: Bool?
+    ) -> Bool {
+        guard keyClass == kSecAttrKeyClassPrivate as String,
+              let accessibility,
+              permittedAccessibilityClasses.contains(accessibility),
+              synchronizable != true else {
+            return false
+        }
+        return isExtractable != true
     }
 }
 

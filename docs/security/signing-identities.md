@@ -115,6 +115,26 @@ or incompatible protection evidence fails closed; the adapter never weakens
 existing protections to make a test pass. An attribute report is not an
 experimentally proven non-exportability guarantee.
 
+**Imported keys are the platform's, not ours.** `SecPKCS12Import` takes no
+attribute dictionary, so the private key and certificate it stores carry the
+Keychain's default protection class (`kSecAttrAccessibleWhenUnlocked`), and iOS
+offers no supported way to re-protect a private key after creation —
+`SecItemUpdate` on `kSecAttrAccessible` needs the item's data, which a private
+key never returns. A rule that required the device-only class *exactly* therefore
+refused every identity the platform could produce for an import; that rule was
+the reason `.p12` import failed. What is required now is the property the
+app depends on, read back from the key itself: a private key, never
+synchronizable, unreadable while the device is locked, and not reported as
+exportable — `SigningKeyProtectionRule` owns the decision and
+`SigningKeyProtectionRuleTests` pins both halves of it. The importer first asks
+for `WhenUnlockedThisDeviceOnly` and does not assume the answer, so a platform
+that honours the upgrade gets device-only protection and one that cannot still
+produces a working, verified identity. Behind that, DTS is explicit that an
+imported private key's raw bytes cannot be read back, which is why an
+*unreported* extractability attribute is treated as the platform's own import
+rather than as evidence the key is exportable; a key the platform reports as
+exportable is refused.
+
 This is a foreground/unlocked policy. Device-only items do not migrate to another
 device. Same-device restore and uninstall/reinstall retention need E7; removal
 of the app must not be advertised as key erasure. No shared access group is added.

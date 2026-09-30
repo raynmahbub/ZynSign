@@ -45,6 +45,39 @@ publishes the notes for the stop being cut. The `CFBundleVersion` is assigned by
 
 ### Fixed
 
+- **A `.p12` could never finish importing, and the reason was a rule the
+  platform cannot satisfy.** Registration validated the imported private key
+  against one exact Keychain protection class —
+  `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` — and against an explicitly
+  reported non-extractability attribute. `SecPKCS12Import` takes no attribute
+  dictionary, so the items it stores carry the Keychain's default class
+  (`kSecAttrAccessibleWhenUnlocked`), and iOS offers no supported way to
+  re-protect a private key after creation: `SecItemUpdate` on
+  `kSecAttrAccessible` needs the item's data, and a private key never returns
+  it. Every identity the platform could legally produce for an import was
+  therefore refused, with *The required identity protection is not available* —
+  which is what "certificate import does not work" was. The rule now requires
+  the property signed identities actually depend on: a private key, never
+  synchronizable, unreadable while the device is locked, and not reported as
+  exportable; an unreported extractability attribute is the platform's own
+  import rather than evidence the key can be exported
+  (`SigningKeyProtectionRule`, pinned by `SigningKeyProtectionRuleTests`).
+  `ApplePKCS12Importer` additionally *asks* for the device-only class before
+  registering and does not assume the answer — the resolver reads the key's
+  actual attributes back, so a platform that honours the upgrade gets it and a
+  platform that cannot still produces a working, verified identity.
+- **An Open In or share-sheet hand-off could be received and never shown.** The
+  presentation was requested in the frame ZynSign comes back to the foreground,
+  where UIKit drops it without an error, and the state that asked for it stayed
+  set — so the Import Hub, the certificate sheet, or the profile sheet never
+  opened, and asking again changed nothing. The shell now holds the request and
+  honours it the moment the scene is active (`RootView.presentWhenActive`).
+- **A package picked inside Files never reached the Import Hub.** `FilesView`
+  sent the package to the hub and asked the shell to present it in the same
+  frame the document picker was still dismissing — the drop the certificate
+  import's password sheet already waited out. The hand-off now waits the same
+  settle every post-dismissal presentation in the app uses
+  (`PresentationSettle`), one shared beat instead of three invented ones.
 - **The tab bar was over the platform's ceiling, and the folded tab crashed.**
   `ShellSection.allTabs` lists six sections; a phone tab bar draws five and
   folds the rest into a system *More* list that *pushes* the overflow. Every tab
@@ -59,7 +92,11 @@ publishes the notes for the stop being cut. The `CFBundleVersion` is assigned by
   openable from Settings → Updates and Store → Download Jobs, and its badge
   follows it there. Locked by
   `ShellSectionTabTests.testTabBarNeverExceedsThePlatformCeiling` and
-  `testTheCapDropsOnlyTheLeastWantedSectionAndKeepsTheRestInOrder`.
+  `testTheCapDropsOnlyTheLeastWantedSectionAndKeepsTheRestInOrder`. The same
+  fault existed in one more place the audit cannot see either: Signing's
+  Installation Workspace sheet wrapped the view in a stack *and* asked it to
+  embed its own (`embedsNavigationStack` now `false`, as the Settings push
+  already does).
 - **A Home shortcut could select a tab that does not exist.** The onboarding
   checklist's *Add a certificate* and *Import a provisioning profile* rows set
   the tab selection to `.certificates` and `.profiles`, neither of which is a
@@ -118,6 +155,17 @@ publishes the notes for the stop being cut. The `CFBundleVersion` is assigned by
 
 ### Changed
 
+- **Motion is one policy, and every state change goes through it.** Settings'
+  edit-mode toggle named its own curve (`.snappy`) instead of asking `ZMotion`,
+  so it was the one transition the app's motion policy — the single place that
+  honours Reduce Motion and the animation preference — could not turn off. It
+  goes through the shared presets now. The Import Hub animates an item moving
+  between sections — prepared, in progress, finished — instead of letting it
+  jump; the Library, Certificates, and Profiles screens cross-fade from their
+  loading skeleton to content rather than snapping; and the Files listing's
+  refresh spinner fades instead of appearing over the list in one frame.
+  Progress within a stage is deliberately not animated: a copy reports ten times
+  a second, and animating that would be motion without meaning.
 - **Store and Downloads stay in the tab bar at every release stop.** They are
   primary navigation, and gating them made a development build look like it had
   lost working features. `ShellSection.allTabs` keeps all six destinations, but
