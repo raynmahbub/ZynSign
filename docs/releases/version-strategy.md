@@ -6,12 +6,14 @@ time. No stage is entered because the previous one "looks complete", and no
 versioned release section is written in `CHANGELOG.md` for a version that
 was not actually produced.
 
-The Xcode project currently declares marketing version `0.1.0`, build `2`,
-for `v0.1.0-alpha.3` (2026-09-29) — the third Alpha on the train below,
-`10 wired · 3 never`, of which **seven are on in a Release build** at this
-stop. The market version is `0.1.0` (no pre-release suffix in
-`CFBundleShortVersionString`; suffixes live only in the tag/release name);
-`CFBundleVersion` is `2`. The build is not an App Store submission.
+The train owns the numbers, not the prose. `ReleaseTrain.current` names the
+stop; `python3 Scripts/release_train.py status` prints it next to
+`MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` as the Xcode project declares
+them, and `release_train.py check` fails when a tag disagrees. Marketing
+versions stay purely numeric (a pre-release suffix lives only in the tag and the
+release name) and every stop gets a fresh `CFBundleVersion`. No page in
+`docs/releases/` restates a version it could go stale on. The build is not an
+App Store submission.
 
 The `wired · never` counts describe what is **built** into the binary; the
 release train decides what a Release build **shows**. Both are true at once: a
@@ -70,13 +72,17 @@ covers how `ReleaseTrain.swift` and `Scripts/release_train.py` keep the code,
 Internal development and testing builds. The working tree, the test suites,
 and the host vector scripts are the product.
 
-Three development stops run before the first build. They switch on **no**
-staged feature: their job is to prove the release pipeline end to end —
-quality gate → build + tests → version-stamped assets → publish — against a
-real tag, before any feature is exposed publicly. A Release build of a
-development stop shows the core only (Files, Import, Library, Bundle Explorer,
-Home, Settings); a Debug build exposes every feature, so development and UI work
-are never blocked, and `-ZynSignReleaseStage <stage>` previews any later stop.
+Three development stops run before the first build. They switch on **no** new
+staged feature of their own: their job is to prove the release pipeline end to
+end — quality gate → build + tests → version-stamped assets → publish — against
+a real tag, before the signing surface is exposed publicly. A Release build of a
+development stop shows the core — Files, Import, Library, Bundle Explorer, Home,
+Settings — and, from `dev.3` on, the whole six-tab shell, because a hidden tab
+reads as a lost feature. The gate closes staged *work*, not navigation, and the
+entry-point map in [release-train.md](release-train.md) is the authority on
+which checks are live. A Debug build exposes every feature, so development and
+UI work are never blocked, and `-ZynSignReleaseStage <stage>` previews any later
+stop.
 
 The first build is `0.0.1`: market `0.0.1`, `10 wired · 3 never` — the delivery
 hand-off and the local activity journal are among the wired rows; in-app
