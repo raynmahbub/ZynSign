@@ -14,15 +14,22 @@ final class SigningKeyProtectionRuleTests: XCTestCase {
     private let privateKey = kSecAttrKeyClassPrivate as String
     private let publicKey = kSecAttrKeyClassPublic as String
 
+    /// The rule over the attributes an ordinary imported key carries, with each
+    /// parameter *defaulted* rather than substituted: passing `nil` means what it
+    /// says — the Keychain reported no such attribute — which is exactly what the
+    /// negative cases are about. (An earlier version wrote `keyClass ?? privateKey`
+    /// inside the helper, so `permits(keyClass: nil)` silently tested a private
+    /// key and the case that checks an unreported class passed for the wrong
+    /// reason. CI caught it; this shape cannot make that mistake.)
     private func permits(
-        keyClass: String? = nil,
-        accessibility: String? = nil,
+        keyClass: String? = kSecAttrKeyClassPrivate as String,
+        accessibility: String? = kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String,
         synchronizable: Bool? = nil,
         isExtractable: Bool? = nil
     ) -> Bool {
         SigningKeyProtectionRule.permits(
-            keyClass: keyClass ?? privateKey,
-            accessibility: accessibility ?? (kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String),
+            keyClass: keyClass,
+            accessibility: accessibility,
             synchronizable: synchronizable,
             isExtractable: isExtractable
         )
@@ -76,6 +83,7 @@ final class SigningKeyProtectionRuleTests: XCTestCase {
     func testOnlyAPrivateKeyIsPermitted() {
         XCTAssertFalse(permits(keyClass: publicKey))
         XCTAssertFalse(permits(keyClass: kSecAttrKeyClassSymmetric as String))
+        // A class the Keychain did not report is not a private class either.
         XCTAssertFalse(permits(keyClass: nil))
     }
 

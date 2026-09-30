@@ -82,7 +82,8 @@ enum RegressionCoverageCatalog {
             behaviour: "Identities are listed deterministically, private keys are never exportable, and every identity failure maps to a stable category with a user message of its own.",
             testSuites: [
                 "CertificateManagerModelTests", "SecureIdentityStoreTests", "SigningIdentityStorageBoundaryTests",
-                "IdentityKeychainErrorTests", "CertificateInspectionTests", "KeychainIdentityIntegrationTests"
+                "IdentityKeychainErrorTests", "CertificateInspectionTests", "KeychainIdentityIntegrationTests",
+                "SigningKeyProtectionRuleTests"
             ],
             probe: .identityErrorTaxonomy
         ),
