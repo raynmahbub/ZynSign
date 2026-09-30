@@ -8,8 +8,15 @@ When you push a release tag the
     python3 Scripts/generate_changelog.py --version 0.0.1 --date 2026-09-29
 
 If CHANGELOG.md already has that version's section the script is a no-op (idempotent).
-Otherwise it inserts a new section after ## [Unreleased], built from
-git log since the previous tag, grouped by conventional-commit prefix.
+Otherwise it inserts a new section after ## [Unreleased]. The body comes from
+the curated `## [Unreleased]` section when a human wrote one — Keep a Changelog
+semantics move that text into the release it describes — and only falls back to
+git log since the previous tag, grouped by conventional-commit prefix, when
+`[Unreleased]` is empty.
+
+An existing `docs/releases/notes-v<version>.md` is never overwritten: the
+release workflow publishes that file as the GitHub Release body, so a curated
+note outranks anything this script could generate.
 
 Grouped sections:
   feat:     → Added
@@ -104,6 +111,26 @@ def group_commits(messages: list[str]) -> dict[str, list[str]]:
         groups.setdefault(section, []).append(entry)
     return groups
 
+def unreleased_span(text: str) -> tuple[int, int] | None:
+    """Byte span of the `## [Unreleased]` body, or None when there is no such section.
+
+    The end of the span is the start of the next `## [` section (or EOF), so the
+    body can be read and rewritten without regex-replacement surprises: release
+    notes legitimately contain backslashes and `\\1`-looking text.
+    """
+    header = re.search(r"(?m)^## \[Unreleased\][^\n]*\n", text)
+    if not header:
+        return None
+    following = re.search(r"(?m)^## \[", text[header.end():])
+    end = header.end() + following.start() if following else len(text)
+    return header.end(), end
+
+
+def build_curated_entry(version: str, date: str, body: str) -> str:
+    """Promote a hand-written `[Unreleased]` body into this release's section."""
+    return f"## [{version}] - {date}\n\n{body.strip()}\n"
+
+
 def build_entry(version: str, date: str, groups: dict[str, list[str]]) -> str:
     lines = []
     lines.append(f"## [{version}] - {date} — auto-generated")
@@ -166,25 +193,36 @@ def main() -> int:
                 print(f"Wrote missing notes {notes_path}")
         return 0
 
-    prev_tag = get_previous_tag(tag)
-    print(f"Previous tag: {prev_tag!r} → {tag}")
-    commits = collect_commits(prev_tag)
-    print(f"Collected {len(commits)} commits since {prev_tag}")
-    for c in commits[:10]:
-        print(f"  - {c}")
-    if len(commits) > 10:
-        print(f"  ... and {len(commits)-10} more")
+    # A hand-written [Unreleased] entry is the release's own note; the commit log
+    # is only the fallback for a release that skipped the changelog.
+    span = unreleased_span(text)
+    curated = text[span[0]:span[1]].strip() if span else ""
 
-    groups = group_commits(commits)
-    entry = build_entry(version, date, groups)
-
-    # Insert after ## [Unreleased]
-    unreleased_pat = r"^(## \[Unreleased\].*?\n)(## \[)"
-    if re.search(unreleased_pat, text, re.S | re.M):
-        new_text = re.sub(unreleased_pat, rf"\1{entry}\n\2", text, count=1, flags=re.S | re.M)
+    if curated:
+        lines = len(curated.splitlines())
+        print(f"[Unreleased] carries a curated entry ({lines} lines) — promoting it verbatim.")
+        entry = build_curated_entry(version, date, curated)
+        # The body now belongs to this release, so [Unreleased] starts empty again.
+        new_text = text[:span[0]] + "\n" + entry + "\n" + text[span[1]:]
     else:
-        # fallback: after first # Changelog header
-        new_text = text.replace("# Changelog", f"# Changelog\n\n{entry}", 1)
+        prev_tag = get_previous_tag(tag)
+        print(f"Previous tag: {prev_tag!r} → {tag}")
+        commits = collect_commits(prev_tag)
+        print(f"Collected {len(commits)} commits since {prev_tag}")
+        for c in commits[:10]:
+            print(f"  - {c}")
+        if len(commits) > 10:
+            print(f"  ... and {len(commits)-10} more")
+
+        groups = group_commits(commits)
+        entry = build_entry(version, date, groups)
+
+        if span:
+            # Insert after the [Unreleased] section, leaving any preamble intact.
+            new_text = text[:span[1]] + entry + "\n" + text[span[1]:]
+        else:
+            # fallback: after first # Changelog header
+            new_text = text.replace("# Changelog", f"# Changelog\n\n{entry}", 1)
 
     if args.dry_run:
         print("--- DRY RUN: would insert ---")
@@ -194,11 +232,16 @@ def main() -> int:
     CHANGELOG.write_text(new_text, encoding="utf-8")
     print(f"Inserted [{version}] into CHANGELOG.md")
 
-    # Write notes file for gh release
+    # Notes for `gh release --notes-file`. An existing file was written by a
+    # human for this stop and outranks anything generated here — the release
+    # publishes the file by path, so overwriting it would ship over the notes.
     RELEASES_DIR.mkdir(parents=True, exist_ok=True)
     notes_path = RELEASES_DIR / f"notes-v{version}.md"
-    notes_path.write_text(entry, encoding="utf-8")
-    print(f"Wrote {notes_path}")
+    if notes_path.exists():
+        print(f"Keeping the existing notes at {notes_path}")
+    else:
+        notes_path.write_text(entry, encoding="utf-8")
+        print(f"Wrote {notes_path}")
 
     # Also ensure README version badge will be fixed by update_readme.py, but we do minimal here
     return 0

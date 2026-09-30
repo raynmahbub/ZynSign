@@ -165,7 +165,7 @@ def cmd_status(_: argparse.Namespace) -> int:
     on = features_through(stages, current)
     off = [f for s in stages for f in s.introduced if f not in on]
     print()
-    print("Visible in this release :", ", ".join(display.get(f, f) for f in on) or "core only (Files, Import, Library, Bundle Explorer, Home, Settings)")
+    print("Visible in this release :", ", ".join(display.get(f, f) for f in on) or "core only — the six-tab shell (Files · Library · Home · App Store · Downloads · Settings) with every staged workflow behind it")
     print("Hidden until later      :", ", ".join(display.get(f, f) for f in off) or "nothing — feature complete")
     idx = [s.name for s in stages].index(current.name)
     if idx + 1 < len(stages):
