@@ -262,10 +262,13 @@ policy), and `SigningKeyProtectionRuleTests` — the rule that decides whether a
 stored signing key may sign, pinning both halves of it: the Keychain's default
 class that an imported key actually carries must pass, and every class that
 leaves a key readable while the device is locked, plus a key reported as
-exportable, must fail. **Their results belong to CI** — the `Build and test (Xcode)` job is the
-judge, and this note claims nothing about them until it has run: no macOS
-toolchain is available in the environment that wrote these notes, so
-`xcodebuild` and XCTest were not executed.
+exportable, must fail. **Their results belong to CI**, and the `Build and test (Xcode)` job is the
+judge. On the commit this stop is cut from that job passed: every target was
+built and the whole test target ran green on a resolved simulator, with each
+failing case annotated when it is not. One case added this stop failed exactly
+that way and was repaired before the run went green, which is the gate working.
+The device matrix in [private-testing.md](../releases/private-testing.md) is the
+half CI cannot run; it is outstanding, and nothing here claims otherwise.
 
 Host audits, run on the machine that produced this note (Linux, Python):
 
