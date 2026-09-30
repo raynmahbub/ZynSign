@@ -180,6 +180,7 @@ enum CompositionRoot {
             appIcons: appIcons,
             preferences: preferencesSnapshot
         )
+        attachWorkspaceServices(to: &environment)
         return environment
     }
 

@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// Appearance — light, dark, contrast, and the text size.
+/// Appearance — light, dark, contrast, text size, and the theme.
 ///
-/// Three choices and two facts. The choices are the ones that change how the
-/// interface looks: the scheme, and whether the system is asked for increased
-/// contrast. The facts are Dynamic Type — supported everywhere, because every
-/// screen uses the system's text styles — and the theme, of which there is
-/// exactly one. An invented second theme would be worse than none, so this
-/// section says so rather than offering one.
+/// The choices that change how the interface looks: the scheme, increased
+/// contrast, the theme, an accent override, and the minimal-density mode.
+/// Dynamic Type is reported as a fact — supported everywhere, because every
+/// screen uses the system's text styles. `AppThemeCatalog` is the single
+/// place the shipped themes are defined; this section renders the catalog
+/// and writes the user's choice to preferences.
 struct AppearanceSettingsSection: View {
 
     @Environment(\.settingsCenter) private var settings
@@ -101,19 +101,99 @@ struct AppearanceSettingsSection: View {
 
     private var themeSection: some View {
         Section {
-            ZSettingsValueRow(
-                title: "Theme",
-                symbol: "paintpalette",
-                subtitle: "The colour and material set ZynSign draws with."
-            ) {
-                Text(ZynSignTheme.zynSign.displayName)
-                    .foregroundStyle(.secondary)
+            ForEach(AppThemeCatalog.all, id: \.identifier) { theme in
+                themeRow(theme)
             }
+            accentSection
+            ZSettingsToggleRow(
+                title: "Minimal Interface",
+                subtitle: "Reduce visual density: gradients step back, hero surfaces shrink to their essential rows.",
+                symbol: "minus.circle",
+                isOn: settings.binding(\.appearance.minimalInterface)
+            )
         } header: {
             Text("Theme")
         } footer: {
-            Text("One theme ships today, and it is the one ZynSign was designed with. The setting stores which theme is in use, so a later release can add themes without changing anything else you have chosen.")
+            Text("The theme changes accents, hero gradients, and density. It never changes what the app does or how signing works.")
         }
+    }
+
+    private func themeRow(_ theme: AppThemeDefinition) -> some View {
+        let isSelected = settings.preferences.appearance.themeIdentifier == theme.identifier
+        return Button {
+            settings.update { $0.appearance.themeIdentifier = theme.identifier }
+        } label: {
+            HStack(spacing: ZSpacing.sm) {
+                RoundedRectangle(cornerRadius: ZynSignTokens.Radius.sm, style: .continuous)
+                    .fill(LinearGradient(
+                        colors: theme.gradientHex.map { Color(themeHex: $0) },
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ))
+                    .frame(width: 44, height: 44)
+                    .overlay {
+                        Image(systemName: theme.symbolName)
+                            .foregroundStyle(.white)
+                    }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(theme.displayName).font(.body).foregroundStyle(.primary)
+                    Text(theme.summary).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? Color(themeHex: theme.accentHex) : Color.secondary.opacity(0.4))
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(theme.displayName) theme")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// The accent override: the theme's own accent plus a small palette.
+    private var accentSection: some View {
+        VStack(alignment: .leading, spacing: ZSpacing.xs) {
+            Label("Accent", systemImage: "drop")
+                .font(.body)
+            HStack(spacing: ZSpacing.sm) {
+                accentSwatch(nil, label: "Theme")
+                ForEach(Self.accentPalette, id: \.self) { hex in
+                    accentSwatch(hex, label: hex)
+                }
+            }
+        }
+        .padding(.vertical, ZSpacing.xxs)
+    }
+
+    private static let accentPalette = ["#FF6A3D", "#FF3B30", "#FF9F0A", "#34C759", "#5E8BFF", "#AF52DE"]
+
+    private func accentSwatch(_ hex: String?, label: String) -> some View {
+        let current = settings.preferences.appearance.accentOverrideHex
+        let isSelected = (hex == nil && current == nil) || (hex != nil && current == hex)
+        return Button {
+            settings.update { $0.appearance.accentOverrideHex = hex }
+        } label: {
+            if let hex {
+                Circle()
+                    .fill(Color(themeHex: hex))
+                    .frame(width: 30, height: 30)
+                    .overlay {
+                        if isSelected {
+                            Image(systemName: "checkmark").font(.caption.bold()).foregroundStyle(.white)
+                        }
+                    }
+            } else {
+                Circle()
+                    .strokeBorder(Color.secondary, lineWidth: 1.5)
+                    .frame(width: 30, height: 30)
+                    .overlay {
+                        if isSelected {
+                            Image(systemName: "checkmark").font(.caption.bold()).foregroundStyle(.secondary)
+                        }
+                    }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label == "Theme" ? "Use the theme's accent" : "Accent \(label)")
     }
 
     // MARK: - Icon

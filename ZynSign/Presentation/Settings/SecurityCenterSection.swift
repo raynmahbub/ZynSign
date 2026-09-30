@@ -13,6 +13,7 @@ struct SecurityCenterSection: View {
 
     @Environment(\.settingsCenter) private var settings
     @Environment(\.appLock) private var appLock
+    @Environment(\.applicationEnvironment) private var environment
     @State private var testOutcome: AuthenticationOutcome?
 
     static let descriptor = SettingsSectionDescriptor(
@@ -27,6 +28,17 @@ struct SecurityCenterSection: View {
         List {
             statusSection
             protectionSection
+            if environment.appProtection != nil {
+                Section {
+                    NavigationLink { AppProtectionView() } label: {
+                        ZSettingsLabel(
+                            title: "App Protection",
+                            subtitle: "Lock individual apps and conceal them in a vault.",
+                            symbol: "lock.shield"
+                        )
+                    }
+                }
+            }
             sensitiveActionsSection
             visibilitySection
             guaranteeSection

@@ -261,12 +261,19 @@ struct RootView: View {
         }
     }
 
+    /// The theme the whole interface renders with, resolved once from
+    /// preferences so every screen agrees on accent, gradient, and density.
+    private var resolvedTheme: ResolvedAppTheme {
+        ResolvedAppTheme.resolve(settings.preferences.appearance)
+    }
+
     /// The tabs with their environment, transaction rules, and lock
     /// overlay, split from `body` so each chain is a modest expression
     /// the type checker can solve on its own.
     private var configuredRoot: some View {
         rootTabs
-        .tint(.primary)
+        .tint(resolvedTheme.accent)
+        .environment(\.appTheme, resolvedTheme)
         .environment(\.thumbnailPipeline, thumbnailPipeline)
         .environment(\.zMotion, motion)
         .environment(\.settingsCenter, settings)

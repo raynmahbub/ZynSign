@@ -180,13 +180,32 @@ struct HomeView: View {
 
     // MARK: - Command center
 
+    /// The resolved theme this dashboard renders with.
+    @Environment(\.appTheme) private var theme
+
     /// The wordmark. The one place the product names itself, so the screen
     /// below it can be read as a dashboard rather than as a page of a form.
     private var wordmark: some View {
-        Text("ZynSign")
-            .font(.system(.largeTitle, design: .default).weight(.bold))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityAddTraits(.isHeader)
+        Group {
+            if theme.minimalInterface {
+                Text("ZynSign")
+                    .font(.system(.largeTitle, design: .default).weight(.bold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                VStack(alignment: .leading, spacing: ZSpacing.xxs) {
+                    Text("ZynSign")
+                        .font(.system(.largeTitle, design: .default).weight(.bold))
+                        .foregroundStyle(.white)
+                    Text("One Workspace. Complete Control.")
+                        .font(ZynSignTokens.Typography.subheadline)
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(ZSpacing.lg)
+                .background(theme.heroGradient, in: RoundedRectangle(cornerRadius: ZynSignTokens.Radius.xl, style: .continuous))
+            }
+        }
+        .accessibilityAddTraits(.isHeader)
     }
 
     /// What ZynSign holds, in three counts. Each opens the area it counts,

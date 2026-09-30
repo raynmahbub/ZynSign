@@ -31,6 +31,11 @@ Open the app and it already knows what you were doing. **Good Morning** · **Con
 | **Profiles & Entitlements** | `.mobileprovision` parsing with CMS verification, per-app compatibility, and a read-only Entitlements Studio with diagnostics. |
 | **Library & Inspection** | Grid/list library with collections and filters, SHA-256 de-duplication on import, a bounded read-only Bundle Explorer, and a Mach-O / code-signature inspector. |
 | **Store & Downloads** | AltSource-compatible catalogs, repository health, resumable background downloads. |
+| **Release Feeds** | Follow the releases public repositories publish, hand a package asset to the Download Center, and track one library app per feed. Updates are compared by a bounded version comparator, never by dates. |
+| **Tweak Library** | Import, organize, and stage payloads for signing sessions — SHA-256 de-duplicated, bounded, and manifest-recorded beside each signed output. |
+| **Revocation Center** | Probes the OCSP and CRL endpoints a certificate publishes and reports how reachable they are right now: `Exposed`, `Partial`, `Shielded`, or `No Endpoints`. |
+| **App Protection** | Per-app Lock and a concealed Vault over the system's authentication boundary — an interface guard, stated honestly, not encryption. |
+| **Themes & Storage** | Four themes with an accent override and a minimal-density mode, plus a live storage gauge with free-space pressure bands on the Files screen. |
 | **Delivery hand-off** | Builds the OTA `manifest.plist`, `itms-services://` link and QR for a signed IPA you host yourself. ZynSign never uploads and never claims an install. |
 | **Honest by design** | Typed `ZynSignError`s that say what to do next; readiness checks that report *not performed* instead of a pass; a shipped [anti-roadmap](docs/product/WHAT_DOES_NOT_EXIST.md). |
 
