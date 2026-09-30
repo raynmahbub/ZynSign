@@ -48,9 +48,11 @@ first Beta.
 The three development stops switch on no staged `ReleaseFeature` of their own.
 They exist so the release machinery is proven against a real tag before the
 first public feature surface ships. "No staged feature" is not "the core only":
-since `dev.3` the shell shows all six tabs at every stop, and the certificate,
-profile, repository and download surfaces behind two of them are reachable from
-Settings. What a development build holds back is the staged *work* — signing,
+since `dev.3` the shell keeps all six tab-capable sections at every stop, and
+the certificate, profile, repository and download surfaces behind two of them
+are reachable from Settings. Six sections are not six tabs: UIKit draws five and
+folds the sixth into a list it pushes, which is why `ShellSection.primaryTabs`
+is capped and Downloads gives up its slot to Settings → Updates. What a development build holds back is the staged *work* — signing,
 presets, the queue, identity, installation, the workspace, Nova. Every feature
 below them is already compiled into a development build — a Debug build shows
 all of them, and
