@@ -123,15 +123,25 @@ enum CompositionRoot {
         // Nova: the Smart Workspace reads the identity store, the profile
         // library, the application library, and the signing history the
         // tabs already read; only its own small state file is new.
-        environment.smartWorkspace = SmartWorkspaceService(
-            identityStore: identityStore,
-            profiles: profiles,
-            library: library,
-            signingHistory: history,
-            state: FileWorkspaceStateStore(
-                documentLocation: libraryRootDirectory.appendingPathComponent("SmartWorkspace.json")
+        //
+        // Gated on its own stage. The workspace is staged for rc2, so at
+        // every earlier stop the service must not be constructed at all:
+        // building it unconditionally made a Release build write
+        // `SmartWorkspace.json` on every signing session and every
+        // application detail view, from dev1 onward, on behalf of a screen
+        // nothing could reach. `nil` is a supported state — both call
+        // sites already read it through `?.`.
+        environment.smartWorkspace = ReleaseTrain.isAvailable(.smartWorkspace)
+            ? SmartWorkspaceService(
+                identityStore: identityStore,
+                profiles: profiles,
+                library: library,
+                signingHistory: history,
+                state: FileWorkspaceStateStore(
+                    documentLocation: libraryRootDirectory.appendingPathComponent("SmartWorkspace.json")
+                )
             )
-        )
+            : nil
         environment.applicationProvenance = makeApplicationProvenanceExtraction()
         environment.libraryExport = makeLibraryExportPreparation()
         environment.droppedFiles = droppedFiles
