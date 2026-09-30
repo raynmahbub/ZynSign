@@ -13,7 +13,7 @@ struct ZPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Color.white)
+            .foregroundStyle(Color.primary)
             .padding(.horizontal, ZSpacing.lg)
             .padding(.vertical, ZSpacing.sm)
             .frame(maxWidth: isFullWidth ? .infinity : nil, minHeight: 44)
@@ -83,7 +83,7 @@ struct ZLargeProminentButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.headline)
-            .foregroundStyle(Color.white)
+            .foregroundStyle(Color.primary)
             .frame(maxWidth: .infinity, minHeight: 52)
             .background(tint)
             .clipShape(RoundedRectangle(cornerRadius: ZRadius.lg, style: .continuous))

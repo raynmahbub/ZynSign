@@ -15,7 +15,7 @@ import SwiftUI
 /// The launch splash — `ZynSplashView` (Liquid Glass Z·Pen) — is shown once
 /// per cold launch over `RootView` until its 1.9s fluid timeline completes
 /// (tap skips). It is the same Liquid Glass mark used everywhere else, animated
-/// with spring + shimmer + haptics, and respects Reduce Motion.
+/// with a brief, quiet fade that respects Reduce Motion.
 @main
 struct ZynSignApp: App {
 

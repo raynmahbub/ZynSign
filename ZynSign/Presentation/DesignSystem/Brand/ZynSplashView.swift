@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// ZynSign launch splash — the Liquid Glass Z·Pen with fluid animation and haptics.
+/// ZynSign launch splash — a brief, quiet Liquid Glass Z·Pen transition.
 ///
 /// Shown once per cold launch from `ZynSignApp` over `RootView` until the
 /// first deferred startup work is underway. It reuses the canonical
@@ -14,11 +14,11 @@ import SwiftUI
 ///  - Ambient glow: pulsing blurred halo behind the mark
 ///  - Haptics: light → medium → selection → success across the timeline
 ///
-/// When Reduce Motion is on the splash collapses to a quick cross-fade with
-/// no spring, no shimmer, and reduced haptics.
+/// The splash uses a short fade and no launch haptics so it does not delay
+/// the first useful frame or compete with startup work.
 ///
 /// The splash is VoiceOver-hidden (live launch, not content) and auto-dismisses
-/// after ~1.9s (1.1s with reduce motion) or on tap.
+/// after a short transition or on tap.
 struct ZynSplashView: View {
     var onFinished: () -> Void = {}
 
@@ -225,58 +225,30 @@ struct ZynSplashView: View {
         }
     }
 
-    // MARK: - Timeline with haptics
+    // MARK: - Short launch transition
 
     private func runTimeline() async {
-        // Reduce Motion fast path
-        if reduceMotion {
+        // Keep the launch transition short and quiet: the app is ready behind
+        // this view, so the splash should never feel like a loading screen.
+        // A single low-amplitude fade is smoother on older devices than the
+        // previous sequence of shimmer, glow, and repeated haptics.
+        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : .easeOut(duration: 0.2)) {
             logoAppeared = true
             wordmarkAppeared = true
             taglineAppeared = true
             glowPulse = true
-            try? await Task.sleep(nanoseconds: 700_000_000)
-            dismiss()
-            return
+            shimmerActive = !reduceMotion
         }
-
-        // 0.0 — light tick as the window appears
-        ZHaptics.impact(.light)
-
-        // 0.08 — logo pops
-        try? await Task.sleep(nanoseconds: 80_000_000)
-        withAnimation { logoAppeared = true }
-        glowPulse = true
-        // Shimmer starts shortly after the logo lands
-        try? await Task.sleep(nanoseconds: 180_000_000)
-        shimmerActive = true
-        ZHaptics.impact(.medium)
-
-        // 0.35 — wordmark rises
-        try? await Task.sleep(nanoseconds: 120_000_000)
-        withAnimation { wordmarkAppeared = true }
-        ZHaptics.selection()
-
-        // 0.55 — tagline
-        try? await Task.sleep(nanoseconds: 180_000_000)
-        withAnimation { taglineAppeared = true }
-
-        // Let the shimmer sweep complete, then settle
-        try? await Task.sleep(nanoseconds: 600_000_000)
-        // second soft pulse
-        ZHaptics.selection()
-
-        // Hold for readability — total ~1.9s before dismiss
-        try? await Task.sleep(nanoseconds: 520_000_000)
+        try? await Task.sleep(for: .milliseconds(reduceMotion ? 180 : 360))
         dismiss()
     }
 
     private func dismiss() {
         guard !dismissing else { return }
         dismissing = true
-        ZHaptics.success()
-        // Give the dismiss animation time before removing the view
+        // Remove the launch layer as soon as its brief fade is complete.
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: reduceMotion ? 280_000_000 : 460_000_000)
+            try? await Task.sleep(for: .milliseconds(reduceMotion ? 120 : 180))
             onFinished()
         }
     }
