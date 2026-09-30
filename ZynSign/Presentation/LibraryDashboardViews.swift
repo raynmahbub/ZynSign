@@ -61,7 +61,7 @@ struct LibraryStatisticsCard: View {
                     .font(.title3.weight(.bold))
                     .monospacedDigit()
                     .lineLimit(1)
-                    .minimumScaleFactor(0.6)
+                    .minimumScaleFactor(0.75)
                 Text(label)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -339,7 +339,7 @@ struct LibraryBulkActionBar: View {
                 .font(.footnote.weight(.semibold))
                 .monospacedDigit()
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .minimumScaleFactor(0.75)
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
         }

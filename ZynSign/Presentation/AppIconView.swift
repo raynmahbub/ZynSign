@@ -59,7 +59,7 @@ struct ApplicationIconView: View {
                     .font(.system(size: size * 0.36, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.6)
+                    .minimumScaleFactor(0.75)
                     .padding(size * 0.08)
             }
         }

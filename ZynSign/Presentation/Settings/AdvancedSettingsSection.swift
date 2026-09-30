@@ -58,9 +58,9 @@ struct AdvancedSettingsSection: View {
                 }
             }
             ZSettingsValueRow(
-                title: "Current Location",
+                title: "Next Launch Location",
                 symbol: "externaldrive",
-                subtitle: "Where ZynSign is staging right now."
+                subtitle: "Where work in progress is staged after ZynSign next launches."
             ) {
                 Text(
                     CompositionRoot.importStagingDirectory(preferences: settings.preferences).path

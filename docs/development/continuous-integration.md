@@ -105,6 +105,8 @@ python3 Scripts/release_train.py check
 Scripts/ci/release_meta.sh --self-test
 python3 Scripts/audit_crash_surface.py
 python3 Scripts/audit_accessibility.py --strict
+python3 Scripts/audit_navigation_stack.py
+python3 Scripts/audit_identity_stability.py
 python3 Scripts/audit_regression_coverage.py
 python3 Scripts/generate_hardening_report.py --output build/hardening/index.html
 ```

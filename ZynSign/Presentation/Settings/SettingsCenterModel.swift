@@ -185,14 +185,29 @@ final class SettingsCenterModel: ObservableObject {
     /// reachable from Settings → Recovery behind a confirmation and, when the
     /// user asked for it, authentication. Orphaned artifacts are removed as
     /// well, so nothing is left behind that no record refers to.
+    ///
+    /// Every step is load-bearing, so every step can fail out loud: a reset
+    /// that could not enumerate, remove, or verify the library reports that
+    /// through `performMaintenance` instead of returning "Removed 0 records"
+    /// for a library it never touched. The number reported is the number of
+    /// removals that returned, and the library is read back at the end, so
+    /// the sentence describes the library as it now is.
     func resetLibrary() async {
         await performMaintenance(.recovery, detail: "library.reset") {
-            let entries = (try? await self.environment.library.entries()) ?? []
+            let entries = try await self.environment.library.entries()
+            var removed = 0
             for entry in entries {
-                try? await self.environment.library.remove(recordWithID: entry.record.id)
+                try await self.environment.library.remove(recordWithID: entry.record.id)
+                removed += 1
             }
-            let orphans = (try? await self.environment.library.removeOrphanedArtifacts()) ?? []
-            return "Removed \(entries.count) record\(entries.count == 1 ? "" : "s") and \(orphans.count) orphaned artifact\(orphans.count == 1 ? "" : "s")."
+            let orphans = try await self.environment.library.removeOrphanedArtifacts()
+            let remaining = try await self.environment.library.entries()
+            guard remaining.isEmpty else {
+                throw ZynSignError.libraryStorageFailure(
+                    diagnosticDetail: "The library reset left \(remaining.count) of \(entries.count) record(s) in place."
+                )
+            }
+            return "Removed \(removed) record\(removed == 1 ? "" : "s") and \(orphans.count) orphaned artifact\(orphans.count == 1 ? "" : "s")."
         }
         await refreshStorageUsage()
     }

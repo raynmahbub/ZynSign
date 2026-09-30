@@ -69,14 +69,29 @@ struct AppleSigningKeyResolver: SigningIdentityKeyResolver {
             throw ZynSignError.identity(.unexpectedSecurityFailure)
         }
         // Exactly the protection `SigningKeyProtectionRule` describes, read
-        // from the key itself rather than assumed from how it was made.
+        // from the key itself rather than assumed from how it was made. What
+        // the Keychain reported is also what the refusal records, in policy
+        // vocabulary: without it a device that refuses an imported key says
+        // only "unsupported", and which attribute refused it stays a guess.
+        let reportedClass = attributes[kSecAttrKeyClass as String] as? String
+        let reportedAccessibility = attributes[kSecAttrAccessible as String] as? String
+        let reportedSynchronizable = attributes[kSecAttrSynchronizable as String] as? Bool
+        let reportedExtractable = attributes[kSecAttrIsExtractable as String] as? Bool
         guard SigningKeyProtectionRule.permits(
-            keyClass: attributes[kSecAttrKeyClass as String] as? String,
-            accessibility: attributes[kSecAttrAccessible as String] as? String,
-            synchronizable: attributes[kSecAttrSynchronizable as String] as? Bool,
-            isExtractable: attributes[kSecAttrIsExtractable as String] as? Bool
+            keyClass: reportedClass,
+            accessibility: reportedAccessibility,
+            synchronizable: reportedSynchronizable,
+            isExtractable: reportedExtractable
         ) else {
-            throw ZynSignError.identity(.platformRestriction)
+            throw ZynSignError.identity(
+                .platformRestriction,
+                diagnosticDetail: SigningKeyProtectionRule.describe(
+                    keyClass: reportedClass,
+                    accessibility: reportedAccessibility,
+                    synchronizable: reportedSynchronizable,
+                    isExtractable: reportedExtractable
+                )
+            )
         }
         // The Core Foundation type check above proves the value is a key.
         // The compiler rejects a conditional downcast to a Core Foundation
@@ -146,6 +161,42 @@ enum SigningKeyProtectionRule {
             return false
         }
         return isExtractable != true
+    }
+
+    /// The policy name of a protection class, for the technical log.
+    ///
+    /// The Keychain reports protection domains as short codes — "ak", "aku" —
+    /// which say nothing to a person reading the log, and a code is exactly
+    /// the sort of thing that reads like key material when it is not. The names
+    /// are the policy's own words, and a class the rule does not know is
+    /// reported as an unrecognised class rather than echoed.
+    static func name(ofAccessibility value: String?) -> String {
+        guard let value else { return "unreported" }
+        if value == kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String { return "when-unlocked-this-device-only" }
+        if value == kSecAttrAccessibleWhenUnlocked as String { return "when-unlocked" }
+        if value == kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly as String { return "when-passcode-set-this-device-only" }
+        return "unrecognised-class"
+    }
+
+    /// What the Keychain reported about a key the rule refused, in the policy's
+    /// own vocabulary, for the technical log.
+    ///
+    /// Four facts decide the answer, so all four are recorded: which class of
+    /// key it is, which protection class it carries, whether the platform
+    /// called it synchronizable, and whether it called it exportable. Nothing
+    /// here identifies the key or its owner.
+    static func describe(
+        keyClass: String?,
+        accessibility: String?,
+        synchronizable: Bool?,
+        isExtractable: Bool?
+    ) -> String {
+        let classOfKey = keyClass == (kSecAttrKeyClassPrivate as String)
+            ? "private"
+            : (keyClass == nil ? "unreported" : "not-private")
+        return "key=\(classOfKey), accessibility=\(name(ofAccessibility: accessibility)), "
+            + "synchronizable=\(synchronizable.map { String($0) } ?? "unreported"), "
+            + "extractable=\(isExtractable.map { String($0) } ?? "unreported")"
     }
 }
 

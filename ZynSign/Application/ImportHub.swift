@@ -276,7 +276,14 @@ final class ImportHub: ObservableObject {
     private var tasks: [ImportJobIdentifier: Task<Void, Never>] = [:]
     private var commitTask: Task<Void, Never>?
     private var backgroundActivity: ImportBackgroundActivity?
-    private var pausedByExpiration: Set<ImportJobIdentifier> = []
+    /// Which attempt of an item the system's expiry interrupted, by item.
+    ///
+    /// The attempt is part of the record on purpose: a preparation that ends
+    /// after the interruption — cancellation is cooperative, so a copy can
+    /// finish before it is noticed — must not make a *later* attempt's
+    /// failure look like an interruption too. That misreading sent the item
+    /// back to `waiting` and swallowed the error it had just reported.
+    private var pausedByExpiration: [ImportJobIdentifier: Int] = [:]
     private var isRestoring = false
     private var hasRestored = false
     private var historyLoaded = false
@@ -791,7 +798,11 @@ final class ImportHub: ObservableObject {
     func backgroundTimeExpired() {
         isPaused = true
         for (id, task) in tasks {
-            pausedByExpiration.insert(id)
+            // Record the attempt this interruption lands on, so only that
+            // attempt's failure is read as "the system stopped us".
+            if let itemIndex = self.index(of: id) {
+                pausedByExpiration[id] = items[itemIndex].attempt
+            }
             task.cancel()
         }
         endBackgroundActivity()
@@ -937,11 +948,20 @@ final class ImportHub: ObservableObject {
 
     private func didFailPreparation(_ id: ImportJobIdentifier, error: any Error, attempt: Int) {
         tasks[id] = nil
-        let wasPausedByExpiration = pausedByExpiration.remove(id) != nil
+        // Consume the interruption record whatever it names: this attempt is
+        // over either way, and only a record naming *this* attempt makes the
+        // failure an interruption rather than a failure.
+        let wasPausedByExpiration = pausedByExpiration.removeValue(forKey: id) == attempt
         guard let index = self.index(of: id, attempt: attempt), items[index].isPreparing else {
             pump()
             return
         }
+
+        // The preparation has stopped, so the copy it may have been writing
+        // can be discarded here — the one place that knows the write is over
+        // and that nothing has recorded the copy. Whatever ends the attempt,
+        // neither branch below uses it again.
+        discardUnrecordedWorkingCopy(of: index)
 
         if wasPausedByExpiration {
             // The system ended the background time, not the user: back to
@@ -1051,6 +1071,20 @@ final class ImportHub: ObservableObject {
         if let prepared = items[index].prepared, items[index].phase != .importing {
             processing.discardWorkingCopy(prepared.artifactID)
         }
+    }
+
+    /// Discards the working copy a preparation was writing when it stopped
+    /// before it could be recorded.
+    ///
+    /// `discardWorkingCopies(of:)` removes the copies the item *holds*; this
+    /// removes the one it was still producing, which nothing else refers to:
+    /// the retry stages afresh under a new identifier, and the recovery
+    /// journal never named it. Called only once the write has ended, so the
+    /// file is not unlinked under a writer.
+    private func discardUnrecordedWorkingCopy(of index: Int) {
+        guard items[index].staged == nil, let pending = items[index].pendingArtifactID else { return }
+        processing.discardWorkingCopy(pending)
+        items[index].pendingArtifactID = nil
     }
 
     // MARK: - Progress

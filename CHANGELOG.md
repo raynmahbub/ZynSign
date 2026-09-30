@@ -161,6 +161,53 @@ publishes the notes for the stop being cut. The `CFBundleVersion` is assigned by
   and never touches an existing notes file; the commit scrape runs only when
   `[Unreleased]` is empty.
 
+- **A sheet in the Installation Workspace could rebuild itself under the user.**
+  `HandoffSheet`'s identity was computed — `var id: String { UUID().uuidString }` —
+  so it named a different item on every read. `.sheet(item:)` reads that identity
+  on every body evaluation, and the workspace model publishes while a delivery
+  runs, so the hand-off sheet was rebuilt — and, on some iOS versions,
+  re-presented — while the user was reading it. The identity is now minted once,
+  when the hand-off is created: the shape every other presentation item in the
+  app already uses. `Scripts/audit_identity_stability.py` refuses a computed
+  identity that mints a fresh value, and `01-build.yml` runs it beside the
+  navigation-stack audit.
+- **Resetting the library could report success for a reset that never ran.**
+  `SettingsCenterModel.resetLibrary()` — the one destructive action in the app —
+  hid every failure behind `try?`, so a catalog that could not be read produced
+  *Removed 0 records and 0 orphaned artifacts*: the silent success
+  `performMaintenance` exists to prevent. Enumeration, each removal, and the
+  orphan sweep now propagate their typed failures, the count is taken from the
+  removals that returned, and the library is read back before the sentence is
+  written — a reset that left records behind says so.
+- **A setting described the wrong moment.** Settings → Advanced → *Current
+  Location* printed the directory derived from the *pending* preference, which
+  takes effect at the next launch, under a subtitle that said "right now". The
+  row is now *Next Launch Location*, which matches the section's own footer and
+  is true whether or not the picker has been changed.
+- **An interrupted import could swallow the failure that followed it, and keep
+  bytes it never used.** The pause record named only the item, so an attempt that
+  ended *after* the system's expiry — cancellation is cooperative, and a copy can
+  finish before it is noticed — made a later attempt's failure look like another
+  interruption: the item returned to `waiting` and the error it had just
+  reported was discarded. The record now names the attempt it interrupted, and is
+  consumed whatever it names. The same handler now discards the working copy a
+  stopped preparation was still writing: nothing had recorded it, the retry
+  stages afresh under a new identifier, and the bytes previously stayed in the
+  working directory until the next launch's sweep.
+- **Two toolbar menus had no name for VoiceOver, and six labels could shrink
+  below the comfort floor.** The icon-only *Add* and *Sort and order* menus in
+  Files now carry the `accessibilityLabel` every other icon-only control in the
+  app carries, and every `minimumScaleFactor` is at or above the 0.75 the
+  accessibility audit treats as comfortable — the audit's review list is empty
+  for the first time.
+- **A refused identity said only "unsupported", whatever refused it.** When the
+  key-protection rule refuses a key, the failure now carries the policy facts the
+  Keychain reported — key class, protection class, synchronizable, exportable —
+  in the policy's own words (`SigningKeyProtectionRule.describe`, pinned by
+  `SigningKeyProtectionRuleTests`). A device that refused an imported key and one
+  that reported it exportable used to look identical in the technical log; they
+  cannot now.
+
 ### Added
 
 - **A searchable, reorderable Settings index.** Settings opens on ten

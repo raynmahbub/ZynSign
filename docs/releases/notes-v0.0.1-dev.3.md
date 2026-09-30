@@ -183,6 +183,31 @@ not pretend it was made.
   sub-animations are still flying is a visible jump, so every stage now lands
   inside the window and the view alone owns the fade out.
 
+- **A hand-off sheet in the Installation Workspace could rebuild itself while it
+  was open.** Its identity was computed from a fresh UUID on every read, and
+  `.sheet(item:)` re-reads that identity whenever the view is re-evaluated — which
+  the workspace does while a delivery runs. The identity is minted once per
+  hand-off now, so the sheet stays put. A new source audit
+  (`Scripts/audit_identity_stability.py`, run in `01-build.yml`) refuses that
+  shape anywhere in the app.
+- **Resetting the library could say it removed nothing when it had failed.** The
+  reset hid every error behind `try?`, so an unreadable catalog reported *Removed
+  0 records and 0 orphaned artifacts*. Every step reports its typed failure now,
+  and the count is verified against the library after the fact.
+- **Settings → Advanced described the wrong moment.** *Current Location* showed
+  the directory the pending choice will use at the next launch under a subtitle
+  that said "right now"; the row is now *Next Launch Location*. The two icon-only
+  menus in Files gained the VoiceOver names the rest of the app's icon-only
+  controls carry, and every text scale factor now meets the accessibility audit's
+  own floor.
+- **Import and identity follow-on fixes.** An interrupted preparation could make
+  a later attempt's failure look like another interruption and discard the error
+  the user needed; the pause record names the attempt now. A copy a stopped
+  preparation was still writing is discarded instead of waiting for the next
+  launch's sweep. And a key the protection rule refuses now records *why* — key
+  class, protection class, synchronizable, exportable — so a device that refuses
+  an imported key no longer looks the same as one that reported it exportable.
+
 ### Known limitations
 
 Carried in `ReleaseBlockerRecord.registry` and shown in the Compatibility Lab:
@@ -247,9 +272,10 @@ Host audits, run on the machine that produced this note (Linux, Python):
 | Audit | Result |
 |---|---|
 | `Scripts/audit_crash_surface.py` | pass — 9 constructs, matching the baseline, every one justified |
-| `Scripts/audit_accessibility.py` | pass on what a machine can check — 0 hard-coded colours outside `DesignTokens` in the app, 0 controls under 44×44; 6 text nodes may shrink below 0.75 scale (4 waived after review); VoiceOver, focus order and rendered contrast at every Dynamic Type size remain a human device pass |
+| `Scripts/audit_accessibility.py` | pass on what a machine can check — 0 hard-coded colours outside `DesignTokens` in the app, 0 controls under 44×44, 0 text nodes below the 0.75 comfort floor; VoiceOver, focus order and rendered contrast at every Dynamic Type size remain a human device pass |
 | `Scripts/audit_regression_coverage.py` | pass — 9 behaviours executed in the app, 2 deferred to CI; every named test type exists |
 | `Scripts/audit_navigation_stack.py` | pass — no pushed view opens its own `NavigationStack` |
+| `Scripts/audit_identity_stability.py` | pass — every `Identifiable.id` in the app is stored, not minted per read |
 | `Scripts/audit_design_tokens.py` | pass against `design_tokens_baseline.json` |
 | `python3 Scripts/release_train.py check` | pass — the tree declares `.dev2`, which is the stop already tagged |
 | `bash Scripts/ci/release_validate.sh 0.0.1-dev.3` | **fails on purpose** — "Releasing tag v0.0.1-dev.3 but `ReleaseTrain.current` is v0.0.1-dev.2". It turns green when `promote` is committed, and that promoted commit is the one to build and test. The changelog warning alongside it is the workflow's job at tag time, now fed by the curated `[Unreleased]` entry |

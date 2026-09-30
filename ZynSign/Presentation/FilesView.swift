@@ -78,6 +78,7 @@ struct FilesView: View {
                     } label: {
                         Image(systemName: "plus")
                     }
+                    .accessibilityLabel("Add")
                     Menu {
                         Picker("Sort", selection: $model.sort) {
                             Text("Name").tag(FilesViewModel.Sort.name)
@@ -89,6 +90,7 @@ struct FilesView: View {
                             Text("Descending").tag(false)
                         }
                     } label: { Image(systemName: "arrow.up.arrow.down") }
+                        .accessibilityLabel("Sort and order")
                 }
             }
             .refreshable { model.reload() }
