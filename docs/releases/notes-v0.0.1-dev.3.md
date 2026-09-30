@@ -73,10 +73,13 @@ not pretend it was made.
 
 ### Changed
 
-- **Store and Downloads are shell destinations at every stop.** `ShellSection`
-  keeps all six tabs; `primaryTabs(where:)` exempts `.appStore` and `.downloads`
-  from the gate, and `RootView.visibleSelection` still clamps a saved landing
-  preference to a tab the stop shows. See *Gate drift this stop introduces*.
+- **Store and Downloads are shell destinations at every stop.**
+  `primaryTabs(where:)` exempts `.appStore` and `.downloads` from the gate, and
+  `RootView.visibleSelection` still clamps a saved landing preference to a tab
+  the stop shows. The bar they land in is capped at five items
+  (`ShellSection.tabBarItemLimit`), so a build with every gate open shows
+  Files · Library · Home · Store · Settings and folds Downloads into the surface
+  that already opens it. See *Gate drift this stop introduces*.
 - **Certificate and profile surfaces are open at every stop.** Settings → Signing
   leads to `.p12` / `.pfx` and `.mobileprovision` import *and* their management
   views without a stage check; the signing, identity-center, preset and
@@ -101,6 +104,40 @@ not pretend it was made.
   replaced this file's contents in the published Release. A curated
   `[Unreleased]` entry is now promoted verbatim into the versioned section, and
   the commit-log scrape runs only when `[Unreleased]` is empty.
+- **The bar no longer asks UIKit for a sixth tab.** Six sections were listed and
+  a phone tab bar draws five; the sixth went into a system *More* list that
+  *pushes* it, and since every tab view owns a `NavigationStack`
+  (`RootView.tabContent`) the folded tab nested one stack inside another. Which
+  section got folded depended on width and gate state, so one build produced a
+  Store tab that was simply absent and a Settings tab that crashed when opened.
+  `ShellSection.primaryTabs` now takes the overflow from `tabOverflowOrder`
+  (Downloads first) and leaves the survivors in declared order. Locked by
+  `ShellSectionTabTests.testTabBarNeverExceedsThePlatformCeiling`.
+- **A Home shortcut can no longer select a tab that is not there.** The
+  onboarding checklist asked for `.certificates` and `.profiles`, neither of
+  which has a slot, and handing `TabView` an unmatched selection leaves the bar
+  with nothing highlighted and the content area empty — the exact experience of
+  *tapping does nothing*. Every `onOpenSection` request now resolves through
+  `ShellSection.tab(toOpen:)`, which routes a slotless section to the Settings
+  surface that hosts it.
+- **A chosen certificate reaches the password sheet.** `CertificateManagerView`
+  raised its password sheet from inside the `.fileImporter` completion — the same
+  frame the document picker is still dismissing, where UIKit drops a presentation
+  without an error. The file was read, and nothing appeared to happen. The sheet
+  is now presented after the settle `RootView.presentSigningQueue()` already
+  uses for the same reason.
+- **The Import Hub's picker is no longer a one-shot.** `chooseFiles` set a flag
+  consumed only by the hub's own `.task`, so a request that arrived once the hub
+  was already on screen was never seen, and the single `Task.yield()` was not a
+  wait for the sheet's transition. Both orderings now consume the flag, and the
+  settle matches the rest of the app.
+- **The splash stops being dismissed mid-animation.** The shortened launch
+  timeline left its internals on the old schedule: a `repeatForever` glow pulse,
+  a shimmer sweep, a footer animating on a `0.9 s` delay and a `2 s` easing, and
+  **two** owners of the exit — the view animated itself out *and* `ZynSignApp`
+  removed it with a spring and a scale/slide. Removing a layer while its
+  sub-animations are still flying is a visible jump, so every stage now lands
+  inside the window and the view alone owns the fade out.
 
 ### Known limitations
 
@@ -117,6 +154,12 @@ Carried in `ReleaseBlockerRecord.registry` and shown in the Compatibility Lab:
   actual signature needs an identity and a profile on the device.)*
 - **Performance figures measured on a simulator are not device figures.**
   *(low, accepted — they are reported as simulator measurements.)*
+- **IPA/tIPA import is still unconfirmed on a device.** The two presentation
+  faults above cover the picker never appearing and a picked file going nowhere;
+  neither has been watched working on hardware. `ImportablePackage.contentTypes`
+  is deliberately broad (`.data`, `.zip`, `.archive`, `.item` and Apple's IPA
+  UTI), so a file the picker cannot see is a different bug from the ones fixed
+  here and is not claimed as solved.
 
 ### What this release deliberately does not claim
 

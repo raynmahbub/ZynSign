@@ -122,9 +122,17 @@ Compiled in and reachable in Debug; absent in Release.
 
 ### 6. Bugs and unverified paths
 
-- **`.p12`/`.pfx` certificate import is undiagnosed.** Never root-caused. The
-  400 ms IPA/tIPA picker race was fixed, but that path is a tab, not a sheet,
-  and does not explain it. Not claimed as fixed.
+- **`.p12`/`.pfx` import has a root cause, and a fix, but no device run yet.**
+  The password sheet was presented from inside the `.fileImporter` completion —
+  the frame the picker is still dismissing, where UIKit drops a presentation
+  with no error. That explains a silent nothing after a successful file choice,
+  which is what the report said. Deferred to the settle the signing queue uses.
+- **The shell lists six sections and draws five.** `tabBarItemLimit` caps
+  `primaryTabs`, because UIKit folds a sixth tab into a *More* list it pushes
+  from its own navigation controller, and a pushed tab view with its own stack
+  is the nested-stack crash. `Scripts/audit_navigation_stack.py` cannot see
+  that instance: the push is UIKit's. Anything that changes the tab set has to
+  go through `ShellSection`, not around it.
 - **Navigation fixes are compile- and audit-verified only.** CI proves the code
   builds and `audit_navigation_stack.py` proves no pushed view opens its own
   stack. Only a real run proves the runtime agrees.

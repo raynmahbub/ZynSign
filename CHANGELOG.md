@@ -45,6 +45,47 @@ publishes the notes for the stop being cut. The `CFBundleVersion` is assigned by
 
 ### Fixed
 
+- **The tab bar was over the platform's ceiling, and the folded tab crashed.**
+  `ShellSection.allTabs` lists six sections; a phone tab bar draws five and
+  folds the rest into a system *More* list that *pushes* the overflow. Every tab
+  view owns a `NavigationStack` (`RootView.tabContent`), so the folded tab
+  nested one stack in another — the fault
+  `Scripts/audit_navigation_stack.py` exists to stop, in the one form it cannot
+  see, because the push is UIKit's and appears nowhere in this repository. Which
+  section folded depended on width and gate state, so one build showed a missing
+  Store tab and crashed on Settings. `primaryTabs(where:)` is capped at
+  `tabBarItemLimit` (five) and takes the overflow from `tabOverflowOrder`,
+  Downloads first, keeping the survivors in declared order; Downloads stays
+  openable from Settings → Updates and Store → Download Jobs, and its badge
+  follows it there. Locked by
+  `ShellSectionTabTests.testTabBarNeverExceedsThePlatformCeiling` and
+  `testTheCapDropsOnlyTheLeastWantedSectionAndKeepsTheRestInOrder`.
+- **A Home shortcut could select a tab that does not exist.** The onboarding
+  checklist's *Add a certificate* and *Import a provisioning profile* rows set
+  the tab selection to `.certificates` and `.profiles`, neither of which is a
+  tab; `TabView` with an unmatched selection draws no selection and an empty
+  content area, which reads as a tap that did nothing rather than as a bug.
+  `ShellSection.tab(toOpen:)` resolves a slotless section to the surface that
+  hosts it, and `RootView` routes every `onOpenSection` through it.
+- **A picked `.p12` never opened its password sheet.** The sheet was raised from
+  inside the `.fileImporter` completion, in the frame the document picker is
+  still dismissing, where UIKit drops a presentation silently — the file was
+  read, its bytes held in `pendingData`, and nothing appeared to happen. It now
+  waits out the same settle `RootView.presentSigningQueue()` uses for exactly
+  this reason. This is the mechanism behind the long-standing *certificate
+  import does nothing* report; it still needs a device to be called verified.
+- **The Import Hub had one frame, and one chance, to open its picker.**
+  `chooseFiles` set a flag that only the hub's own `.task` consumed, so a
+  request that landed after the hub appeared was dropped on the floor, and the
+  single `Task.yield()` it waited on is not the sheet's transition. Both
+  orderings consume the flag now, guarded so the picker opens exactly once.
+- **The splash let go while it was still animating.** The shortened launch
+  timeline kept the old internals: a `repeatForever` glow pulse, a shimmer
+  sweep, a footer on a `0.9 s` delay, and two owners of the exit —
+  `ZynSplashView` animated itself out while `ZynSignApp` removed it with a
+  spring and a scale/slide. Every stage now finishes inside the 360 ms window
+  and the view alone owns the fade, so the handover to `RootView` is one
+  motion.
 - **A profile picker that failed in silence.** `ProvisioningProfilesModel.handlePickerResult`
   returned early on any non-`.success` result, so a profile the picker could not
   open — not yet downloaded from iCloud, unreadable, refused — disappeared with
@@ -82,9 +123,12 @@ publishes the notes for the stop being cut. The `CFBundleVersion` is assigned by
   lost working features. `ShellSection.allTabs` keeps all six destinations, but
   `primaryTabs(where:)` short-circuits the gate for `.appStore` and `.downloads`
   before it reads `requiredFeature`, so that property now governs only the
-  sections reached from Settings — Presets and the Installation Workspace. See
-  the drift note above. A saved landing preference for either tab remains valid,
-  and `testDevelopmentStopKeepsStoreAndDownloadsDiscoverable` pins the policy,
+  sections reached from Settings — Presets and the Installation Workspace. The
+  list is what a build *could* show; the bar is the capped result, so Store and
+  Downloads are exempt from the gate but not from the five-item ceiling, and
+  Downloads is the first to yield a slot. See the drift note above. A saved
+  landing preference for either tab remains valid, and
+  `testDevelopmentStopKeepsStoreAndDownloadsDiscoverable` pins the policy,
   replacing the test that asserted the opposite.
 - **Certificates and Profiles are reached from Settings → Signing.** The old
   Settings → Browse index is gone; *Signing Setup* now holds the `.p12` / `.pfx`
