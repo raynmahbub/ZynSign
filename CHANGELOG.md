@@ -158,6 +158,58 @@ publishes the notes for the stop being cut. The `CFBundleVersion` is assigned by
   Motion — with no launch haptics, so the splash cannot delay the first useful
   frame. Splash and prominent-button text uses `Color.primary` instead of a
   hardcoded white, so contrast follows the appearance.
+### Added
+
+- **Tweak Library** — import `.dylib`, `.deb`, `.framework`, `.bundle`, and
+  `.appex` payloads, organize them into groups, rename, enable, and remove
+  them. Imports are SHA-256 de-duplicated and bounded (128 MiB per file, 200
+  records). The signing screen stages a validated selection plan and writes
+  a manifest beside the signed output recording what the session carried —
+  the pipeline still signs exactly the container it is given.
+  (`TweakLibraryService` · `FileTweakLibrary` · `TweakLibraryView`)
+- **Revocation Center** — one-tap exposure checks per certificate: the
+  center reads the OCSP responders and revocation lists a certificate
+  publishes (a bounded AIA/CRL scan of the DER) and probes each endpoint
+  with a bounded request, reporting `Exposed`, `Partial`, `Shielded`, or
+  `No Endpoints` with per-endpoint latency. Results persist per certificate
+  fingerprint. The screen states honestly that ZynSign never changes
+  network settings; protection happens at the resolver.
+  (`CertificateRevocationService` · `URLSessionRevocationProbe`)
+- **Release Feeds** — follow the releases a public repository publishes,
+  hand a package asset to the Download Center, and track one library app
+  per feed. The Updates list compares tracked versions with
+  `AppVersionComparison` and never infers an update from dates or from an
+  unparseable version. (`GitHubReleaseSourceProvider` · `LibraryUpdateTracker`)
+- **App Protection** — per-app Lock (authentication before the detail view
+  opens) and a concealed Vault (hidden records stay out of the Library
+  until the vault is unlocked for the session). Protection is an interface
+  guard over the system's authentication boundary, stated as such — not
+  encryption. (`AppProtectionService` · `LockedRecordGate`)
+- **Themes** — four shipped themes (ZynSign, Ember, Midnight, Graphite), an
+  accent override palette, and a Minimal Interface density mode. The shell
+  resolves the theme once and every screen reads it through the
+  environment; an unknown stored identifier falls back to the default.
+  (`AppThemeCatalog` · `ResolvedAppTheme`)
+- **Storage gauge** — the Files screen opens with the volume's used/free
+  split, free-space pressure bands (`Comfortable` / `Low` / `Critical`),
+  and ZynSign's own footprint. (`StorageGaugeService`)
+- **Version History** — Settings → About → Version History: every release
+  stop this build knows about, newest first, with what each stop switched
+  on. (`VersionHistoryCatalog`)
+- **Entitlement merge policy** — pure domain rules for combining an app's
+  existing claims with a profile's claims under three modes, with conflict
+  and review sets. (`EntitlementMergePolicy`)
+- **Bounded version comparator** — `AppVersionComparison`: component-wise
+  numeric ordering with explicit incomparability for anything outside the
+  shape rules. No date guessing.
+
+### Tests
+
+- Tweak library domain, service, and file-backed persistence round-trips.
+- Entitlement merge modes, version comparison, protection visibility
+  matrix, storage gauge bands, theme catalog, revocation locator over
+  synthetic DER, revocation service over a scripted probe, release feed
+  parsing and update tracking, workspace store round-trips.
 
 ## [0.0.1-dev.2] - 2026-09-30
 
