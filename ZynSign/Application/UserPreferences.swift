@@ -234,6 +234,8 @@ extension AppearancePreferences {
         increaseContrast = try container.decodeIfPresent(Bool.self, forKey: .increaseContrast) ?? false
         respectsSystemTextSize = try container.decodeIfPresent(Bool.self, forKey: .respectsSystemTextSize) ?? true
         themeIdentifier = try container.decodeIfPresent(String.self, forKey: .themeIdentifier) ?? ZynSignTheme.defaultIdentifier
+        accentOverrideHex = try container.decodeIfPresent(String.self, forKey: .accentOverrideHex)
+        minimalInterface = try container.decodeIfPresent(Bool.self, forKey: .minimalInterface) ?? false
     }
 }
 
@@ -484,8 +486,9 @@ struct DiagnosticsPreferences: Equatable, Sendable, Codable {
 
 /// Appearance and accessibility presentation choices.
 ///
-/// Only the default theme ships in this version. The stored `themeIdentifier`
-/// exists so a later theme adds a choice rather than a migration.
+/// Four themes ship; `AppThemeCatalog` resolves them and falls back to the
+/// default for an identifier this build does not know, so a theme removed in
+/// a future build degrades gracefully.
 struct AppearancePreferences: Equatable, Sendable, Codable {
 
     /// Light, dark, or whatever the system is set to.
@@ -499,8 +502,45 @@ struct AppearancePreferences: Equatable, Sendable, Codable {
     /// size has somewhere to live.
     var respectsSystemTextSize: Bool = true
 
-    /// The theme in use. Only `ZynSignTheme.defaultIdentifier` ships today.
+    /// The theme in use, resolved by `AppThemeCatalog`.
     var themeIdentifier: String = ZynSignTheme.defaultIdentifier
+
+    /// An accent override in `#RRGGBB` form, or `nil` to use the active
+    /// theme's own accent.
+    var accentOverrideHex: String? = nil
+
+    /// Whether the interface renders in its reduced-visual-density mode:
+    /// hero surfaces shrink to their essential rows, decorative gradients
+    /// step back, and lists lead. The feature set is unchanged; only
+    /// presentation density moves.
+    var minimalInterface: Bool = false
+
+    private enum CodingKeys: String, CodingKey {
+        case appearanceMode
+        case increaseContrast
+        case respectsSystemTextSize
+        case themeIdentifier
+        case accentOverrideHex
+        case minimalInterface
+    }
+
+    init() {}
+
+    init(
+        appearanceMode: AppearanceMode,
+        increaseContrast: Bool,
+        respectsSystemTextSize: Bool,
+        themeIdentifier: String,
+        accentOverrideHex: String? = nil,
+        minimalInterface: Bool = false
+    ) {
+        self.appearanceMode = appearanceMode
+        self.increaseContrast = increaseContrast
+        self.respectsSystemTextSize = respectsSystemTextSize
+        self.themeIdentifier = themeIdentifier
+        self.accentOverrideHex = accentOverrideHex
+        self.minimalInterface = minimalInterface
+    }
 }
 
 /// Light, dark, or the system setting.
@@ -520,17 +560,24 @@ enum AppearanceMode: String, CaseIterable, Hashable, Sendable, Codable {
 
 /// The themes ZynSign ships.
 ///
-/// One theme, deliberately: a second theme is a design decision, not a
-/// setting, and an invented palette is worse than none. The identifier is
-/// stored so adding a theme is an additive change.
+/// `AppThemeCatalog` carries each theme's complete visual description; this
+/// enum is the stable identity preferences store. Unknown stored identifiers
+/// resolve to the default, so adding or removing a theme is never a
+/// migration.
 enum ZynSignTheme: String, CaseIterable, Hashable, Sendable, Codable {
     case zynSign = "zynsign.default"
+    case ember = "zynsign.ember"
+    case midnight = "zynsign.midnight"
+    case graphite = "zynsign.graphite"
 
     static let defaultIdentifier = ZynSignTheme.zynSign.rawValue
 
     var displayName: String {
         switch self {
         case .zynSign: return "ZynSign"
+        case .ember: return "Ember"
+        case .midnight: return "Midnight"
+        case .graphite: return "Graphite"
         }
     }
 }

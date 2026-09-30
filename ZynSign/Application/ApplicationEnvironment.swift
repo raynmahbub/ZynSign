@@ -198,6 +198,32 @@ struct ApplicationEnvironment {
     /// library offers no Export; treated as read-only after construction.
     var libraryExport: LibraryExportPreparation? = nil
 
+    /// The tweak library: imported payloads the user keeps for staging,
+    /// with records, groups, and fingerprint-based duplicate detection.
+    /// `nil` where no tweak storage is composed; treated as read-only after
+    /// construction.
+    var tweakLibrary: TweakLibraryService? = nil
+
+    /// The revocation exposure service: checks whether a certificate's
+    /// revocation channels are reachable right now and keeps the most
+    /// recent result per certificate. Optional for the same reason as its
+    /// peers.
+    var revocationService: CertificateRevocationService? = nil
+
+    /// The repository release feed provider: the feeds the user added and
+    /// the releases those feeds list. Optional for the same reason.
+    var releaseFeeds: GitHubReleaseSourceProvider? = nil
+
+    /// The per-application protection coordinator: per-app lock, the
+    /// concealed vault, and the visibility decisions listings apply.
+    /// Optional for the same reason.
+    var appProtection: AppProtectionService? = nil
+
+    /// The storage gauge: volume capacity, free-space pressure, and the
+    /// application's own footprint, classified for the Files screen.
+    /// Optional for the same reason.
+    var storageGauge: StorageGaugeService? = nil
+
     /// Receives files dropped onto ZynSign into a ZynSign-owned inbox, from
     /// which they are handed to `importHub`. `nil` where drops are not
     /// supported; treated as read-only after construction.
