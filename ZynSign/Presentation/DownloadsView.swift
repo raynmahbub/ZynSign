@@ -6,6 +6,11 @@ import SwiftUI
 /// available updates from configured repositories. The screen owns no
 /// transfers. `DownloadCenter` does, so leaving this tab does not cancel work.
 struct DownloadsView: View {
+    /// When this view is pushed into a navigation stack that already exists
+    /// — Settings → Browse — it must not wrap itself in a second one.
+    /// Nesting `NavigationStack` inside a pushed destination is a runtime
+    /// crash, not a warning.
+    var embedsNavigationStack: Bool = true
 
     @Environment(\.applicationEnvironment) private var environment
     @Environment(\.downloadNavigation) private var navigation
@@ -16,7 +21,8 @@ struct DownloadsView: View {
                 center: center,
                 directory: environment.repositoryDirectory,
                 onOpenLibrary: navigation.openLibrary,
-                onOpenSigningQueue: navigation.openSigningQueue
+                onOpenSigningQueue: navigation.openSigningQueue,
+                embedsNavigationStack: embedsNavigationStack
             )
         } else {
             ContentUnavailableView(
@@ -34,6 +40,9 @@ private struct DownloadCenterScreen: View {
     var directory: RepositoryDirectory?
     var onOpenLibrary: () -> Void
     var onOpenSigningQueue: () -> Void
+    /// Whether this view supplies its own navigation container. False when it
+    /// is pushed into a stack the host already owns.
+    var embedsNavigationStack: Bool = true
 
     @Environment(\.applicationEnvironment) private var environment
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -51,7 +60,17 @@ private struct DownloadCenterScreen: View {
     private var accessibilitySize: Bool { dynamicTypeSize.isAccessibilitySize }
 
     var body: some View {
-        NavigationStack {
+        Group {
+            if embedsNavigationStack {
+                NavigationStack { centerScreen }
+            } else {
+                centerScreen
+            }
+        }
+    }
+
+    /// The Download Center's content, with no navigation container of its own.
+    private var centerScreen: some View {
             List {
                 if let store = environment.storeBrowser {
                     Section {
@@ -149,7 +168,6 @@ private struct DownloadCenterScreen: View {
                     onOpenSigningQueue: onOpenSigningQueue
                 )
             }
-        }
         .task {
             center.startObservingTransfers()
             await center.restore()

@@ -20,7 +20,7 @@ before it.
 | | |
 |---|---|
 | Status | **In progress.** The Smart Workspace home (Mission Control) is introduced by the `rc2` stop because it is polish over existing features, not a new capability. The Nova Assistant is in the tree behind `ReleaseStage.nova1`; the rest of this document is planned. |
-| Train | `v0.0.1-dev.1` (current) → the first build → the alphas → the betas → the RCs → `v1.0.0` → `v2.0.0` (depth, no new gates) → `v3.0.0-nova.1` (Nova Assistant) → `v3.0.0` (the rest of this document). |
+| Train | `v0.0.1-dev.1` → the first build → the alphas (**current: `v0.1.0-alpha.3`**) → the betas → the RCs → `v1.0.0` → `v2.0.0` (depth, no new gates) → `v3.0.0-nova.1` (Nova Assistant) → `v3.0.0` (the rest of this document). |
 | Preview | Debug builds show everything; `-ZynSignReleaseStage nova1` previews the exact release. |
 | Nevers | Unchanged: no in-app installation claim, no Pairing/JIT/Mux, no off-device analytics. Nova is rule-based and on-device; it recommends, it never acts. |
 

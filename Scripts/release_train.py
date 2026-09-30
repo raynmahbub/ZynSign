@@ -30,12 +30,23 @@ Usage:
         Move to STAGE (default: the next stage). Edits ReleaseTrain.current,
         sets MARKETING_VERSION, and bumps CURRENT_PROJECT_VERSION by one.
         STAGE may be a name (alpha1) or a version (0.1.0-alpha.1 / v0.1.0-alpha.1).
+
+    python3 Scripts/release_train.py rewind STAGE [--dry-run]
+        Move *back* to an earlier stop. This exists for exactly one
+        situation: the declared stop ran ahead of what has actually shipped,
+        so no tag can be cut for the stop that is really next. `promote`
+        refuses to move backwards because a released stop must never be
+        re-released and no user may lose a feature — this command keeps that
+        guarantee by refusing any target at or behind the highest stop that
+        already carries a tag. Rewinding is therefore never destructive: it
+        can only move the pointer within the range that has not shipped.
 """
 
 from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -235,6 +246,93 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 1
 
 
+def released_stage_indices(stages: list[Stage]) -> list[int] | None:
+    """Indices of the stages that already carry a tag, or None if unknown.
+
+    Read from git rather than trusted to a human, because the whole point of
+    the rewind guard is that a released stop must not become the next release
+    again. Returning None (git missing, not a repository) is treated as
+    "cannot prove it is safe" by the caller.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "tag", "--list", "v*"],
+            capture_output=True, text=True, check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    tags = {line.strip() for line in out.splitlines() if line.strip()}
+    return [i for i, s in enumerate(stages) if s.tag in tags]
+
+
+def cmd_rewind(args: argparse.Namespace) -> int:
+    stages, current_name, display = load_train()
+    current = find_stage(stages, current_name)
+    target = find_stage(stages, args.stage)
+    names = [s.name for s in stages]
+    current_i, target_i = names.index(current.name), names.index(target.name)
+
+    if target_i >= current_i:
+        print(
+            f"\u2717 {target.tag} is not behind {current.tag}.\n"
+            f"  Use `promote` to move forward; `rewind` only moves back.",
+            file=sys.stderr,
+        )
+        return 1
+
+    released = released_stage_indices(stages)
+    if released is None and not args.allow_behind_tags:
+        print(
+            "\u2717 Cannot tell which stops have already been released — `git tag` did not run.\n"
+            "  Rewinding without that check could aim the train at a stop that already shipped.\n"
+            "  Run this inside the repository, or pass --allow-behind-tags if you are certain.",
+            file=sys.stderr,
+        )
+        return 1
+    if released:
+        highest = max(released)
+        if target_i <= highest and not args.allow_behind_tags:
+            remaining = ", ".join(s.tag for s in stages[highest + 1 : current_i]) or "none"
+            print(
+                f"\u2717 {target.tag} has already been released — {stages[highest].tag} is tagged.\n"
+                f"  A stop that shipped can never be the next release again; the tag exists.\n"
+                f"  The train can only be rewound to a stop after {stages[highest].tag}.\n"
+                f"  Still reachable by rewind: {remaining}",
+                file=sys.stderr,
+            )
+            return 1
+
+    _, builds = project_versions()
+    new_build = max(builds) + 1
+    exposed = ", ".join(display.get(f, f) for f in features_through(stages, target)) or "core only"
+
+    print(f"Rewinding {current.tag} \u2192 {target.tag}")
+    print(f"  exposes     : {exposed}")
+    print(f"  version     : MARKETING_VERSION {target.marketing}, build {new_build}")
+    if released:
+        print(f"  safe        : nothing at or behind {stages[max(released)].tag} is touched, so no shipped release changes")
+    else:
+        print("  safe        : no stop has been tagged yet, so nothing shipped changes")
+    if args.dry_run:
+        print("  (dry run \u2014 nothing written)")
+        return 0
+
+    TRAIN.write_text(
+        CURRENT_RE.sub(lambda m: m.group(1) + target.name, TRAIN.read_text(encoding="utf-8")),
+        encoding="utf-8",
+    )
+    proj_text = PBXPROJ.read_text(encoding="utf-8")
+    proj_text = re.sub(r"MARKETING_VERSION = [^;]+;", f"MARKETING_VERSION = {target.marketing};", proj_text)
+    proj_text = re.sub(r"CURRENT_PROJECT_VERSION = \d+;", f"CURRENT_PROJECT_VERSION = {new_build};", proj_text)
+    PBXPROJ.write_text(proj_text, encoding="utf-8")
+
+    print()
+    print("Next steps (docs/releases/release-train.md):")
+    print(f"  1. git commit -am \"release: {target.tag}\" && push")
+    print(f"  2. git tag -a {target.tag} -m \"ZynSign {target.version}\" && git push origin {target.tag}")
+    return 0
+
+
 def cmd_promote(args: argparse.Namespace) -> int:
     stages, current_name, display = load_train()
     current = find_stage(stages, current_name)
@@ -294,6 +392,15 @@ def main() -> int:
     p_promote.add_argument("stage", nargs="?")
     p_promote.add_argument("--dry-run", action="store_true")
     p_promote.set_defaults(func=cmd_promote)
+    p_rewind = sub.add_parser("rewind", help="move back to an earlier stop that has not shipped")
+    p_rewind.add_argument("stage")
+    p_rewind.add_argument("--dry-run", action="store_true")
+    p_rewind.add_argument(
+        "--allow-behind-tags",
+        action="store_true",
+        help="skip the already-tagged guard (only when the tags are known to be wrong)",
+    )
+    p_rewind.set_defaults(func=cmd_rewind)
     args = parser.parse_args()
     return args.func(args)
 

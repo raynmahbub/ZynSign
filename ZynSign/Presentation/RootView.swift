@@ -55,6 +55,12 @@ struct RootView: View {
     @State private var isShowingImport = false
     @State private var hubRequest: ImportHubRequest = .none
 
+    /// Certificates and Profiles are reached from Settings and from the
+    /// system handing ZynSign a `.p12` or a `.mobileprovision`, so the
+    /// shell presents them the way it presents every other area it owns.
+    @State private var isShowingCertificates = false
+    @State private var isShowingProfiles = false
+
     /// The items whose outcome has already been recorded, so an import is
     /// reported exactly once however many times the item list changes.
     @State private var reportedImportItems: Set<ImportJobIdentifier> = []
@@ -103,7 +109,9 @@ struct RootView: View {
             authenticator: environment.biometricAuthenticator,
             preferences: { model.preferences }
         ))
-        _selected = State(initialValue: model.preferences.general.landingTab.shellSection)
+        _selected = State(initialValue: Self.visibleSelection(
+            for: model.preferences.general.landingTab.selectable.shellSection
+        ))
         _thumbnailPipeline = StateObject(wrappedValue: ThumbnailPipeline(
             engine: environment.performanceEngine,
             icons: environment.appIcons
@@ -183,6 +191,32 @@ struct RootView: View {
                 onDone: { isShowingImport = false }
             )
         }
+        .sheet(isPresented: $isShowingCertificates) {
+            NavigationStack {
+                CertificateManagerView(
+                    store: environment.identityStore,
+                    annotations: environment.identityAnnotations,
+                    importer: environment.pkcs12Importer
+                )
+            }
+        }
+        .sheet(isPresented: $isShowingProfiles) {
+            // `ProfilesView` supplies its own navigation stack, so the shell
+            // must not wrap it — nesting one inside another crashes.
+            ProfilesView(
+                profiles: environment.provisioningProfiles,
+                importer: environment.provisioningProfileImporter,
+                compatibility: environment.profileCompatibility,
+                selections: environment.profileSelections,
+                recordEvent: { name, succeeded in
+                    environment.recordAnalyticsEvent(
+                        category: .intake,
+                        name: name,
+                        succeeded: succeeded
+                    )
+                }
+            )
+        }
         .environment(
             \.signingQueuePresentation,
             SigningQueuePresentation(
@@ -257,7 +291,7 @@ struct RootView: View {
             }
         }
         .onChange(of: settings.preferences.general.landingTab) { _, landingTab in
-            selected = landingTab.shellSection
+            selected = Self.visibleSelection(for: landingTab.selectable.shellSection)
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -376,16 +410,34 @@ struct RootView: View {
         }
     }
 
-    /// Tabs the user can select. Downloads is added when that feature is
-    /// available, immediately before Settings, without removing the five-tab
-    /// foundation the other sections are built on.
+    /// Tabs the user can select at this release stop.
+    ///
+    /// The bar follows the release gate: a section whose staged feature has
+    /// not shipped yet is not offered, so a development stop shows the core
+    /// (Files, Library, Home, Settings) and nothing else. Those four are
+    /// always present, so there is always somewhere to land.
     private var visibleTabs: [ShellSection] {
-        var tabs = ShellSection.primaryTabs
-        guard ReleaseTrain.isAvailable(.downloads), let settings = tabs.firstIndex(of: .settings) else {
-            return tabs
-        }
-        tabs.insert(.downloads, at: settings)
-        return tabs
+        ShellSection.primaryTabs
+    }
+
+    /// The tab to actually select for a requested section.
+    ///
+    /// A landing preference saved by a later build can name a tab this stop
+    /// does not show — a development build reading a preference written at
+    /// alpha.3, for instance. Selecting a tab that is not rendered leaves the
+    /// bar with no selection and the content area blank, so the request is
+    /// clamped to a tab that exists. Library is the fallback, matching how
+    /// `LandingTab.selectable` retires sections the shell no longer shows.
+    static func visibleSelection(for section: ShellSection) -> ShellSection {
+        visibleSelection(for: section, in: ShellSection.primaryTabs)
+    }
+
+    /// The clamp itself, against an explicit tab list — so the fallback is
+    /// testable at a stop where the section is missing, which the live train
+    /// only reaches in a Release build.
+    static func visibleSelection(for section: ShellSection, in tabs: [ShellSection]) -> ShellSection {
+        if tabs.contains(section) { return section }
+        return tabs.contains(.library) ? .library : (tabs.first ?? .settings)
     }
 
     private func badgeCount(for section: ShellSection) -> Int {
@@ -462,10 +514,10 @@ struct RootView: View {
             environment.importHub.receive([url], origin: origin)
             isShowingImport = true
         } else if ext == "mobileprovision" || ext == "provisionprofile" {
-            selected = .profiles
+            isShowingProfiles = true
             ZHaptics.tap()
         } else if ext == "p12" || ext == "pfx" {
-            selected = .certificates
+            isShowingCertificates = true
             ZHaptics.tap()
         }
     }
@@ -559,15 +611,15 @@ struct RootView: View {
             // Secondary sections are linked from Settings → Browse; they are
             // not tabs. Each carries its own NavigationStack where presented.
             EmptyView()
-        case .files, .appStore:
-            // Files and the App Store are linked from Settings → Browse.
-            // Each carries its own NavigationStack where presented.
-            EmptyView()
+        case .files:
+            // As a tab this view owns the navigation stack, so it embeds one.
+            FilesView(embedsNavigationStack: true)
+        case .appStore:
+            AppStoreView(embedsNavigationStack: true)
         }
     }
 
     private func showNextDownloadNotice(from notices: [DownloadNotice]) {
-        guard ReleaseTrain.isAvailable(.downloads) else { return }
         guard visibleDownloadNotice == nil, let next = notices.first else { return }
         visibleDownloadNotice = next
         environment.downloadCenter?.acknowledgeNotice(next.id)

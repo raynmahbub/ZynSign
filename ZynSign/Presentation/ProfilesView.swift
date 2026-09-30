@@ -18,6 +18,12 @@ import UniformTypeIdentifiers
 /// stored. Deleting removes the stored copy and the summary together.
 struct ProfilesView: View {
 
+    /// When this view is pushed into a navigation stack the host already
+    /// owns — Settings → Browse — it must not wrap itself in a second one.
+    /// Nesting `NavigationStack` inside a pushed destination crashes at
+    /// runtime, not with a warning.
+    var embedsNavigationStack: Bool = true
+
     @StateObject private var model: ProvisioningProfilesModel
 
     @Environment(\.applicationEnvironment) private var env
@@ -33,8 +39,10 @@ struct ProfilesView: View {
         importer: ProvisioningProfileImporter?,
         compatibility: ProfileCompatibilityUseCase? = nil,
         selections: (any ProfileSelectionStore)? = nil,
-        recordEvent: ((String, Bool) -> Void)? = nil
+        recordEvent: ((String, Bool) -> Void)? = nil,
+        embedsNavigationStack: Bool = true
     ) {
+        self.embedsNavigationStack = embedsNavigationStack
         _model = StateObject(wrappedValue: ProvisioningProfilesModel(
             profiles: profiles,
             importer: importer,
@@ -52,25 +60,12 @@ struct ProfilesView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            content
-                .navigationTitle(ShellSection.profiles.title)
-                .navigationDestination(for: ProvisioningProfileSummary.self) { summary in
-                    ProfileDetailView(summary: summary) {
-                        Task { await model.refresh() }
-                    }
-                }
-                .navigationDestination(item: $model.pendingDetail) { summary in
-                    ProfileDetailView(summary: summary) {
-                        Task { await model.refresh() }
-                    }
-                }
-                .searchable(
-                    text: $model.searchText,
-                    placement: .navigationBarDrawer(displayMode: .automatic),
-                    prompt: Text("Name, Team, or Bundle ID")
-                )
-                .toolbar { toolbarContent }
+        Group {
+            if embedsNavigationStack {
+                NavigationStack { contentChain }
+            } else {
+                contentChain
+            }
         }
         .task { await model.load() }
         .fileImporter(
@@ -130,6 +125,29 @@ struct ProfilesView: View {
             message: model.toastMessage,
             style: model.toastStyle
         )
+    }
+
+    /// The profile library's content, with no navigation container of its own,
+    /// so this view can be pushed into a stack the host already owns.
+    private var contentChain: some View {
+            content
+                .navigationTitle(ShellSection.profiles.title)
+                .navigationDestination(for: ProvisioningProfileSummary.self) { summary in
+                    ProfileDetailView(summary: summary) {
+                        Task { await model.refresh() }
+                    }
+                }
+                .navigationDestination(item: $model.pendingDetail) { summary in
+                    ProfileDetailView(summary: summary) {
+                        Task { await model.refresh() }
+                    }
+                }
+                .searchable(
+                    text: $model.searchText,
+                    placement: .navigationBarDrawer(displayMode: .automatic),
+                    prompt: Text("Name, Team, or Bundle ID")
+                )
+                .toolbar { toolbarContent }
     }
 
     // MARK: - Phases

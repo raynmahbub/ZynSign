@@ -2,7 +2,7 @@
 
 > Test privately, publish publicly. No tag is pushed public until the private build is green on your devices.
 
-This document is the single checklist for the **private test** that gates every release on the [release train](release-train.md). The current candidate is whatever `python3 Scripts/release_train.py current --tag` prints — `v0.0.1-dev.1` (market `0.0.1`, build `1`) at the time of writing. It is the professional way to ship: internal → external, with the same binary discipline.
+This document is the single checklist for the **private test** that gates every release on the [release train](release-train.md). The current candidate is whatever `python3 Scripts/release_train.py current --tag` prints — `v0.1.0-alpha.3` (market `0.1.0`, build `2`) at the time of writing. Never retype it: read it from the train, so this document cannot drift from the code. It is the professional way to ship: internal → external, with the same binary discipline.
 
 ## Release train scope
 
@@ -11,11 +11,13 @@ finished app. Test the **Release configuration**, which shows exactly
 `ReleaseTrain.current`. For each release:
 
 1. Check Settings → Diagnostics → Build → **Release** shows the expected tag
-   (for example `v0.0.1-dev.1 · 0 of 19 staged features`). That string is
+   (for example `v0.1.0-alpha.3 · 10 of 19 staged features`). That string is
    `ReleaseGate.summary`, derived from the train — never retype it here.
 2. Run the matrix rows for the features visible in this release. For a
    development stop (`v0.0.1-dev.1…3`) that is the **core only**: Import,
    Library, Files, Bundle Explorer, Home, the honest rows, and Diagnostics.
+   An alpha or beta stop adds every feature the train shows as visible; run
+   those rows too — a stop that introduces a feature owes it a private test.
 3. Confirm that features not yet released are **absent**: no App Store or
    Downloads tab, no Certificates row, no “Sign Application…”, no Mission Control
    card, no “Deliver…”, and no Activity Journal.
@@ -27,7 +29,7 @@ release that switches them on.
 
 ## Principle
 
-* **Private build = same code, same version, no public tag.** It is built from `main` at the commit you intend to publish (the release-train state you are about to tag), carrying the `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` that `python3 Scripts/release_train.py status` prints for the current stop — for `v0.0.1-dev.1` that is market `0.0.1`, build `1` — but distributed only to your trusted testers.
+* **Private build = same code, same version, no public tag.** It is built from `main` at the commit you intend to publish (the release-train state you are about to tag), carrying the `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` that `python3 Scripts/release_train.py status` prints for the current stop — for `v0.1.0-alpha.3` that is market `0.1.0`, build `2` — but distributed only to your trusted testers.
 * **Public build = same commit, same binary, new tag.** After private green, you push the current stop's tag and `🚀 Release` publishes the GitHub release. The market version does not change between private and public — the build is not rebuilt to avoid binary drift.
 
 ## When to run

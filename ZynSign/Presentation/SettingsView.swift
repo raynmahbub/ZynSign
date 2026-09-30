@@ -54,36 +54,76 @@ struct SettingsView: View {
         }
     }
 
-    /// The complete areas that are not tabs: Files, Store, and
-    /// Downloads. They are reached from here so the bottom navigation stays
-    /// the five-tab foundation every other screen builds on.
+    /// The areas reached from Settings: Certificates, Profiles, the
+    /// Installation Workspace, and second routes to the Store and Downloads.
+    ///
+    /// Every entry is behind its release stop, so this section shrinks to
+    /// Files alone at a development stop and grows as the train advances.
+    /// Files is the one entry that is always here — it is core.
     private var browseSection: some View {
         Section {
-            NavigationLink { FilesView() } label: {
+            if ReleaseTrain.isAvailable(.certificateStudio) {
+                NavigationLink {
+                    CertificateManagerView(
+                        store: environment.identityStore,
+                        annotations: environment.identityAnnotations,
+                        importer: environment.pkcs12Importer
+                    )
+                } label: {
+                    Label(ShellSection.certificates.title, systemImage: ShellSection.certificates.symbolName)
+                }
+            }
+            // `ProfilesView` supplies its own navigation stack, so it is
+            // told the host owns this one.
+            if ReleaseTrain.isAvailable(.provisioningProfileManager) {
+                NavigationLink {
+                    ProfilesView(
+                        profiles: environment.provisioningProfiles,
+                        importer: environment.provisioningProfileImporter,
+                        compatibility: environment.profileCompatibility,
+                        selections: environment.profileSelections,
+                        recordEvent: { name, succeeded in
+                            environment.recordAnalyticsEvent(
+                                category: .intake,
+                                name: name,
+                                succeeded: succeeded
+                            )
+                        },
+                        embedsNavigationStack: false
+                    )
+                } label: {
+                    Label(ShellSection.profiles.title, systemImage: ShellSection.profiles.symbolName)
+                }
+            }
+            NavigationLink { FilesView(embedsNavigationStack: false) } label: {
                 Label(ShellSection.files.title, systemImage: ShellSection.files.symbolName)
             }
             if ReleaseTrain.isAvailable(.installationWorkspace) {
                 NavigationLink {
                     InstallationWorkspaceView(
                         workspace: environment.installationWorkspace,
-                        storage: environment.storageManagement
+                        storage: environment.storageManagement,
+                        embedsNavigationStack: false
                     )
                 } label: {
                     Label(ShellSection.install.title, systemImage: ShellSection.install.symbolName)
                 }
             }
+            // Files, Store, and Downloads are tabs; these links are a second
+            // route to the same screens, kept because a tab is not always the
+            // shortest path when the user is already reading Settings.
             if ReleaseTrain.isAvailable(.appStore) {
-                NavigationLink { AppStoreView() } label: {
+                NavigationLink { AppStoreView(embedsNavigationStack: false) } label: {
                     Label(ShellSection.appStore.title, systemImage: ShellSection.appStore.symbolName)
                 }
             }
             if ReleaseTrain.isAvailable(.downloads) {
-                NavigationLink { DownloadsView() } label: {
+                NavigationLink { DownloadsView(embedsNavigationStack: false) } label: {
                     Label(ShellSection.downloads.title, systemImage: ShellSection.downloads.symbolName)
                 }
             }
         } header: { Text("Browse") } footer: {
-            Text("Files, the Installation Workspace, and the Store are reached from here. Downloads is also a tab when that feature is available. Store jobs stay isolated until you import them, and Download Center cleanup never deletes imported apps.")
+            Text("Files is always here. Certificates, Profiles, the Store, Downloads, and the Installation Workspace appear from here as their release stop arrives; Store and Downloads are also tabs. Store jobs stay isolated until you import them, and Download Center cleanup never deletes imported apps.")
         }
     }
 

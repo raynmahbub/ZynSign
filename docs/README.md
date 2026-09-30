@@ -13,7 +13,7 @@ Everything the project knows about itself lives in this folder. Start here;
 every section below is browsable on GitHub and every page is written to be
 read, not skimmed past.
 
-![Version](https://img.shields.io/badge/version-0.0.1-orange)
+![Version](https://img.shields.io/badge/version-0.1.0--alpha.3-orange)
 ![Architecture](https://img.shields.io/badge/architecture-ZAS%20v1.0-lightgrey)
 ![Design](https://img.shields.io/badge/design-ZDL%20v1.0-blueviolet)
 

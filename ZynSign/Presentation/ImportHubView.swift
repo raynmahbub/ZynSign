@@ -43,6 +43,9 @@ struct ImportHubView: View {
     @State private var queueConfiguration: SigningQueueConfigurationRequest?
     @State private var queueFailure: String?
     @State private var isShowingPicker = false
+    /// A `chooseFiles` request that arrived before the sheet finished
+    /// presenting, waiting for the hub to be on screen.
+    @State private var wantsFilePickerOnAppear = false
     @State private var pickerFailure: String?
     @State private var isShowingResolutionCenter = false
     @State private var archiveSelection: ItemToken?
@@ -142,9 +145,10 @@ struct ImportHubView: View {
             )
         }
         .importDropTarget()
-        .onChange(of: request, initial: true) { _, newValue in
-            handle(newValue)
-        }
+            .onChange(of: request, initial: true) { _, newValue in
+                handle(newValue)
+            }
+            .task { await presentPendingFilePick() }
         .onChange(of: hub.lastFinishedBatch) { _, entry in
             announce(entry)
         }
@@ -593,16 +597,29 @@ struct ImportHubView: View {
         case .none:
             return
         case .chooseFiles:
-            // Let the hub's own presentation finish before presenting the
-            // picker over it.
-            Task {
-                try? await Task.sleep(nanoseconds: 400_000_000)
-                isShowingPicker = true
-            }
+            // The picker cannot be presented until this sheet is itself on
+            // screen — asking earlier fails silently, with no picker and no
+            // error. Flag the request and present from `presentPendingFilePick`,
+            // which runs off the sheet's own appearance rather than a guessed
+            // delay, so a slow device or a cold launch no longer loses it.
+            wantsFilePickerOnAppear = true
         case .history:
             isShowingHistory = true
         }
         request = .none
+    }
+
+    /// Presents the picker once the hub is on screen and the run loop has
+    /// settled. Runs on appear, so it fires after the sheet's transition has
+    /// actually finished.
+    private func presentPendingFilePick() async {
+        guard wantsFilePickerOnAppear else { return }
+        // One yield so the transition's presentation completes before a
+        // second controller is put on screen.
+        await Task.yield()
+        guard wantsFilePickerOnAppear else { return }
+        wantsFilePickerOnAppear = false
+        isShowingPicker = true
     }
 
     private func openRecord(_ record: ApplicationRecord) {

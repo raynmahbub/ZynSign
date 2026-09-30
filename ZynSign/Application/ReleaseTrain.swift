@@ -273,13 +273,15 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
 /// (or any stage name / version) in the Xcode scheme.
 enum ReleaseTrain {
 
-    /// The release this build is cut for. Edited by `Scripts/release_train.py`.
+    /// The release this build is cut for. Edited by `Scripts/release_train.py`
+    /// (`promote` to move forward, `rewind` to move back within the range that
+    /// has not shipped).
     ///
-    /// The first stop on the train. A development stop exposes no staged
-    /// feature: every feature is compiled into the binary, a Debug build shows
-    /// all of them (`exposesEverything`), and a Release build shows the core
-    /// until `promote` switches the next stage's features on.
-    static let current: ReleaseStage = .dev1
+    /// A stop before `alpha1` exposes no staged feature: every feature is
+    /// compiled into the binary, a Debug build shows all of them
+    /// (`exposesEverything`), and a Release build shows the core until
+    /// `promote` switches the next stop's features on.
+    static let current: ReleaseStage = .dev2
 
     /// `UserDefaults` / launch-argument key for the Debug-only preview override.
     static let previewDefaultsKey = "ZynSignReleaseStage"

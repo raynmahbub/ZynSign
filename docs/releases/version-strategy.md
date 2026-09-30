@@ -6,11 +6,12 @@ time. No stage is entered because the previous one "looks complete", and no
 versioned release section is written in `CHANGELOG.md` for a version that
 was not actually produced.
 
-The Xcode project currently declares marketing version `0.0.1`, build `1`,
-for `v0.0.1-dev.1` (2026-09-29) — the first development stop on the train
-below, `10 wired · 3 never`. The market version is `0.0.1` (no pre-release
-suffix in `CFBundleShortVersionString`; suffixes live only in the tag/release
-name); `CFBundleVersion` is `1`. The build is not an App Store submission.
+The Xcode project currently declares marketing version `0.1.0`, build `2`,
+for `v0.1.0-alpha.3` (2026-09-29) — the third Alpha on the train below,
+`10 wired · 3 never`, of which **seven are on in a Release build** at this
+stop. The market version is `0.1.0` (no pre-release suffix in
+`CFBundleShortVersionString`; suffixes live only in the tag/release name);
+`CFBundleVersion` is `2`. The build is not an App Store submission.
 
 The `wired · never` counts describe what is **built** into the binary; the
 release train decides what a Release build **shows**. Both are true at once: a
@@ -170,7 +171,7 @@ Semantic Versioning applies:
 
 ## Current Position
 
-The current stop is `v0.0.1-dev.1` (market `0.0.1`, build `1`, 2026-09-29): the first development release on the train. It switches on no staged feature — a Release build shows the core only, while every feature stays compiled in and visible in Debug builds. The Xcode project carries `MARKETING_VERSION 0.0.1` / `CURRENT_PROJECT_VERSION 1` and `ReleaseTrain.current = .dev1`, so the private binary and the public release are the same binary — see [private-testing.md](private-testing.md) for the private distribution (TestFlight internal or ad-hoc IPA, not a public release) and the device matrix that gates each tag.
+The current stop is `v0.1.0-alpha.3` (market `0.1.0`, build `2`, 2026-09-29): the third Alpha on the train. It switches on App Store, Downloads, the Entitlements Studio and the Identity Center, and cumulatively with Alpha 1 and 2 that is seven of the ten staged features — a Release build shows the core plus those seven, while every feature stays compiled in and visible in Debug builds. The Xcode project carries `MARKETING_VERSION 0.1.0` / `CURRENT_PROJECT_VERSION 2` and `ReleaseTrain.current = .alpha3`, so the private binary and the public release are the same binary — see [private-testing.md](private-testing.md) for the private distribution (TestFlight internal or ad-hoc IPA, not a public release) and the device matrix that gates each tag.
 
 Of the blockers recorded with the final-integration review, three have
 changed since:

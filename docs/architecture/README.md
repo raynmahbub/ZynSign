@@ -12,7 +12,7 @@ Architectural decisions for ZynSign are recorded here.
 ## Current State
 
 The record below is in decision order, oldest first. Where the project stands
-today: `v0.0.1-dev.1` (market `0.0.1`, build `1`) — the first development stop on
+today: `v0.1.0-alpha.3` (market `0.1.0`, build `2`) — the third Alpha on
 the release train. Every staged feature is built and compiled into this binary;
 a development stop exposes none of them in a Release build, a Debug build
 exposes all of them, and each later stop switches its features on in the planned

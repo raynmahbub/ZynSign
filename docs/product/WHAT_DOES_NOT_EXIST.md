@@ -1,13 +1,21 @@
 # What Does Not Exist — Honest Limitations
 
-> ZynSign `v0.0.1-dev.1` as cut from `main` (market `0.0.1`, build `1`) — **10 wired · 3 never**.
+> ZynSign `v0.1.0-alpha.3` (market `0.1.0`, build `2`) — **10 staged · 7 on · 3 still ahead · 3 never**.
 >
-> **Wired** means the capability is compiled into the app and reachable — a Release
-> build of `v0.0.1-dev.1` shows the core, and each later stop on the
-> [release train](../releases/release-train.md) switches its features on in order
-> (Debug builds show all of them).
+> **Wired** means the capability is compiled into the app and reachable. A Release
+> build of `v0.1.0-alpha.3` switches on every feature up to and including that
+> stop on the [release train](../releases/release-train.md); Debug builds show
+> all of them.
+> **Still ahead** means the code is present and tested but the train has not
+> reached it — the rows below say which stop turns each one on.
 > **Never** means no release will claim it: those rows are recorded decisions, not
 > missing features.
+>
+> The count is the point. Ten features are staged; this build ships **seven** of
+> them. The remaining three — Mission Control, the installation delivery
+> hand-off, and the local activity journal — are `beta1`. Until the train gets
+> there they are reachable in Debug and absent in Release, and this file will say
+> so rather than let the badge imply otherwise.
 >
 > This file is the anti-roadmap. A local success is not platform trust, so this is
 > what ZynSign still does **not** claim — and what it says instead. Details live in
@@ -26,9 +34,9 @@
 | **DER entitlements / iOS 15+ `0x20400`** | Emitted when toggled | `DEREntitlementsSerializer` produces deterministic DER SET (`DEREntitlementsBlob` `0xFADE7172` → slot 7) and `CodeDirectoryVersion.v20400` (52-byte header, slot 7 gated). Toggle in `SigningView` (`0x20200` slot 5 only vs `0x20400` slot 5+7). `SignApplicationPipeline` wires `emitDEREntitlements` → `cdVersion`. |
 | **Download Center** | Wired — not a background relaunch, and not universal resume | `DownloadCenter` queues transfers, validates archives before import, and hands off only after the user asks. `URLSessionDownloadTransfer` uses a foreground session with `waitsForConnectivity`. Pause reports resume data only when URLSession captured it. A killed process restores an in-flight job as interrupted, never completed. `DownloadTransferHonesty.claimsBackgroundRelaunch` and `claimsUniversalResume` are both false. |
 | **Live Activities / Dynamic Island** | `LiveActivityKit` wrapper | `LiveActivityService` (`@MainActor`, `ActivityKit` on iOS 16.1+) mirrors `ZynSignLiveActivityState` (stage/progress/detail) to `@Published` and (when widget present) to the system. `SigningView` starts → updates (0.2/0.9) → ends around the 9-stage pipeline. Simulator degrades to in-app `ZStatusBadge`. |
-| **Automation / Mission Control “Refresh Everything”** | Wired | `HomeView` `MissionControl` card (`MissionControlService`) one-tap: repository refresh → library re-read → cache cleanup (`tmp` + `Downloads` pruning). Report shows `Completed`/`Unavailable` + counts + ms. Re-sign eligibility is policy-checked, never auto-triggered. |
-| **Installation delivery hand-off** | Wired — in-app install stays **unavailable** | Sign → **Deliver…** → `InstallationDeliveryView` + `InstallationDeliveryService`: OTA `manifest.plist` (`itms-services`, Apple's documented shape), percent-encoded install link, on-device QR (Core Image `CIQRCodeGenerator`), and step guides for OTA / MDM / host tooling. HTTPS-only — `file://`/`http://` refused with a typed error. ZynSign never uploads, hosts, probes a server, or learns an install outcome. `InstallationCapabilityAssessment.deliveryMechanismAvailable == false` on every path — see `docs/architecture/installation-compatibility.md` § Delivery Hand-off. |
-| **Local activity journal** | Wired — off-device measurement stays **none** | `Settings → Analytics`: `LocalAnalyticsJournal` (JSONL in the app container, capacity 500) records category + fixed slug + outcome + time — never bundle IDs, paths, or device/user identifiers. Toggle (`AnalyticsPolicy.journalDefaultsKey`), live counts, recent activity, one-tap Clear, Export. `AnalyticsPolicy.isEnabled` (off-device) stays `false`, `eventCount 0`, `endpoint nil`, 6 typed guarantees incl. `localJournalOnly`. Nothing ever leaves the device. |
+| **Automation / Mission Control “Refresh Everything”** | Staged — `beta1` | `HomeView` `MissionControl` card (`MissionControlService`) one-tap: repository refresh → library re-read → cache cleanup (`tmp` + `Downloads` pruning). Report shows `Completed`/`Unavailable` + counts + ms. Re-sign eligibility is policy-checked, never auto-triggered. |
+| **Installation delivery hand-off** | Staged — `beta1`; in-app install stays **unavailable** regardless | Sign → **Deliver…** → `InstallationDeliveryView` + `InstallationDeliveryService`: OTA `manifest.plist` (`itms-services`, Apple's documented shape), percent-encoded install link, on-device QR (Core Image `CIQRCodeGenerator`), and step guides for OTA / MDM / host tooling. HTTPS-only — `file://`/`http://` refused with a typed error. ZynSign never uploads, hosts, probes a server, or learns an install outcome. `InstallationCapabilityAssessment.deliveryMechanismAvailable == false` on every path — see `docs/architecture/installation-compatibility.md` § Delivery Hand-off. |
+| **Local activity journal** | Staged — `beta1`; off-device measurement stays **none** regardless | `Settings → Analytics`: `LocalAnalyticsJournal` (JSONL in the app container, capacity 500) records category + fixed slug + outcome + time — never bundle IDs, paths, or device/user identifiers. Toggle (`AnalyticsPolicy.journalDefaultsKey`), live counts, recent activity, one-tap Clear, Export. `AnalyticsPolicy.isEnabled` (off-device) stays `false`, `eventCount 0`, `endpoint nil`, 6 typed guarantees incl. `localJournalOnly`. Nothing ever leaves the device. |
 
 ## ❌ Still Honest — Not Claimed (Explicit Unavailable)
 

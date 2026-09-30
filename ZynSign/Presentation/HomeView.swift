@@ -28,7 +28,6 @@ struct HomeView: View {
 
     @Environment(\.applicationEnvironment) private var environment
     @Environment(\.importPresentation) private var importPresentation
-    @Environment(\.signingQueuePresentation) private var signingQueuePresentation
     @StateObject private var missionControl = MissionControlService()
     @State private var entries: [LibraryEntry] = []
     @State private var certificateCount: Int?
@@ -36,9 +35,19 @@ struct HomeView: View {
     @State private var failedLoad = false
     @State private var hasReadLibrary = false
     @State private var settledImportCount = 0
-    @State private var showPresets = false
-    @State private var showInstallationWorkspace = false
     @State private var isShowingWalkthrough = false
+    /// The direct-link field, and the state of the one transfer it can start.
+    @State private var directLink = ""
+    @State private var isSubmittingLink = false
+    @State private var linkNotice: String?
+    /// The application Quick Sign opens, when the user has one to open.
+    @State private var quickSignEntry: LibraryEntry?
+    /// Profiles and Sources each supply their own navigation stack, so they
+    /// are presented rather than pushed onto Home's.
+    @State private var isShowingProfiles = false
+    @State private var isShowingSources = false
+    /// Certificates own no navigation stack, so they push onto Home's.
+    @State private var isShowingCertificates = false
     @AppStorage(LibraryPreferenceKeys.scope) private var libraryScope = LibraryScope.all.storageValue
     /// Whether first-launch onboarding has been completed.
     ///
@@ -52,57 +61,45 @@ struct HomeView: View {
         settings.preferences.general.onboardingCompleted
     }
 
-    /// The Smart Workspace, when the train exposes it and the composition
-    /// root built it. Either condition failing shows the classic dashboard.
-    private var smartWorkspace: SmartWorkspaceService? {
-        guard ReleaseTrain.isAvailable(.smartWorkspace) else { return nil }
-        return environment.smartWorkspace
-    }
-
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: ZSpacing.lg) {
-                    if let workspace = smartWorkspace {
-                        // Nova: the Smart Workspace replaces the welcome
-                        // header, statistics, and recent list with its
-                        // usage-ordered widgets. Import, onboarding, and
-                        // quick actions stay exactly where they were.
-                        SmartWorkspaceView(
-                            service: workspace,
-                            entries: entries,
-                            onOpenSection: onOpenSection,
-                            onOpenSigningQueue: { signingQueuePresentation.present() },
-                            onOpenInstallation: { showInstallationWorkspace = true }
-                        )
-                        ImportHubStatusBanner(hub: environment.importHub) {
-                            importPresentation.present()
+                    wordmark
+                    countsRow
+                    ImportHubStatusBanner(hub: environment.importHub) {
+                        importPresentation.present()
+                    }
+                    if let updates = pendingUpdates {
+                        ZHomeAttentionRow(
+                            symbol: "arrow.down.circle.fill",
+                            title: updates.count == 1 ? "1 Update Available" : "\(updates.count) Updates Available",
+                            subtitle: "From repositories you have apps from",
+                            count: updates.count,
+                            tint: ZHomeTint.attention
+                        ) {
+                            onOpenSection(.downloads)
+                            Task { await environment.downloadCenter?.refreshUpdates() }
                         }
-                        ReleaseReadinessLink()
-                        quickActions
-                        if onboardingNeeded {
-                            onboardingCard
-                        }
-                        if showsFavorites {
-                            favoritesCard
-                        }
-                    } else {
-                        welcomeHeader
-                        ImportHubStatusBanner(hub: environment.importHub) {
-                            importPresentation.present()
-                        }
-                        ReleaseReadinessLink()
-                        quickActions
-                        if onboardingNeeded {
-                            onboardingCard
-                        }
-                        statisticsCard
-                        if showsFavorites {
-                            favoritesCard
-                        }
-                        if !entries.isEmpty {
-                            recentlyImportedCard
-                        }
+                    }
+                    ZHomeImportTarget {
+                        importPresentation.chooseFiles()
+                    }
+                    ZHomeDirectLinkField(
+                        text: $directLink,
+                        isSubmitting: isSubmittingLink
+                    ) { link in
+                        submitDirectLink(link)
+                    }
+                    actionRows
+                    if onboardingNeeded {
+                        onboardingCard
+                    }
+                    if showsFavorites {
+                        favoritesCard
+                    }
+                    if !entries.isEmpty {
+                        recentlyImportedCard
                     }
                     if ReleaseTrain.isAvailable(.missionControl) {
                         missionControlCard
@@ -110,10 +107,14 @@ struct HomeView: View {
                 }
                 .padding()
             }
-            // Files dropped anywhere on Home go straight to the Import Hub.
-            .importDropTarget()
             .navigationTitle("Home")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { isShowingWalkthrough = true } label: {
+                        Label("Getting Started", systemImage: "questionmark.circle")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { importPresentation.present() } label: {
                         Label("Import IPA", systemImage: "square.and.arrow.down")
@@ -133,6 +134,41 @@ struct HomeView: View {
                     detailsInspection: environment.applicationDetailsInspection
                 )
             }
+            .navigationDestination(item: $quickSignEntry) { entry in
+                SigningView(entry: entry)
+            }
+            .navigationDestination(isPresented: $isShowingCertificates) {
+                CertificateManagerView(
+                    store: environment.identityStore,
+                    annotations: environment.identityAnnotations,
+                    importer: environment.pkcs12Importer
+                )
+            }
+            .sheet(isPresented: $isShowingProfiles) {
+                ProfilesView(
+                    profiles: environment.provisioningProfiles,
+                    importer: environment.provisioningProfileImporter,
+                    compatibility: environment.profileCompatibility,
+                    selections: environment.profileSelections
+                )
+            }
+            .sheet(isPresented: $isShowingSources) {
+                if let store = environment.storeBrowser {
+                    StoreSourcesView(model: store)
+                }
+            }
+            .alert(
+                "Download Center",
+                isPresented: Binding(
+                    get: { linkNotice != nil },
+                    set: { if !$0 { linkNotice = nil } }
+                ),
+                presenting: linkNotice
+            ) { _ in
+                Button("OK", role: .cancel) {}
+            } message: { message in
+                Text(message)
+            }
             .sheet(isPresented: $isShowingWalkthrough) {
                 ZOnboardingView(
                     isPresented: $isShowingWalkthrough,
@@ -142,146 +178,159 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - Welcome header
+    // MARK: - Command center
 
-    private var welcomeHeader: some View {
-        VStack(alignment: .leading, spacing: ZSpacing.xs) {
-            Text(greeting)
-                .font(.largeTitle.weight(.bold))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityAddTraits(.isHeader)
-            HStack(spacing: ZSpacing.sm) {
-                ZynSignMark(size: 40)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("ZynSign")
-                        .font(.headline)
-                    Text("Version \(environment.applicationInfo.marketingVersion)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-            .accessibilityElement(children: .combine)
-        }
-        .padding()
-        .zynHeaderBackground()
+    /// The wordmark. The one place the product names itself, so the screen
+    /// below it can be read as a dashboard rather than as a page of a form.
+    private var wordmark: some View {
+        Text("ZynSign")
+            .font(.system(.largeTitle, design: .default).weight(.bold))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityAddTraits(.isHeader)
     }
 
-    /// The time-of-day greeting. Apple-quality polish: a dashboard that
-    /// knows what time it is, without pretending to know who the user is.
-    private var greeting: String {
-        switch Calendar.current.component(.hour, from: Date()) {
-        case 0..<12: return "Good Morning"
-        case 12..<18: return "Good Afternoon"
-        default: return "Good Evening"
-        }
-    }
-
-    // MARK: - Quick actions
-
-    private var quickActions: some View {
-        VStack(alignment: .leading, spacing: ZSpacing.xs) {
-            Text("Quick Actions")
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
-            HStack(spacing: ZSpacing.sm) {
-                HomeActionButton(title: "Import IPA", icon: "square.and.arrow.down.fill", color: .blue) {
-                    importPresentation.present()
-                }
-                .importDropTarget(.button)
-                HomeActionButton(title: "Certificates", icon: "signature", color: .purple) {
-                    onOpenSection(.certificates)
-                }
-                HomeActionButton(title: "Profiles", icon: "person.text.rectangle", color: .orange) {
-                    onOpenSection(.profiles)
-                }
+    /// What ZynSign holds, in three counts. Each opens the area it counts,
+    /// so a count is also the shortest way to get there.
+    private var countsRow: some View {
+        HStack(spacing: ZSpacing.sm) {
+            ZHomeStatTile(
+                symbol: "folder.fill",
+                title: "Repos",
+                value: repositoryCount,
+                tint: ZHomeTint.sources
+            ) {
+                onOpenSection(.appStore)
             }
-            if ReleaseTrain.isAvailable(.signingPresets) || signingQueuePresentation.isAvailable || ReleaseTrain.isAvailable(.installationWorkspace) {
-                HStack(spacing: ZSpacing.sm) {
-                    if ReleaseTrain.isAvailable(.signingPresets) {
-                        HomeActionButton(title: "Presets", icon: "rectangle.stack", color: .teal) {
-                            showPresets = true
-                        }
-                        .accessibilityHint("Opens saved signing presets. Choosing one does not sign.")
-                    }
-                    if signingQueuePresentation.isAvailable {
-                        HomeActionButton(title: "Signing Queue", icon: "tray.full", color: .indigo) {
-                            signingQueuePresentation.present()
-                        }
-                        .accessibilityHint("Opens the signing queue dashboard.")
-                    }
-                    if ReleaseTrain.isAvailable(.installationWorkspace) {
-                        HomeActionButton(title: "Install", icon: "arrow.down.app.fill", color: .mint) {
-                            showInstallationWorkspace = true
-                        }
-                        .accessibilityHint("Opens the installation workspace. ZynSign validates and records; it does not install.")
-                    }
-                }
+            ZHomeStatTile(
+                symbol: "checkmark.shield.fill",
+                title: "Certs",
+                value: certificateCount,
+                tint: ZHomeTint.certificates
+            ) {
+                onOpenSection(.settings)
             }
-        }
-        .sheet(isPresented: $showPresets) {
-            PresetsView()
-        }
-        .sheet(isPresented: $showInstallationWorkspace) {
-            NavigationStack {
-                InstallationWorkspaceView(
-                    workspace: environment.installationWorkspace,
-                    storage: environment.storageManagement
-                )
+            ZHomeStatTile(
+                symbol: "square.stack.fill",
+                title: "Apps",
+                value: entries.isEmpty && hasReadLibrary ? 0 : entries.count,
+                tint: ZHomeTint.apps
+            ) {
+                onOpenSection(.library)
             }
         }
     }
 
-    // MARK: - Library statistics
-
-    private var statisticsCard: some View {
-        VStack(alignment: .leading, spacing: ZSpacing.xs) {
-            HStack {
-                Text("Library")
-                    .font(.headline)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer()
-                Button("View All") { openLibrary(on: .all) }
-                    .font(.footnote)
-                    .disabled(failedLoad && entries.isEmpty)
-            }
-            if failedLoad {
-                Label("The library could not be reached.", systemImage: "exclamationmark.triangle")
-                    .font(.footnote)
-                    .foregroundStyle(.orange)
-            } else {
-                HStack(spacing: ZSpacing.sm) {
-                    StatTile(
-                        value: hasReadLibrary ? "\(entries.count)" : nil,
-                        label: "Apps",
-                        icon: "square.grid.2x2",
-                        color: .blue
-                    ) {
-                        openLibrary(on: .all)
-                    }
-                    StatTile(
-                        value: certificateCount.map { "\($0)" },
-                        label: "Certificates",
-                        icon: "signature",
-                        color: .purple
-                    ) {
-                        onOpenSection(.certificates)
-                    }
-                    StatTile(
-                        value: profileCount.map { "\($0)" },
-                        label: "Profiles",
-                        icon: "person.text.rectangle",
-                        color: .orange
-                    ) {
-                        onOpenSection(.profiles)
-                    }
-                }
-            }
-        }
-        .padding()
-        .zynCardBackground(cornerRadius: ZRadius.lg)
+    /// How many repositories are configured, or `nil` while that has not
+    /// been read — so the tile does not claim "0" before it knows.
+    private var repositoryCount: Int? {
+        guard let store = environment.storeBrowser else { return nil }
+        return store.snapshot.sources.count
     }
 
+    /// The updates the Download Center has ready, or `nil` when there are
+    /// none. The row is absent rather than reassuring — an empty "0 updates
+    /// available" is a claim about the repositories, not a state of the app.
+    private var pendingUpdates: [AppUpdateCandidate]? {
+        guard let center = environment.downloadCenter else { return nil }
+        let updates = center.updates
+        return updates.isEmpty ? nil : updates
+    }
+
+    /// The things a user comes here to do, in the order they are likely to
+    /// want them. Import is deliberately absent: it is the target above, and
+    /// repeating it here would be two doors to one room.
+    private var actionRows: some View {
+        VStack(spacing: ZSpacing.sm) {
+            ZHomeActionRow(
+                title: "Quick Sign",
+                subtitle: quickSignSubtitle,
+                symbol: "signature",
+                tint: ZHomeTint.sources
+            ) {
+                openQuickSign()
+            }
+            ZHomeActionRow(
+                title: "Certificates",
+                subtitle: certificateSubtitle,
+                symbol: "checkmark.shield.fill",
+                tint: ZHomeTint.certificates
+            ) {
+                isShowingCertificates = true
+            }
+            ZHomeActionRow(
+                title: "Add Repository",
+                subtitle: "Add a new app source",
+                symbol: "plus.circle.fill",
+                tint: ZHomeTint.apps
+            ) {
+                isShowingSources = true
+            }
+            ZHomeActionRow(
+                title: "Profiles",
+                subtitle: "Provisioning profiles and compatibility",
+                symbol: "person.text.rectangle.fill",
+                tint: ZHomeTint.profiles
+            ) {
+                isShowingProfiles = true
+            }
+        }
+    }
+
+    /// Quick Sign needs an application to sign, so the row says what it
+    /// will do rather than promising a one-tap signature it cannot perform.
+    private var quickSignSubtitle: String {
+        entries.isEmpty
+            ? "Import an app first, then sign it here."
+            : "Pick an app in the library and sign it with your identity."
+    }
+
+    private var certificateSubtitle: String {
+        switch certificateCount {
+        case .none: return "Manage your signing certificates"
+        case .some(0): return "No certificates yet — import a .p12 to sign"
+        case .some(let count): return count == 1 ? "1 certificate available" : "\(count) certificates available"
+        }
+    }
+
+    /// Signs the most recently imported application when there is one, and
+    /// otherwise sends the user to the library to pick. The sign screen
+    /// always asks for a certificate and a profile, so "quick" never means
+    /// "unattended".
+    private func openQuickSign() {
+        guard let entry = entries.first else {
+            onOpenSection(.library)
+            return
+        }
+        quickSignEntry = entry
+    }
+
+    /// Hands a direct link to the Download Center, which owns the transfer
+    /// from that point. ZynSign does not fetch an `.ipa` from a URL on its
+    /// own, and the message says which area took it so the result is findable.
+    private func submitDirectLink(_ link: String) {
+        guard let center = environment.downloadCenter else {
+            linkNotice = "The Download Center is not available in this build."
+            return
+        }
+        isSubmittingLink = true
+        Task { @MainActor in
+            let result = await center.enqueueUserLink(link)
+            isSubmittingLink = false
+            switch result {
+            case .queued:
+                directLink = ""
+                linkNotice = "Queued in the Download Center. Open Downloads to follow it."
+            case .needsDecision:
+                // A collision with a package already held. The decision
+                // belongs to the Download Center, which owns the prompt.
+                onOpenSection(.downloads)
+            case let .rejected(message):
+                linkNotice = message
+            case .skipped:
+                break
+            }
+        }
+    }
     // MARK: - Recently imported
 
     private var recentlyImportedCard: some View {
@@ -603,61 +652,6 @@ enum HomeStorageCounts {
 }
 
 // MARK: - Pieces
-
-/// One quick action: an icon on a card. The whole tile is the button.
-private struct HomeActionButton: View {
-    let title: String; let icon: String; let color: Color; let action: () -> Void
-    var body: some View {
-        Button {
-            ZHaptics.tap()
-            action()
-        } label: {
-            VStack(spacing: ZSpacing.xs) {
-                Image(systemName: icon).font(.title2).foregroundStyle(color)
-                Text(title).font(.caption.weight(.medium)).multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity).padding(.vertical, ZSpacing.sm)
-            .zynCardBackground()
-        }.buttonStyle(.plain)
-        .accessibilityLabel(title)
-    }
-}
-
-/// One library statistic: the count, what it counts, and where the tab that
-/// manages it lives. A count the dashboard could not read shows "—", never
-/// a fabricated zero.
-private struct StatTile: View {
-    let value: String?
-    let label: String
-    let icon: String
-    let color: Color
-    let action: () -> Void
-
-    var body: some View {
-        Button {
-            ZHaptics.tap()
-            action()
-        } label: {
-            VStack(spacing: 2) {
-                if let value {
-                    Text(value).font(.title3.weight(.bold)).monospacedDigit()
-                } else {
-                    Text("—").font(.title3.weight(.bold)).foregroundStyle(.tertiary)
-                }
-                Label(label, systemImage: icon)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, ZSpacing.sm)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: ZRadius.sm))
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(label): \(value ?? "unavailable")")
-    }
-}
 
 /// One favourite application on Home: its icon and name. The whole tile
 /// opens the application's details.

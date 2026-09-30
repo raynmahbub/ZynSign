@@ -22,7 +22,14 @@ struct FilesView: View {
     @State private var fileToRename: FileItem?
     @State private var renameText = ""
 
-    init(directory: URL? = nil) {
+    /// When this view is pushed into a navigation stack that already exists
+    /// — Settings → Browse, or a `NavigationLink` from another screen — it
+    /// must not wrap itself in a second one. Nesting `NavigationStack` inside
+    /// a pushed destination is a runtime crash, not a warning.
+    var embedsNavigationStack: Bool = true
+
+    init(directory: URL? = nil, embedsNavigationStack: Bool = true) {
+        self.embedsNavigationStack = embedsNavigationStack
         _model = StateObject(wrappedValue: FilesViewModel(root: directory))
     }
 
@@ -32,7 +39,21 @@ struct FilesView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        Group {
+            if embedsNavigationStack {
+                NavigationStack { fileListScreen }
+            } else {
+                fileListScreen
+            }
+        }
+        .onAppear { model.reload() }
+        .onChange(of: model.sort) { _, _ in model.reload() }
+        .onChange(of: model.ascending) { _, _ in model.reload() }
+    }
+
+    /// The screen's own content, with no navigation container of its own, so
+    /// this view can be pushed into a stack the host already owns.
+    private var fileListScreen: some View {
             Group {
                 if model.items.isEmpty && !model.isLoading {
                     emptyState
@@ -95,10 +116,6 @@ struct FilesView: View {
                 ShareSheet(url: item.url)
             }
             .overlay { if model.isLoading { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) } }
-        }
-        .onAppear { model.reload() }
-        .onChange(of: model.sort) { _, _ in model.reload() }
-        .onChange(of: model.ascending) { _, _ in model.reload() }
     }
 
     /// Brings a selection into ZynSign.
