@@ -183,8 +183,8 @@ final class ZynSignPreferencesTests: XCTestCase {
         XCTAssertTrue(SensitiveDataVisibility.visible.showsValues)
     }
 
-    func testOneThemeIsStored() {
-        XCTAssertEqual(ZynSignTheme.allCases.count, 1)
+    func testShippedThemesAreStored() {
+        XCTAssertEqual(ZynSignTheme.allCases.count, 4)
         XCTAssertEqual(ZynSignTheme.defaultIdentifier, "zynsign.default")
     }
 
