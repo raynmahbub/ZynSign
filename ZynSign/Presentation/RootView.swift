@@ -3,14 +3,10 @@ import SwiftUI
 
 /// The root of the ZynSign interface: the tab shell the user navigates.
 ///
-/// Five tabs, in the deliberate order ZynSign presents: Home → Library →
-/// Certificates → Profiles → Settings. Each tab is a real area with its own
-/// NavigationStack; no placeholder is shown. Home is the default selected
-/// tab so a fresh install lands on the dashboard.
-///
-/// Files, App Store, and Downloads remain complete, reachable areas —
-/// Settings → Browse links to them — but the bottom navigation is these
-/// five tabs, which every later milestone builds on.
+/// Five native tabs: Files, Library, Home, Features, and Settings. The
+/// Features catalogue also hosts Store and Downloads, keeping every workflow
+/// reachable without UIKit's overflow navigation controller. Each tab owns
+/// its own navigation state; Home remains the default landing destination.
 ///
 /// The shell is also the single owner of the Import Hub. Every way a
 /// package can arrive — a quick action, a toolbar button, a share-sheet
@@ -52,6 +48,7 @@ struct RootView: View {
     @StateObject private var appLock: AppLockController
 
     @State private var selected: ShellSection
+    @State private var featurePath: [FeatureCatalogDestination] = []
     @State private var isShowingImport = false
     @State private var hubRequest: ImportHubRequest = .none
 
@@ -448,14 +445,9 @@ struct RootView: View {
         ShellSection.primaryTabs
     }
 
-    /// The tab to actually select for a requested section.
-    ///
-    /// A landing preference saved by a later build can name a tab this stop
-    /// does not show — a development build reading a preference written at
-    /// alpha.3, for instance. Selecting a tab that is not rendered leaves the
-    /// bar with no selection and the content area blank, so the request is
-    /// clamped to a tab that exists. Library is the fallback, matching how
-    /// `LandingTab.selectable` retires sections the shell no longer shows.
+    /// The tab to actually select for a requested section. Older saved
+    /// Store / Downloads selections now resolve to Features; other destinations
+    /// without a native tab resolve to Library or Settings.
     static func visibleSelection(for section: ShellSection) -> ShellSection {
         visibleSelection(for: section, in: ShellSection.primaryTabs)
     }
@@ -465,21 +457,43 @@ struct RootView: View {
     /// only reaches in a Release build.
     static func visibleSelection(for section: ShellSection, in tabs: [ShellSection]) -> ShellSection {
         if tabs.contains(section) { return section }
+        if (section == .appStore || section == .downloads), tabs.contains(.features) {
+            return .features
+        }
+        if section == .presets || section == .install || section == .certificates || section == .profiles {
+            return tabs.contains(.settings) ? .settings : (tabs.contains(.library) ? .library : (tabs.first ?? .settings))
+        }
         return tabs.contains(.library) ? .library : (tabs.first ?? .settings)
+    }
+
+    /// Home can request Store or Downloads without assigning a selection the
+    /// native tab bar cannot represent. Route through Features and install the
+    /// corresponding child route before switching tabs.
+    private func openHomeSection(_ section: ShellSection) {
+        switch section {
+        case .appStore:
+            featurePath = [.appStore]
+            selected = .features
+        case .downloads:
+            featurePath = [.downloads]
+            selected = .features
+        default:
+            selected = ShellSection.tab(toOpen: section)
+        }
     }
 
     private func badgeCount(for section: ShellSection) -> Int {
         switch section {
-        case .library: return activeSigningJobBadge
-        case .downloads: return activeDownloadBadge
-        case .settings:
-            // When Downloads has no slot of its own, its progress follows the
-            // destination it is opened from — Settings → Updates — rather than
-            // silently disappearing with the tab. A download the user cannot
-            // see progress on reads as a hang, and this keeps that from being
-            // a side effect of the bar's five-item ceiling.
-            return ShellSection.primaryTabs.contains(.downloads) ? 0 : activeDownloadBadge
-        default: return 0
+        case .library:
+            return activeSigningJobBadge
+        case .downloads:
+            return activeDownloadBadge
+        case .features:
+            // Downloads is reached from Features rather than the native bar;
+            // keep transfer progress visible on its host tab.
+            return ReleaseTrain.isAvailable(.downloads) ? activeDownloadBadge : 0
+        default:
+            return 0
         }
     }
 
@@ -634,7 +648,7 @@ struct RootView: View {
     private func tabContent(_ section: ShellSection) -> some View {
         switch section {
         case .home:
-            HomeView(onOpenSection: { selected = ShellSection.tab(toOpen: $0) })
+            HomeView(onOpenSection: openHomeSection)
         case .library:
             ApplicationLibraryView(
                 library: environment.library,
@@ -647,6 +661,8 @@ struct RootView: View {
                 exporter: environment.libraryExport,
                 performanceEngine: environment.performanceEngine
             )
+        case .features:
+            FeatureCatalogView(path: $featurePath)
         case .certificates:
             NavigationStack {
                 CertificateManagerView(

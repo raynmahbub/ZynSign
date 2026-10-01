@@ -179,6 +179,7 @@ enum SettingsFixtures {
             ),
             identityStore: identityStore,
             pkcs12Importer: UnavailablePKCS12Importer(),
+            pkcs12DocumentReader: CoordinatedPKCS12DocumentReader(),
             signingPipeline: pipeline,
             signingEngine: CompositionRoot.makeSigningEngine(identityStore: identityStore, pipeline: pipeline),
             analyticsJournal: InMemoryLocalAnalyticsJournal(),
