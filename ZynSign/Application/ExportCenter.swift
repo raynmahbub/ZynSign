@@ -120,6 +120,19 @@ actor ExportCenter {
         try await records.write(record)
     }
 
+    /// Rolls back a committed artifact when its durable record cannot be
+    /// written. This keeps export storage transactional from the caller's
+    /// perspective: an artifact is never left behind without a record that
+    /// describes it.
+    func rollbackCommittedArtifact(fileName: String) async throws {
+        _ = try artifacts.removeArtifact(named: fileName)
+    }
+
+    /// Removes a record during rollback of a partially completed export.
+    func removeRecord(_ id: ExportIdentifier) async throws {
+        try await records.remove(recordWithID: id)
+    }
+
     /// Records what independent verification concluded about one export.
     ///
     /// - Returns: The updated record.

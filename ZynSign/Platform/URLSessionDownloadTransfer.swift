@@ -258,12 +258,28 @@ struct URLSessionRepositoryClient: RepositoryCatalogFetching, InstallManifestRes
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = timeout
+        configuration.timeoutIntervalForResource = timeout
+        let session = URLSession(configuration: configuration, delegate: HTTPSRedirectPolicy(), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw ZynSignError.downloadCenterStorageFailure(diagnosticDetail: "The repository request was not successful.")
         }
-        guard data.count <= DownloadURLPolicy.maximumCatalogBytes else {
+        let maximum = DownloadURLPolicy.maximumCatalogBytes
+        if response.expectedContentLength > Int64(maximum) {
             throw ZynSignError.downloadCenterStorageFailure(diagnosticDetail: "The repository document exceeds the parse limit.")
+        }
+        var data = Data()
+        if response.expectedContentLength > 0 {
+            data.reserveCapacity(min(Int(response.expectedContentLength), maximum))
+        }
+        for try await byte in bytes {
+            guard data.count < maximum else {
+                throw ZynSignError.downloadCenterStorageFailure(diagnosticDetail: "The repository document exceeds the parse limit.")
+            }
+            data.append(byte)
         }
         return data
     }

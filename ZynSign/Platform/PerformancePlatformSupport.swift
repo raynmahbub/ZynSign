@@ -480,7 +480,12 @@ struct URLSessionStoreFeedFetcher: StoreFeedFetching {
         }
         let start = Date()
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.timeoutIntervalForRequest = timeout
+            configuration.timeoutIntervalForResource = timeout
+            let session = URLSession(configuration: configuration, delegate: HTTPSRedirectPolicy(), delegateQueue: nil)
+            defer { session.invalidateAndCancel() }
+            let (bytes, response) = try await session.bytes(for: request)
             let latency = Int(Date().timeIntervalSince(start) * 1_000)
             guard let http = response as? HTTPURLResponse else {
                 return .failed(latencyMilliseconds: latency, httpStatus: nil)
@@ -489,6 +494,24 @@ struct URLSessionStoreFeedFetcher: StoreFeedFetching {
                 return .notModified(latencyMilliseconds: latency)
             }
             guard (200...299).contains(http.statusCode) else {
+                return .failed(latencyMilliseconds: latency, httpStatus: http.statusCode)
+            }
+            let maximum = 8 * 1_024 * 1_024
+            guard response.expectedContentLength <= Int64(maximum) else {
+                return .failed(latencyMilliseconds: latency, httpStatus: http.statusCode)
+            }
+            var data = Data()
+            if response.expectedContentLength > 0 {
+                data.reserveCapacity(min(Int(response.expectedContentLength), maximum))
+            }
+            do {
+                for try await byte in bytes {
+                    guard data.count < maximum else {
+                        return .failed(latencyMilliseconds: latency, httpStatus: http.statusCode)
+                    }
+                    data.append(byte)
+                }
+            } catch {
                 return .failed(latencyMilliseconds: latency, httpStatus: http.statusCode)
             }
             return .updated(

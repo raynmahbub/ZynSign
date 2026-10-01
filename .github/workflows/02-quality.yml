@@ -47,14 +47,14 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Run the architecture guard
         run: Scripts/ci/architecture_guard.sh
 
       - name: Upload the architecture metrics
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: architecture-metrics
           path: build/metrics/architecture.txt
@@ -67,7 +67,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Check declared packages against the allowlist
         run: Scripts/ci/dependency_check.sh
@@ -78,7 +78,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Validate the documentation
         run: Scripts/ci/docs_check.sh
@@ -89,7 +89,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Run the secret policy scan
         run: Scripts/ci/security_scan.sh
@@ -102,12 +102,12 @@ jobs:
       # Full history on purpose: a secret committed and then removed is still
       # a secret. Allowlists live in .gitleaks.toml.
       - name: Check out the repository (full history)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
 
       - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v3
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
@@ -121,7 +121,7 @@ jobs:
       checks: write
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Measure against the thresholds
         run: Scripts/ci/complexity_check.sh
@@ -148,7 +148,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       # QUICK=1 runs the fast guards itself and skips Periphery, so this job
       # is self-contained; the full dashboards are committed weekly by
@@ -201,7 +201,7 @@ jobs:
 
       - name: Upload the dashboards
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: engineering-command-center
           path: |
@@ -218,7 +218,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       # README is the storefront: it must agree with MARKETING_VERSION and the
       # counts in docs/product/WHAT_DOES_NOT_EXIST.md. When it drifts, fix it

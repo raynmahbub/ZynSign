@@ -8,8 +8,8 @@ import FoundationNetworking
 ///
 /// One bounded GET per endpoint. Any HTTP answer — including a client or
 /// server error — counts as reachable, because the question is whether the
-/// endpoint can be reached, not whether it is healthy. A transport failure,
-/// a timeout, or a blocked connection is unreachable.
+/// endpoint can be reached, not whether it is healthy. The probe observes
+/// response headers only; revocation bodies are never buffered or retained.
 final class URLSessionRevocationProbe: RevocationEndpointProbe, @unchecked Sendable {
 
     private let makeSession: @Sendable (TimeInterval) -> URLSession
@@ -33,11 +33,13 @@ final class URLSessionRevocationProbe: RevocationEndpointProbe, @unchecked Senda
         request.timeoutInterval = timeout
         let started = ContinuousClock.now
         do {
-            let (data, response) = try await session.data(for: request)
+            // Unlike data(for:), bytes(for:) returns at response headers and
+            // does not materialize an attacker-controlled body. The session is
+            // invalidated immediately after the reachability fact is captured.
+            let (_, response) = try await session.bytes(for: request)
             let elapsed = ContinuousClock.now - started
             let latencyMs = Int(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000)
             let statusCode = (response as? HTTPURLResponse)?.statusCode
-            _ = data
             return EndpointProbeOutcome.Channels(
                 reachable: true,
                 statusCode: statusCode,

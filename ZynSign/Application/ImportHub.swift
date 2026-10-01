@@ -257,6 +257,9 @@ final class ImportHub: ObservableObject {
     /// Whether the history could not be read.
     @Published private(set) var historyUnavailable = false
 
+    /// Whether the interrupted-import journal could not be durably updated.
+    @Published private(set) var recoveryJournalUnavailable = false
+
     /// The most recently finished batch, for announcing completion.
     @Published private(set) var lastFinishedBatch: ImportHistoryEntry?
 
@@ -1218,9 +1221,14 @@ final class ImportHub: ObservableObject {
 
     private func chainHistoryWrite(_ write: @escaping @Sendable () async throws -> Void) {
         let previous = historyWriter
-        historyWriter = Task {
+        historyWriter = Task { @MainActor [weak self] in
             await previous?.value
-            try? await write()
+            do {
+                try await write()
+                self?.historyUnavailable = false
+            } catch {
+                self?.historyUnavailable = true
+            }
         }
     }
 
@@ -1257,7 +1265,12 @@ final class ImportHub: ObservableObject {
                 guard let hub = self, hub.journalNeedsWrite else { break }
                 hub.journalNeedsWrite = false
                 let snapshot = hub.recoveryRecords()
-                try? await recoveryJournal.replace(with: snapshot)
+                do {
+                    try await recoveryJournal.replace(with: snapshot)
+                    hub.recoveryJournalUnavailable = false
+                } catch {
+                    hub.recoveryJournalUnavailable = true
+                }
             }
             self?.journalWriter = nil
         }
