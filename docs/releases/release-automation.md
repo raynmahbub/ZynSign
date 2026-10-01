@@ -43,17 +43,17 @@ Every log and every summary speaks one language (Crystal Flow,
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-🚀 Release • Assets • v0.1.0-alpha.3
+🚀 Release • Assets • v0.0.1
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 ✓ Application bundle: build/ZynSign.xcarchive/Products/Applications/ZynSign.app
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 🚀 Release • Package
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-✓ ZynSign-v0.1.0-alpha.3-unsigned.ipa
-✓ ZynSign-v0.0.1-dev.1-SHA256.txt — 496f869a25dc1bd0…
-✓ BuildPassport-v0.0.1-dev.1.json — 0 feature(s) visible, 19 staged later
-✓ ReleaseNotes.md — curated notes (docs/releases/notes-v0.0.1-dev.1.md)
+✓ ZynSign-v0.0.1-unsigned.ipa
+✓ ZynSign-v0.0.1-SHA256.txt — 496f869a25dc1bd0…
+✓ BuildPassport-v0.0.1.json — 0 feature(s) visible, 19 staged later
+✓ ReleaseNotes.md — curated notes (docs/releases/notes-v0.0.1.md)
 ✓ MANIFEST.md — 5 asset(s) listed
 ```
 
@@ -84,11 +84,11 @@ any macOS runner is allocated:
 
 ```
 ✗ v1.2.3 is not a stop on the release train, so nothing can be released for it.
-  ReleaseTrain.current is v0.0.1-dev.1; the train's stops are:
+  ReleaseTrain.current is v0.0.1; the train's stops are:
     v0.0.1-dev.1, v0.0.1-dev.2, v0.0.1-dev.3, v0.0.1, v0.1.0-alpha.1, …, v3.0.0
   See docs/releases/release-train.md for the plan and the stop order.
 ::error title=release-meta::v1.2.3 cannot be released — it is not the release train's current stop
-     Release the current stop instead: v0.1.0-alpha.3
+     Release the current stop instead: v0.0.1
 ```
 
 `Scripts/ci/release_meta.sh --self-test` proves the derivation and every

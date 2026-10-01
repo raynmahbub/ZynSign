@@ -19,6 +19,63 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+## [0.0.1] - 2026-10-01
+
+**The first build.** Market `0.0.1`, tag `v0.0.1`, release train `.horizon` —
+the stop the three development rehearsals existed to reach. It switches on no
+staged `ReleaseFeature` of its own (`ReleaseStage.horizon.introducedFeatures`
+is empty), so what it carries is everything merged since the `v0.0.1-dev.3`
+tag: two Settings reachability fixes, and the release machinery that publishes
+the notes for the stop being cut. `CFBundleVersion` is 5, assigned by
+`python3 Scripts/release_train.py promote` rather than claimed here. Notes:
+[`docs/releases/notes-v0.0.1.md`](docs/releases/notes-v0.0.1.md).
+
+> **Gate drift, carried from `dev.3` and recorded again rather than resolved.**
+> `certificateStudio`, `provisioningProfileManager`, `appStore` and `downloads`
+> still have no live `ReleaseTrain.isAvailable` check at any reachable entry
+> point, so a Release build at `v0.0.1` exposes four areas the train assigns to
+> `v0.1.0-alpha.1`, `v0.1.0-alpha.2` and `v0.1.0-alpha.3`. `dev.3` shipped with
+> that recorded instead of fixed, on the reasoning that re-gating or moving the
+> stops after the tag was a product-surface change nobody had asked for; the
+> same reasoning holds one stop later, and the decision is still owed to the
+> `v0.1.0-alpha.1` cut, where the feature map is written next. What *did* change
+> is that this stop is no longer a rehearsal: the drift now sits in a release a
+> user can install, so the two options — re-gate the staged *actions* behind
+> each surface, or move the four into `v0.0.1` and let the alphas keep what they
+> actually switch on — are carried forward with that weight stated.
+
+### Fixed
+
+- **The Security Center was unreachable.** `SettingsSectionCatalog` registered
+  all ten sections, and `SettingsSectionCatalogTests` checked every one of
+  them — but the Settings index is a `@ViewBuilder` switch over its own
+  `SettingsCategory` list, and that list had no `security` case. Nothing else
+  in the app links `SecurityCenterSection`, so the row did not exist: the
+  biometric application lock, the session timeout, the
+  require-authentication-for-sensitive-actions rule, sensitive-data
+  visibility, and per-app Lock and Vault were all compiled in, tested, and
+  impossible to open. `AppLockOverlay` could therefore never be armed by the
+  user, whatever the shipped preference said. The index gains a Security
+  category, and each category now records the catalog sections it opens
+  (`SettingsCategory.openedSections`) so a registered section with no
+  navigation fails `testEveryRegisteredSectionIsReachableFromTheSettingsIndex`
+  instead of disappearing quietly.
+- **The landing-tab picker offered a tab the bar cannot select.** Settings →
+  General listed `LandingTab.tabCases` — all six tab-capable sections — while
+  `primaryTabs` renders five, Downloads having yielded its slot to the
+  platform ceiling. Choosing Downloads saved the preference, the row kept
+  reading *Downloads*, and every launch opened Library, because
+  `RootView.visibleSelection` clamped a destination the bar does not render.
+  The picker now offers `ShellSection.offerableLandingTabs` and reads through
+  `ShellSection.effectiveLandingTab`, which returns the same Library fallback
+  launch uses, so the row and the next cold start cannot disagree and a
+  preference saved by an earlier build no longer renders as a blank
+  selection. Pinned by
+  `ShellSectionTabTests.testTheLandingPickerOffersOnlyTabsTheBarCanSelect`,
+  `testAFoldedSectionIsNotOfferedAsALandingTab`,
+  `testAStoredLandingTabWithNoSlotReadsAsTheTabLaunchOpens`, and
+  `testARetiredLandingTabReadsAsLibrary`.
+
 ## [0.0.1-dev.3] - 2026-10-01
 
 **Development 3.** Market `0.0.1`, tag `v0.0.1-dev.3`, release train `.dev3` —

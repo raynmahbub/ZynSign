@@ -2,7 +2,7 @@
 
 > Test privately, publish publicly. No tag is pushed public until the private build is green on your devices.
 
-This document is the single checklist for the **private test** that gates every release on the [release train](release-train.md). The current candidate is whatever `python3 Scripts/release_train.py current --tag` prints — `v0.1.0-alpha.3` (market `0.1.0`, build `2`) at the time of writing. Never retype it: read it from the train, so this document cannot drift from the code. It is the professional way to ship: internal → external, with the same binary discipline.
+This document is the single checklist for the **private test** that gates every release on the [release train](release-train.md). The current candidate is whatever `python3 Scripts/release_train.py current --tag` prints. Never retype it: read it from the train, so this document cannot drift from the code — the version once written into this sentence outlived the stop it named, which is the drift the rule exists to prevent. It is the professional way to ship: internal → external, with the same binary discipline.
 
 ## Release train scope
 
@@ -14,7 +14,8 @@ finished app. Test the **Release configuration**, which shows exactly
    (for example `v0.1.0-alpha.3 · 10 of 19 staged features`). That string is
    `ReleaseGate.summary`, derived from the train — never retype it here.
 2. Run the matrix rows for the features visible in this release. For a
-   development stop (`v0.0.1-dev.1…3`) that is the **core only**: Import,
+   development stop (`v0.0.1-dev.1` through `v0.0.1`, none of which introduces a
+   staged `ReleaseFeature`) that is the **core only**: Import,
    Library, Files, Bundle Explorer, Home, the honest rows, and Diagnostics.
    An alpha or beta stop adds every feature the train shows as visible; run
    those rows too — a stop that introduces a feature owes it a private test.

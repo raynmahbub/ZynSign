@@ -1,17 +1,17 @@
 # Repository Health
 
-_Generated 2026-09-27 by `Scripts/ci/metrics_report.sh` at commit `a6ddcbd` (`arena/01a0e4b5-zynsign`).
+_Generated 2026-10-01 by `Scripts/ci/metrics_report.sh` at commit `02f629d` (`arena/01a0f5e6-zynsign`).
 The weekly maintenance workflow keeps this dashboard current._
 
 ## Overview
 
 | Metric | Value |
 | --- | --- |
-| Swift files | 818 |
-| Swift lines of code | 206504 |
-| Test files | 207 |
-| Unit tests | 2709 |
-| Documentation pages | 93 |
+| Swift files | 870 |
+| Swift lines of code | 214452 |
+| Test files | 221 |
+| Unit tests | 2836 |
+| Documentation pages | 77 |
 | External dependencies | 0 |
 | Release readiness score | **100%** (6/6 checks) |
 
@@ -21,13 +21,13 @@ The weekly maintenance workflow keeps this dashboard current._
 | --- | --- |
 | Architecture Guard | ✅ pass (0 violations) |
 | Dependency validation | ✅ pass |
-| Documentation check | ✅ pass (0 broken links, 4 orphaned pages) |
+| Documentation check | ✅ pass (0 broken links, 0 orphaned pages) |
 | Secret policy | ✅ pass |
-| Complexity guard | ✅ pass (152 findings — warnings only) |
-| Dead code scan (heuristic) | 277 candidate(s) (cached full scan) |
+| Complexity guard | ✅ pass (155 findings — warnings only) |
+| Dead code scan (heuristic) | pass (291 candidates) |
 | Release train | ✅ pass |
 
-Current train: Current release : v0.0.1-dev.1  (stage .dev1) Xcode project   : MARKETING_VERSION 0.0.1 · build 1 
+Current train: Current release : v0.0.1  (stage .horizon) Xcode project   : MARKETING_VERSION 0.0.1 · build 5 
 
 ## Release Readiness
 
@@ -46,20 +46,20 @@ Current train: Current release : v0.0.1-dev.1  (stage .dev1) Xcode project   : M
 | File | Lines |
 | --- | --- |
 | ZynSign/Presentation/ApplicationDetailView.swift | 1993 |
-| ZynSign/App/CompositionRoot.swift | 1711 |
-| ZynSign/Presentation/ApplicationLibraryView.swift | 1648 |
+| ZynSign/Presentation/ApplicationLibraryView.swift | 1723 |
 | ZynSign/Domain/NestedCodeDiscovery.swift | 1458 |
 | Tests/ZynSignTests/ProvisioningPolicyValidationTests.swift | 1419 |
 | ZynSign/Application/ValidateProvisioningProfile.swift | 1390 |
+| ZynSign/Application/ImportHub.swift | 1354 |
 | ZynSign/Presentation/ApplicationLibraryModel.swift | 1346 |
-| ZynSign/Application/ImportHub.swift | 1320 |
+| ZynSign/Presentation/SigningView.swift | 1283 |
 
 Worst function: 417 lines at ZynSign/Application/SignNestedCode.swift:53 func sign
 Largest file: 1993 lines at ZynSign/Presentation/ApplicationDetailView.swift
 
 ## Dead Code
 
-277 candidate(s) reported by the heuristic engine.
+291 candidate(s) reported by the heuristic engine.
 See `Reports/DeadCodeReport.md` (CI artifact) — nothing is deleted automatically.
 
 ## Dependency Health

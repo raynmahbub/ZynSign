@@ -177,7 +177,22 @@ Semantic Versioning applies:
 
 ## Current Position
 
-The current stop is `v0.1.0-alpha.3` (market `0.1.0`, build `2`, 2026-09-29): the third Alpha on the train. It switches on App Store, Downloads, the Entitlements Studio and the Identity Center, and cumulatively with Alpha 1 and 2 that is seven of the ten staged features — a Release build shows the core plus those seven, while every feature stays compiled in and visible in Debug builds. The Xcode project carries `MARKETING_VERSION 0.1.0` / `CURRENT_PROJECT_VERSION 2` and `ReleaseTrain.current = .alpha3`, so the private binary and the public release are the same binary — see [private-testing.md](private-testing.md) for the private distribution (TestFlight internal or ad-hoc IPA, not a public release) and the device matrix that gates each tag.
+This section does not restate the stop, for the reason given at the top of this
+file. `python3 Scripts/release_train.py status` prints the current stop beside
+`MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` exactly as the Xcode project
+declares them, and `python3 Scripts/release_train.py check` fails when a tag
+disagrees with the tree. Writing the stop down here is precisely how this page
+came to assert `v0.1.0-alpha.3`, market `0.1.0`, build `2` and
+`ReleaseTrain.current = .alpha3` while the source said otherwise — prose
+outliving code, which the rule above forbids. It is removed rather than
+corrected, so it cannot go stale a second time.
+
+What is true at every stop, and so is safe to write: every feature stays
+compiled in and visible in a Debug build whatever a Release build shows; the
+private binary and the public release are the same binary, with no rebuild
+between them; distribution is TestFlight internal or an ad-hoc IPA rather than a
+public App Store submission; and each tag is gated by the device matrix in
+[private-testing.md](private-testing.md).
 
 Of the blockers recorded with the final-integration review, three have
 changed since:

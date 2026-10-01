@@ -28,6 +28,19 @@ enum VersionHistoryCatalog {
     /// Every entry, newest first.
     static let entries: [VersionHistoryEntry] = [
         VersionHistoryEntry(
+            tag: "v0.0.1",
+            marketingVersion: "0.0.1",
+            buildNumber: 5,
+            releasedAt: DateComponents(year: 2026, month: 10, day: 1),
+            headline: "The first build: the whole shell, import, Library, and the honest Settings — no staged feature switches on.",
+            highlights: [
+                "Settings gains its Security row: the app lock, session timeout, and sensitive-data rules are reachable at last.",
+                "The landing-tab picker offers only tabs the bar can actually select.",
+                "The first stop past the development rehearsals; it switches on no staged feature of its own.",
+                "The dev.3 gate drift is carried, not resolved: four surfaces stay open ahead of their declared stops.",
+            ]
+        ),
+        VersionHistoryEntry(
             tag: "v0.0.1-dev.3",
             marketingVersion: "0.0.1",
             buildNumber: 4,
