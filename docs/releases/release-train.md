@@ -1,185 +1,61 @@
-# Release Train — shipping a finished app one release at a time
+# Release Train
 
-ZynSign is fully built. Instead of publishing everything at once, each release
-**switches on** more of the finished app. The code for every feature is
-compiled into every build; what changes between releases is only which entry
-points (tabs, Settings rows, menu actions) the interface shows.
+The release train in [`ZynSign/Application/ReleaseTrain.swift`](../../ZynSign/Application/ReleaseTrain.swift) owns the version sequence and feature exposure. It is the authority for `MARKETING_VERSION`, build-number progression, and the set of capabilities a Release build exposes. Use the scripts below rather than editing workflow versions by hand.
 
-This keeps one codebase and one branch. There are no per-release branches, no
-cherry-picks, and no deleted code to restore later.
-
-## The plan
-
-| Release | Tag | Switches on | Users see |
-|---|---|---|---|
-| Dev 1 | `v0.0.1-dev.1` | — | Core only. Proved the pipeline end to end against a real tag: quality gate → build + tests → version-stamped assets → publish. |
-| Dev 2 | `v0.0.1-dev.2` | — | *(released 2026-09-30)* Core only; the gate closing on four entry points, and the private device matrix for the core |
-| Dev 3 | `v0.0.1-dev.3` | — | *(released 2026-10-01)* Core, with the six-tab shell kept whole — Store and Downloads stay in the bar — plus the searchable Settings index. The last rehearsal before the first build |
-| **First build** | `v0.0.1` | Core | **Current stop.** Files · Import (`ipa`/`tipa`) · Library · Bundle Explorer · Home · Settings (Signing, Updates, Devices, Servers, Appearance, Storage, Diagnostics, Reset, About, Socials) |
-| Alpha 1 | `v0.1.0-alpha.1` | Certificate Studio | Settings → Signing → Certificates (`.p12`/`.pfx` import, detail, public JSON export) |
-| Alpha 2 | `v0.1.0-alpha.2` | Smart Sign, Provisioning Profile Manager, Professional Signing Queue, Intelligent Signing Presets | `Sign Application…` (Library menu + detail), 9-stage pipeline, DER toggle, Live Activity, Signing Options, Library “Signed” segment, Settings → Installation, Settings → Signing Queue, Settings → Presets, recommended preset with a required confirmation that enqueues on the signing queue |
-| Alpha 3 | `v0.1.0-alpha.3` | App Store, Downloads, Entitlements Studio, Identity Center | App Store (validated sources, repository health), the Download Center (queue, validation, updates; resume is reported only when resume data was captured), the Entitlements Studio (read-only inspection, DER `0x20400`) and the Developer Identity Center. Cumulative with Alpha 1 and 2: seven of the ten staged features are on in a Release build here. |
-| Beta 1 | `v0.9.0-beta.1` | Mission Control, Delivery Hand-off, Activity Journal | Home → Refresh Everything · Sign → Deliver… (OTA manifest, link, QR) · Settings → Analytics → Local Activity Journal. **Feature complete.** |
-| Beta 2 | `v0.9.0-beta.2` | Installation Workspace | Settings → Browse → Install · Home → Install · signing success → Installation Workspace… (readiness checklists, Installed Apps Library, confirmed deliveries and history, bulk preparation, storage) |
-| Beta 3–4 | `v0.9.0-beta.3…4` | Batch Signing (Beta 3) | Fixes plus the batch signing workspace |
-| RC 1 | `v1.0.0-rc.1` | — | Fixes; Compatibility Lab |
-| RC 2 | `v1.0.0-rc.2` | `.smartWorkspace` | UX pass: the Smart Workspace home (Mission Control) |
-| RC 3 | `v1.0.0-rc.3` | — | Fixes only |
-| Stable | `v1.0.0` | — | Everything |
-| Professional | `v2.0.0` | — | Depth and fixes; no new gate |
-| Nova preview | `v3.0.0-nova.1` | `.nova1` | Nova Assistant |
-| Nova | `v3.0.0` | `.nova` | The remaining areas — see [../product/ROADMAP-v3.0-nova.md](../product/ROADMAP-v3.0-nova.md) |
-
-> **An em dash in "Switches on" does not mean "shows only the core".** The
-> column reports which `ReleaseFeature` a stop introduces. Since `dev.3` the
-> six-tab shell is a stable destination at every stop — Store and Downloads are
-> navigation — and Settings → Signing leads to certificate and profile import
-> and management. `ReleaseStage.introducedFeatures` never describes that; the
-> gate map below does. Where the two disagree the map wins, and the map is
-> currently explicit: `certificateStudio`, `provisioningProfileManager`,
-> `appStore` and `downloads` have no live check, so a development build exposes
-> them. `dev.3` made that change implicitly and `v0.0.1` shipped with it still
-> open, recorded rather than resolved; the decision now falls to
-> `v0.1.0-alpha.1`, which either re-gates the staged actions behind those tabs
-> or moves these four areas back into the development stops.
-
-This follows [version-strategy.md](version-strategy.md): signing arrives within
-Alpha (Alpha's exit criteria need it), and the app is feature complete by the
-first Beta.
-
-The three development stops and `v0.0.1` switch on no staged `ReleaseFeature` of
-their own. The three exist so the release machinery is proven against a real tag
-before the first public feature surface ships; `v0.0.1` is that first surface,
-and deliberately carries no new one. "No staged feature" is not "the core only":
-since `dev.3` the shell keeps all six tab-capable sections at every stop, and
-the certificate, profile, repository and download surfaces behind two of them
-are reachable from Settings. Six sections are not six tabs: UIKit draws five and
-folds the sixth into a list it pushes, which is why `ShellSection.primaryTabs`
-is capped and Downloads gives up its slot to Settings → Updates. What a development build holds back is the staged *work* — signing,
-presets, the queue, identity, installation, the workspace, Nova. Every feature
-below them is already compiled into a development build — a Debug build shows
-all of them, and
-`-ZynSignReleaseStage <stage>` previews any later stop — so a development stop
-is a pipeline proof, not a smaller app.
-
-Run `python3 Scripts/release_train.py status` to print this table from the
-code, or `python3 Scripts/release_train.py current` (`--tag`, `--stage`) to
-print just the current stop — that one-line answer is what
-`Scripts/ci/release_meta.sh` and the release workflows consume, so no version
-is ever hardcoded in YAML.
-
-## How it works
-
-The single source of truth is
-[`ZynSign/Application/ReleaseTrain.swift`](../../ZynSign/Application/ReleaseTrain.swift):
-
-- `ReleaseFeature` — each gateable feature and its prerequisites (for example,
-  Smart Sign needs Certificate Studio, and App Store needs Downloads).
-- `ReleaseStage` — the ordered releases, their tags, their numeric marketing
-  versions, and `introducedFeatures`.
-- `ReleaseTrain.current` — **the one line that decides what a build shows.**
-- `ReleaseTrain.isAvailable(_:)` — what the Presentation layer checks.
-
-Gated entry points — **the authority on what a Release build shows**. A row
-that reads "no live gate" is reachable at every stop, including a development
-one, whatever the `Switches on` column above says for that stop:
-
-| Feature | Where it is checked |
-|---|---|
-| `certificateStudio` | **No live gate since `dev.3`, still open at `v0.0.1`.** `SettingsView` → Signing → "Certificates" opens `CertificateManagerView` (import and management) with no stage check |
-| `provisioningProfileManager` | **No live gate since `dev.3`, still open at `v0.0.1`.** `SettingsView` → Signing → "Provisioning Profiles"; the only surviving check sits inside the never-presented `SmartWorkspaceView` |
-| `appStore` | **No live gate since `dev.3`, still open at `v0.0.1`.** `ShellSection.primaryTabs(where:)` returns the tab unconditionally, so the `requiredFeature` value on the section is never consulted for it; `HomeView`'s Sources sheet is likewise ungated |
-| `downloads` | **No live gate since `dev.3`, still open at `v0.0.1`.** As above, plus Settings → Updates → "Downloads" |
-| `smartSign` | `ApplicationDetailView` + `LibraryTabView` “Sign Application…”, “Signed” segment, Settings → Signing Options / Installation, Home “Signed” stat |
-| `missionControl` | `HomeView` Mission Control card |
-| `deliveryHandoff` | `SigningView` “Deliver…”, Settings → Installation hand-off section |
-| `activityJournal` | Settings → Analytics journal sections, **and** `ApplicationEnvironment.recordAnalyticsEvent`, so nothing is recorded before users can see and clear it |
-| `libraryPowerFeatures` | `LibraryFeatureAvailability` in the Library: statistics card, scope bar (smart collections and collections), filter menu and chips, the four extra orders, collection sheets, bulk actions beyond Delete, quick actions beyond Favorite/Details/Delete; `HomeView` Favorites card. Signing-derived parts (Signed/Unsigned/Recently Signed/Expiring Soon, the Sign action) also require `smartSign` |
-| `signingQueue`, `signingPresets`, `identityCenter`, `entitlementsStudio`, `installationWorkspace`, `performanceDashboard`, `smartWorkspace`, `batchSigning`, `signingHealthScore`, `novaAssistant` | Checked at their own surfaces (Settings → Signing tools, `RecommendedPresetSection`, `ApplicationDetailView`, `ShellSection.requiredFeature` for the Install section, `Settings/AdvancedSettingsSection`, `Nova/SmartWorkspaceView`); none of them is reachable before its stop |
-
-Settings → Diagnostics → Build shows the active release (`v0.0.1 · 0 of 19
-staged features`), so testers can confirm what they're running. The count is
-`ReleaseFeature.allCases`, and it counts only the gates the stop has passed —
-which is exactly why an open area is invisible to that line and visible in this
-table.
-
-### Debug vs Release builds
-
-- **Release configuration** (TestFlight, ad-hoc IPA, GitHub release): exposes
-  exactly `ReleaseTrain.current`.
-- **Debug configuration** (running from Xcode, unit tests): exposes
-  **everything**, so development is never blocked.
-- **Preview a release in Debug:** in *Edit Scheme → Run → Arguments*, add
-  `-ZynSignReleaseStage alpha2` (or `0.1.0-alpha.2`). The app then shows exactly
-  what that release will show.
-
-> Hidden features are still inside the binary. They cannot be reached through
-> the UI, but someone who reverse-engineers the IPA could find them. The
-> repository is private, so that's acceptable for this project. If it ever
-> matters, switch the gates to `#if` compilation conditions.
-
-## Shipping the next release
+## Current source state
 
 ```sh
-# 1. Switch on the next features (edits ReleaseTrain.current,
-#    MARKETING_VERSION, and bumps CURRENT_PROJECT_VERSION by one)
-python3 Scripts/release_train.py promote            # or: promote alpha2
-python3 Scripts/release_train.py status             # confirm
-
-# 2. Write what users get
-#    - CHANGELOG.md: move the promoted features from “Staged” into
-#      a new “## [0.1.0-alpha.1] - YYYY-MM-DD” section
-#    - docs/releases/notes-v0.1.0-alpha.1.md: the GitHub release body
-
-# 3. Private build + private matrix (private-testing.md), focused on
-#    the newly visible features — Release configuration, not Debug
-
-# 4. Commit, open a PR, merge to main
-git commit -am "release: v0.1.0-alpha.1"
-
-# 5. Tag the merged commit on main — 🚀 Release (03-release.yml) does the rest
-git tag -a v0.1.0-alpha.1 -m "ZynSign 0.1.0-alpha.1"
-git push origin v0.1.0-alpha.1
+python3 Scripts/release_train.py status
 ```
 
-Safety rails:
+At this checkout the current stop is **`v0.0.2-dev.1`** (stage `.patch1`, development channel; marketing version `0.0.2`, build `6`). The command is authoritative if this page and the source ever disagree. The current stop is not evidence that a release has been published or device-verified.
 
-- `release_train.py check` runs in CI (`01-build.yml` → hygiene). It fails when
-  `MARKETING_VERSION` disagrees with `ReleaseTrain.current`.
-- Both release workflows derive their version through
-  `Scripts/ci/release_meta.sh`, whose first job runs
-  `release_train.py check --tag <tag>`. Pushing `v0.1.0-alpha.2` while the
-  code still says `alpha1` fails the release rather than publishing the wrong
-  feature set — and it fails before a macOS runner starts building. Its
-  `--self-test` runs in `01-build.yml` → hygiene.
-- Dispatching **🚀 Release** — with or without `dry_run` — with no version releases
-  the train's current stop (`release_train.py current`), so nobody has to
-  retype — or misremember — a version.
-- `promote` refuses to move backwards, because users would lose features.
-- `ReleaseTrainTests` pin the order, that features only accumulate, that each
-  feature is introduced once, and that no release exposes a feature without its
-  prerequisites.
-- Development, alpha, beta and rc stops are published as GitHub
-  **pre-releases**, so `latest` always points at the newest stable release.
-  `Scripts/ci/release_meta.sh` takes the channel from the `ReleaseStage` via
-  `release_train.py channel`, not from the version suffix: the development
-  stage's last stop is `v0.0.1`, which carries no suffix at all, and a suffix
-  rule reads that as stable. Everything from `stable` onward — `v1.0.0`,
-  `v2.0.0`, `v3.0.0` — publishes as a full release.
+## Ordered stops
 
-### Build numbers
+| Stop | Version | Newly exposed `ReleaseFeature`s |
+|---|---|---|
+| Dev 1 | `0.0.1-dev.1` | None — release-pipeline rehearsal |
+| Dev 2 | `0.0.1-dev.2` | None |
+| Dev 3 | `0.0.1-dev.3` | None |
+| Horizon | `0.0.1` | Certificate Studio, Provisioning Profile Manager, App Store, Downloads |
+| Patch 1 | `0.0.2-dev.1` | None — fixes-only follow-up |
+| Alpha 1 | `0.1.0-alpha.1` | Library Power Features |
+| Alpha 2 | `0.1.0-alpha.2` | Smart Sign, Signing Queue, Signing Presets |
+| Alpha 3 | `0.1.0-alpha.3` | Entitlements Studio, Developer Identity Center |
+| Beta 1 | `0.9.0-beta.1` | Mission Control, Delivery Hand-off, Activity Journal |
+| Beta 2 | `0.9.0-beta.2` | Installation Workspace, Performance Dashboard |
+| Beta 3 | `0.9.0-beta.3` | Batch Signing |
+| Beta 4 | `0.9.0-beta.4` | None — fixes and compatibility |
+| RC 1 | `1.0.0-rc.1` | None |
+| RC 2 | `1.0.0-rc.2` | Smart Workspace |
+| RC 3 | `1.0.0-rc.3` | None |
+| Stable | `1.0.0` | Signing Health Score |
+| Professional | `2.0.0` | None — depth and fixes |
+| Nova preview | `3.0.0-nova.1` | Nova Assistant |
+| Nova | `3.0.0` | Remaining Nova roadmap capabilities |
 
-Apple requires `CFBundleShortVersionString` to be numeric, so the three
-development stops and the first build report `0.0.1`, all three alphas report
-`0.1.0`, and all betas report `0.9.0`. The pre-release suffix lives only in
-the tag. `CFBundleVersion` goes up by one with every `promote` and restarts at
-`1` when the marketing version restarts, which is the scope TestFlight's
-monotonic-build rule applies to.
+Each stop accumulates features from earlier stops. The stage definitions, prerequisites, marketing versions, and build numbers in `ReleaseTrain.swift` are authoritative; this table is a quick reference.
 
-## Changing the plan
+## What the app exposes
 
-Edit `introducedFeatures` in `ReleaseTrain.swift` (and the table above). The
-tests make sure the new plan still makes sense. For example, you can't ship
-Smart Sign before Certificate Studio. After `1.0.0`, new features follow normal
-SemVer (`1.1.0`, …). Add a new `ReleaseFeature` and gate it the same way while
-it's being built.
+- **Five native tabs:** Files, Library, Home, Features, and Settings. Store and Downloads are reached from Features rather than using extra tab slots; Certificates and Profiles are in Settings. This keeps the tab bar within UIKit's five-item limit and avoids its system-owned overflow navigation stack.
+- **Features index:** available, staged, and unsupported capabilities are searchable and filterable. `CoreFeature.allCases`, `ReleaseFeature.allCases`, and `UnsupportedFeature.allCases` feed the catalogue. Adding a case includes it automatically; exhaustive metadata switches require its title, category, and explanation.
+- **Release vs. Debug:** Release builds use the current train gate. Debug builds expose all release-gated features for development. The complete catalogue still labels the Release availability honestly.
+
+## Commands
+
+```sh
+python3 Scripts/release_train.py status
+python3 Scripts/release_train.py current --tag
+python3 Scripts/release_train.py check --tag v0.0.2-dev.1
+python3 Scripts/release_train.py promote                 # next stop
+python3 Scripts/release_train.py promote alpha2          # a named stop
+```
+
+`promote` advances the declared train stop and updates the Xcode marketing/build settings. Review its changes, run the checks, and commit the source before creating a tag. `check --tag` refuses a tag that is not the train's current stop or whose project settings disagree.
+
+## Release and verification
+
+The **Release** workflow (`.github/workflows/03-release.yml`) validates the train stop and quality gates, builds assets, generates categorized release notes, and publishes only on a non-dry run. It then opens or updates a changelog PR; it does not write generated changelog edits directly to the default branch. See [release automation](release-automation.md).
+
+Builds and passing CI are not device evidence. Follow the required physical-device and simulator checks in [private testing](private-testing.md), and keep unsupported platform behavior documented in [WHAT_DOES_NOT_EXIST.md](../product/WHAT_DOES_NOT_EXIST.md). See [version strategy](version-strategy.md) for stage exit criteria and [Nova roadmap](../product/ROADMAP-v3.0-nova.md) for the post-1.0 plan.
