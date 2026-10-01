@@ -11,7 +11,7 @@ final class ReleaseTrainTests: XCTestCase {
     func testStagesFollowTheVersionStrategy() {
         XCTAssertEqual(ReleaseStage.allCases.map(\.version), [
             "0.0.1-dev.1", "0.0.1-dev.2", "0.0.1-dev.3",
-            "0.0.1",
+            "0.0.1", "0.0.2-dev.1",
             "0.1.0-alpha.1", "0.1.0-alpha.2", "0.1.0-alpha.3",
             "0.9.0-beta.1", "0.9.0-beta.2", "0.9.0-beta.3", "0.9.0-beta.4",
             "1.0.0-rc.1", "1.0.0-rc.2", "1.0.0-rc.3",
@@ -28,6 +28,7 @@ final class ReleaseTrainTests: XCTestCase {
             XCTAssertTrue(parts.allSatisfy { Int($0) != nil }, "\(stage) → \(stage.marketingVersion)")
         }
         XCTAssertEqual(ReleaseStage.dev1.marketingVersion, "0.0.1")
+        XCTAssertEqual(ReleaseStage.patch1.marketingVersion, "0.0.2")
         XCTAssertEqual(ReleaseStage.alpha2.marketingVersion, "0.1.0")
         XCTAssertEqual(ReleaseStage.beta3.marketingVersion, "0.9.0")
         XCTAssertEqual(ReleaseStage.rc1.marketingVersion, "1.0.0")
@@ -36,6 +37,7 @@ final class ReleaseTrainTests: XCTestCase {
     func testTagsCarryTheLeadingV() {
         XCTAssertEqual(ReleaseStage.dev1.tag, "v0.0.1-dev.1")
         XCTAssertEqual(ReleaseStage.horizon.tag, "v0.0.1")
+        XCTAssertEqual(ReleaseStage.patch1.tag, "v0.0.2-dev.1")
         XCTAssertEqual(ReleaseStage.alpha1.tag, "v0.1.0-alpha.1")
         XCTAssertEqual(ReleaseStage.stable.tag, "v1.0.0")
         XCTAssertEqual(ReleaseStage.nova.tag, "v3.0.0")
@@ -45,7 +47,8 @@ final class ReleaseTrainTests: XCTestCase {
     func testNextWalksTheTrainAndStopsAtStable() {
         XCTAssertEqual(ReleaseStage.dev1.next, .dev2)
         XCTAssertEqual(ReleaseStage.dev3.next, .horizon)
-        XCTAssertEqual(ReleaseStage.horizon.next, .alpha1)
+        XCTAssertEqual(ReleaseStage.horizon.next, .patch1)
+        XCTAssertEqual(ReleaseStage.patch1.next, .alpha1)
         XCTAssertEqual(ReleaseStage.alpha3.next, .beta1)
         XCTAssertEqual(ReleaseStage.rc3.next, .stable)
         XCTAssertEqual(ReleaseStage.stable.next, .professional)
@@ -62,14 +65,20 @@ final class ReleaseTrainTests: XCTestCase {
         XCTAssertEqual(ReleaseStage(identifier: "dev1"), .dev1)
         XCTAssertEqual(ReleaseStage(identifier: "0.0.1-dev.1"), .dev1)
         XCTAssertEqual(ReleaseStage(identifier: "v0.0.1-dev.3"), .dev3)
+        XCTAssertEqual(ReleaseStage(identifier: "0.0.2-dev.1"), .patch1)
+        XCTAssertEqual(ReleaseStage(identifier: "v0.0.2-dev.1"), .patch1)
         XCTAssertNil(ReleaseStage(identifier: "0.2.0-dev"))
         XCTAssertNil(ReleaseStage(identifier: "0.1.0-dev"), "a version the train does not contain is not a stage")
     }
 
     // MARK: - Features
 
-    func testFirstReleaseShipsOnlyTheCore() {
-        XCTAssertTrue(ReleaseStage.horizon.features.isEmpty)
+    func testHorizonRecordsTheFourSurfacesAlreadyReachableInV0001() {
+        XCTAssertEqual(ReleaseStage.horizon.features, [
+            .certificateStudio, .provisioningProfileManager, .appStore, .downloads,
+        ])
+        XCTAssertEqual(ReleaseStage.patch1.features, ReleaseStage.horizon.features)
+        XCTAssertEqual(ReleaseTrain.current, .patch1)
     }
 
     /// A development stop proves the pipeline — build, quality gate, assets,
@@ -94,8 +103,12 @@ final class ReleaseTrainTests: XCTestCase {
     /// Every feature still has exactly one introducing stage, and the stages
     /// after Development are unchanged: no development stop introduces one.
     func testTheFeaturePlanIsIntact() {
-        XCTAssertEqual(ReleaseStage.horizon.next, .alpha1)
-        XCTAssertEqual(ReleaseStage.alpha1.features, [.certificateStudio, .libraryPowerFeatures])
+        XCTAssertTrue(ReleaseStage.patch1.introducedFeatures.isEmpty, "the patch release is fixes-only")
+        XCTAssertEqual(ReleaseStage.horizon.next, .patch1)
+        XCTAssertEqual(ReleaseStage.patch1.next, .alpha1)
+        XCTAssertEqual(ReleaseStage.alpha1.features, [
+            .certificateStudio, .provisioningProfileManager, .appStore, .downloads, .libraryPowerFeatures,
+        ])
         XCTAssertEqual(ReleaseStage.stable.features, Set(ReleaseFeature.allCases).subtracting(ReleaseFeature.nova))
         XCTAssertEqual(ReleaseStage.nova.features, Set(ReleaseFeature.allCases))
         for feature in ReleaseFeature.allCases {
@@ -107,23 +120,24 @@ final class ReleaseTrainTests: XCTestCase {
     }
 
     func testFeatureRolloutMatchesThePlan() {
-        XCTAssertEqual(ReleaseStage.alpha1.features, [.certificateStudio, .libraryPowerFeatures])
-        XCTAssertEqual(ReleaseStage.alpha2.features, [
-            .certificateStudio, .libraryPowerFeatures,
-            .smartSign, .provisioningProfileManager, .signingQueue, .signingPresets,
-        ])
-        XCTAssertEqual(ReleaseStage.alpha3.features, [
-            .certificateStudio, .libraryPowerFeatures,
-            .smartSign, .provisioningProfileManager, .signingQueue, .signingPresets,
-            .appStore, .downloads, .entitlementsStudio, .identityCenter,
-        ])
+        let firstReleaseFeatures: Set<ReleaseFeature> = [
+            .certificateStudio, .provisioningProfileManager, .appStore, .downloads,
+        ]
+        XCTAssertEqual(ReleaseStage.alpha1.features, firstReleaseFeatures.union([.libraryPowerFeatures]))
+        XCTAssertEqual(ReleaseStage.alpha2.features, firstReleaseFeatures.union([
+            .libraryPowerFeatures, .smartSign, .signingQueue, .signingPresets,
+        ]))
+        XCTAssertEqual(ReleaseStage.alpha3.features, firstReleaseFeatures.union([
+            .libraryPowerFeatures, .smartSign, .signingQueue, .signingPresets,
+            .entitlementsStudio, .identityCenter,
+        ]))
         XCTAssertEqual(
             ReleaseStage.alpha2.introducedFeatures,
-            [.smartSign, .provisioningProfileManager, .signingQueue, .signingPresets]
+            [.smartSign, .signingQueue, .signingPresets]
         )
         XCTAssertEqual(
             ReleaseStage.alpha3.introducedFeatures,
-            [.appStore, .downloads, .entitlementsStudio, .identityCenter]
+            [.entitlementsStudio, .identityCenter]
         )
         XCTAssertEqual(
             ReleaseStage.beta1.introducedFeatures,
@@ -230,7 +244,8 @@ final class ReleaseTrainTests: XCTestCase {
         let gate = ReleaseGate(stage: .alpha1, exposesEverything: false)
         XCTAssertTrue(gate.isAvailable(.certificateStudio))
         XCTAssertFalse(gate.isAvailable(.smartSign))
-        XCTAssertFalse(gate.isAvailable(.appStore))
+        XCTAssertTrue(gate.isAvailable(.appStore))
+        XCTAssertTrue(gate.isAvailable(.downloads))
         XCTAssertTrue(gate.summary.contains("v0.1.0-alpha.1"))
     }
 
@@ -254,7 +269,7 @@ final class ReleaseTrainTests: XCTestCase {
         XCTAssertEqual(ReleaseTrain.gate, ReleaseGate(stage: .alpha2, exposesEverything: false))
         XCTAssertTrue(ReleaseTrain.isAvailable(.smartSign))
         XCTAssertTrue(ReleaseTrain.isAvailable(.signingPresets))
-        XCTAssertFalse(ReleaseTrain.isAvailable(.downloads))
+        XCTAssertTrue(ReleaseTrain.isAvailable(.downloads))
         #else
         XCTAssertEqual(ReleaseTrain.gate.stage, ReleaseTrain.current)
         #endif

@@ -5,8 +5,9 @@ release_train.py — ship ZynSign one release at a time.
 The whole app is built. Each release only switches on more of it. The single
 source of truth is `ZynSign/Application/ReleaseTrain.swift`:
 
-  * `ReleaseStage`        — the ordered releases (0.0.1-dev.N → 0.0.1 → alphas
-                             → betas → RCs → 1.0.0 → 2.0.0 → 3.0.0)
+  * `ReleaseStage`        — the ordered releases (0.0.1-dev.N → 0.0.1 →
+                             fixes-only 0.0.2-dev.N → alphas → betas → RCs
+                             → 1.0.0 → 2.0.0 → 3.0.0)
   * `introducedFeatures`  — what each release switches on
   * `ReleaseTrain.current` — the release this build is cut for
 
@@ -153,11 +154,11 @@ def channel_for_stage(name: str) -> str:
     that used to stand in for this read `0.0.1` as stable, because the
     development stage's last stop is `horizon` and carries no pre-release
     suffix — so the first build would have published as a full GitHub Release
-    and taken the `latest` slot from a stable line it has not reached. Every
-    other stage's name already begins with its channel, so the mapping is a
-    prefix test plus the one name that does not follow the pattern.
+    and taken the `latest` slot from a stable line it has not reached. Patch
+    previews share the development channel; later alpha, beta, and rc stages
+    map directly from their names.
     """
-    if name.startswith("dev") or name == "horizon":
+    if name.startswith("dev") or name.startswith("patch") or name == "horizon":
         return "development"
     for prefix in ("alpha", "beta", "rc"):
         if name.startswith(prefix):

@@ -194,6 +194,7 @@ self_test() {
     # The development stage's last stop carries no suffix, so the suffix rule
     # alone called it stable. It is a development stop and publishes as one.
     expect "channel for 0.0.1"        "$(channel_for "0.0.1")"          "development"
+    expect "channel for 0.0.2-dev.1"  "$(channel_for "0.0.2-dev.1")"    "development"
     expect "channel for 0.1.0-alpha.1" "$(channel_for "0.1.0-alpha.1")"  "alpha"
     expect "channel for 0.9.0-beta.2"  "$(channel_for "0.9.0-beta.2")"   "beta"
     expect "channel for 1.0.0-rc.2"    "$(channel_for "1.0.0-rc.2")"     "rc"
