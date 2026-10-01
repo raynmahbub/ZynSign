@@ -108,6 +108,9 @@ jobs:
       - name: Check the release metadata derivation
         run: Scripts/ci/release_meta.sh --self-test
 
+      - name: Test release changelog tooling
+        run: python3 -m unittest discover -s Tests/Host -p 'test_*.py' -v
+
       - name: Run host vector checks
         run: |
           set -eu

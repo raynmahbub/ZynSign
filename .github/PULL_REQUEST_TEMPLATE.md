@@ -1,6 +1,6 @@
 <!--
 ZynSign pull request template.
-Title must be a Conventional Commit: feat: fix: refactor: perf: docs: ci: test: build: chore: style:
+Title must be a Conventional Commit: feat: fix: refactor: perf: security: docs: ci: test: build: chore: style: revert: release:
 Example: feat(signing): introduce Install Health diagnostics
 -->
 
@@ -47,6 +47,6 @@ What was actually tested (unit tests, simulator, device, Compatibility Lab).
 
 - [ ] Commits follow Conventional Commits (commitlint runs in CI)
 - [ ] Tests added or updated for behaviour changes
-- [ ] `CHANGELOG.md` `[Unreleased]` updated for user-visible changes
+- [ ] User-visible changes are described by Conventional Commit titles; update `[Unreleased]` only when curated wording or extra context is needed
 - [ ] Documentation updated where relevant
 - [ ] Branch follows the naming convention (`feature/…`, `fix/…`, `docs/…`, `refactor/…`)

@@ -25,6 +25,9 @@ module.exports = {
                 "build",
                 "chore",
                 "style",
+                "security",
+                "revert",
+                "release",
             ],
         ],
         // Scopes like `feat(signing):` — allow the common casings.
