@@ -51,6 +51,7 @@ enum CompositionRoot {
         let library = makeApplicationLibrary(intake: intake, diagnosticHistory: diagnosticHistory)
         let identityStore = makeIdentityStore()
         let identityAnnotationsStore = makeIdentityAnnotationsStore()
+        let pkcs12DocumentReader = CoordinatedPKCS12DocumentReader()
         let diagnostics = makeSigningDiagnostics(
             library: library, intake: intake, identities: identityStore,
             history: diagnosticHistory
@@ -105,6 +106,7 @@ enum CompositionRoot {
             bundleEntryInspection: makeBundleEntryInspection(intake: intake, library: library),
             identityStore: identityStore,
             pkcs12Importer: pkcs12Importer,
+            pkcs12DocumentReader: pkcs12DocumentReader,
             signingPipeline: pipeline,
             signingEngine: signingEngine,
             analyticsJournal: makeAnalyticsJournal(),

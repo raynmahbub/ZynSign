@@ -233,15 +233,34 @@ final class IPAPackageImportTests: XCTestCase {
         XCTAssertEqual(intake.staged.count, 1)
     }
 
+    func testTIPAUsesTheSameValidatedImportPipelineAsIPA() async throws {
+        let intake = SyntheticIntake()
+        let useCase = makeUseCase(intake: intake, reader: ImportFixtures.validReader())
+
+        let result = try await useCase.importArtifact(from: ImportFixtures.sourceURL(name: "TrollStore.TIPA"))
+
+        XCTAssertTrue(result.isAccepted)
+        XCTAssertEqual(result.artifact.sourceFileName, "TrollStore.TIPA")
+        XCTAssertEqual(result.artifact.validation?.classification, .valid)
+        XCTAssertEqual(intake.attempted.count, 1)
+        XCTAssertEqual(intake.staged, [result.artifact.id])
+    }
+
     func testFilePolicyAcceptsOnlyTheExactPackageExtension() {
         XCTAssertTrue(IPAFileFormat.acceptsPathExtension("ipa"))
         XCTAssertTrue(IPAFileFormat.acceptsPathExtension("IPA"))
         XCTAssertTrue(IPAFileFormat.acceptsPathExtension("Ipa"))
+        XCTAssertTrue(IPAFileFormat.acceptsPathExtension("tipa"))
+        XCTAssertTrue(IPAFileFormat.acceptsPathExtension("TIPA"))
+        XCTAssertTrue(IPAFileFormat.acceptsPathExtension("TiPa"))
         XCTAssertFalse(IPAFileFormat.acceptsPathExtension("zip"))
         XCTAssertFalse(IPAFileFormat.acceptsPathExtension("ipazine"))
+        XCTAssertFalse(IPAFileFormat.acceptsPathExtension("tipazine"))
         XCTAssertFalse(IPAFileFormat.acceptsPathExtension(""))
         XCTAssertTrue(IPAFileFormat.accepts(ImportFixtures.sourceURL(name: "a/b.Example.ipA")))
+        XCTAssertTrue(IPAFileFormat.accepts(ImportFixtures.sourceURL(name: "a/b.Example.TiPa")))
         XCTAssertFalse(IPAFileFormat.accepts(ImportFixtures.sourceURL(name: "b.tar.ipa.bin")))
+        XCTAssertFalse(IPAFileFormat.accepts(ImportFixtures.sourceURL(name: "b.tipa.zip")))
     }
 
     // MARK: - Staging failures

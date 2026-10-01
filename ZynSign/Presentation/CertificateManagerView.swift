@@ -32,6 +32,7 @@ struct CertificateManagerView: View {
 
     // Import flow
     @State private var showImporter = false
+    @State private var isReadingSelectedFile = false
     @State private var pendingData: Data?
     @State private var pendingFileName: String?
     @State private var showPasswordSheet = false
@@ -477,8 +478,8 @@ struct CertificateManagerView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            if model.isImporting {
-                ProgressView().accessibilityLabel("Importing certificate")
+            if model.isImporting || isReadingSelectedFile {
+                ProgressView().accessibilityLabel(isReadingSelectedFile ? "Reading certificate file" : "Importing certificate")
             } else if ReleaseTrain.isAvailable(.identityCenter),
                       let identityCenter = env.identityCenter {
                 NavigationLink {
@@ -499,7 +500,7 @@ struct CertificateManagerView: View {
             } label: {
                 Label("Import Certificate…", systemImage: "plus")
             }
-            .disabled(model.isImporting)
+            .disabled(model.isImporting || isReadingSelectedFile || pendingData != nil || showPasswordSheet)
         }
     }
 
@@ -580,34 +581,56 @@ struct CertificateManagerView: View {
     private func handlePicker(_ result: Result<[URL], any Error>) {
         switch result {
         case .success(let urls):
-            guard let url = urls.first else { return }
-            let accessing = url.startAccessingSecurityScopedResource()
-            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+            guard let url = urls.first,
+                  !isReadingSelectedFile,
+                  !model.isImporting,
+                  pendingData == nil,
+                  !showPasswordSheet else { return }
             let ext = url.pathExtension.lowercased()
             guard ext == "p12" || ext == "pfx" else {
                 presentToast("That file is not a certificate. Choose a .p12 or .pfx file.", style: .warning)
                 return
             }
-            guard let data = try? Data(contentsOf: url) else {
-                presentToast("The selected file could not be read.", style: .error)
-                return
+
+            // File providers may vend placeholder or coordinated URLs rather
+            // than a directly readable local path. Read off the main actor,
+            // acquire security-scoped access only for the bounded read, and
+            // keep the picker grant from being held while the password sheet
+            // is on screen.
+            let reader = env.pkcs12DocumentReader
+            isReadingSelectedFile = true
+            Task { @MainActor in
+                defer { isReadingSelectedFile = false }
+                do {
+                    let data = try await Task.detached(priority: .userInitiated) {
+                        try reader.readPKCS12(at: url)
+                    }.value
+                    pendingData = data
+                    pendingFileName = url.lastPathComponent
+                    // UIKit can drop a new sheet requested while the picker
+                    // is still dismissing, so wait for the shared settle.
+                    presentPasswordSheetAfterPickerSettles()
+                } catch {
+                    presentToast(readFailureMessage(for: error), style: .error)
+                }
             }
-            guard !data.isEmpty, data.count <= 10 * 1024 * 1024 else {
-                presentToast("The selected file is empty or too large.", style: .error)
-                return
-            }
-            pendingData = data
-            pendingFileName = url.lastPathComponent
-            // The document picker is still being dismissed when this handler
-            // runs, and asking for another presentation in the same frame is
-            // dropped: no password sheet, no error, and the picked bytes stay
-            // pending forever. Same race `RootView.presentSigningQueue()` and
-            // `SigningView` already guard against — settle first, then present.
-            presentPasswordSheetAfterPickerSettles()
         case .failure(let error):
             let ns = error as NSError
             if ns.domain == NSCocoaErrorDomain && ns.code == NSUserCancelledError { return }
             presentToast("The file picker could not provide the selected file.", style: .error)
+        }
+    }
+
+    private func readFailureMessage(for error: any Error) -> String {
+        switch error as? PKCS12DocumentReadError {
+        case .unsupportedFileType:
+            return "Choose a .p12 or .pfx certificate file."
+        case .emptyFile:
+            return "The selected certificate file is empty."
+        case .fileTooLarge:
+            return "The selected certificate file is larger than the 10 MiB limit."
+        case .unreadable, .none:
+            return "The selected certificate file could not be read from its file provider. Try saving it to Files and choosing it again."
         }
     }
 
