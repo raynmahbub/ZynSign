@@ -60,6 +60,10 @@ struct ApplicationEnvironment {
     /// Certificates settings; the store remains the owner of registrations.
     let pkcs12Importer: any SigningIdentityImporter
 
+    /// Reads a picker-selected PKCS#12 file using coordinated, security-scoped
+    /// access, with a strict byte bound before the importer sees its contents.
+    let pkcs12DocumentReader: any PKCS12DocumentReading
+
     /// The end-to-end signing pipeline. Composed but not invoked until the
     /// user explicitly signs an imported package with a chosen identity and
     /// provisioning profile.

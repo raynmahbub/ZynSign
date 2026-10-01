@@ -6,10 +6,9 @@
 # is written by hand.
 #
 # The draft is preparation only — publishing still flows through the
-# release train (docs/releases/release-train.md) and the release
-# workflow's quality gate. The workflow passes the train's current stop as
-# the tag and version, so the version-resolver below is the fallback for a
-# configuration used without that workflow, not the source of truth.
+# release train and the release workflow's quality gate. The workflow passes
+# the train's current stop as the tag and version; labels categorize notes,
+# while the train remains the version source of truth.
 
 name-template: "🚀 ZynSign v$RESOLVED_VERSION"
 tag-template: "v$RESOLVED_VERSION"
@@ -46,6 +45,9 @@ categories:
     labels:
       - ci
 
+exclude-labels:
+  - ignore-for-release
+
 autolabeler:
   - label: docs
     files:
@@ -79,6 +81,19 @@ autolabeler:
       - '/feature\/.+/'
     title:
       - "/^feat.*/"
+
+  - label: performance
+    title:
+      - "/^perf.*/"
+  - label: refactor
+    title:
+      - "/^refactor.*/"
+  - label: security
+    title:
+      - "/^security.*/"
+  - label: ignore-for-release
+    title:
+      - "/^release.*/"
 
 change-template: "- $TITLE (#$NUMBER) — @$AUTHOR"
 change-title-escapes: '\<*_&'

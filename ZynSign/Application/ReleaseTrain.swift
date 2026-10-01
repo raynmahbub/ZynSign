@@ -99,7 +99,7 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .deliveryHandoff: return [.smartSign]
         case .activityJournal: return []
         case .libraryPowerFeatures: return []
-        case .provisioningProfileManager: return [.smartSign]
+        case .provisioningProfileManager: return []
         case .identityCenter: return [.certificateStudio, .smartSign, .provisioningProfileManager]
         case .signingQueue: return [.smartSign]
         case .signingPresets: return [.smartSign, .certificateStudio]
@@ -154,6 +154,7 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
     case dev2         // 0.0.1-dev.2
     case dev3         // 0.0.1-dev.3
     case horizon      // 0.0.1
+    case patch1       // 0.0.2-dev.1 — private, fixes-only follow-up
     case alpha1       // 0.1.0-alpha.1
     case alpha2       // 0.1.0-alpha.2
     case alpha3       // 0.1.0-alpha.3
@@ -176,6 +177,7 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
         case .dev2: return "0.0.1-dev.2"
         case .dev3: return "0.0.1-dev.3"
         case .horizon: return "0.0.1"
+        case .patch1: return "0.0.2-dev.1"
         case .alpha1: return "0.1.0-alpha.1"
         case .alpha2: return "0.1.0-alpha.2"
         case .alpha3: return "0.1.0-alpha.3"
@@ -209,10 +211,14 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
     var introducedFeatures: Set<ReleaseFeature> {
         switch self {
         case .dev1, .dev2, .dev3: return []   // pipeline proof; no staged feature yet
-        case .horizon: return []
-        case .alpha1: return [.certificateStudio, .libraryPowerFeatures]
-        case .alpha2: return [.smartSign, .provisioningProfileManager, .signingQueue, .signingPresets]
-        case .alpha3: return [.appStore, .downloads, .entitlementsStudio, .identityCenter]
+        // v0.0.1 already exposed these four complete surfaces in Release.
+        // Recording them here reconciles the declared train with what shipped;
+        // moving them back behind gates would be a user-visible regression.
+        case .horizon: return [.certificateStudio, .provisioningProfileManager, .appStore, .downloads]
+        case .patch1: return []                // fixes-only, privately validated before tagging
+        case .alpha1: return [.libraryPowerFeatures]
+        case .alpha2: return [.smartSign, .signingQueue, .signingPresets]
+        case .alpha3: return [.entitlementsStudio, .identityCenter]
         case .beta1: return [.missionControl, .deliveryHandoff, .activityJournal]
         case .beta2: return [.installationWorkspace, .performanceDashboard]
         case .beta3: return [.batchSigning]
@@ -277,11 +283,12 @@ enum ReleaseTrain {
     /// (`promote` to move forward, `rewind` to move back within the range that
     /// has not shipped).
     ///
-    /// A stop before `alpha1` exposes no staged feature: every feature is
+    /// A stop before `alpha1` exposes the four complete surfaces already
+    /// reachable in `v0.0.1` and no later staged workflows. Every feature is
     /// compiled into the binary, a Debug build shows all of them
     /// (`exposesEverything`), and a Release build shows the core until
     /// `promote` switches the next stop's features on.
-    static let current: ReleaseStage = .horizon
+    static let current: ReleaseStage = .patch1
 
     /// `UserDefaults` / launch-argument key for the Debug-only preview override.
     static let previewDefaultsKey = "ZynSignReleaseStage"

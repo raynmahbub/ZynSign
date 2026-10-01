@@ -255,49 +255,42 @@ extension AdvancedPreferences {
 /// section lives in the presentation layer, so a change to the shell's tabs
 /// does not change the stored preference.
 enum LandingTab: String, CaseIterable, Hashable, Sendable, Codable {
-    // The six sections the shell shows as tabs, in tab-bar order.
+    // The five destinations permanently rendered in the native tab bar.
     case files
     case library
     case home
-    case appStore
-    case downloads
+    case features
     case settings
 
-    // Retired from the tab bar, but still decoded so a preference saved by an
-    // earlier build round-trips instead of resetting the whole settings file.
-    // Neither is offered in the picker, and neither can be a landing
-    // destination — see `selectable`, which the shell applies at launch.
+    // Retired tab identifiers remain decodable so an older preferences file
+    // does not fail as a whole. Store and Downloads migrate to Features;
+    // Certificates and Profiles migrate to Library.
+    case appStore
+    case downloads
     case certificates
     case profiles
 
-    /// The landing tabs the user may choose from, in tab-bar order.
-    ///
-    /// Defined here rather than derived from the shell so this type stays in
-    /// the Application layer: it names *what* the user can land on, and the
-    /// Presentation layer maps that onto whatever the shell currently shows.
+    /// The destinations the user may choose, in tab-bar order.
     static var tabCases: [LandingTab] {
         allCases.filter(\.isSelectableTab)
     }
 
-    /// Whether this section is one the shell shows as a tab. Certificates
-    /// and Profiles are not, because they are reached from Settings now.
     var isSelectableTab: Bool {
         switch self {
-        case .files, .library, .home, .appStore, .downloads, .settings:
+        case .files, .library, .home, .features, .settings:
             return true
-        case .certificates, .profiles:
+        case .appStore, .downloads, .certificates, .profiles:
             return false
         }
     }
 
-    /// A landing destination that is still selectable.
-    ///
-    /// A preference saved by an earlier build may name Certificates or
-    /// Profiles, which are no longer tabs. Selecting one would leave the tab
-    /// bar with no matching selection, so it coalesces to Library — the
-    /// nearest tab that still shows imported applications.
+    /// Migrates saved destinations that no longer own a tab.
     var selectable: LandingTab {
-        isSelectableTab ? self : .library
+        switch self {
+        case .appStore, .downloads: return .features
+        case .certificates, .profiles: return .library
+        default: return self
+        }
     }
 
     /// The navigation title of the tab.
@@ -306,9 +299,10 @@ enum LandingTab: String, CaseIterable, Hashable, Sendable, Codable {
         case .files: return "Files"
         case .library: return "Library"
         case .home: return "Home"
+        case .features: return "Features"
+        case .settings: return "Settings"
         case .appStore: return "Store"
         case .downloads: return "Downloads"
-        case .settings: return "Settings"
         case .certificates: return "Certificates"
         case .profiles: return "Profiles"
         }
