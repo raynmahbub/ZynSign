@@ -11,12 +11,15 @@ Architectural decisions for ZynSign are recorded here.
 
 ## Current State
 
-The record below is in decision order, oldest first. Where the project stands
-today: `v0.1.0-alpha.3` (market `0.1.0`, build `2`) — the third Alpha on
-the release train. Every staged feature is built and compiled into this binary;
-a development stop exposes none of them in a Release build, a Debug build
-exposes all of them, and each later stop switches its features on in the planned
-order — see [../releases/release-train.md](../releases/release-train.md).
+The record below is in decision order, oldest first. Which stop the project
+stands at is the train's answer, not this page's: `python3
+Scripts/release_train.py status` prints it beside the marketing version and
+build number. What holds at every stop, and is why the record below does not
+need re-reading when one is cut, is that every staged feature is built and
+compiled into the binary; a development stop exposes none of them in a Release
+build, a Debug build exposes all of them, and each later stop switches its
+features on in the planned order — see
+[../releases/release-train.md](../releases/release-train.md).
 
 ZynSign is at the start of development. An Xcode application target with a
 SwiftUI shell, a composition root, minimal domain types, and a unit-test target

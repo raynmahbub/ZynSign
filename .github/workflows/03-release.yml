@@ -74,7 +74,7 @@ jobs:
       prerelease: ${{ steps.meta.outputs.prerelease }}
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Scripts/ci/release_meta.sh decides which version this run releases:
       # the tag ref, the dispatch input, or — when neither is given — the
@@ -97,7 +97,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Validate the release (train stage, version, changelog, notes)
         run: Scripts/ci/release_validate.sh "${{ needs.meta.outputs.version }}"
@@ -121,12 +121,12 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out the repository (full history)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
@@ -139,7 +139,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Select the newest stable Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -151,7 +151,7 @@ jobs:
 
       - name: Upload build and test logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-build-logs
           path: build/logs/
@@ -166,7 +166,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Select the newest stable Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -201,7 +201,7 @@ jobs:
           --out build/release/assets
 
       - name: Upload the release assets
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-assets
           path: build/release/assets/
@@ -219,12 +219,17 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out the repository (full history)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ github.ref_type == 'tag' && github.ref_name || github.event.repository.default_branch }}
 
       - name: Download the release assets
+        # Pinned at v4 on purpose. v5 changed the path behaviour of
+        # single-artifact downloads and v8 makes a checksum mismatch fatal and
+        # stops unzipping anything whose Content-Type is not a zip. Neither is
+        # wanted here, both would change what this job hands the publish step,
+        # and v4 raises no Node 20 warning — so there is nothing to fix.
         uses: actions/download-artifact@v4
         with:
           name: release-assets
@@ -356,7 +361,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Report
         env:

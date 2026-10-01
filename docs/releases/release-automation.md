@@ -43,17 +43,17 @@ Every log and every summary speaks one language (Crystal Flow,
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-🚀 Release • Assets • v0.1.0-alpha.3
+🚀 Release • Assets • v0.0.1
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 ✓ Application bundle: build/ZynSign.xcarchive/Products/Applications/ZynSign.app
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 🚀 Release • Package
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-✓ ZynSign-v0.1.0-alpha.3-unsigned.ipa
-✓ ZynSign-v0.0.1-dev.1-SHA256.txt — 496f869a25dc1bd0…
-✓ BuildPassport-v0.0.1-dev.1.json — 0 feature(s) visible, 19 staged later
-✓ ReleaseNotes.md — curated notes (docs/releases/notes-v0.0.1-dev.1.md)
+✓ ZynSign-v0.0.1-unsigned.ipa
+✓ ZynSign-v0.0.1-SHA256.txt — 496f869a25dc1bd0…
+✓ BuildPassport-v0.0.1.json — 0 feature(s) visible, 19 staged later
+✓ ReleaseNotes.md — curated notes (docs/releases/notes-v0.0.1.md)
 ✓ MANIFEST.md — 5 asset(s) listed
 ```
 
@@ -84,11 +84,11 @@ any macOS runner is allocated:
 
 ```
 ✗ v1.2.3 is not a stop on the release train, so nothing can be released for it.
-  ReleaseTrain.current is v0.0.1-dev.1; the train's stops are:
+  ReleaseTrain.current is v0.0.1; the train's stops are:
     v0.0.1-dev.1, v0.0.1-dev.2, v0.0.1-dev.3, v0.0.1, v0.1.0-alpha.1, …, v3.0.0
   See docs/releases/release-train.md for the plan and the stop order.
 ::error title=release-meta::v1.2.3 cannot be released — it is not the release train's current stop
-     Release the current stop instead: v0.1.0-alpha.3
+     Release the current stop instead: v0.0.1
 ```
 
 `Scripts/ci/release_meta.sh --self-test` proves the derivation and every
@@ -173,16 +173,25 @@ never overwrites a file that is already on the release (see
 
 ## Channels
 
-The channel is detected from the version suffix by
-`Scripts/ci/release_meta.sh` and recorded everywhere:
+`Scripts/ci/release_meta.sh` asks the release train for the channel
+(`release_train.py channel`), which reads it off the `ReleaseStage`, and records
+it everywhere:
 
-| Suffix | Channel | GitHub prerelease |
-| --- | --- | --- |
-| `-dev.N` | development | yes |
-| `-alpha.N` | alpha | yes |
-| `-beta.N` | beta | yes |
-| `-rc.N` | release candidate | yes |
-| _(none)_ | stable | no |
+| Stage | Example tag | Channel | GitHub prerelease |
+| --- | --- | --- | --- |
+| `dev1`–`dev3` | `v0.0.1-dev.1` | development | yes |
+| `horizon` | `v0.0.1` | development | yes |
+| `alpha1`–`alpha3` | `v0.1.0-alpha.1` | alpha | yes |
+| `beta1`–`beta4` | `v0.9.0-beta.1` | beta | yes |
+| `rc1`–`rc3` | `v1.0.0-rc.1` | release candidate | yes |
+| `stable`, `professional`, `nova1`, `nova` | `v1.0.0` | stable | no |
+
+The channel comes from the stage rather than the version suffix because the
+development stage's last stop is `horizon` — `v0.0.1`, with no pre-release
+suffix. A suffix rule classified it as stable and would have published the
+first build as a full release, taking the `latest` slot from `v1.0.0`'s line
+before the train got there. `release_meta.sh --self-test` pins
+`channel_for 0.0.1` to `development` so the mistake cannot come back.
 
 See [version-strategy.md](version-strategy.md) for the progression, its exit
 criteria, and which stop is next.

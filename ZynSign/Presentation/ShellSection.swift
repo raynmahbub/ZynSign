@@ -135,6 +135,33 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
         primaryTabs(where: ReleaseTrain.isAvailable)
     }
 
+    /// The landing destinations the Settings picker may offer.
+    ///
+    /// Not `LandingTab.tabCases`: that list names every section that *can*
+    /// be a tab, and the bar renders at most `tabBarItemLimit` of them. At
+    /// the current ceiling Downloads yields its slot, so offering it let a
+    /// user choose a landing tab the bar cannot select — the preference was
+    /// saved, the row still read "Downloads", and every launch opened
+    /// Library, because `RootView.visibleSelection` clamped it. Offering
+    /// only what the bar renders makes the picker incapable of that lie.
+    static var offerableLandingTabs: [LandingTab] {
+        let tabs = primaryTabs
+        return LandingTab.tabCases.filter { tabs.contains($0.shellSection) }
+    }
+
+    /// The landing tab a stored preference names once the shell has clamped
+    /// it to a section it actually shows — the value the picker displays.
+    ///
+    /// A preference saved while a section still had a slot is shown as the
+    /// tab the user will really land on rather than as a row the picker does
+    /// not have: a `Picker` whose selection matches no tag renders blank,
+    /// which reads as a broken control. The fallback is Library because that
+    /// is the one launch uses (`RootView.visibleSelection`), so the row and
+    /// the next cold start cannot disagree.
+    static func effectiveLandingTab(for stored: LandingTab) -> LandingTab {
+        offerableLandingTabs.contains(stored) ? stored : .library
+    }
+
     /// The navigation title of the section.
     var title: String {
         switch self {

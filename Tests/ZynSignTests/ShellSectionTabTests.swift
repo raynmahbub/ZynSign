@@ -215,4 +215,61 @@ final class ShellSectionTabTests: XCTestCase {
             XCTAssertEqual(RootView.visibleSelection(for: tab, in: all), tab)
         }
     }
+
+    // MARK: - What the landing picker may offer
+
+    /// The picker offers what the bar can select — not every tab-capable
+    /// section.
+    ///
+    /// It used to offer `LandingTab.tabCases`, which names all six sections
+    /// including Downloads, the one the five-item ceiling drops. So a user
+    /// could choose Downloads, watch it save, and land on Library at every
+    /// launch afterwards: the preference was honoured by the same clamp that
+    /// made the choice meaningless. Offering a destination the bar cannot
+    /// render is the preference-file version of the dead tab this file's
+    /// other tests guard against.
+    func testTheLandingPickerOffersOnlyTabsTheBarCanSelect() {
+        let offered = ShellSection.offerableLandingTabs
+
+        XCTAssertFalse(offered.isEmpty, "the picker would have nothing to offer")
+        XCTAssertLessThanOrEqual(offered.count, ShellSection.tabBarItemLimit)
+        XCTAssertEqual(Set(offered).count, offered.count)
+        for tab in offered {
+            XCTAssertTrue(
+                ShellSection.primaryTabs.contains(tab.shellSection),
+                "\(tab) is offered as a landing tab but has no slot in the bar"
+            )
+        }
+    }
+
+    /// The section that yields its slot is the one the picker must stop
+    /// offering while the cap holds.
+    func testAFoldedSectionIsNotOfferedAsALandingTab() {
+        XCTAssertFalse(ShellSection.primaryTabs.contains(.downloads))
+        XCTAssertFalse(ShellSection.offerableLandingTabs.contains(.downloads))
+        XCTAssertTrue(LandingTab.tabCases.contains(.downloads),
+                      "Downloads is still a real tab section; it has no slot, not no existence")
+    }
+
+    /// A stored destination the bar cannot select reads as the tab launch
+    /// really opens, and the two clamps have to agree — a picker showing one
+    /// tab while the next cold start lands on another is a control that lies.
+    func testAStoredLandingTabWithNoSlotReadsAsTheTabLaunchOpens() {
+        XCTAssertEqual(ShellSection.effectiveLandingTab(for: .downloads), .library)
+        XCTAssertEqual(
+            RootView.visibleSelection(for: LandingTab.downloads.shellSection).title,
+            ShellSection.effectiveLandingTab(for: .downloads).shellSection.title
+        )
+        for tab in ShellSection.offerableLandingTabs {
+            XCTAssertEqual(ShellSection.effectiveLandingTab(for: tab), tab,
+                           "\(tab) is offered, so it must not be rewritten")
+        }
+    }
+
+    /// A retired section saved by an earlier build reads as Library too, which
+    /// is what `LandingTab.selectable` already decided for it.
+    func testARetiredLandingTabReadsAsLibrary() {
+        XCTAssertEqual(ShellSection.effectiveLandingTab(for: .certificates), .library)
+        XCTAssertEqual(ShellSection.effectiveLandingTab(for: .profiles), .library)
+    }
 }

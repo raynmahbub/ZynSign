@@ -49,9 +49,25 @@ fail() { crystal_fail "$1"; }
 
 # --- derivation -------------------------------------------------------------
 
-# channel_for <version> — the release channel, detected from the pre-release
-# suffix exactly as the published release-automation docs describe.
+# channel_for <version> — the release channel.
+#
+# The train answers this, not the version suffix. The suffix rule that used to
+# stand in for it could not see `0.0.1`: the development stage's last stop is
+# `horizon`, and it carries no pre-release suffix at all, so the first build
+# read as `stable` and would have published as a full GitHub Release, taking the
+# `latest` slot from a stable line it has not reached. `release_train.py channel`
+# derives the channel from the ReleaseStage instead, where the stop's identity is
+# not ambiguous.
+#
+# The suffix rule survives only as the fallback for a version the train does not
+# know — which `validate_version` refuses separately, so a real release never
+# reaches it.
 channel_for() {
+    local from_train
+    if from_train="$("${TRAIN[@]}" channel "$1" 2>/dev/null)" && [[ -n "${from_train}" ]]; then
+        printf '%s\n' "${from_train}"
+        return 0
+    fi
     case "$1" in
         *-dev*)   printf 'development\n' ;;
         *-alpha*) printf 'alpha\n' ;;
@@ -175,10 +191,14 @@ self_test() {
         "$(resolve_version "" "feature/engineering-excellence")" "${current}"
 
     expect "channel for 0.0.1-dev.1"  "$(channel_for "0.0.1-dev.1")"    "development"
+    # The development stage's last stop carries no suffix, so the suffix rule
+    # alone called it stable. It is a development stop and publishes as one.
+    expect "channel for 0.0.1"        "$(channel_for "0.0.1")"          "development"
     expect "channel for 0.1.0-alpha.1" "$(channel_for "0.1.0-alpha.1")"  "alpha"
     expect "channel for 0.9.0-beta.2"  "$(channel_for "0.9.0-beta.2")"   "beta"
     expect "channel for 1.0.0-rc.2"    "$(channel_for "1.0.0-rc.2")"     "rc"
     expect "channel for 1.0.0"         "$(channel_for "1.0.0")"          "stable"
+    expect "the first build is a pre-release"      "$(prerelease_for "$(channel_for "0.0.1")")" "true"
     expect "stable is published as a full release"  "$(prerelease_for "stable")" "false"
     expect "every other channel is a pre-release"   "$(prerelease_for "rc")"     "true"
 

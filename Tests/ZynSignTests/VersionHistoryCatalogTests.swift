@@ -7,7 +7,7 @@ final class VersionHistoryCatalogTests: XCTestCase {
     func testEntriesAreNewestFirst() {
         let entries = VersionHistoryCatalog.entries
         XCTAssertFalse(entries.isEmpty)
-        XCTAssertEqual(entries.first?.tag, "v0.0.1-dev.3")
+        XCTAssertEqual(entries.first?.tag, "v0.0.1")
         XCTAssertEqual(entries.last?.tag, "v0.0.1-dev.1")
     }
 

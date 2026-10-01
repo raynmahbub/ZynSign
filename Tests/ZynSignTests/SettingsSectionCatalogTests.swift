@@ -111,4 +111,54 @@ final class SettingsSectionCatalogTests: XCTestCase {
 
         XCTAssertEqual(Set(descriptors).count, descriptors.count)
     }
+
+    // MARK: - Reachability
+
+    /// Registration is not reachability. The Settings index is the only
+    /// navigation into these sections, and its `destination(for:)` is a
+    /// `@ViewBuilder` — nothing can ask it what it presents. So each category
+    /// records the sections it opens, and the union has to cover the catalog.
+    ///
+    /// This is the gap that hid a missing screen: the Security Center stayed
+    /// registered, so every test above kept passing, while no row in Settings
+    /// opened it. The application lock, its session timeout, its
+    /// sensitive-action rule, and its sensitive-data visibility were all
+    /// unreachable — a settings area compiled in, tested, and impossible to
+    /// open.
+    func testEveryRegisteredSectionIsReachableFromTheSettingsIndex() {
+        let reachable = Set(SettingsCategory.allCases.flatMap(\.openedSections))
+        for identifier in SettingsSectionIdentifier.allCases {
+            XCTAssertTrue(
+                reachable.contains(identifier),
+                "\(identifier.rawValue) is registered but no Settings category opens it"
+            )
+        }
+    }
+
+    /// The record must not drift the other way either: a category claiming a
+    /// section that is not registered would pass the test above while pointing
+    /// at nothing.
+    func testTheIndexOpensNothingThatIsNotRegistered() {
+        let registered = Set(SettingsSectionCatalog.all.map(\.descriptor.identifier))
+        for category in SettingsCategory.allCases {
+            for identifier in category.openedSections {
+                XCTAssertTrue(
+                    registered.contains(identifier),
+                    "\(category.rawValue) opens \(identifier.rawValue), which the catalog does not register"
+                )
+            }
+        }
+    }
+
+    /// Every category the index lists has a title, a summary, and a symbol, or
+    /// it renders as a blank row — and its raw value is what the persisted
+    /// order is keyed by, so a case with no raw value could not be reordered.
+    func testEveryCategoryDescribesItself() {
+        for category in SettingsCategory.allCases {
+            XCTAssertFalse(category.title.isEmpty, "\(category.rawValue) has no title")
+            XCTAssertFalse(category.summary.isEmpty, "\(category.rawValue) has no summary")
+            XCTAssertFalse(category.symbol.isEmpty, "\(category.rawValue) has no symbol")
+            XCTAssertFalse(category.rawValue.isEmpty)
+        }
+    }
 }

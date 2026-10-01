@@ -95,6 +95,7 @@ struct SettingsView: View {
         case .signing: signingCategory
         case .updates: updatesCategory
         case .general: generalCategory
+        case .security: SecurityCenterSection()
         case .devices: devicesCategory
         case .servers: serversCategory
         case .miscellaneous: miscellaneousCategory
@@ -376,8 +377,16 @@ struct SettingsView: View {
     }
 }
 
-private enum SettingsCategory: String, CaseIterable, Identifiable {
-    case signing, updates, general, devices, servers, miscellaneous, diagnostics, reset, about, socials
+/// One category of the Settings index.
+///
+/// Internal rather than private so the reachability record
+/// (`openedSections`) can be pinned by the test suite: this index is the
+/// only navigation into the settings sections, so a section registered in
+/// `SettingsSectionCatalog` that no category opens is a screen the user
+/// cannot reach — and the index is a `@ViewBuilder` switch, which nothing
+/// else can read.
+enum SettingsCategory: String, CaseIterable, Identifiable {
+    case signing, updates, general, security, devices, servers, miscellaneous, diagnostics, reset, about, socials
 
     var id: String { rawValue }
     var title: String {
@@ -385,6 +394,7 @@ private enum SettingsCategory: String, CaseIterable, Identifiable {
         case .signing: return "Signing"
         case .updates: return "Updates"
         case .general: return "General"
+        case .security: return "Security"
         case .devices: return "Devices"
         case .servers: return "Servers"
         case .miscellaneous: return "Miscellaneous"
@@ -399,6 +409,7 @@ private enum SettingsCategory: String, CaseIterable, Identifiable {
         case .signing: return "Certificates, profiles, signing defaults, and tools"
         case .updates: return "Repositories, available updates, and downloads"
         case .general: return "Appearance, tabs, app behavior, and storage"
+        case .security: return "Face ID lock, sensitive actions, and what stays masked"
         case .devices: return "Supported device handoff and capability status"
         case .servers: return "Repository connections and server capabilities"
         case .miscellaneous: return "Files, archives, imports, and backups"
@@ -413,6 +424,7 @@ private enum SettingsCategory: String, CaseIterable, Identifiable {
         case .signing: return "signature"
         case .updates: return "arrow.triangle.2.circlepath"
         case .general: return "gearshape"
+        case .security: return "faceid"
         case .devices: return "iphone.gen3"
         case .servers: return "server.rack"
         case .miscellaneous: return "square.grid.2x2"
@@ -420,6 +432,35 @@ private enum SettingsCategory: String, CaseIterable, Identifiable {
         case .reset: return "arrow.counterclockwise"
         case .about: return "info.circle"
         case .socials: return "bubble.left.and.bubble.right"
+        }
+    }
+}
+
+extension SettingsCategory {
+
+    /// The `SettingsSectionCatalog` sections this category opens.
+    ///
+    /// A reachability record, not a second navigation: `destination(for:)`
+    /// is a `@ViewBuilder`, so no test can ask the index what it presents.
+    /// This list is the answer, and `SettingsSectionCatalogTests` fails when
+    /// a registered section is missing from it — which is how the Security
+    /// Center went unreachable: it stayed in the catalog, and no category
+    /// opened it, so the app's lock, its session timeout, and its
+    /// sensitive-data rules could not be configured at all.
+    ///
+    /// A category that opens no catalog section returns an empty list: its
+    /// destinations are views of their own (the honest capability screens,
+    /// the Stores, the socials) rather than entries in the catalog.
+    var openedSections: [SettingsSectionIdentifier] {
+        switch self {
+        case .signing: return [.signing]
+        case .general: return [.general, .appearance, .storage]
+        case .security: return [.security]
+        case .miscellaneous: return [.advanced]
+        case .diagnostics: return [.diagnostics, .compatibilityLab]
+        case .reset: return [.recovery]
+        case .about: return [.about]
+        case .updates, .devices, .servers, .socials: return []
         }
     }
 }

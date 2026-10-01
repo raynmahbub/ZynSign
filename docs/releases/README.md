@@ -11,7 +11,7 @@ The release process for ZynSign — private test first, public tag second.
 
 ## Current State
 
-**Current stop: `v0.0.1-dev.2`, next stop `v0.0.1-dev.3`, `10 wired · 3 never`** — a development stop switches on no staged `ReleaseFeature` of its own, but that is not "the core only": a Release build shows the whole six-tab shell and the certificate, profile, repository and download surfaces behind it, because holding those back made the app look broken. What stays gated is the staged *work* — signing, presets, the queue, identity, installation, the workspace, Nova — and the gate map in [release-train.md](release-train.md) lists which checks are live. This stop exists to prove the pipeline and the core, not to ship features. ZynSign is an on-device iOS signing app: import an application package, inspect it, sign it with your own certificate and profile, and hand off the result — inside the app sandbox, with no desktop helper, no remote service and no analytics. The whole app is built: the six-surface shell (Files / Library / Home / App Store / Downloads / Settings), import, Library, Certificate Studio (`.p12` + public-JSON export), Smart Sign (9 stages, CMS-derived entitlements, DER `0x20400` toggle, Live Activity), repository health Fast / Slow / Offline, resumable Download Center, the **Entitlements Studio** and the **Developer Identity Center**, and the Compatibility Lab — with Mission Control Refresh, the **installation delivery hand-off (OTA manifest + install link + QR + operator guides)** and the **local activity journal (on-device, never transmitted)** compiled in and reachable in Debug, switching on at `beta1` — composed via `CompositionRoot`, with `SigningState` / `ZynSignError` + `ZToast` exactly as built.
+**Current stop: `v0.0.1`, next stop `v0.1.0-alpha.1`, `10 wired · 3 never`** — the first build switches on no staged `ReleaseFeature` of its own, but that is not "the core only": a Release build shows the whole six-tab shell and the certificate, profile, repository and download surfaces behind it, because holding those back made the app look broken. What stays gated is the staged *work* — signing, presets, the queue, identity, installation, the workspace, Nova — and the gate map in [release-train.md](release-train.md) lists which checks are live. The three development stops proved the pipeline and the core; this one is the first a user installs, so the same gate drift `dev.3` recorded is now carried in a shipping release rather than in a rehearsal (see [notes-v0.0.1.md](notes-v0.0.1.md)). ZynSign is an on-device iOS signing app: import an application package, inspect it, sign it with your own certificate and profile, and hand off the result — inside the app sandbox, with no desktop helper, no remote service and no analytics. The whole app is built: the six-surface shell (Files / Library / Home / App Store / Downloads / Settings), import, Library, Certificate Studio (`.p12` + public-JSON export), Smart Sign (9 stages, CMS-derived entitlements, DER `0x20400` toggle, Live Activity), repository health Fast / Slow / Offline, resumable Download Center, the **Entitlements Studio** and the **Developer Identity Center**, and the Compatibility Lab — with Mission Control Refresh, the **installation delivery hand-off (OTA manifest + install link + QR + operator guides)** and the **local activity journal (on-device, never transmitted)** compiled in and reachable in Debug, switching on at `beta1` — composed via `CompositionRoot`, with `SigningState` / `ZynSignError` + `ZToast` exactly as built.
 
 An alpha stop **exposes the features its stage and every earlier stage introduce**: `v0.1.0-alpha.3` shows the core plus Smart Sign, the Signing Queue, Signing Presets, the Entitlements Studio and the Identity Center — while Certificate Studio, the Profile Manager, the App Store and the Download Center are already reachable in a Release build, because the `dev.3` shell change removed their last checks. That is the drift the train has to settle: either those four move to `v0.0.1`, or the gates go back on. The tab bar stays complete at every stop and saved landing preferences remain valid. Debug builds expose everything, so development is never blocked, and each later stop switches its features on in the planned order ([release-train.md](release-train.md)). The honest rows stay honest per [WHAT_DOES_NOT_EXIST.md](../product/WHAT_DOES_NOT_EXIST.md): in-app installation, Pairing/JIT/Mux, and off-device measurement are claimed-never (pairing via `docs/architecture/pairing-jit-mux-feasibility.md`).
 
@@ -24,7 +24,7 @@ The numbers are never written into prose here on purpose: run `python3 Scripts/r
 
 ## Release train
 
-The app is fully built but ships one release at a time. `v0.0.1-dev.1` opened the core, `v0.0.1-dev.2` released with the gate closing on four entry points, and `v0.0.1-dev.3` — the last rehearsal before `v0.0.1` — is next. See **[release-train.md](release-train.md)** for the plan and the per-release commands. Everything below applies to every release on the train: private test first, same binary public.
+The app is fully built but ships one release at a time. `v0.0.1-dev.1` opened the core, `v0.0.1-dev.2` released with the gate closing on four entry points, `v0.0.1-dev.3` was the last rehearsal, and `v0.0.1` — the first build — is the stop now cut. `v0.1.0-alpha.1` is next, and with it the decision the drift note owes: re-gate the four open surfaces, or move them into `v0.0.1`. See **[release-train.md](release-train.md)** for the plan and the per-release commands. Everything below applies to every release on the train: private test first, same binary public.
 
 ## Private → Public Gate (how a professional dev release ships)
 
@@ -49,7 +49,7 @@ For TestFlight internal, use `ExportOptions-private-appstore.plist` (`method: ap
 
 Or trigger `.github/workflows/01-build.yml` manually (`workflow_dispatch` → `mode: private-ipa`, configuration **Release**) — the hygiene, build and test gates run first, then it archives and exports the ad-hoc IPA and uploads it as a workflow artifact (retention 7 days, **not** a release).
 
-**Step 2 — Private test matrix.** See [private-testing.md](private-testing.md). Run the rows for the features the current stop *exposes* — for `v0.0.1-dev.2` that is the core only (Import / Library / Files / Bundle Explorer / Home / the honest rows / Diagnostics). No staged feature row is in scope until `v0.1.0-alpha.1`. All green on two real devices (one iOS 17, one iOS 18) plus simulator smoke. Log the result in that file.
+**Step 2 — Private test matrix.** See [private-testing.md](private-testing.md). Run the rows for the features the current stop *exposes* — read which ones from `python3 Scripts/release_train.py status` rather than from this page. Every stop from `v0.0.1-dev.1` through `v0.0.1` exposes the core only (Import / Library / Files / Bundle Explorer / Home / the honest rows / Diagnostics); no staged feature row is in scope until `v0.1.0-alpha.1`. All green on two real devices (one iOS 17, one iOS 18) plus simulator smoke. Log the result in that file.
 
 **Step 3 — Publish (one tag after green, no rebuild):**
 
@@ -92,10 +92,17 @@ turning those changes into a release.
 - [release-train.md](release-train.md) — which features each release switches on, and how to promote / check / tag.
 
 - [version-strategy.md](version-strategy.md) — the development → alpha →
-  beta → release-candidate → stable progression, exit criteria, and the
-  current position (`v0.0.1-dev.3`, market `0.0.1` build `4`).
+  beta → release-candidate → stable progression, and the exit criteria for
+  each. The current position is not written here: `python3
+  Scripts/release_train.py status` prints the stop, its marketing version and
+  its build number, so this line cannot go stale the way a hardcoded one does.
 - [private-testing.md](private-testing.md) — the private build channels (ad-hoc IPA / TestFlight internal), the device matrix, ExportOptions templates, and the checklist that gates each release on the train.
 - [ExportOptions-private-adhoc.plist](ExportOptions-private-adhoc.plist) — `method: ad-hoc` template for DM sideload.
 - [ExportOptions-private-appstore.plist](ExportOptions-private-appstore.plist) — `method: app-store` template for TestFlight internal.
+- [notes-template.md](notes-template.md) — the shape every release note takes; no section is optional.
+- [notes-v0.0.1.md](notes-v0.0.1.md) — the release notes the workflow attaches to this stop's GitHub release.
+- [notes-v0.1.0-alpha.3.md](notes-v0.1.0-alpha.3.md)
+- [notes-v0.0.1-dev.3.md](notes-v0.0.1-dev.3.md)
+- [notes-v0.0.1-dev.2.md](notes-v0.0.1-dev.2.md)
 - [notes-v0.0.1-dev.1.md](notes-v0.0.1-dev.1.md)
-- [screenshots.md](screenshots.md) — the App Store screenshot pack: five screens, two device classes, composed by `Scripts/compose_screenshots.py`. — the release notes the workflow attaches to this stop's GitHub release.
+- [screenshots.md](screenshots.md) — the App Store screenshot pack: five screens, two device classes, composed by `Scripts/compose_screenshots.py`.
