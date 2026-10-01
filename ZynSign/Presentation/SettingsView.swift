@@ -50,7 +50,7 @@ struct SettingsView: View {
                 if searchText.isEmpty, editMode == .inactive {
                     Section {
                         Button {
-                            withAnimation(.snappy) { editMode = .active }
+                            withAnimation(ZMotion.standard) { editMode = .active }
                         } label: {
                             Label("Change the order", systemImage: "arrow.up.arrow.down")
                                 .foregroundStyle(.secondary)
@@ -67,7 +67,7 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(editMode == .active ? "Done" : "Edit") {
-                        withAnimation(.snappy) {
+                        withAnimation(ZMotion.standard) {
                             editMode = editMode == .active ? .inactive : .active
                         }
                     }

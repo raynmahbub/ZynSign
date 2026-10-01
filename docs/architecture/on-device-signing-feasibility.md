@@ -232,6 +232,16 @@ evidence when they run.
   (as macOS `SecItemImport` allows) is **not established**. **[Verified for
   non-extractability via Apple DTS; Unknown for attribute control — see
   Experiment E7]**
+  The related question — whether ZynSign can choose the *protection class* of
+  what `SecPKCS12Import` stores — is now answered in code: it cannot. The
+  function takes no attribute dictionary, and iOS has no supported way to
+  re-protect an existing private key (`SecItemUpdate` on `kSecAttrAccessible`
+  requires the item's data, which a private key never returns). The importer
+  asks for the device-only class anyway and verifies what it got;
+  `SigningKeyProtectionRule` accepts the platform's default
+  (`kSecAttrAccessibleWhenUnlocked`) because refusing it refused every identity
+  an import could produce. **[Established by API shape and DTS guidance;
+  device confirmation still required]**
 - Signing with a stored key produces bytes through `SecKeyCreateSignature`
   under a named algorithm; the private key never enters ZynSign's address space
   as material it could log, export, or persist. This satisfies the

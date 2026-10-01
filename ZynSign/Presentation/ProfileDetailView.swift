@@ -434,5 +434,5 @@ struct ProfileDetailView: View {
             )
         )
     }
-    .environment(\.applicationEnvironment, CompositionRoot.makeApplicationEnvironment())
+    .environment(\.applicationEnvironment, CompositionRoot.fallbackEnvironment)
 }

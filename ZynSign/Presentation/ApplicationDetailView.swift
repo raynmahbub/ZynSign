@@ -1960,7 +1960,7 @@ private enum PreviewFixtures {
     )
 }
 
-private let previewEnvironment = CompositionRoot.makeApplicationEnvironment()
+private let previewEnvironment = CompositionRoot.fallbackEnvironment
 
 #Preview("Application Detail") {
     NavigationStack {

@@ -61,6 +61,22 @@ struct RootView: View {
     @State private var isShowingCertificates = false
     @State private var isShowingProfiles = false
 
+    /// A shell surface the app owes the user once the scene is active again.
+    ///
+    /// An Open In or share-sheet hand-off is delivered as ZynSign comes back
+    /// to the foreground; UIKit drops a presentation asked for in that frame
+    /// and the state that asked for it stays set, so the surface never opens
+    /// and the screen looks like it did nothing. The request is held as the
+    /// surface's name — three values, no stored closure — and honoured the
+    /// moment the scene is active.
+    private enum ShellPresentation {
+        case importHub
+        case profiles
+        case certificates
+    }
+
+    @State private var pendingShellPresentation: ShellPresentation?
+
     /// The items whose outcome has already been recorded, so an import is
     /// reported exactly once however many times the item list changes.
     @State private var reportedImportItems: Set<ImportJobIdentifier> = []
@@ -102,7 +118,7 @@ struct RootView: View {
     /// environment, and installed into the hierarchy — so the Settings area,
     /// the Security Center, and the lock overlay all act on the same
     /// preferences and the same lock state.
-    init(environment: ApplicationEnvironment = CompositionRoot.makeApplicationEnvironment()) {
+    init(environment: ApplicationEnvironment) {
         let model = SettingsCenterModel(store: environment.preferencesStore, environment: environment)
         _settings = StateObject(wrappedValue: model)
         _appLock = StateObject(wrappedValue: AppLockController(
@@ -154,7 +170,7 @@ struct RootView: View {
         .focusedSceneValue(
             \.importCommandActions,
             ImportCommandActions(
-                openHub: { isShowingImport = true },
+                openHub: { presentImportHub() },
                 chooseFiles: { openHub(with: .chooseFiles) },
                 showHistory: { openHub(with: .history) }
             )
@@ -175,7 +191,7 @@ struct RootView: View {
         .environment(
             \.importPresentation,
             ImportPresentation(
-                present: { isShowingImport = true },
+                present: { presentImportHub() },
                 chooseFiles: { openHub(with: .chooseFiles) },
                 isAvailable: true
             )
@@ -309,6 +325,12 @@ struct RootView: View {
                 // Work the system paused while ZynSign was in the background
                 // continues now that the scene is active again.
                 environment.importHub.resume()
+                // A surface asked for while ZynSign was away opens now: the
+                // scene is active, so the presentation is no longer dropped.
+                if let pending = pendingShellPresentation {
+                    pendingShellPresentation = nil
+                    present(pending)
+                }
             case .inactive:
                 break
             @unknown default:
@@ -505,7 +527,40 @@ struct RootView: View {
     /// Opens the Import Hub with a request for it to carry out.
     private func openHub(with request: ImportHubRequest) {
         hubRequest = request
-        isShowingImport = true
+        presentImportHub()
+    }
+
+    /// Opens the Import Hub, or holds the request until the scene is active.
+    private func presentImportHub() {
+        presentWhenActive(.importHub)
+    }
+
+    /// Presents a shell surface now, or as soon as the scene is active.
+    ///
+    /// A presentation requested while another application's controller is
+    /// still on screen — the share sheet, the Files app handing ZynSign a
+    /// document — is dropped by UIKit with no error. Holding the request and
+    /// presenting on activation is what makes an Open In actually open.
+    private func presentWhenActive(_ surface: ShellPresentation) {
+        guard scenePhase == .active else {
+            // First request wins: it is the one the user acted on, and the
+            // surface it names is the one whose data is already arriving.
+            if pendingShellPresentation == nil { pendingShellPresentation = surface }
+            return
+        }
+        present(surface)
+    }
+
+    /// Raises the sheet a held or immediate request names.
+    private func present(_ surface: ShellPresentation) {
+        switch surface {
+        case .importHub:
+            isShowingImport = true
+        case .profiles:
+            isShowingProfiles = true
+        case .certificates:
+            isShowingCertificates = true
+        }
     }
 
     /// Accepts a URL the system opened ZynSign for.
@@ -525,12 +580,12 @@ struct RootView: View {
         if IPAFileFormat.acceptsForImport(url) {
             let origin: ImportOrigin = Self.isShareSheetCopy(url) ? .shareSheet : .openIn
             environment.importHub.receive([url], origin: origin)
-            isShowingImport = true
+            presentImportHub()
         } else if ext == "mobileprovision" || ext == "provisionprofile" {
-            isShowingProfiles = true
+            presentWhenActive(.profiles)
             ZHaptics.tap()
         } else if ext == "p12" || ext == "pfx" {
-            isShowingCertificates = true
+            presentWhenActive(.certificates)
             ZHaptics.tap()
         }
     }
@@ -678,5 +733,8 @@ private struct DownloadNoticeBridge: View {
 }
 
 #Preview {
-    RootView().environment(\.applicationEnvironment, CompositionRoot.makeApplicationEnvironment())
+    // One environment for the shell and for the hierarchy it installs it in:
+    // the shared composition-root fallback, never a second graph built here.
+    RootView(environment: CompositionRoot.fallbackEnvironment)
+        .environment(\.applicationEnvironment, CompositionRoot.fallbackEnvironment)
 }

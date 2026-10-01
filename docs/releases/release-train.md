@@ -14,7 +14,7 @@ cherry-picks, and no deleted code to restore later.
 |---|---|---|---|
 | Dev 1 | `v0.0.1-dev.1` | — | Core only. Proved the pipeline end to end against a real tag: quality gate → build + tests → version-stamped assets → publish. |
 | Dev 2 | `v0.0.1-dev.2` | — | *(released 2026-09-30)* Core only; the gate closing on four entry points, and the private device matrix for the core |
-| Dev 3 | `v0.0.1-dev.3` | — | **Next stop.** Core, with the six-tab shell kept whole — Store and Downloads stay in the bar — plus the searchable Settings index. The last rehearsal before the first build |
+| Dev 3 | `v0.0.1-dev.3` | — | **Current stop.** Core, with the six-tab shell kept whole — Store and Downloads stay in the bar — plus the searchable Settings index. The last rehearsal before the first build |
 | **First build** | `v0.0.1` | Core | Files · Import (`ipa`/`tipa`) · Library · Bundle Explorer · Home · Settings (Signing, Updates, Devices, Servers, Appearance, Storage, Diagnostics, Reset, About, Socials) |
 | Alpha 1 | `v0.1.0-alpha.1` | Certificate Studio | Settings → Signing → Certificates (`.p12`/`.pfx` import, detail, public JSON export) |
 | Alpha 2 | `v0.1.0-alpha.2` | Smart Sign, Provisioning Profile Manager, Professional Signing Queue, Intelligent Signing Presets | `Sign Application…` (Library menu + detail), 9-stage pipeline, DER toggle, Live Activity, Signing Options, Library “Signed” segment, Settings → Installation, Settings → Signing Queue, Settings → Presets, recommended preset with a required confirmation that enqueues on the signing queue |

@@ -99,15 +99,20 @@ final class KeychainIdentityIntegrationTests: XCTestCase {
             let status = SecItemDelete(query as CFDictionary)
             XCTAssertTrue(status == errSecSuccess || status == errSecItemNotFound, "Disposable key cleanup failed.")
         }
+        // `kSecAttrIsExtractable` belongs in the top-level dictionary: placed
+        // inside `kSecPrivateKeyAttrs` the platform ignores it, so the fixture
+        // created an exportable key that the resolver is right to refuse. The
+        // fixture must produce the shape the application expects — a
+        // non-exportable, device-only private key — or the test proves
+        // nothing about the real one.
         let attributes: [String: Any] = [
             kSecAttrKeyType as String: keyType,
             kSecAttrKeySizeInBits as String: isRSA ? 2048 : 256,
+            kSecAttrIsExtractable as String: false,
             kSecPrivateKeyAttrs as String: [
                 kSecAttrIsPermanent as String: true,
                 kSecAttrApplicationTag as String: tag,
-                kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-                kSecAttrSynchronizable as String: false,
-                kSecAttrIsExtractable as String: false
+                kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
             ]
         ]
         guard let key = SecKeyCreateRandomKey(attributes as CFDictionary, nil) else {

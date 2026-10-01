@@ -75,7 +75,12 @@ struct CertificateManagerView: View {
     }
 
     var body: some View {
-        content
+        // The phase swap — skeleton to library, library to a failure — fades
+        // rather than snapping: the branches carry the default insertion
+        // transition, and the animation is keyed on the phase alone so a
+        // search keystroke or a rename never re-animates the list.
+        ZStack { content }
+            .animation(ZMotion.standard, value: model.phase)
             .navigationTitle(ShellSection.certificates.title)
             .navigationDestination(for: CertificateManagerModel.CertificateItem.self) { item in
                 detailView(for: item)
@@ -608,14 +613,14 @@ struct CertificateManagerView: View {
 
     /// Presents the password sheet once the picker's own dismissal has landed.
     ///
-    /// The window is the one `SigningView` and `SigningQueueConfigurationView`
-    /// already wait out: a presentation requested while another is dismissing is
-    /// dropped by UIKit without an error, which is why a `.p12` could be chosen
-    /// and nothing at all appeared to happen afterwards. The bytes stay in
-    /// `pendingData` meanwhile, so a slow device costs a beat, not the import.
+    /// The window is the one every post-picker presentation in ZynSign waits
+    /// out (`PresentationSettle`): a presentation requested while another is
+    /// dismissing is dropped by UIKit without an error, which is why a `.p12`
+    /// could be chosen and nothing at all appeared to happen afterwards. The
+    /// bytes stay in `pendingData` meanwhile, so a slow device costs a beat,
+    /// not the import.
     private func presentPasswordSheetAfterPickerSettles() {
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 400_000_000)
+        PresentationSettle.afterDismissal {
             guard pendingData != nil, pendingFileName != nil, !showPasswordSheet else { return }
             showPasswordSheet = true
         }
@@ -1005,7 +1010,7 @@ private struct ShareSheet: UIViewControllerRepresentable {
 
 // MARK: - Previews
 
-private let previewEnvironment = CompositionRoot.makeApplicationEnvironment()
+private let previewEnvironment = CompositionRoot.fallbackEnvironment
 
 #Preview("Certificates (empty)") {
     NavigationStack {

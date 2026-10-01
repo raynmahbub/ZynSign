@@ -62,6 +62,29 @@ extension ZynSignError {
         )
     }
 
+    /// The same failure, with technical context for the log.
+    ///
+    /// The reason's own identifier stays first, so the detail reads the way it
+    /// did and the added context is appended rather than substituted. A caller
+    /// with nothing to add keeps using `identity(_:)`; there is deliberately no
+    /// defaulted parameter, so that call stays unambiguous.
+    ///
+    /// The added text is subject to the same redaction rules as every other
+    /// detail: it names the *policy* facts the Keychain reported — which class
+    /// of key, which protection domain, whether the platform called it
+    /// synchronizable or exportable — never key material, never a code that
+    /// identifies the item.
+    static func identity(_ reason: SigningIdentityFailure, diagnosticDetail: String?) -> ZynSignError {
+        ZynSignError(
+            category: reason.category,
+            userMessage: reason.userMessage,
+            diagnosticDetail: [reason.rawValue, diagnosticDetail]
+                .compactMap { $0 }
+                .joined(separator: " "),
+            identityFailure: reason
+        )
+    }
+
     /// Preserve only a known reason, never foreign error descriptions/payloads.
     static func sanitizedIdentityFailure(_ error: any Error) -> ZynSignError {
         identity((error as? ZynSignError)?.identityFailure ?? .unexpectedSecurityFailure)

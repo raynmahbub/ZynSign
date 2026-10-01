@@ -98,6 +98,14 @@ struct ApplePKCS12Importer: SigningIdentityImporter {
 
         let persistentRef = try persistentReference(for: key)
 
+        // The platform stored this key with the Keychain's default protection.
+        // Ask for the device-only class before registering — and do not assume
+        // the answer: the resolver reads the key's actual attributes back and
+        // refuses anything readable while the device is locked, so a platform
+        // that cannot re-protect an existing private key still gets a working,
+        // verified identity instead of a dead end.
+        Self.advanceProtection(ofKeyMatching: persistentRef)
+
         // The Security import leaves the identity, certificate, and key in
         // the Keychain. The registry only needs the leaf DER and the key's
         // persistent reference; the store will validate association and
@@ -114,6 +122,33 @@ struct ApplePKCS12Importer: SigningIdentityImporter {
         } catch {
             throw ZynSignError.sanitizedIdentityFailure(error)
         }
+    }
+
+    /// Asks the Keychain to move an imported private key to the device-only
+    /// protection class.
+    ///
+    /// `SecPKCS12Import` accepts no attribute dictionary, so an imported key
+    /// carries the Keychain's default class. This call is the only way to ask
+    /// for something stronger, and it is deliberately best-effort: the status
+    /// is discarded because the outcome is not this call's to claim. iOS may
+    /// refuse the change (`errSecParam`, typically, when the update needs the
+    /// item's data — which a private key never returns), may refuse it while
+    /// the device is in a state the new class cannot be applied in, or may not
+    /// report the requested attribute at all. Whatever happened, what is true
+    /// afterwards is what the resolver reads from the key itself.
+    ///
+    /// The advancement never goes the other way: only the device-only class is
+    /// ever written, so this cannot weaken a key that already has it.
+    private static func advanceProtection(ofKeyMatching reference: Data) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassKey,
+            kSecValuePersistentRef as String: reference,
+            kSecUseAuthenticationContext as String: IdentityKeychainAccess.noninteractiveContext()
+        ]
+        let attributes: [String: Any] = [
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+        _ = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
     }
 
     private func persistentReference(for key: SecKey) throws -> Data {

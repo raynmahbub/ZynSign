@@ -19,6 +19,8 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+## [0.0.1-dev.3] - 2026-10-01
+
 **Development 3.** Market `0.0.1`, tag `v0.0.1-dev.3`, release train `.dev3` —
 the last development stop, and it switches on no staged `ReleaseFeature` of its
 own (`ReleaseStage.dev3.introducedFeatures` is empty). What the stop carries is
@@ -29,7 +31,7 @@ publishes the notes for the stop being cut. The `CFBundleVersion` is assigned by
 `python3 Scripts/release_train.py promote` rather than claimed here. Notes:
 [`docs/releases/notes-v0.0.1-dev.3.md`](docs/releases/notes-v0.0.1-dev.3.md).
 
-> **Gate drift to settle before the tag.** `dev.2` closed the gate on four entry
+> **Gate drift, recorded for this stop.** `dev.2` closed the gate on four entry
 > points; keeping Store and Downloads discoverable opened them again on purpose.
 > `certificateStudio`, `provisioningProfileManager`, `appStore` and `downloads`
 > no longer have a live check anywhere in the Presentation layer: each is still
@@ -38,13 +40,57 @@ publishes the notes for the stop being cut. The `CFBundleVersion` is assigned by
 > offers the Certificates and Profiles rows unconditionally. A Release build at
 > `dev.3` therefore exposes four areas the train assigns to `v0.1.0-alpha.1`
 > (Certificate Studio), `v0.1.0-alpha.2` (Provisioning Profile Manager) and
-> `v0.1.0-alpha.3` (App Store, Download Center). Either re-gate the staged
+> `v0.1.0-alpha.3` (App Store, Download Center). **This stop ships with that
+> recorded rather than resolved.** Nothing was re-gated and no train stage was
+> moved: either would be a product-surface change made after the build the tag
+> points at, and neither was asked for. The two options — re-gate the staged
 > *actions* behind each tab, or move these four surfaces into `v0.0.1` and let
-> the alphas keep what they actually switch on — but the code and
-> `docs/releases/release-train.md` have to agree before the tag is cut.
+> the alphas keep what they actually switch on — are carried to the
+> `v0.1.0-alpha.1` cut, where the feature map is written next, and the notes say
+> the same in *Gate drift this stop introduces*.
 
 ### Fixed
 
+- **A `.p12` could never finish importing, and the reason was a rule the
+  platform cannot satisfy.** Registration validated the imported private key
+  against one exact Keychain protection class —
+  `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` — and against an explicitly
+  reported non-extractability attribute. `SecPKCS12Import` takes no attribute
+  dictionary, so the items it stores carry the Keychain's default class
+  (`kSecAttrAccessibleWhenUnlocked`), and iOS offers no supported way to
+  re-protect a private key after creation: `SecItemUpdate` on
+  `kSecAttrAccessible` needs the item's data, and a private key never returns
+  it. Every identity the platform could legally produce for an import was
+  therefore refused, with *The required identity protection is not available* —
+  which is what "certificate import does not work" was. The rule now requires
+  the property signed identities actually depend on: a private key, never
+  synchronizable, unreadable while the device is locked, and not reported as
+  exportable; an unreported extractability attribute is the platform's own
+  import rather than evidence the key can be exported
+  (`SigningKeyProtectionRule`, pinned by `SigningKeyProtectionRuleTests`).
+  `ApplePKCS12Importer` additionally *asks* for the device-only class before
+  registering and does not assume the answer — the resolver reads the key's
+  actual attributes back, so a platform that honours the upgrade gets it and a
+  platform that cannot still produces a working, verified identity. The rule
+  itself is now a pure type (`SigningKeyProtectionRule.permits`) so it is
+  exercised on every run of the test suite, not only in a signed test host with
+  `ZYNSIGN_RUN_KEYCHAIN_TESTS=1`; the opt-in Keychain fixture was corrected
+  too, because it asked for `kSecAttrIsExtractable` inside
+  `kSecPrivateKeyAttrs`, where the platform ignores it, so the key it created
+  was exportable — the opposite of the shape the application actually
+  registers.
+- **An Open In or share-sheet hand-off could be received and never shown.** The
+  presentation was requested in the frame ZynSign comes back to the foreground,
+  where UIKit drops it without an error, and the state that asked for it stayed
+  set — so the Import Hub, the certificate sheet, or the profile sheet never
+  opened, and asking again changed nothing. The shell now holds the request and
+  honours it the moment the scene is active (`RootView.presentWhenActive`).
+- **A package picked inside Files never reached the Import Hub.** `FilesView`
+  sent the package to the hub and asked the shell to present it in the same
+  frame the document picker was still dismissing — the drop the certificate
+  import's password sheet already waited out. The hand-off now waits the same
+  settle every post-dismissal presentation in the app uses
+  (`PresentationSettle`), one shared beat instead of three invented ones.
 - **The tab bar was over the platform's ceiling, and the folded tab crashed.**
   `ShellSection.allTabs` lists six sections; a phone tab bar draws five and
   folds the rest into a system *More* list that *pushes* the overflow. Every tab
@@ -59,7 +105,25 @@ publishes the notes for the stop being cut. The `CFBundleVersion` is assigned by
   openable from Settings → Updates and Store → Download Jobs, and its badge
   follows it there. Locked by
   `ShellSectionTabTests.testTabBarNeverExceedsThePlatformCeiling` and
-  `testTheCapDropsOnlyTheLeastWantedSectionAndKeepsTheRestInOrder`.
+  `testTheCapDropsOnlyTheLeastWantedSectionAndKeepsTheRestInOrder`. The same
+  fault existed in one more place the audit cannot see either: Signing's
+  Installation Workspace sheet wrapped the view in a stack *and* asked it to
+  embed its own (`embedsNavigationStack` now `false`, as the Settings push
+  already does).
+- **An environment default could build a second application.** The
+  `\.applicationEnvironment` key's default, the two Settings keys' defaults
+  (`\.settingsCenter`, `\.appLock`), and `RootView.init`'s default argument
+  each called `CompositionRoot.makeApplicationEnvironment()` — the whole graph:
+  stores, file caches, background schedulers, and the recovery pass, on the
+  main thread, inside whatever view first read the key. A preview, a screen
+  built on its own, or any view rendered outside the shell therefore got a
+  second library and a second set of preferences that could disagree with the
+  shell's, and the construction is main-actor-bound (`MainActor.assumeIsolated`
+  around the preferences read), so evaluating it off the main actor traps.
+  There is now one shared fallback, `CompositionRoot.fallbackEnvironment`,
+  built at most once per process and read by all three keys; `RootView` takes
+  its environment as a required argument, so the run path cannot construct a
+  composition by omission, and every preview reads the shared instance.
 - **A Home shortcut could select a tab that does not exist.** The onboarding
   checklist's *Add a certificate* and *Import a provisioning profile* rows set
   the tab selection to `.certificates` and `.profiles`, neither of which is a
@@ -103,6 +167,53 @@ publishes the notes for the stop being cut. The `CFBundleVersion` is assigned by
   and never touches an existing notes file; the commit scrape runs only when
   `[Unreleased]` is empty.
 
+- **A sheet in the Installation Workspace could rebuild itself under the user.**
+  `HandoffSheet`'s identity was computed — `var id: String { UUID().uuidString }` —
+  so it named a different item on every read. `.sheet(item:)` reads that identity
+  on every body evaluation, and the workspace model publishes while a delivery
+  runs, so the hand-off sheet was rebuilt — and, on some iOS versions,
+  re-presented — while the user was reading it. The identity is now minted once,
+  when the hand-off is created: the shape every other presentation item in the
+  app already uses. `Scripts/audit_identity_stability.py` refuses a computed
+  identity that mints a fresh value, and `01-build.yml` runs it beside the
+  navigation-stack audit.
+- **Resetting the library could report success for a reset that never ran.**
+  `SettingsCenterModel.resetLibrary()` — the one destructive action in the app —
+  hid every failure behind `try?`, so a catalog that could not be read produced
+  *Removed 0 records and 0 orphaned artifacts*: the silent success
+  `performMaintenance` exists to prevent. Enumeration, each removal, and the
+  orphan sweep now propagate their typed failures, the count is taken from the
+  removals that returned, and the library is read back before the sentence is
+  written — a reset that left records behind says so.
+- **A setting described the wrong moment.** Settings → Advanced → *Current
+  Location* printed the directory derived from the *pending* preference, which
+  takes effect at the next launch, under a subtitle that said "right now". The
+  row is now *Next Launch Location*, which matches the section's own footer and
+  is true whether or not the picker has been changed.
+- **An interrupted import could swallow the failure that followed it, and keep
+  bytes it never used.** The pause record named only the item, so an attempt that
+  ended *after* the system's expiry — cancellation is cooperative, and a copy can
+  finish before it is noticed — made a later attempt's failure look like another
+  interruption: the item returned to `waiting` and the error it had just
+  reported was discarded. The record now names the attempt it interrupted, and is
+  consumed whatever it names. The same handler now discards the working copy a
+  stopped preparation was still writing: nothing had recorded it, the retry
+  stages afresh under a new identifier, and the bytes previously stayed in the
+  working directory until the next launch's sweep.
+- **Two toolbar menus had no name for VoiceOver, and six labels could shrink
+  below the comfort floor.** The icon-only *Add* and *Sort and order* menus in
+  Files now carry the `accessibilityLabel` every other icon-only control in the
+  app carries, and every `minimumScaleFactor` is at or above the 0.75 the
+  accessibility audit treats as comfortable — the audit's review list is empty
+  for the first time.
+- **A refused identity said only "unsupported", whatever refused it.** When the
+  key-protection rule refuses a key, the failure now carries the policy facts the
+  Keychain reported — key class, protection class, synchronizable, exportable —
+  in the policy's own words (`SigningKeyProtectionRule.describe`, pinned by
+  `SigningKeyProtectionRuleTests`). A device that refused an imported key and one
+  that reported it exportable used to look identical in the technical log; they
+  cannot now.
+
 ### Added
 
 - **A searchable, reorderable Settings index.** Settings opens on ten
@@ -118,6 +229,33 @@ publishes the notes for the stop being cut. The `CFBundleVersion` is assigned by
 
 ### Changed
 
+- **Motion is one policy, and every state change goes through it.** Settings'
+  edit-mode toggle named its own curve (`.snappy`) instead of asking `ZMotion`,
+  so it was the one transition the app's motion policy — the single place that
+  honours Reduce Motion and the animation preference — could not turn off. It
+  goes through the shared presets now. The Import Hub animates an item moving
+  between sections — prepared, in progress, finished — instead of letting it
+  jump; the Library, Certificates, and Profiles screens cross-fade from their
+  loading skeleton to content rather than snapping; and the Files listing's
+  refresh spinner fades instead of appearing over the list in one frame.
+  Progress within a stage is deliberately not animated: a copy reports ten times
+  a second, and animating that would be motion without meaning.
+- **The Import Hub's own *Choose Files* button raised the picker after an
+  invented wait.** Every post-picker presentation waits one settle beat, and
+  the hub's picker request waited it even when the hub's sheet had long since
+  settled — 400 ms added to the app's primary import action, for a transition
+  that was already over. The hub now records when its sheet settles and raises
+  the picker on the next frame when it has, keeping the beat only for the case
+  it exists for: a request that lands while the sheet is still animating in.
+- **The weekly Command Center run no longer changes the repository.** It
+  committed regenerated dashboards, applied SwiftFormat, repaired the README,
+  synced labels, and ran the stale bot on a schedule — writes to the default
+  branch (or a PR) that nobody asked for at the moment they landed. Those five
+  jobs now run only for a manual dispatch that names `mode: repair`; the
+  scheduled run — and any dispatch that does not ask — analyses, uploads the
+  bundle, compares the measurement with the last one, and reports what it found
+  in the run summary, including a quality regression it would otherwise have
+  opened an issue for.
 - **Store and Downloads stay in the tab bar at every release stop.** They are
   primary navigation, and gating them made a development build look like it had
   lost working features. `ShellSection.allTabs` keeps all six destinations, but

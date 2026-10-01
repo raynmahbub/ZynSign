@@ -78,6 +78,7 @@ struct FilesView: View {
                     } label: {
                         Image(systemName: "plus")
                     }
+                    .accessibilityLabel("Add")
                     Menu {
                         Picker("Sort", selection: $model.sort) {
                             Text("Name").tag(FilesViewModel.Sort.name)
@@ -89,6 +90,7 @@ struct FilesView: View {
                             Text("Descending").tag(false)
                         }
                     } label: { Image(systemName: "arrow.up.arrow.down") }
+                        .accessibilityLabel("Sort and order")
                 }
             }
             .refreshable { model.reload() }
@@ -116,6 +118,9 @@ struct FilesView: View {
                 ShareSheet(url: item.url)
             }
             .overlay { if model.isLoading { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) } }
+            // The listing's own refresh: a fade in and out instead of the
+            // spinner appearing over the list in one frame.
+            .animation(ZMotion.fast, value: model.isLoading)
     }
 
     /// Brings a selection into ZynSign.
@@ -131,7 +136,14 @@ struct FilesView: View {
         let others = urls.filter { !packages.contains($0) }
         if !packages.isEmpty {
             environment.importHub.receive(packages, origin: .documentPicker)
-            importPresentation.present()
+            // The hub is a sheet raised from the picker's own completion
+            // frame, where UIKit drops a presentation while the picker is
+            // still dismissing — the same drop the certificate import's
+            // password sheet waits out. Asking for it after the beat makes the
+            // hand-off land instead of leaving the hub closed with the picked
+            // package already queued behind it.
+            let present = importPresentation.present
+            PresentationSettle.afterDismissal { present() }
         }
         if !others.isEmpty {
             model.importFiles(urls: others)

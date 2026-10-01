@@ -33,9 +33,17 @@ struct InstallationWorkspaceView: View {
     @State private var checklistCandidate: InstallationWorkspaceModel.CandidateRow?
 
     /// The hand-off sheet shown after a channel is chosen.
+    ///
+    /// The identifier is minted once, when the hand-off is created, and is
+    /// deliberately not computed: `.sheet(item:)` reads the item's identity
+    /// on every body evaluation, so a freshly generated one made SwiftUI see
+    /// a different item each time the workspace re-rendered — during a
+    /// delivery the model publishes often — and rebuild the presented sheet
+    /// under the user. One hand-off is still one identity: a second channel
+    /// hand-off creates another `HandoffSheet`, and so another identifier.
     private struct HandoffSheet: Identifiable {
+        let id = UUID()
         let package: InstallationDeliveryPackage
-        var id: String { UUID().uuidString }
     }
 
     /// Which hand-off sheet is open, when a channel just produced a package.

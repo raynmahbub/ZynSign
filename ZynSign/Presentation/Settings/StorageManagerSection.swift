@@ -207,6 +207,6 @@ struct StorageManagerSection: View {
     }
     .environment(\.settingsCenter, SettingsCenterModel(
         store: FilePreferencesStore(location: CompositionRoot.preferencesDocumentLocation()),
-        environment: CompositionRoot.makeApplicationEnvironment()
+        environment: CompositionRoot.fallbackEnvironment
     ))
 }

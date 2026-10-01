@@ -830,7 +830,7 @@ private struct QueueNotificationToggle: View {
 // MARK: - Preview
 
 private struct SigningQueuePreviewHost: View {
-    private let environment = CompositionRoot.makeApplicationEnvironment()
+    private let environment = CompositionRoot.fallbackEnvironment
     var body: some View {
         SigningQueueView(queue: environment.signingQueue)
     }

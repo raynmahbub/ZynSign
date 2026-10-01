@@ -130,7 +130,8 @@ struct ProfilesView: View {
     /// The profile library's content, with no navigation container of its own,
     /// so this view can be pushed into a stack the host already owns.
     private var contentChain: some View {
-            content
+            ZStack { content }
+                .animation(ZMotion.standard, value: model.phase)
                 .navigationTitle(ShellSection.profiles.title)
                 .navigationDestination(for: ProvisioningProfileSummary.self) { summary in
                     ProfileDetailView(summary: summary) {
@@ -746,5 +747,5 @@ struct ProfileImportSummaryView: View {
         profiles: CompositionRoot.makeProvisioningProfileLibrary(),
         importer: nil
     )
-    .environment(\.applicationEnvironment, CompositionRoot.makeApplicationEnvironment())
+    .environment(\.applicationEnvironment, CompositionRoot.fallbackEnvironment)
 }

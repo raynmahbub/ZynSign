@@ -1,21 +1,24 @@
 # ZynSign `v0.0.1-dev.3`
 
-Market `0.0.1` · build `4` *(to be assigned — see below)* · channel
+Market `0.0.1` · build `4` · channel
 **development** · pre-release.
 
-The build number is **not** in the tree yet: `ReleaseTrain.current` is still
-`.dev2` and `ZynSign.xcodeproj/project.pbxproj` declares `MARKETING_VERSION 0.0.1`
-/ `CURRENT_PROJECT_VERSION 3`. `python3 Scripts/release_train.py promote` writes
-`.dev3`, `0.0.1` and build `4` in one step, and the private build is made from
-that same commit — nothing here claims a build that has not been produced.
+The build number is assigned by the train, not by this note:
+`python3 Scripts/release_train.py promote` wrote `.dev3`, `MARKETING_VERSION
+0.0.1` and `CFBundleVersion 4` into `ReleaseTrain.swift` and
+`ZynSign.xcodeproj/project.pbxproj`, and `python3 Scripts/release_train.py
+status` prints those same three values. The tag points at that commit, so no
+artifact here can be built from a version state other than the one this note
+describes.
 
 ## What this stop is for
 
 Third and last rehearsal before the first build (`v0.0.1`). A development stop
 switches on **no** staged feature — `ReleaseStage.dev3.introducedFeatures` is
 empty — so its whole job is to run the machinery against a real tag one more
-time: quality gate → build + tests → version-stamped assets → publish, with the
-private device matrix green before anything is public.
+time: quality gate → build + tests → version-stamped assets → publish. The
+private device matrix is the one gate the machinery cannot run in CI, and **this
+stop publishes without it**; see *No device matrix* below, which stays true.
 
 What it ships in practice is everything merged since `v0.0.1-dev.2`: the Settings
 index rebuild, the shell's decision to keep primary navigation open at every
@@ -49,13 +52,16 @@ Studio), `v0.1.0-alpha.2` (Provisioning Profile Manager) and `v0.1.0-alpha.3`
 (App Store, Download Center). `dev.1` had exactly this problem and `dev.2`
 closed it; the shell change has opened it again.
 
-That is a product decision the shell change made implicitly, and it has to be
-made explicitly before the tag: re-gate the staged actions behind each tab, or
-move these four surfaces into `v0.0.1` and let the alphas keep only what they
-actually switch on. The gate map in [release-train.md](release-train.md) and the
-counts in [../product/FEATURE_STATUS.md](../product/FEATURE_STATUS.md) now
-describe the tree as it is; the decision itself is still open, and this note does
-not pretend it was made.
+That is a product decision the shell change made implicitly. **This stop ships
+with it recorded rather than resolved**: nothing was re-gated and no train stage
+was moved, because either would be a product-surface change made after the build
+the tag points at and neither was asked for. The gate map in
+[release-train.md](release-train.md) and the counts in
+[../product/FEATURE_STATUS.md](../product/FEATURE_STATUS.md) describe the tree as
+it is. The two options — re-gate the staged actions behind each tab, or move
+these four surfaces into `v0.0.1` and let the alphas keep only what they actually
+switch on — are carried to the `v0.1.0-alpha.1` cut, where the feature map is
+written next.
 
 ### Added
 
@@ -95,6 +101,50 @@ not pretend it was made.
 
 ### Fixed
 
+- **A `.p12` could never finish importing, and the rule that stopped it asked
+  the platform for something it cannot give.** Registration required the
+  imported private key to carry `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`
+  and an explicitly reported non-extractability attribute. `SecPKCS12Import`
+  takes no attribute dictionary, so its items carry the Keychain's default class
+  (`kSecAttrAccessibleWhenUnlocked`), and iOS has no supported way to re-protect
+  a private key after creation — `SecItemUpdate` on `kSecAttrAccessible` needs
+  the item's data, which a private key never returns. Every identity the
+  platform could legally produce for an import was refused with *The required
+  identity protection is not available*, no matter what the user did.
+  `SigningKeyProtectionRule` now requires the property signed identities depend
+  on — a private key, never synchronizable, unreadable while the device is
+  locked, and not reported as exportable — and is pinned by
+  `SigningKeyProtectionRuleTests`. `ApplePKCS12Importer` additionally asks for
+  the device-only class before registering and does not assume the answer; the
+  resolver reads the key's actual attributes back, so a platform that honours
+  the upgrade gets device-only protection and one that cannot still produces a
+  working, verified identity. The rule is a pure type, exercised by the ordinary
+  test suite rather than only by the opt-in signed-host Keychain test, and that
+  test's fixture was corrected: it asked for `kSecAttrIsExtractable` inside
+  `kSecPrivateKeyAttrs`, where the platform ignores it, so it built an
+  exportable key — the one shape the resolver refuses.
+- **An Open In or share-sheet hand-off could be received and never shown.** The
+  presentation was requested in the frame ZynSign returns to the foreground,
+  where UIKit drops it with no error, and the state that asked for it stayed
+  set — the Import Hub, certificate sheet, or profile sheet never opened, and
+  asking again changed nothing. The shell now holds the request and honours it
+  the moment the scene is active.
+- **A package picked inside Files never reached the Import Hub.** `FilesView`
+  handed the package to the hub and asked the shell to present it in the same
+  frame the document picker was still dismissing. It waits the same settle every
+  other post-picker presentation waits (`PresentationSettle`), so the hand-off
+  lands instead of leaving the hub closed with the package queued behind it.
+- **An environment default could build a second application graph.** The
+  defaults for `\.applicationEnvironment`, `\.settingsCenter`, `\.appLock`,
+  and `RootView`'s environment argument each constructed a complete
+  `ApplicationEnvironment` — stores, caches, schedulers, and the recovery pass —
+  on first read. They now share one fallback built at most once per process
+  (`CompositionRoot.fallbackEnvironment`), and `RootView` takes its environment
+  as a required argument, so no screen can silently render a second library and
+  a second set of preferences.
+- **The Import Hub's *Choose Files* no longer pays a settle beat it does not
+  need.** The picker waits the beat only while the hub's sheet is still settling;
+  once it has, the picker is raised on the next frame.
 - **Profile picker failures are announced.** `ProvisioningProfilesModel` returned
   early on every non-`.success` picker result; only cancellation stays quiet now,
   and any other failure raises a typed notice.
@@ -139,6 +189,31 @@ not pretend it was made.
   sub-animations are still flying is a visible jump, so every stage now lands
   inside the window and the view alone owns the fade out.
 
+- **A hand-off sheet in the Installation Workspace could rebuild itself while it
+  was open.** Its identity was computed from a fresh UUID on every read, and
+  `.sheet(item:)` re-reads that identity whenever the view is re-evaluated — which
+  the workspace does while a delivery runs. The identity is minted once per
+  hand-off now, so the sheet stays put. A new source audit
+  (`Scripts/audit_identity_stability.py`, run in `01-build.yml`) refuses that
+  shape anywhere in the app.
+- **Resetting the library could say it removed nothing when it had failed.** The
+  reset hid every error behind `try?`, so an unreadable catalog reported *Removed
+  0 records and 0 orphaned artifacts*. Every step reports its typed failure now,
+  and the count is verified against the library after the fact.
+- **Settings → Advanced described the wrong moment.** *Current Location* showed
+  the directory the pending choice will use at the next launch under a subtitle
+  that said "right now"; the row is now *Next Launch Location*. The two icon-only
+  menus in Files gained the VoiceOver names the rest of the app's icon-only
+  controls carry, and every text scale factor now meets the accessibility audit's
+  own floor.
+- **Import and identity follow-on fixes.** An interrupted preparation could make
+  a later attempt's failure look like another interruption and discard the error
+  the user needed; the pause record names the attempt now. A copy a stopped
+  preparation was still writing is discarded instead of waiting for the next
+  launch's sweep. And a key the protection rule refuses now records *why* — key
+  class, protection class, synchronizable, exportable — so a device that refuses
+  an imported key no longer looks the same as one that reported it exportable.
+
 ### Known limitations
 
 Carried in `ReleaseBlockerRecord.registry` and shown in the Compatibility Lab:
@@ -154,12 +229,15 @@ Carried in `ReleaseBlockerRecord.registry` and shown in the Compatibility Lab:
   actual signature needs an identity and a profile on the device.)*
 - **Performance figures measured on a simulator are not device figures.**
   *(low, accepted — they are reported as simulator measurements.)*
-- **IPA/tIPA import is still unconfirmed on a device.** The two presentation
-  faults above cover the picker never appearing and a picked file going nowhere;
-  neither has been watched working on hardware. `ImportablePackage.contentTypes`
-  is deliberately broad (`.data`, `.zip`, `.archive`, `.item` and Apple's IPA
-  UTI), so a file the picker cannot see is a different bug from the ones fixed
-  here and is not claimed as solved.
+- **IPA/tIPA import is still unconfirmed on a device.** The presentation faults
+  above cover the picker never appearing, a picked file going nowhere, and a
+  hand-off that arrives as ZynSign comes back to the foreground; none has been
+  watched working on hardware, and the pipeline behind them is unchanged.
+  `ImportablePackage.contentTypes` is deliberately broad (`.data`, `.zip`,
+  `.archive`, `.item` and Apple's IPA UTI), so a file the picker cannot see is a
+  different bug from the ones fixed here and is not claimed as solved. If a
+  device still refuses an `.ipa` or `.tipa`, the Import Hub names the item's
+  reason and the failed item's details are the next thing to read.
 
 ### What this release deliberately does not claim
 
@@ -176,7 +254,9 @@ Carried in `ReleaseBlockerRecord.registry` and shown in the Compatibility Lab:
 - **No App Store submission, and no install.** Distribution is TestFlight
   internal plus a sideload IPA.
 - **No device matrix.** The iOS 17 / iOS 18 rows below are empty because nobody
-  has run them; they are not "passing".
+  has run them; they are not "passing". This stop is published anyway, at the
+  maintainer's direction, and that is why the sentence is in the notes of a
+  published release rather than in a comment.
 - **No signing executed end to end on a device at this stop**, and no off-device
   measurement of any kind — see
   [`../product/WHAT_DOES_NOT_EXIST.md`](../product/WHAT_DOES_NOT_EXIST.md).
@@ -184,28 +264,39 @@ Carried in `ReleaseBlockerRecord.registry` and shown in the Compatibility Lab:
 ### Testing
 
 New unit tests: `ProvisioningProfilesModelTests.testPickerFailureIsSurfacedButCancellationStaysQuiet`,
-and `ShellSectionTabTests.testDevelopmentStopKeepsStoreAndDownloadsDiscoverable`
+`ShellSectionTabTests.testDevelopmentStopKeepsStoreAndDownloadsDiscoverable`
 (replacing `testDevelopmentStopShowsOnlyTheCoreTabs`, which asserted the old
-policy). **Their results belong to CI** — the `Build and test (Xcode)` job is the
-judge, and this note claims nothing about them until it has run: no macOS
-toolchain is available in the environment that wrote these notes, so
-`xcodebuild` and XCTest were not executed.
+policy), and `SigningKeyProtectionRuleTests` — the rule that decides whether a
+stored signing key may sign, pinning both halves of it: the Keychain's default
+class that an imported key actually carries must pass, and every class that
+leaves a key readable while the device is locked, plus a key reported as
+exportable, must fail. **Their results belong to CI**, and the `Build and test (Xcode)` job is the
+judge. On the commit this stop is cut from that job passed: every target was
+built and the whole test target ran green on a resolved simulator, with each
+failing case annotated when it is not. One case added this stop failed exactly
+that way and was repaired before the run went green, which is the gate working.
+The device matrix in [private-testing.md](../releases/private-testing.md) is the
+half CI cannot run; it is outstanding, and nothing here claims otherwise.
 
 Host audits, run on the machine that produced this note (Linux, Python):
 
 | Audit | Result |
 |---|---|
 | `Scripts/audit_crash_surface.py` | pass — 9 constructs, matching the baseline, every one justified |
-| `Scripts/audit_accessibility.py` | pass on what a machine can check — 0 hard-coded colours outside `DesignTokens` in the app, 0 controls under 44×44; 6 text nodes may shrink below 0.75 scale (4 waived after review); VoiceOver, focus order and rendered contrast at every Dynamic Type size remain a human device pass |
+| `Scripts/audit_accessibility.py` | pass on what a machine can check — 0 hard-coded colours outside `DesignTokens` in the app, 0 controls under 44×44, 0 text nodes below the 0.75 comfort floor; VoiceOver, focus order and rendered contrast at every Dynamic Type size remain a human device pass |
 | `Scripts/audit_regression_coverage.py` | pass — 9 behaviours executed in the app, 2 deferred to CI; every named test type exists |
 | `Scripts/audit_navigation_stack.py` | pass — no pushed view opens its own `NavigationStack` |
+| `Scripts/audit_identity_stability.py` | pass — every `Identifiable.id` in the app is stored, not minted per read |
 | `Scripts/audit_design_tokens.py` | pass against `design_tokens_baseline.json` |
-| `python3 Scripts/release_train.py check` | pass — the tree declares `.dev2`, which is the stop already tagged |
-| `bash Scripts/ci/release_validate.sh 0.0.1-dev.3` | **fails on purpose** — "Releasing tag v0.0.1-dev.3 but `ReleaseTrain.current` is v0.0.1-dev.2". It turns green when `promote` is committed, and that promoted commit is the one to build and test. The changelog warning alongside it is the workflow's job at tag time, now fed by the curated `[Unreleased]` entry |
+| `python3 Scripts/release_train.py check` | pass — the tree declares `.dev3`, the stop this tag releases, with build 4 |
+| `bash Scripts/ci/release_validate.sh 0.0.1-dev.3` | pass — 0 warnings on the promoted commit: train stage, `MARKETING_VERSION`, build number, the `[0.0.1-dev.3]` changelog section and this notes file all agree |
 | `python3 Scripts/update_readme.py --check` | pass — badge reads `0.0.1`, honest line `10 wired · 3 never` |
 | `Scripts/ci/docs_check.sh` | pass — 81 pages, 0 errors, 0 warnings; this file is linked from `CHANGELOG.md`, so it is not an orphan |
 
-Device rows: **none.** The private matrix in [`private-testing.md`](private-testing.md)
-(one iOS 17 device, one iOS 18 device, plus a simulator smoke) is run against the
-promoted commit on the maintainer's Mac, and no row here is filled in from a
-simulator run or a wish.
+Device rows: **none, and not for this tag.** The private matrix in
+[`private-testing.md`](private-testing.md) (one iOS 17 device, one iOS 18 device,
+plus a simulator smoke) has not been run against the commit this tag points at:
+the maintainer directed the stop to publish rather than hold the tag for it. No
+row here is filled in from a simulator run or a wish, and nothing in this file
+claims a device pass. The matrix stays the gate for `v0.0.1`, where a real
+feature surface reaches users.

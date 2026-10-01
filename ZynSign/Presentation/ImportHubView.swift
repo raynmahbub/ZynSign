@@ -50,7 +50,12 @@ struct ImportHubView: View {
     /// is driven by `.task` before this turns true, and by the request itself
     /// after — a request that lands while the sheet is still animating in has
     /// nowhere to go otherwise, and the picker is simply never raised.
-    @State private var isOnScreen = false
+    ///
+    /// It is also what lets the hub's own *Choose Files* button open the
+    /// picker immediately: by the time the user can tap it the sheet is
+    /// settled, so there is no transition left to wait out and no reason to
+    /// make the user pay the settle beat again.
+    @State private var hasSettled = false
     @State private var pickerFailure: String?
     @State private var isShowingResolutionCenter = false
     @State private var archiveSelection: ItemToken?
@@ -154,10 +159,16 @@ struct ImportHubView: View {
                 handle(newValue)
             }
             .task {
-                // The hub is on screen from here; a `chooseFiles` request that
-                // arrives later can present straight away.
-                isOnScreen = true
-                await presentPendingFilePick()
+                // The pending request waits the sheet out; starting this task
+                // also means a request that arrives later can present straight
+                // away.
+                await presentPendingFilePick(waitingForSheet: true)
+            }
+            .task {
+                // One settle beat after the sheet appears, a request is no
+                // longer at risk of landing inside its transition.
+                try? await Task.sleep(for: PresentationSettle.beat)
+                hasSettled = true
             }
         .onChange(of: hub.lastFinishedBatch) { _, entry in
             announce(entry)
@@ -297,7 +308,14 @@ struct ImportHubView: View {
             }
         }
         .listStyle(.insetGrouped)
+        // Items arriving and leaving animate once. Phase changes animate the
+        // same way: an item moving from In Progress to the preview settles
+        // into place instead of jumping between sections, and the finished
+        // summary arrives rather than appearing. Progress within a phase is
+        // deliberately not part of the trigger — a copying item reports ten
+        // times a second, and animating that would be motion without meaning.
         .animation(ZMotion.fast, value: hub.items.map(\.id))
+        .animation(ZMotion.fast, value: hub.items.map(\.phase))
     }
 
     private var howItWorks: some View {
@@ -614,7 +632,10 @@ struct ImportHubView: View {
             // covers one that arrives while it is already up. Whichever runs
             // first consumes the flag, so the picker opens exactly once.
             wantsFilePickerOnAppear = true
-            if isOnScreen { Task { await presentPendingFilePick() } }
+            // Whether the sheet is still settling or long since up, exactly
+            // one caller raises the picker: the first to reach it consumes the
+            // flag, and the other finds nothing to do.
+            Task { await presentPendingFilePick(waitingForSheet: !hasSettled) }
         case .history:
             isShowingHistory = true
         }
@@ -628,16 +649,20 @@ struct ImportHubView: View {
     /// for a request that arrived before the view existed, and from
     /// `handle(_:)`, for one that arrives while it is up. The pending flag is
     /// cleared before the picker is raised, so neither path can present twice.
-    private func presentPendingFilePick() async {
+    ///
+    /// - Parameter waitingForSheet: Whether the hub's own sheet may still be
+    ///   animating in. When it may, the shared settle beat is waited out first:
+    ///   a yield alone is not the transition, and a second controller put on
+    ///   screen inside that window is the drop this whole path exists to avoid.
+    ///   When the sheet has already settled — the user tapped *Choose Files* in
+    ///   a hub that is fully up — the picker is raised on the next frame, with
+    ///   no invented wait to notice.
+    private func presentPendingFilePick(waitingForSheet: Bool) async {
         guard wantsFilePickerOnAppear else { return }
-        // A yield alone is not the transition: a sheet takes hundreds of
-        // milliseconds to come up, and a second controller put on screen
-        // inside that window is the drop this whole path exists to avoid. The
-        // wait is the one `RootView.presentSigningQueue()` uses, so the app
-        // settles its presentations in one measurable beat rather than
-        // several invented ones.
         await Task.yield()
-        try? await Task.sleep(nanoseconds: 400_000_000)
+        if waitingForSheet {
+            try? await Task.sleep(for: PresentationSettle.beat)
+        }
         guard wantsFilePickerOnAppear else { return }
         wantsFilePickerOnAppear = false
         isShowingPicker = true

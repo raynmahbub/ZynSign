@@ -97,7 +97,12 @@ struct ApplicationLibraryView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            content
+            // Skeleton to library, library to a failure: the same cross-fade
+            // the Certificates and Profiles screens use, keyed on the phase so
+            // a search keystroke, a selection, or a rename never re-animates
+            // the list.
+            ZStack { content }
+                .animation(ZMotion.standard, value: model.phase)
                 .navigationTitle(model.scopeTitle ?? ShellSection.library.title)
                 .navigationDestination(for: LibraryRoute.self) { route in
                     destination(for: route)
@@ -1547,7 +1552,7 @@ struct ApplicationLibraryFailureView: View {
 
 // MARK: - Previews
 
-private let previewEnvironment = CompositionRoot.makeApplicationEnvironment()
+private let previewEnvironment = CompositionRoot.fallbackEnvironment
 
 private enum PreviewFixtures {
     static func identity(

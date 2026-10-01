@@ -21,6 +21,7 @@ check that never touched the change is not a verification.
 python3 Scripts/audit_crash_surface.py        # the crash-surface inventory vs baseline
 python3 Scripts/audit_accessibility.py --strict
 python3 Scripts/audit_regression_coverage.py  # the regression catalogue names real tests
+python3 Scripts/audit_identity_stability.py    # identities stay put between re-renders
 python3 Scripts/generate_hardening_report.py --output build/hardening/index.html
 ```
 

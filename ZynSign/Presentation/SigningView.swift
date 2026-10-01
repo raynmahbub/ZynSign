@@ -145,7 +145,11 @@ struct SigningView: View {
             NavigationStack {
                 InstallationWorkspaceView(
                     workspace: env.installationWorkspace,
-                    storage: env.storageManagement
+                    storage: env.storageManagement,
+                    // The sheet's own stack is already above this view; a second
+                    // one nested inside is the runtime fault the workspace view
+                    // documents against, whatever the presentation context.
+                    embedsNavigationStack: false
                 )
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {

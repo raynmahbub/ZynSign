@@ -109,11 +109,38 @@ no signing state. Since 0.1.0-dev the identity store (and the PKCS#12 importer) 
 ## Protection policy
 
 Registry items use `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and
-`kSecAttrSynchronizable = false`. Borrowed keys must resolve as non-synchronizable
-private-key items and report the same accessibility and non-extractability. Missing
-or incompatible protection evidence fails closed; the adapter never weakens
-existing protections to make a test pass. An attribute report is not an
-experimentally proven non-exportability guarantee.
+`kSecAttrSynchronizable = false`. Borrowed keys must resolve as
+non-synchronizable private-key items kept under a class that is unreadable
+while the device is locked — `SigningKeyProtectionRule.permittedAccessibilityClasses`
+is the exact set (`WhenUnlockedThisDeviceOnly`, `WhenUnlocked`,
+`WhenPasscodeSetThisDeviceOnly`), and a class this build does not know, or none
+at all, is refused. Non-extractability is required in the strict direction only:
+a key the platform reports as exportable is refused, while an attribute the
+platform does not report at all is treated as its own import — an imported
+private key's raw bytes cannot be read back, and the attribute is not always
+surfaced. Missing or incompatible protection evidence otherwise fails closed;
+the adapter never weakens existing protections to make a test pass. An
+attribute report is not an experimentally proven non-exportability guarantee.
+
+**Imported keys are the platform's, not ours.** `SecPKCS12Import` takes no
+attribute dictionary, so the private key and certificate it stores carry the
+Keychain's default protection class (`kSecAttrAccessibleWhenUnlocked`), and iOS
+offers no supported way to re-protect a private key after creation —
+`SecItemUpdate` on `kSecAttrAccessible` needs the item's data, which a private
+key never returns. A rule that required the device-only class *exactly* therefore
+refused every identity the platform could produce for an import; that rule was
+the reason `.p12` import failed. What is required now is the property the
+app depends on, read back from the key itself: a private key, never
+synchronizable, unreadable while the device is locked, and not reported as
+exportable — `SigningKeyProtectionRule` owns the decision and
+`SigningKeyProtectionRuleTests` pins both halves of it. The importer first asks
+for `WhenUnlockedThisDeviceOnly` and does not assume the answer, so a platform
+that honours the upgrade gets device-only protection and one that cannot still
+produces a working, verified identity. Behind that, DTS is explicit that an
+imported private key's raw bytes cannot be read back, which is why an
+*unreported* extractability attribute is treated as the platform's own import
+rather than as evidence the key is exportable; a key the platform reports as
+exportable is refused.
 
 This is a foreground/unlocked policy. Device-only items do not migrate to another
 device. Same-device restore and uninstall/reinstall retention need E7; removal
@@ -158,7 +185,7 @@ locked-device behavior, and signature verification on target devices.
 
 ## Import (since 0.1.0-dev)
 
-Since 0.1.0-dev a PKCS#12 importer is implemented and composed: `SigningIdentityImporter` with platform type `ApplePKCS12Importer`. It imports a `.p12`/`.pfx` container (≤10 MiB) through `SecPKCS12Import`, extracts the first identity, resolves the private-key persistent reference with a non-interactive `LAContext`, and registers the certificate DER plus key reference through `SecureIdentityStore`. Duplicate fingerprints are rejected, wrong passphrases map to `authorizationFailure`, and no key bytes are logged or retained. The importer is a separate explicit-intent port (`SigningIdentityImporter`) and is composed alongside `IdentityStore` in the application environment (`makePKCS12Importer` / `pkcs12Importer` on `ApplicationEnvironment`) and surfaced via `Settings → Certificates` and `SigningView`. Protection remains `WhenUnlockedThisDeviceOnly`, non-extractable, non-synchronizable, with per-resolution re-checks; diagnostics stay redacted. No speculative raw-key import or export method is added to the Domain boundary.
+Since 0.1.0-dev a PKCS#12 importer is implemented and composed: `SigningIdentityImporter` with platform type `ApplePKCS12Importer`. It imports a `.p12`/`.pfx` container (≤10 MiB) through `SecPKCS12Import`, extracts the first identity, resolves the private-key persistent reference with a non-interactive `LAContext`, and registers the certificate DER plus key reference through `SecureIdentityStore`. Duplicate fingerprints are rejected, wrong passphrases map to `authorizationFailure`, and no key bytes are logged or retained. The importer is a separate explicit-intent port (`SigningIdentityImporter`) and is composed alongside `IdentityStore` in the application environment (`makePKCS12Importer` / `pkcs12Importer` on `ApplicationEnvironment`) and surfaced via `Settings → Certificates` and `SigningView`. Protection remains unreadable while the device is locked and non-synchronizable, with per-resolution re-checks: ZynSign asks for the device-only class and the rule accepts either it or the platform's own default for an import, and a key the platform reports as exportable is refused rather than trusted; diagnostics stay redacted, and a refusal records which policy facts the Keychain reported. No speculative raw-key import or export method is added to the Domain boundary.
 
 The importer has not yet been demonstrated on a physical device with real developer identities and provisioning profiles beyond the synthetic fixtures and the simulator-gated suites; E1/E7-class authorization, lock/background, backup, and reinstall validation remain outstanding and are the next step after 0.1.0-dev.
 

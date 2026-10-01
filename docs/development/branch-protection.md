@@ -44,7 +44,9 @@ when the suite was consolidated, only the file they live in.
 `Complexity thresholds (warnings only)`, `Engineering Command Center`, the
 `External validation (Apple tooling)` measurement, the weekly Periphery
 dead-code scan, and the labeling/stale/README-repair jobs stay advisory —
-they measure and report, they do not block.
+they measure and report, they do not block. The repair jobs are also opt-in:
+the weekly Command Center run is read-only, and labeling, stale-closing, README
+syncing and formatting happen only in a manual dispatch with `mode: repair`.
 
 > Every required check must actually report on the pull request. A job that
 > is skipped by an `if:` or excluded by a `paths:` filter never produces a
