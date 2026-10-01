@@ -28,6 +28,19 @@ enum VersionHistoryCatalog {
     /// Every entry, newest first.
     static let entries: [VersionHistoryEntry] = [
         VersionHistoryEntry(
+            tag: "v0.0.2-dev.1",
+            marketingVersion: "0.0.2",
+            buildNumber: 6,
+            releasedAt: DateComponents(year: 2026, month: 10, day: 1),
+            headline: "A fixes-only follow-up: stronger external-file imports, a dynamic Features catalogue, and categorized release automation.",
+            highlights: [
+                "IPA and TIPA picker registration accepts provider-backed file types while keeping archive validation in the import pipeline.",
+                "PKCS#12 reads coordinate external-file access, honor security-scoped URLs, and report typed failures.",
+                "The Features catalogue is populated from the registered core, release, and unsupported-feature sets.",
+                "Release notes are categorized automatically and can be synchronized into the changelog through a reviewable pull request.",
+            ]
+        ),
+        VersionHistoryEntry(
             tag: "v0.0.1",
             marketingVersion: "0.0.1",
             buildNumber: 5,
