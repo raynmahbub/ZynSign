@@ -47,14 +47,14 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Run the architecture guard
         run: Scripts/ci/architecture_guard.sh
 
       - name: Upload the architecture metrics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: architecture-metrics
           path: build/metrics/architecture.txt
@@ -67,7 +67,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Check declared packages against the allowlist
         run: Scripts/ci/dependency_check.sh
@@ -78,7 +78,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Validate the documentation
         run: Scripts/ci/docs_check.sh
@@ -89,7 +89,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Run the secret policy scan
         run: Scripts/ci/security_scan.sh
@@ -102,12 +102,12 @@ jobs:
       # Full history on purpose: a secret committed and then removed is still
       # a secret. Allowlists live in .gitleaks.toml.
       - name: Check out the repository (full history)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
@@ -121,7 +121,7 @@ jobs:
       checks: write
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Measure against the thresholds
         run: Scripts/ci/complexity_check.sh
@@ -148,7 +148,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # QUICK=1 runs the fast guards itself and skips Periphery, so this job
       # is self-contained; the full dashboards are committed weekly by
@@ -201,7 +201,7 @@ jobs:
 
       - name: Upload the dashboards
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: engineering-command-center
           path: |
@@ -218,7 +218,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # README is the storefront: it must agree with MARKETING_VERSION and the
       # counts in docs/product/WHAT_DOES_NOT_EXIST.md. When it drifts, fix it
