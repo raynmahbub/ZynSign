@@ -49,15 +49,32 @@ struct GeneralSettingsSection: View {
 
     // MARK: - Startup
 
+    /// The landing-tab binding the picker reads and writes.
+    ///
+    /// The write path is the preference's own; the read path is clamped to a
+    /// destination the tab bar actually renders. A preference saved while a
+    /// section still had a slot — Downloads, before the five-item ceiling
+    /// folded it into Settings — would otherwise name a tag the picker has no
+    /// row for, and a `Picker` whose selection matches no tag renders blank,
+    /// which reads as a broken control. Showing the clamped value keeps the
+    /// row and the next cold start in agreement, because both ask
+    /// `ShellSection.effectiveLandingTab` for the same answer launch uses.
+    private var landingTabSelection: Binding<LandingTab> {
+        Binding(
+            get: { ShellSection.effectiveLandingTab(for: settings.preferences.general.landingTab) },
+            set: { chosen in settings.update { $0.general.landingTab = chosen } }
+        )
+    }
+
     private var startupSection: some View {
         Section {
             ZSettingsPickerRow(
                 title: "Default Landing Tab",
                 symbol: "house",
                 subtitle: "The tab ZynSign opens when it launches.",
-                selection: settings.binding(\.general.landingTab)
+                selection: landingTabSelection
             ) {
-                ForEach(LandingTab.tabCases, id: \.self) { tab in
+                ForEach(ShellSection.offerableLandingTabs, id: \.self) { tab in
                     Text(tab.title).tag(tab)
                 }
             }
