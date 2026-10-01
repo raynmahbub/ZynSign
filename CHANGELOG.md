@@ -19,6 +19,8 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+## [0.0.1-dev.3] - 2026-10-01
+
 **Development 3.** Market `0.0.1`, tag `v0.0.1-dev.3`, release train `.dev3` —
 the last development stop, and it switches on no staged `ReleaseFeature` of its
 own (`ReleaseStage.dev3.introducedFeatures` is empty). What the stop carries is
@@ -29,7 +31,7 @@ publishes the notes for the stop being cut. The `CFBundleVersion` is assigned by
 `python3 Scripts/release_train.py promote` rather than claimed here. Notes:
 [`docs/releases/notes-v0.0.1-dev.3.md`](docs/releases/notes-v0.0.1-dev.3.md).
 
-> **Gate drift to settle before the tag.** `dev.2` closed the gate on four entry
+> **Gate drift, recorded for this stop.** `dev.2` closed the gate on four entry
 > points; keeping Store and Downloads discoverable opened them again on purpose.
 > `certificateStudio`, `provisioningProfileManager`, `appStore` and `downloads`
 > no longer have a live check anywhere in the Presentation layer: each is still
@@ -38,10 +40,14 @@ publishes the notes for the stop being cut. The `CFBundleVersion` is assigned by
 > offers the Certificates and Profiles rows unconditionally. A Release build at
 > `dev.3` therefore exposes four areas the train assigns to `v0.1.0-alpha.1`
 > (Certificate Studio), `v0.1.0-alpha.2` (Provisioning Profile Manager) and
-> `v0.1.0-alpha.3` (App Store, Download Center). Either re-gate the staged
+> `v0.1.0-alpha.3` (App Store, Download Center). **This stop ships with that
+> recorded rather than resolved.** Nothing was re-gated and no train stage was
+> moved: either would be a product-surface change made after the build the tag
+> points at, and neither was asked for. The two options — re-gate the staged
 > *actions* behind each tab, or move these four surfaces into `v0.0.1` and let
-> the alphas keep what they actually switch on — but the code and
-> `docs/releases/release-train.md` have to agree before the tag is cut.
+> the alphas keep what they actually switch on — are carried to the
+> `v0.1.0-alpha.1` cut, where the feature map is written next, and the notes say
+> the same in *Gate drift this stop introduces*.
 
 ### Fixed
 

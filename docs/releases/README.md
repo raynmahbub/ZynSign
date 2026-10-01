@@ -93,7 +93,7 @@ turning those changes into a release.
 
 - [version-strategy.md](version-strategy.md) — the development → alpha →
   beta → release-candidate → stable progression, exit criteria, and the
-  current position (`v0.0.1-dev.2`, market `0.0.1` build `3`).
+  current position (`v0.0.1-dev.3`, market `0.0.1` build `4`).
 - [private-testing.md](private-testing.md) — the private build channels (ad-hoc IPA / TestFlight internal), the device matrix, ExportOptions templates, and the checklist that gates each release on the train.
 - [ExportOptions-private-adhoc.plist](ExportOptions-private-adhoc.plist) — `method: ad-hoc` template for DM sideload.
 - [ExportOptions-private-appstore.plist](ExportOptions-private-appstore.plist) — `method: app-store` template for TestFlight internal.

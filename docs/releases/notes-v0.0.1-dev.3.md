@@ -1,21 +1,24 @@
 # ZynSign `v0.0.1-dev.3`
 
-Market `0.0.1` · build `4` *(to be assigned — see below)* · channel
+Market `0.0.1` · build `4` · channel
 **development** · pre-release.
 
-The build number is **not** in the tree yet: `ReleaseTrain.current` is still
-`.dev2` and `ZynSign.xcodeproj/project.pbxproj` declares `MARKETING_VERSION 0.0.1`
-/ `CURRENT_PROJECT_VERSION 3`. `python3 Scripts/release_train.py promote` writes
-`.dev3`, `0.0.1` and build `4` in one step, and the private build is made from
-that same commit — nothing here claims a build that has not been produced.
+The build number is assigned by the train, not by this note:
+`python3 Scripts/release_train.py promote` wrote `.dev3`, `MARKETING_VERSION
+0.0.1` and `CFBundleVersion 4` into `ReleaseTrain.swift` and
+`ZynSign.xcodeproj/project.pbxproj`, and `python3 Scripts/release_train.py
+status` prints those same three values. The tag points at that commit, so no
+artifact here can be built from a version state other than the one this note
+describes.
 
 ## What this stop is for
 
 Third and last rehearsal before the first build (`v0.0.1`). A development stop
 switches on **no** staged feature — `ReleaseStage.dev3.introducedFeatures` is
 empty — so its whole job is to run the machinery against a real tag one more
-time: quality gate → build + tests → version-stamped assets → publish, with the
-private device matrix green before anything is public.
+time: quality gate → build + tests → version-stamped assets → publish. The
+private device matrix is the one gate the machinery cannot run in CI, and **this
+stop publishes without it**; see *No device matrix* below, which stays true.
 
 What it ships in practice is everything merged since `v0.0.1-dev.2`: the Settings
 index rebuild, the shell's decision to keep primary navigation open at every
@@ -49,13 +52,16 @@ Studio), `v0.1.0-alpha.2` (Provisioning Profile Manager) and `v0.1.0-alpha.3`
 (App Store, Download Center). `dev.1` had exactly this problem and `dev.2`
 closed it; the shell change has opened it again.
 
-That is a product decision the shell change made implicitly, and it has to be
-made explicitly before the tag: re-gate the staged actions behind each tab, or
-move these four surfaces into `v0.0.1` and let the alphas keep only what they
-actually switch on. The gate map in [release-train.md](release-train.md) and the
-counts in [../product/FEATURE_STATUS.md](../product/FEATURE_STATUS.md) now
-describe the tree as it is; the decision itself is still open, and this note does
-not pretend it was made.
+That is a product decision the shell change made implicitly. **This stop ships
+with it recorded rather than resolved**: nothing was re-gated and no train stage
+was moved, because either would be a product-surface change made after the build
+the tag points at and neither was asked for. The gate map in
+[release-train.md](release-train.md) and the counts in
+[../product/FEATURE_STATUS.md](../product/FEATURE_STATUS.md) describe the tree as
+it is. The two options — re-gate the staged actions behind each tab, or move
+these four surfaces into `v0.0.1` and let the alphas keep only what they actually
+switch on — are carried to the `v0.1.0-alpha.1` cut, where the feature map is
+written next.
 
 ### Added
 
@@ -248,7 +254,9 @@ Carried in `ReleaseBlockerRecord.registry` and shown in the Compatibility Lab:
 - **No App Store submission, and no install.** Distribution is TestFlight
   internal plus a sideload IPA.
 - **No device matrix.** The iOS 17 / iOS 18 rows below are empty because nobody
-  has run them; they are not "passing".
+  has run them; they are not "passing". This stop is published anyway, at the
+  maintainer's direction, and that is why the sentence is in the notes of a
+  published release rather than in a comment.
 - **No signing executed end to end on a device at this stop**, and no off-device
   measurement of any kind — see
   [`../product/WHAT_DOES_NOT_EXIST.md`](../product/WHAT_DOES_NOT_EXIST.md).
@@ -280,12 +288,15 @@ Host audits, run on the machine that produced this note (Linux, Python):
 | `Scripts/audit_navigation_stack.py` | pass — no pushed view opens its own `NavigationStack` |
 | `Scripts/audit_identity_stability.py` | pass — every `Identifiable.id` in the app is stored, not minted per read |
 | `Scripts/audit_design_tokens.py` | pass against `design_tokens_baseline.json` |
-| `python3 Scripts/release_train.py check` | pass — the tree declares `.dev2`, which is the stop already tagged |
-| `bash Scripts/ci/release_validate.sh 0.0.1-dev.3` | **fails on purpose** — "Releasing tag v0.0.1-dev.3 but `ReleaseTrain.current` is v0.0.1-dev.2". It turns green when `promote` is committed, and that promoted commit is the one to build and test. The changelog warning alongside it is the workflow's job at tag time, now fed by the curated `[Unreleased]` entry |
+| `python3 Scripts/release_train.py check` | pass — the tree declares `.dev3`, the stop this tag releases, with build 4 |
+| `bash Scripts/ci/release_validate.sh 0.0.1-dev.3` | pass — 0 warnings on the promoted commit: train stage, `MARKETING_VERSION`, build number, the `[0.0.1-dev.3]` changelog section and this notes file all agree |
 | `python3 Scripts/update_readme.py --check` | pass — badge reads `0.0.1`, honest line `10 wired · 3 never` |
 | `Scripts/ci/docs_check.sh` | pass — 81 pages, 0 errors, 0 warnings; this file is linked from `CHANGELOG.md`, so it is not an orphan |
 
-Device rows: **none.** The private matrix in [`private-testing.md`](private-testing.md)
-(one iOS 17 device, one iOS 18 device, plus a simulator smoke) is run against the
-promoted commit on the maintainer's Mac, and no row here is filled in from a
-simulator run or a wish.
+Device rows: **none, and not for this tag.** The private matrix in
+[`private-testing.md`](private-testing.md) (one iOS 17 device, one iOS 18 device,
+plus a simulator smoke) has not been run against the commit this tag points at:
+the maintainer directed the stop to publish rather than hold the tag for it. No
+row here is filled in from a simulator run or a wish, and nothing in this file
+claims a device pass. The matrix stays the gate for `v0.0.1`, where a real
+feature surface reaches users.

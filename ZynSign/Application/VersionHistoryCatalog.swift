@@ -28,6 +28,19 @@ enum VersionHistoryCatalog {
     /// Every entry, newest first.
     static let entries: [VersionHistoryEntry] = [
         VersionHistoryEntry(
+            tag: "v0.0.1-dev.3",
+            marketingVersion: "0.0.1",
+            buildNumber: 4,
+            releasedAt: DateComponents(year: 2026, month: 10, day: 1),
+            headline: "The last rehearsal before the first build: the import, identity and shell fixes, with the gate drift recorded as it stands.",
+            highlights: [
+                "A `.p12` import no longer demands a Keychain protection class the platform cannot set.",
+                "An Open In hand-off opens the Import Hub once ZynSign is active again.",
+                "The bar never asks UIKit for a sixth tab, so no tab is pushed into a nested stack.",
+                "Reset Library reports its failure instead of counting zero removals.",
+            ]
+        ),
+        VersionHistoryEntry(
             tag: "v0.0.1-dev.2",
             marketingVersion: "0.0.1",
             buildNumber: 3,
