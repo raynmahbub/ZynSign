@@ -159,9 +159,13 @@ Safety rails:
 - `ReleaseTrainTests` pin the order, that features only accumulate, that each
   feature is introduced once, and that no release exposes a feature without its
   prerequisites.
-- Development, alpha, beta and rc tags are published as GitHub
-  **pre-releases** — `Scripts/ci/release_meta.sh` detects the channel from the
-  tag. `v0.0.1` and `v1.0.0` are not.
+- Development, alpha, beta and rc stops are published as GitHub
+  **pre-releases**, so `latest` always points at the newest stable release.
+  `Scripts/ci/release_meta.sh` takes the channel from the `ReleaseStage` via
+  `release_train.py channel`, not from the version suffix: the development
+  stage's last stop is `v0.0.1`, which carries no suffix at all, and a suffix
+  rule reads that as stable. Everything from `stable` onward — `v1.0.0`,
+  `v2.0.0`, `v3.0.0` — publishes as a full release.
 
 ### Build numbers
 

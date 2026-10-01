@@ -1,10 +1,14 @@
 # ZynSign `v0.0.1`
 
-Market `0.0.1` · build `5` · channel **stable**, `prerelease: false` · the first
-build. `Scripts/ci/release_meta.sh` derives the channel from the version suffix,
-and a bare `0.0.1` has none, so this tag publishes as a full GitHub Release and
-becomes `latest` — unlike `v0.0.1-dev.1…3`, which the same script marks as
-development pre-releases.
+Market `0.0.1` · build `5` · channel **development**, `prerelease: true` · the
+first build. `Scripts/ci/release_meta.sh` takes the channel from the
+`ReleaseStage` — and `v0.0.1` is `horizon`, the development stage's last stop —
+so this tag publishes as a GitHub **pre-release** alongside `v0.0.1-dev.1…3`,
+and leaves `latest` alone. It was briefly derived from the version suffix
+instead; a bare `0.0.1` has no suffix, so that rule called it stable and would
+have published the first build as a full release, taking the `latest` slot from
+a stable line the train has not reached. `release_meta.sh --self-test` now pins
+`channel_for 0.0.1` to `development`.
 
 `CFBundleShortVersionString 0.0.1`, `CFBundleVersion 5`, tag `v0.0.1`. Release
 train `.horizon`: this stop switches on **no** staged `ReleaseFeature` —
@@ -135,10 +139,11 @@ Carried in `ReleaseBlockerRecord.registry` and shown in the Compatibility Lab:
   the error `dev.2` recorded and fixed.
 - **No App Store submission, and no install.** Distribution is TestFlight
   internal plus a sideload IPA; the published asset is unsigned.
-- **"Stable" here is a channel label, not a quality claim.** GitHub will mark
-  this Release as `latest` because the version carries no pre-release suffix,
-  and that flag is the only thing separating it from `v0.0.1-dev.3`. Nothing in
-  the build changed between them except the two fixes above.
+- **"The first build" is a milestone, not a stability claim.** This stop is
+  published on the development channel as a pre-release, exactly like the three
+  rehearsals before it; nothing about the binary distinguishes it from
+  `v0.0.1-dev.3` except the two fixes above. GitHub will not mark it `latest`,
+  and it is not a candidate for the App Store.
 - **No device matrix.** The rows below are empty because nobody has run them;
   they are not "passing".
 - **No test result is claimed here.** The Swift test groups this stop adds are
@@ -177,7 +182,7 @@ Host audits, run on the machine that produced this note (Linux, Python):
 | `python3 Scripts/release_train.py check` | pass — the tree declares `.horizon`, the stop this tag releases, with build 5 |
 | `bash Scripts/ci/release_validate.sh 0.0.1` | pass — 0 warnings: train stage, `MARKETING_VERSION`, build number, the `[0.0.1]` changelog section and this notes file all agree |
 | `python3 Scripts/update_readme.py --check` | pass — badge reads `0.0.1`, honest line `10 wired · 3 never` |
-| `bash Scripts/ci/release_meta.sh` | pass, self-test green — prints `version 0.0.1 · tag v0.0.1 · channel stable · prerelease false` for this stop, which is what the header above and the GitHub Release flag come from |
+| `bash Scripts/ci/release_meta.sh` | pass, self-test green — prints `version 0.0.1 · tag v0.0.1 · channel development · prerelease true` for this stop, which is what the header above and the GitHub Release flag come from |
 | `python3 Scripts/ci/local_lint.py` | pass — `clean — no blocking findings` |
 | `Scripts/ci/docs_check.sh` | pass — 0 errors; this file is linked from `CHANGELOG.md` and from `docs/releases/README.md`, so it is not an orphan |
 

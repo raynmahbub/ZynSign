@@ -17,10 +17,18 @@ Usage:
     python3 Scripts/release_train.py status
         Show the current release, what it exposes, and what ships next.
 
-    python3 Scripts/release_train.py current [--tag | --stage]
+    python3 Scripts/release_train.py current [--tag | --stage | --channel]
         Print the current release for machines: the version (0.0.1-dev.1),
-        the tag (v0.0.1-dev.1), or the ReleaseStage case name (dev1). Scripts
-        and workflows call this instead of hardcoding a version.
+        the tag (v0.0.1-dev.1), the ReleaseStage case name (dev1), or the
+        channel it publishes under (development). Scripts and workflows call
+        this instead of hardcoding a version.
+
+    python3 Scripts/release_train.py channel [VERSION]
+        The channel a stop publishes under: development, alpha, beta, rc or
+        stable. Defaults to the current stop. `Scripts/ci/release_meta.sh`
+        calls this instead of guessing from the version suffix, because the
+        suffix cannot tell `0.0.1` — the development stage's last stop, which
+        carries no suffix at all — from a stable release.
 
     python3 Scripts/release_train.py check [--tag vX.Y.Z]
         CI gate. Fails when MARKETING_VERSION disagrees with ReleaseTrain.current,
@@ -138,6 +146,25 @@ def project_versions() -> tuple[set[str], set[int]]:
     return marketing, builds
 
 
+def channel_for_stage(name: str) -> str:
+    """The channel a stage publishes under, from the stage name.
+
+    Derived from the *stage* rather than the version suffix. The suffix rule
+    that used to stand in for this read `0.0.1` as stable, because the
+    development stage's last stop is `horizon` and carries no pre-release
+    suffix — so the first build would have published as a full GitHub Release
+    and taken the `latest` slot from a stable line it has not reached. Every
+    other stage's name already begins with its channel, so the mapping is a
+    prefix test plus the one name that does not follow the pattern.
+    """
+    if name.startswith("dev") or name == "horizon":
+        return "development"
+    for prefix in ("alpha", "beta", "rc"):
+        if name.startswith(prefix):
+            return prefix
+    return "stable"
+
+
 def features_through(stages: list[Stage], stage: Stage) -> list[str]:
     out: list[str] = []
     for s in stages:
@@ -179,10 +206,20 @@ def cmd_current(args: argparse.Namespace) -> int:
     current = find_stage(stages, current_name)
     if args.stage:
         print(current.name)
+    elif args.channel:
+        print(channel_for_stage(current.name))
     elif args.tag:
         print(current.tag)
     else:
         print(current.version)
+    return 0
+
+
+def cmd_channel(args: argparse.Namespace) -> int:
+    """Print the channel a stop publishes under (defaults to the current stop)."""
+    stages, current_name, _ = load_train()
+    stage = find_stage(stages, args.version or current_name)
+    print(channel_for_stage(stage.name))
     return 0
 
 
@@ -384,7 +421,15 @@ def main() -> int:
     p_current = sub.add_parser("current", help="print the current release (machine-readable)")
     p_current.add_argument("--tag", action="store_true", help="print the tag form (vX.Y.Z[-suffix])")
     p_current.add_argument("--stage", action="store_true", help="print the ReleaseStage case name")
+    p_current.add_argument(
+        "--channel", action="store_true", help="print the channel this stop publishes under"
+    )
     p_current.set_defaults(func=cmd_current)
+    p_channel = sub.add_parser(
+        "channel", help="print the channel a stop publishes under (development/alpha/beta/rc/stable)"
+    )
+    p_channel.add_argument("version", nargs="?", help="a stage name or version; default: the current stop")
+    p_channel.set_defaults(func=cmd_channel)
     p_check = sub.add_parser("check")
     p_check.add_argument("--tag")
     p_check.set_defaults(func=cmd_check)
