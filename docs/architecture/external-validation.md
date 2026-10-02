@@ -6,7 +6,7 @@ CMS. This record describes the harness that hands ZynSign's output to Apple's
 developer tooling, what each check establishes and what it does not, and the
 known-divergence register that the first hosted runs populated.
 
-It is measurement. Nothing here changes how ZynSign signs, and no verdict
+It is independent release validation. Nothing here changes how ZynSign signs, and no verdict
 recorded here is iOS platform acceptance, trust evaluation, or
 installability. Using macOS tooling as an independent validator is the
 developer-side validation tier that architecture Sections 2 and 16 accept;
@@ -50,9 +50,9 @@ recorded below or substitute for independent validation.
 3. **CI** — the `external-validation` job (`macos-15`) runs both steps,
    publishes the report to the job summary, uploads the report and the
    exported artifacts as the `external-validation` workflow artifact, and
-   emits one notice per artifact. It is not a gate: it fails only when the
-   harness cannot do its job (a failed export, a missing manifest, artifact,
-   or tool). `codesign` rejections are findings, not failures.
+   emits one notice per artifact. The job fails when the harness cannot do its
+   job or when Apple tooling rejects a produced artifact. A report is still
+   uploaded on failure for diagnosis.
 4. **Self-test** — `Tests/Host/external_validation.py self-test` runs in the
    hygiene job on any host: the signature parser against the committed
    ZS-026 vector, the rules, the tool-output parsers, the reference
@@ -196,5 +196,6 @@ are the likely next rejections once D3 is resolved.
 - No private key, `.p12`, real certificate, real profile, real IPA, or
   Apple credential in the repository or in CI secrets. The throwaway key
   lives only inside the test process.
-- No gating on `codesign` verdicts yet: the job is measurement until the
-  register is short enough for verdicts to become expectations.
+- `codesign` verdicts are release gates: artifact rejection fails the job,
+  while the known-divergence register remains the place where expected
+  differences are documented.

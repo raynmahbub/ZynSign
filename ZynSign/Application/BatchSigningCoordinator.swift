@@ -150,7 +150,13 @@ actor BatchSigningCoordinator {
                     duration: duration,
                     sourceRecordIdentifier: entry.record.id.rawValue
                 )
-                try? await history.append(record)
+                let historyWarning: String?
+                do {
+                    try await history.append(record)
+                    historyWarning = nil
+                } catch {
+                    historyWarning = "Signing succeeded, but its history record could not be saved."
+                }
                 step = StepResult(
                     entry: entry,
                     outcome: .succeeded,
@@ -159,7 +165,7 @@ actor BatchSigningCoordinator {
                     outputFileName: url.lastPathComponent,
                     outputByteCount: record.outputByteCount,
                     duration: duration,
-                    userMessage: nil
+                    userMessage: historyWarning
                 )
             } catch is CancellationError {
                 let duration = Date().timeIntervalSince(startMonotonic)
@@ -176,7 +182,13 @@ actor BatchSigningCoordinator {
                     duration: duration,
                     sourceRecordIdentifier: entry.record.id.rawValue
                 )
-                try? await history.append(record)
+                let historyWarning: String?
+                do {
+                    try await history.append(record)
+                    historyWarning = nil
+                } catch {
+                    historyWarning = "The operation was cancelled, but its history record could not be saved."
+                }
                 step = StepResult(
                     entry: entry,
                     outcome: .cancelled,
@@ -185,7 +197,7 @@ actor BatchSigningCoordinator {
                     outputFileName: nil,
                     outputByteCount: nil,
                     duration: duration,
-                    userMessage: nil
+                    userMessage: historyWarning
                 )
             } catch {
                 let duration = Date().timeIntervalSince(startMonotonic)
@@ -206,7 +218,13 @@ actor BatchSigningCoordinator {
                     duration: duration,
                     sourceRecordIdentifier: entry.record.id.rawValue
                 )
-                try? await history.append(record)
+                let historyWarning: String?
+                do {
+                    try await history.append(record)
+                    historyWarning = nil
+                } catch {
+                    historyWarning = "The signing failure was recorded in the batch result, but its history record could not be saved."
+                }
                 step = StepResult(
                     entry: entry,
                     outcome: .failed,
@@ -215,7 +233,7 @@ actor BatchSigningCoordinator {
                     outputFileName: nil,
                     outputByteCount: nil,
                     duration: duration,
-                    userMessage: userMessage
+                    userMessage: [userMessage, historyWarning].compactMap { $0 }.joined(separator: " ")
                 )
             }
             results.append(step)

@@ -8,9 +8,9 @@ and to OpenSSL, signs the same unsigned inputs with `codesign` itself for a
 reference comparison, and records every verdict in a JSON and a Markdown
 report.
 
-It measures; it does not judge. A `codesign` rejection is a finding, not a
-harness failure: the harness exits non-zero only when it could not do its job
-(no export, a failed export step, a missing tool, an unreadable artifact).
+It validates release artifacts. A `codesign` rejection is an artifact failure;
+the harness also exits non-zero when it cannot do its job (no export, a failed
+export step, a missing tool, or an unreadable artifact).
 Nothing here is iOS platform acceptance, trust evaluation, or
 installability. `codesign` on macOS is Apple's desktop verifier, not the
 device's, and the iOS rules checked below are the ones Apple documents, not
@@ -1510,8 +1510,19 @@ def command_run(arguments: argparse.Namespace) -> int:
         print(f"{artifact['id']}: codesign {verdict}" + (f" — {message}" if message else ""))
     for error in report["harnessErrors"]:
         print(f"HARNESS ERROR: {error}", file=sys.stderr)
+
+    # Apple-tool rejection is an artifact failure, not merely a measurement.
+    # A release must never pass while codesign says that a produced artifact
+    # is invalid. Tool absence remains a harness error and is handled above.
+    rejected = []
+    for artifact in report["artifacts"]:
+        verdict, _ = artifact_verdict(artifact)
+        if verdict in {"rejected", "failed", "error"}:
+            rejected.append(artifact["id"])
+    for identifier in rejected:
+        print(f"ARTIFACT REJECTED: {identifier}", file=sys.stderr)
     print(f"Report: {report_dir / 'report.md'}")
-    return 1 if report["harnessErrors"] else 0
+    return 1 if report["harnessErrors"] or rejected else 0
 
 
 def command_annotate_xcodebuild(arguments: argparse.Namespace) -> int:

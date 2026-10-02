@@ -2169,7 +2169,7 @@ developer-side tier. An opt-in simulator test exports artifacts signed through
 the production use cases with a throwaway in-process key, and a host harness
 judges them with `codesign`, `otool`, and OpenSSL on a hosted macOS runner,
 compares them with `codesign`'s own ad hoc signing of the same inputs, and
-records every verdict. The CI job is measurement, not a gate. See
+records every verdict. The CI job is a release validation gate; rejected artifacts fail it. See
 [external-validation.md](external-validation.md).
 
 ## 17. Errors and Diagnostics

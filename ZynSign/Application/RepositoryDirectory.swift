@@ -24,6 +24,11 @@ final class RepositoryDirectory: ObservableObject {
     @Published private(set) var sources: [Source] = []
     @Published private(set) var catalogs: [RepositoryCatalog] = []
 
+    /// A persistence failure is state, not a best-effort log. The UI can show
+    /// this and the next user action can retry instead of pretending that a
+    /// source or cache was durably saved.
+    @Published private(set) var persistenceError: String?
+
     private let storeURL: URL
     private let cacheDirectory: URL
     private let fetcher: any RepositoryCatalogFetching
@@ -89,7 +94,10 @@ final class RepositoryDirectory: ObservableObject {
                 skippedAppCount: 0
             )
             sources.append(source)
-            persistSources()
+            guard persistSources() else {
+                sources.removeAll { $0.id == source.id }
+                return persistenceError ?? "The source could not be saved."
+            }
             return nil
         }
     }
@@ -100,9 +108,15 @@ final class RepositoryDirectory: ObservableObject {
         catalogs.removeAll { $0.sourceURL == source.url.absoluteString }
         let cache = cacheDirectory.appendingPathComponent(id + ".json")
         if Self.isInside(cache, root: cacheDirectory) {
-            try? fileManager.removeItem(at: cache)
+            do {
+                if fileManager.fileExists(atPath: cache.path) {
+                    try fileManager.removeItem(at: cache)
+                }
+            } catch {
+                persistenceError = "Repository cache could not be removed. Check available storage and try again."
+            }
         }
-        persistSources()
+        _ = persistSources()
         onCatalogsChanged?()
     }
 
@@ -166,17 +180,25 @@ final class RepositoryDirectory: ObservableObject {
     private func replaceCatalog(_ catalog: RepositoryCatalog, sourceID: String) {
         catalogs.removeAll { $0.sourceURL == catalog.sourceURL }
         catalogs.append(catalog)
-        writeCache(catalog, sourceID: sourceID)
+        _ = writeCache(catalog, sourceID: sourceID)
     }
 
-    private func persistSources() {
+    @discardableResult
+    private func persistSources() -> Bool {
         let document = SourceDocument(
             schemaVersion: 1,
             sources: sources.map { PersistedSource(id: $0.id, name: $0.name, url: $0.url.absoluteString) }
         )
-        guard let data = try? JSONEncoder().encode(document) else { return }
-        try? fileManager.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: storeURL, options: .atomic)
+        do {
+            let data = try JSONEncoder().encode(document)
+            try fileManager.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: storeURL, options: .atomic)
+            persistenceError = nil
+            return true
+        } catch {
+            persistenceError = "Repository settings could not be saved. Check available storage and try again."
+            return false
+        }
     }
 
     private static func readSources(at url: URL) -> [Source] {
@@ -218,13 +240,24 @@ final class RepositoryDirectory: ObservableObject {
         }
     }
 
-    private func writeCache(_ catalog: RepositoryCatalog, sourceID: String) {
-        guard sourceID == (sourceID as NSString).lastPathComponent, !sourceID.contains("..") else { return }
-        try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
-        let url = cacheDirectory.appendingPathComponent(sourceID).appendingPathExtension("json")
-        guard Self.isInside(url, root: cacheDirectory) else { return }
-        guard let data = try? JSONEncoder().encode(catalog) else { return }
-        try? data.write(to: url, options: .atomic)
+    @discardableResult
+    private func writeCache(_ catalog: RepositoryCatalog, sourceID: String) -> Bool {
+        guard sourceID == (sourceID as NSString).lastPathComponent, !sourceID.contains(".."),
+              Self.isInside(cacheDirectory.appendingPathComponent(sourceID).appendingPathExtension("json"), root: cacheDirectory) else {
+            persistenceError = "The repository cache path was invalid."
+            return false
+        }
+        do {
+            try fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+            let url = cacheDirectory.appendingPathComponent(sourceID).appendingPathExtension("json")
+            let data = try JSONEncoder().encode(catalog)
+            try data.write(to: url, options: .atomic)
+            persistenceError = nil
+            return true
+        } catch {
+            persistenceError = "Repository metadata could not be cached. Check available storage and try again."
+            return false
+        }
     }
 
     private func normalized(_ raw: String) -> String {
