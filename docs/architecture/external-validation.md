@@ -50,9 +50,9 @@ recorded below or substitute for independent validation.
 3. **CI** — the `external-validation` job (`macos-15`) runs both steps,
    publishes the report to the job summary, uploads the report and the
    exported artifacts as the `external-validation` workflow artifact, and
-   emits one notice per artifact. It is not a gate: it fails only when the
-   harness cannot do its job (a failed export, a missing manifest, artifact,
-   or tool). `codesign` rejections are findings, not failures.
+   emits one notice per artifact. The job fails when the harness cannot do its
+   job. Apple-tool verdicts are findings recorded in the report; they are not
+   an iOS platform acceptance result.
 4. **Self-test** — `Tests/Host/external_validation.py self-test` runs in the
    hygiene job on any host: the signature parser against the committed
    ZS-026 vector, the rules, the tool-output parsers, the reference
@@ -196,5 +196,6 @@ are the likely next rejections once D3 is resolved.
 - No private key, `.p12`, real certificate, real profile, real IPA, or
   Apple credential in the repository or in CI secrets. The throwaway key
   lives only inside the test process.
-- No gating on `codesign` verdicts yet: the job is measurement until the
-  register is short enough for verdicts to become expectations.
+- `codesign` verdicts remain findings: the known-divergence register is the
+  place where expected differences are documented, and the report is reviewed
+  separately from the build gate.

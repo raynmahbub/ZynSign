@@ -49,8 +49,32 @@ protocol RepositoryHealthTransport: Sendable {
 /// customisation beyond what the request itself asks for.
 struct URLSessionRepositoryHealthTransport: RepositoryHealthTransport {
 
+    /// Health probes only need a small JSON document. The transport enforces
+    /// this limit while receiving bytes, rather than after URLSession has
+    /// already allocated an unbounded response body.
+    private static let maximumResponseBytes = 1 * 1_024 * 1_024
+
     func fetch(_ request: URLRequest) async throws -> (Data, URLResponse) {
-        try await URLSession.shared.data(for: request)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = request.timeoutInterval
+        configuration.timeoutIntervalForResource = request.timeoutInterval
+        let session = URLSession(configuration: configuration, delegate: HTTPSRedirectPolicy(), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        let (bytes, response) = try await session.bytes(for: request)
+        if response.expectedContentLength > Int64(Self.maximumResponseBytes) {
+            throw URLError(.dataLengthExceedsMaximum)
+        }
+        var data = Data()
+        if response.expectedContentLength > 0 {
+            data.reserveCapacity(min(Int(response.expectedContentLength), Self.maximumResponseBytes))
+        }
+        for try await byte in bytes {
+            guard data.count < Self.maximumResponseBytes else {
+                throw URLError(.dataLengthExceedsMaximum)
+            }
+            data.append(byte)
+        }
+        return (data, response)
     }
 }
 

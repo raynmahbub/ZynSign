@@ -530,15 +530,42 @@ struct SigningOperationCenter {
             signingOutcome: .succeeded,
             verificationStatus: .unsupported
         )
-        try? await exports.write(record)
+        do {
+            try await exports.write(record)
+        } catch {
+            // Do not report a successful signing when the audit record could
+            // not be made durable. Roll back the already-committed artifact;
+            // otherwise the next launch would expose an untracked signed file.
+            try? await exports.rollbackCommittedArtifact(fileName: fileName)
+            return await recordExportFailure(
+                detail: "The signed container was produced, but its export record could not be saved. Nothing was kept.",
+                category: .storageFailure,
+                request: request,
+                startedAt: startedAt,
+                timeline: timeline
+            )
+        }
 
         // Independent verification of the committed artifact — the same code
         // path the Export Center's "Verify Again" runs, so the status a row
         // shows is always the result of reopening the artifact and never the
         // signing run's own opinion of itself.
         let report = await verify(fileURL: artifactURL, byteCount: measurement.byteCount)
-        if let updated = try? await exports.recordVerification(report, for: record.id) {
-            record = updated
+        do {
+            record = try await exports.recordVerification(report, for: record.id)
+        } catch {
+            // Verification is part of the durable export contract. Roll back
+            // both sides if its update cannot be persisted, rather than leave
+            // an artifact whose recorded verification state is unknown.
+            try? await exports.removeRecord(record.id)
+            try? await exports.rollbackCommittedArtifact(fileName: fileName)
+            return await recordExportFailure(
+                detail: "The signed container was verified, but its verification record could not be saved. Nothing was kept.",
+                category: .storageFailure,
+                request: request,
+                startedAt: startedAt,
+                timeline: timeline
+            )
         }
 
         timeline.finished(
@@ -567,7 +594,22 @@ struct SigningOperationCenter {
             failure: nil,
             timeline: timeline.build()
         )
-        try? await history.append(operation)
+        do {
+            try await history.append(operation)
+        } catch {
+            // The artifact, export record, verification result, and signing
+            // history form one durable delivery record. Roll back the first
+            // three if the final audit write fails.
+            try? await exports.removeRecord(record.id)
+            try? await exports.rollbackCommittedArtifact(fileName: fileName)
+            return await recordExportFailure(
+                detail: "The signed container was verified, but its signing history could not be saved. Nothing was kept.",
+                category: .storageFailure,
+                request: request,
+                startedAt: startedAt,
+                timeline: timeline
+            )
+        }
         return .exported(record: record, operation: operation, fileURL: artifactURL)
     }
 

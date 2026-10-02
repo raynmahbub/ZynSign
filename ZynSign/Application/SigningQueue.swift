@@ -252,6 +252,10 @@ final class SigningQueue: ObservableObject {
     /// shows the fact rather than an empty queue that is about to fill.
     @Published private(set) var isRestoring = false
 
+    /// The most recent durable snapshot failure. Queue state remains in memory,
+    /// but callers must not be told it was persisted when it was not.
+    @Published private(set) var persistenceError: String?
+
     /// How many jobs may run at once. One, deliberately: signing is CPU-
     /// and I/O-heavy, and parallel runs would multiply peak memory and
     /// battery cost. Jobs are isolated per run, so raising this bound is a
@@ -1141,8 +1145,13 @@ final class SigningQueue: ObservableObject {
         guard hasRestored, !isRestoring else { return }
         revision += 1
         let snapshot = makeSnapshot()
-        Task { [store] in
-            try? await store.save(snapshot)
+        Task { @MainActor [weak self, store] in
+            do {
+                try await store.save(snapshot)
+                self?.persistenceError = nil
+            } catch {
+                self?.persistenceError = "The signing queue could not be saved. The in-memory queue remains active; retry before leaving the app."
+            }
         }
     }
 
