@@ -56,10 +56,10 @@ on:
           - repair
         default: report
 
+# Reports run on schedules and require no write access. Repair jobs declare
+# only the repository permissions they need individually.
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: maintenance
@@ -77,10 +77,10 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Select the newest stable Xcode
-        uses: maxim-lobanov/setup-xcode@v1
+        uses: maxim-lobanov/setup-xcode@1242409711ff5721add51979e9e11e23ebb7e5a4
         with:
           xcode-version: latest-stable
 
@@ -123,7 +123,7 @@ jobs:
           fi
 
       - name: Upload the maintenance bundle
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: maintenance-bundle
           path: |
@@ -141,15 +141,18 @@ jobs:
     runs-on: ubuntu-latest
     needs: reports
     timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
 
       - name: Download the maintenance bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: maintenance-bundle
 
@@ -187,9 +190,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: reports
     timeout-minutes: 10
+    permissions:
+      issues: write
     steps:
       - name: Download the maintenance bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: maintenance-bundle
 
@@ -253,9 +258,12 @@ jobs:
     runs-on: macos-15
     needs: reports
     timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.repository.default_branch }}
 
@@ -299,9 +307,12 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'repair'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Check out the default branch
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.repository.default_branch }}
 
@@ -348,9 +359,11 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'repair'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      issues: write
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       # Idempotent: the label set always ends up exactly as declared, so
       # Release Drafter's categories and the PR labeler stay wired.
@@ -378,12 +391,15 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'repair'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      issues: write
+      pull-requests: write
     steps:
       # Keeps the tracker honest: no activity for 60 days marks an issue or
       # pull request stale, 14 more days closes it. Security reports,
       # regressions under work, and pinned items are exempt.
       - name: Run the stale bot
-        uses: actions/stale@v11
+        uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93
         with:
           days-before-stale: 60
           days-before-close: 14
