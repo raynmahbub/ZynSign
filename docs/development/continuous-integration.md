@@ -33,9 +33,8 @@ matching outside `Tests/` fails the job.
   binding, and nested-signing ordering, and whether the external validation
   harness's self-test passes.
 - What Apple's desktop tooling says about the artifacts ZynSign signs, in
-  the external validation report. That job is measurement, not a gate: it
-  fails only when the harness cannot run, never because `codesign` rejects
-  an artifact. See
+  the external validation report. That job is a release gate: it fails when
+  the harness cannot run or when Apple tooling rejects an artifact. See
   [external-validation.md](../architecture/external-validation.md).
 - **That the crash surface still matches its inventory.** Every `try!`,
   `as!`, force unwrap, `fatalError`, `preconditionFailure`, `precondition`,

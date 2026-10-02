@@ -4,13 +4,32 @@ import Foundation
 import FoundationNetworking
 #endif
 
+/// Rejects redirects that leave the HTTPS, credential-free request policy.
+/// URL validation must apply to the final URL, not only the user-supplied URL.
+final class HTTPSRedirectPolicy: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard let url = request.url,
+              case .success = DownloadURLPolicy.validateHTTPS(url) else {
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
+    }
+}
+
 /// URLSession transport for release feed bodies. One bounded GET; any
 /// non-success status is a typed refusal, because a feed that answers with
 /// an error has nothing to parse.
 final class URLSessionReleaseFeedTransport: ReleaseFeedTransport, @unchecked Sendable {
 
-    /// The most feed bytes accepted. Feeds beyond this are refused rather
-    /// than buffered.
+    /// The most feed bytes accepted. Feeds beyond this are refused before the
+    /// complete body can be accumulated in memory.
     static let maximumBodyBytes = 4 * 1024 * 1024
 
     private let session: URLSession
@@ -18,8 +37,9 @@ final class URLSessionReleaseFeedTransport: ReleaseFeedTransport, @unchecked Sen
     init(session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 10
+        configuration.timeoutIntervalForResource = 60
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        return URLSession(configuration: configuration)
+        return URLSession(configuration: configuration, delegate: HTTPSRedirectPolicy(), delegateQueue: nil)
     }()) {
         self.session = session
     }
@@ -28,16 +48,33 @@ final class URLSessionReleaseFeedTransport: ReleaseFeedTransport, @unchecked Sen
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
         request.setValue("ZynSign", forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await session.data(for: request)
+
+        // `data(for:)` materializes the entire response before returning, so it
+        // cannot enforce a memory bound. AsyncBytes returns after headers and
+        // lets us stop as soon as the declared/actual body exceeds the policy.
+        let (bytes, response) = try await session.bytes(for: request)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw ZynSignError.releaseFeedUnavailable(
                 diagnosticDetail: "The release feed answered with status \(http.statusCode)."
             )
         }
-        guard data.count <= Self.maximumBodyBytes else {
+        if response.expectedContentLength > Int64(Self.maximumBodyBytes) {
             throw ZynSignError.releaseFeedUnavailable(
                 diagnosticDetail: "The release feed body exceeded \(Self.maximumBodyBytes) bytes."
             )
+        }
+
+        var data = Data()
+        if response.expectedContentLength > 0 {
+            data.reserveCapacity(min(Int(response.expectedContentLength), Self.maximumBodyBytes))
+        }
+        for try await byte in bytes {
+            guard data.count < Self.maximumBodyBytes else {
+                throw ZynSignError.releaseFeedUnavailable(
+                    diagnosticDetail: "The release feed body exceeded \(Self.maximumBodyBytes) bytes."
+                )
+            }
+            data.append(byte)
         }
         return data
     }

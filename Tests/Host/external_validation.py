@@ -8,9 +8,10 @@ and to OpenSSL, signs the same unsigned inputs with `codesign` itself for a
 reference comparison, and records every verdict in a JSON and a Markdown
 report.
 
-It measures; it does not judge. A `codesign` rejection is a finding, not a
-harness failure: the harness exits non-zero only when it could not do its job
-(no export, a failed export step, a missing tool, an unreadable artifact).
+It independently measures release artifacts. A `codesign` rejection is recorded
+as a finding because macOS verification is not equivalent to iOS platform
+acceptance. The harness exits non-zero when it cannot do its job (no export, a
+failed export step, a missing tool, or an unreadable artifact).
 Nothing here is iOS platform acceptance, trust evaluation, or
 installability. `codesign` on macOS is Apple's desktop verifier, not the
 device's, and the iOS rules checked below are the ones Apple documents, not
@@ -1510,6 +1511,10 @@ def command_run(arguments: argparse.Namespace) -> int:
         print(f"{artifact['id']}: codesign {verdict}" + (f" — {message}" if message else ""))
     for error in report["harnessErrors"]:
         print(f"HARNESS ERROR: {error}", file=sys.stderr)
+
+    # Artifact verdicts are deliberately informational at this tier. The
+    # report preserves every Apple-tool rejection for review, while harness
+    # failures remain blocking. macOS codesign is not an iOS acceptance gate.
     print(f"Report: {report_dir / 'report.md'}")
     return 1 if report["harnessErrors"] else 0
 

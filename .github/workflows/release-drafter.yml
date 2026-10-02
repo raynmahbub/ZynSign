@@ -36,7 +36,7 @@ jobs:
       # branch whose train is being released; the pull request's own head is
       # never checked out.
       - name: Check out the repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       # release_meta.sh writes version= tag= channel= prerelease= to
       # $GITHUB_OUTPUT, and stops the job for a version that is not a stop on
@@ -68,7 +68,7 @@ jobs:
         if: steps.state.outputs.published != 'yes'
         # Pinned at v6 on purpose: v7's release notes say only "new major
         # version", with no migration detail, and v6 raises no Node 20 warning.
-        uses: release-drafter/release-drafter@v6
+        uses: release-drafter/release-drafter@67e173cadb2fbd3de94f4a861e0c48c913b462ae
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
