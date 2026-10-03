@@ -290,7 +290,7 @@ jobs:
             echo "Creating release ${TAG} (channel: ${CHANNEL})"
             gh release create "${TAG}" --target "${GITHUB_SHA}" --title "${TITLE}" ${PRE_FLAG} --notes-file "${NOTES}"
           fi
-          gh release view "${TAG}" --json tagName,title,url
+          gh release view "${TAG}" --json tagName,name,url
 
       - name: Attach assets (never overwriting an existing file)
         env:

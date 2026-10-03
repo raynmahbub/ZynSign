@@ -315,6 +315,7 @@ jobs:
             build
             chore
             style
+            release
           requireScope: false
           subjectPattern: ^(?![A-Z]).+$
           subjectPatternError: The subject should not start with an uppercase letter.
