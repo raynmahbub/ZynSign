@@ -1,17 +1,17 @@
 # Feature Status — source inventory, not device evidence
 
-This snapshot follows the source-controlled train at `v0.0.2-dev.1` (`.patch1`, marketing `0.0.2`, build `6`). Confirm the active value with `python3 Scripts/release_train.py status`; the source remains authoritative. The capability catalogue is in the app's **Features** tab and is generated from `CoreFeature.allCases`, `ReleaseFeature.allCases`, and `UnsupportedFeature.allCases` in [`FeatureCatalog.swift`](../../ZynSign/Application/FeatureCatalog.swift). Tests assert that each registry is represented once and that staged statuses follow the train.
+This snapshot follows the source-controlled train at `v0.1.0-alpha.1` (`.alpha1`, marketing `0.1.0`, build `7`). Confirm the active value with `python3 Scripts/release_train.py status`; the source remains authoritative. The capability catalogue is in the app's **Features** tab and is generated from `CoreFeature.allCases`, `ReleaseFeature.allCases`, and `UnsupportedFeature.allCases` in [`FeatureCatalog.swift`](../../ZynSign/Application/FeatureCatalog.swift). Tests assert that each registry is represented once and that staged statuses follow the train.
 
 A source entry means code and a presentation surface exist; it does **not** mean the feature has passed XCTest, simulator, or physical-device verification. No Apple build or device reproduction has been performed in this checkout.
 
 ## Release-gated capabilities
 
-`ReleaseTrain.current` is `.patch1`. The current Release gate includes capabilities introduced at the earlier `.horizon` stop:
+`ReleaseTrain.current` is `.alpha1`. The current Release gate includes capabilities introduced at `.horizon` and `.alpha1`:
 
 | Introduced stop | Features |
 |---|---|
 | `v0.0.1` (`.horizon`) | Certificate Studio, Provisioning Profile Manager, App Store, Downloads |
-| `v0.1.0-alpha.1` | Library Power Features |
+| `v0.1.0-alpha.1` (current) | Library Power Features |
 | `v0.1.0-alpha.2` | Smart Sign, Signing Queue, Signing Presets |
 | `v0.1.0-alpha.3` | Entitlements Studio, Developer Identity Center |
 | `v0.9.0-beta.1` | Mission Control, Delivery Hand-off, Activity Journal |
