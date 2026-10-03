@@ -4,11 +4,11 @@ import Foundation
 struct VersionHistoryEntry: Equatable, Hashable, Sendable {
     /// The release tag, e.g. `v0.0.1-dev.2`.
     let tag: String
-    /// The marketing version the entry shipped as.
+    /// The marketing version assigned to this train stop.
     let marketingVersion: String
-    /// The build number the entry shipped as.
+    /// The build number assigned to this train stop.
     let buildNumber: Int
-    /// The date the stop was cut.
+    /// The date this train stop was cut.
     let releasedAt: DateComponents
     /// One line of what this stop is about.
     let headline: String
@@ -27,6 +27,17 @@ enum VersionHistoryCatalog {
 
     /// Every entry, newest first.
     static let entries: [VersionHistoryEntry] = [
+        VersionHistoryEntry(
+            tag: "v0.1.0-alpha.1",
+            marketingVersion: "0.1.0",
+            buildNumber: 7,
+            releasedAt: DateComponents(year: 2026, month: 10, day: 3),
+            headline: "Alpha 1 brings Library Power Features to Release builds.",
+            highlights: [
+                "Organize imported artifacts with favorites, recent items, and custom collections.",
+                "Refine Library results with advanced search, filters, bulk selection, and quick actions.",
+            ]
+        ),
         VersionHistoryEntry(
             tag: "v0.0.2-dev.1",
             marketingVersion: "0.0.2",
