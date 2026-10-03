@@ -69,7 +69,7 @@ After stable, use SemVer: patch for compatible fixes/security updates, minor for
 python3 Scripts/release_train.py status
 python3 Scripts/release_train.py promote            # next permitted stop
 python3 Scripts/release_train.py promote alpha2     # named stop, if permitted
-python3 Scripts/release_train.py check --tag v0.0.2-dev.1
+python3 Scripts/release_train.py check --tag v0.1.0-alpha.1
 ```
 
 Review and commit the source changes before tagging. Follow [private testing](private-testing.md) and [release automation](release-automation.md): rehearse with `dry_run: true`, inspect the generated assets, publish only the current stop, and review the resulting changelog PR. A successful build or CI run is not proof of physical-device signing or installation behavior.

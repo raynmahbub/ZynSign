@@ -12,7 +12,7 @@ struct VersionHistoryView: View {
     var body: some View {
         List {
             Section {
-                Text("Every release stop ZynSign has cut, newest first. The repository's changelog remains the complete record; this digest carries what each stop switched on.")
+                Text("Current train stop and prior releases, newest first. See the repository changelog for the full record; this digest highlights each stop's feature changes.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             ForEach(entries, id: \.tag) { entry in
