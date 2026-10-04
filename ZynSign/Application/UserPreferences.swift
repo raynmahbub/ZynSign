@@ -255,18 +255,19 @@ extension AdvancedPreferences {
 /// section lives in the presentation layer, so a change to the shell's tabs
 /// does not change the stored preference.
 enum LandingTab: String, CaseIterable, Hashable, Sendable, Codable {
-    // The five destinations permanently rendered in the native tab bar.
+    // Every destination the shell draws as a tab, in bar order.
     case files
     case library
     case home
+    case appStore
+    case downloads
     case features
     case settings
 
-    // Retired tab identifiers remain decodable so an older preferences file
-    // does not fail as a whole. Store and Downloads migrate to Features;
-    // Certificates and Profiles migrate to Library.
-    case appStore
-    case downloads
+    // Identifiers for areas that are not tabs. They stay decodable so an
+    // older preferences file does not fail as a whole, and they migrate to the
+    // Library, which is where imported applications and the identities that
+    // sign them are reached from.
     case certificates
     case profiles
 
@@ -277,17 +278,18 @@ enum LandingTab: String, CaseIterable, Hashable, Sendable, Codable {
 
     var isSelectableTab: Bool {
         switch self {
-        case .files, .library, .home, .features, .settings:
+        case .files, .library, .home, .appStore, .downloads, .features, .settings:
             return true
-        case .appStore, .downloads, .certificates, .profiles:
+        case .certificates, .profiles:
             return false
         }
     }
 
-    /// Migrates saved destinations that no longer own a tab.
+    /// Migrates saved destinations that are not tabs. Store and Downloads are
+    /// tabs again — a preference saved when they were tabs is honoured as
+    /// itself rather than folded into another destination.
     var selectable: LandingTab {
         switch self {
-        case .appStore, .downloads: return .features
         case .certificates, .profiles: return .library
         default: return self
         }
