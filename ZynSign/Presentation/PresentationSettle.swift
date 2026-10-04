@@ -123,13 +123,11 @@ enum PresentationSettle {
     /// presentation, and never retained by the caller.
     @MainActor
     private static func topMostViewController() -> UIViewController? {
-        let scene = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive }
-            ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-        let window = scene?.windows.first { $0.isKeyWindow } ?? scene?.windows.first
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let activeScene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        let window = activeScene?.windows.first { $0.isKeyWindow } ?? activeScene?.windows.first
         guard var controller = window?.rootViewController else { return nil }
-        while let presented = controller.presentedViewController {
+        while let presented = controller.presentedViewController, !presented.isBeingDismissed {
             controller = presented
         }
         return controller

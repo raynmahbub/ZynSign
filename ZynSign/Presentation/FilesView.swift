@@ -145,12 +145,8 @@ struct FilesView: View {
             // already queued behind it.
             let present = importPresentation.present
             Task { @MainActor in
-                // Confirmed, and asked once more if the platform accepted
-                // nothing: a hub dropped in the picker's dismissal frame is a
-                // package already queued behind a sheet that never opened.
-                for _ in 0..<2 {
-                    if await PresentationSettle.presentAndConfirm({ present() }) { break }
-                }
+                await PresentationSettle.waitForIdle()
+                present()
             }
         }
         if !others.isEmpty {

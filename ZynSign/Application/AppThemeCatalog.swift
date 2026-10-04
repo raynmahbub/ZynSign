@@ -59,10 +59,11 @@ struct AppThemeDefinition: Equatable, Hashable, Sendable {
 
 /// The themes ZynSign ships, and the rules for resolving one.
 ///
-/// Four themes ship: the original look, a warm flame gradient for
-/// signing-focused sessions, a cold deep-blue night look, and a graphite
-/// look that leans entirely on system materials. The catalog is the single
-/// place a theme is defined; presentation and settings both read it.
+/// Five themes ship: the original look, a translucent liquid glass look,
+/// a warm flame gradient for signing-focused sessions, a cold deep-blue night
+/// look, and a graphite look that leans entirely on system materials. The
+/// catalog is the single place a theme is defined; presentation and settings
+/// both read it.
 enum AppThemeCatalog {
 
     /// Every shipped theme, in picker order.
@@ -74,6 +75,15 @@ enum AppThemeCatalog {
             accentHex: "#6D6AF0",
             gradientHex: ["#6D6AF0", "#8E8AF6"],
             symbolName: "seal.fill",
+            prefersDarkSurfaces: false
+        ),
+        AppThemeDefinition(
+            identifier: ZynSignTheme.liquidGlass.rawValue,
+            displayName: "Liquid Glass",
+            summary: "Translucent glass materials, ambient refraction, and specular accents.",
+            accentHex: "#5E5CE6",
+            gradientHex: ["#5E5CE6", "#7D7AFF", "#64D2FF"],
+            symbolName: "drop.fill",
             prefersDarkSurfaces: false
         ),
         AppThemeDefinition(

@@ -673,18 +673,10 @@ struct ImportHubView: View {
         if waitingForSheet {
             await PresentationSettle.waitUntil { hasSettled }
         }
-        for _ in 0..<2 {
-            guard wantsFilePickerOnAppear, !isShowingPicker else { return }
-            wantsFilePickerOnAppear = false
-            if await PresentationSettle.presentAndConfirm({ isShowingPicker = true }) {
-                return
-            }
-            // Nothing appeared, so the flag is not describing a picker on
-            // screen: clear it and ask again rather than leaving the tap with
-            // no answer at all.
-            isShowingPicker = false
-            wantsFilePickerOnAppear = true
-        }
+        await PresentationSettle.waitForIdle()
+        guard wantsFilePickerOnAppear, !isShowingPicker else { return }
+        wantsFilePickerOnAppear = false
+        isShowingPicker = true
     }
 
     private func openRecord(_ record: ApplicationRecord) {

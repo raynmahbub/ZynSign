@@ -236,6 +236,7 @@ extension AppearancePreferences {
         themeIdentifier = try container.decodeIfPresent(String.self, forKey: .themeIdentifier) ?? ZynSignTheme.defaultIdentifier
         accentOverrideHex = try container.decodeIfPresent(String.self, forKey: .accentOverrideHex)
         minimalInterface = try container.decodeIfPresent(Bool.self, forKey: .minimalInterface) ?? false
+        liquidGlass = try container.decodeIfPresent(Bool.self, forKey: .liquidGlass) ?? false
     }
 }
 
@@ -482,7 +483,7 @@ struct DiagnosticsPreferences: Equatable, Sendable, Codable {
 
 /// Appearance and accessibility presentation choices.
 ///
-/// Four themes ship; `AppThemeCatalog` resolves them and falls back to the
+/// Five themes ship; `AppThemeCatalog` resolves them and falls back to the
 /// default for an identifier this build does not know, so a theme removed in
 /// a future build degrades gracefully.
 struct AppearancePreferences: Equatable, Sendable, Codable {
@@ -511,6 +512,10 @@ struct AppearancePreferences: Equatable, Sendable, Codable {
     /// presentation density moves.
     var minimalInterface: Bool = false
 
+    /// Whether the Liquid Glass visual effect is enabled: translucent
+    /// materials, ambient refraction, and specular highlights.
+    var liquidGlass: Bool = false
+
     private enum CodingKeys: String, CodingKey {
         case appearanceMode
         case increaseContrast
@@ -518,6 +523,7 @@ struct AppearancePreferences: Equatable, Sendable, Codable {
         case themeIdentifier
         case accentOverrideHex
         case minimalInterface
+        case liquidGlass
     }
 
     init() {}
@@ -528,7 +534,8 @@ struct AppearancePreferences: Equatable, Sendable, Codable {
         respectsSystemTextSize: Bool,
         themeIdentifier: String,
         accentOverrideHex: String? = nil,
-        minimalInterface: Bool = false
+        minimalInterface: Bool = false,
+        liquidGlass: Bool = false
     ) {
         self.appearanceMode = appearanceMode
         self.increaseContrast = increaseContrast
@@ -536,6 +543,7 @@ struct AppearancePreferences: Equatable, Sendable, Codable {
         self.themeIdentifier = themeIdentifier
         self.accentOverrideHex = accentOverrideHex
         self.minimalInterface = minimalInterface
+        self.liquidGlass = liquidGlass
     }
 }
 
@@ -562,6 +570,7 @@ enum AppearanceMode: String, CaseIterable, Hashable, Sendable, Codable {
 /// migration.
 enum ZynSignTheme: String, CaseIterable, Hashable, Sendable, Codable {
     case zynSign = "zynsign.default"
+    case liquidGlass = "zynsign.liquidglass"
     case ember = "zynsign.ember"
     case midnight = "zynsign.midnight"
     case graphite = "zynsign.graphite"
@@ -571,6 +580,7 @@ enum ZynSignTheme: String, CaseIterable, Hashable, Sendable, Codable {
     var displayName: String {
         switch self {
         case .zynSign: return "ZynSign"
+        case .liquidGlass: return "Liquid Glass"
         case .ember: return "Ember"
         case .midnight: return "Midnight"
         case .graphite: return "Graphite"

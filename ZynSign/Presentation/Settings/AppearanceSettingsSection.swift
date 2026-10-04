@@ -106,6 +106,12 @@ struct AppearanceSettingsSection: View {
             }
             accentSection
             ZSettingsToggleRow(
+                title: "Liquid Glass",
+                subtitle: "Render translucent materials, ambient refraction, and specular accents.",
+                symbol: "drop.degreesign.fill",
+                isOn: settings.binding(\.appearance.liquidGlass)
+            )
+            ZSettingsToggleRow(
                 title: "Minimal Interface",
                 subtitle: "Reduce visual density: gradients step back, hero surfaces shrink to their essential rows.",
                 symbol: "minus.circle",

@@ -33,6 +33,8 @@ struct ZToast: View {
         self.message = message; self.style = style; self.onDismiss = onDismiss
     }
 
+    @Environment(\.appTheme) private var appTheme
+
     var body: some View {
         HStack(spacing: ZSpacing.sm) {
             Image(systemName: style.icon)
@@ -54,8 +56,19 @@ struct ZToast: View {
         }
         .padding(.horizontal, ZSpacing.md)
         .padding(.vertical, ZSpacing.sm)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: ZRadius.card))
-        .overlay { RoundedRectangle(cornerRadius: ZRadius.card).stroke(style.color.opacity(0.2), lineWidth: 1) }
+        .background(
+            RoundedRectangle(cornerRadius: ZRadius.card, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: ZRadius.card, style: .continuous)
+                .stroke(
+                    appTheme.liquidGlass
+                        ? AnyShapeStyle(LinearGradient(colors: [style.color.opacity(0.6), Color.white.opacity(0.2)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        : AnyShapeStyle(style.color.opacity(0.2)),
+                    lineWidth: 1
+                )
+        }
         .zynSoftShadow()
         .padding(.horizontal, ZSpacing.md)
         .transition(.move(edge: .top).combined(with: .opacity))

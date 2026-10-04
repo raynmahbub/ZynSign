@@ -184,7 +184,7 @@ final class ZynSignPreferencesTests: XCTestCase {
     }
 
     func testShippedThemesAreStored() {
-        XCTAssertEqual(ZynSignTheme.allCases.count, 4)
+        XCTAssertEqual(ZynSignTheme.allCases.count, 5)
         XCTAssertEqual(ZynSignTheme.defaultIdentifier, "zynsign.default")
     }
 
