@@ -180,9 +180,16 @@ jobs:
             FIX="maintenance/dashboards-$(date +%Y%m%d-%H%M)"
             git checkout -b "${FIX}"
             git push origin "${FIX}"
-            gh pr create --base "${BRANCH}" --head "${FIX}" \
+            # Degrade instead of failing: if this repository does not let
+            # GitHub Actions open pull requests, the dashboard branch stays
+            # pushed and the warning says how to finish the hand-off.
+            if gh pr create --base "${BRANCH}" --head "${FIX}" \
               --title "chore(maintenance): weekly engineering dashboards" \
-              --body "Automated dashboard update from the weekly maintenance run."
+              --body "Automated dashboard update from the weekly maintenance run."; then
+              echo "Dashboard PR opened from ${FIX}."
+            else
+              echo "::warning title=Dashboard sync::The dashboard PR could not be opened (GitHub Actions may not be allowed to create pull requests). The changes are staged on branch '${FIX}' — open the PR manually or enable the setting under Settings → Actions → General → Workflow permissions."
+            fi
           fi
 
   regression-check:
@@ -297,9 +304,13 @@ jobs:
             FIX="maintenance/format-$(date +%Y%m%d-%H%M)"
             git checkout -b "${FIX}"
             git push origin "${FIX}"
-            gh pr create --base "${BRANCH}" --head "${FIX}" \
+            if gh pr create --base "${BRANCH}" --head "${FIX}" \
               --title "style: apply SwiftFormat (weekly maintenance)" \
-              --body "Automated formatting from the weekly maintenance run. The pinned rule set only touches whitespace."
+              --body "Automated formatting from the weekly maintenance run. The pinned rule set only touches whitespace."; then
+              echo "Format PR opened from ${FIX}."
+            else
+              echo "::warning title=Format sync::The format PR could not be opened (GitHub Actions may not be allowed to create pull requests). The changes are staged on branch '${FIX}' — open the PR manually or enable the setting under Settings → Actions → General → Workflow permissions."
+            fi
           fi
 
   readme-sync:
@@ -349,9 +360,13 @@ jobs:
             FIX="maintenance/readme-$(date +%Y%m%d-%H%M)"
             git checkout -b "${FIX}"
             git push origin "${FIX}"
-            gh pr create --base "${BRANCH}" --head "${FIX}" \
+            if gh pr create --base "${BRANCH}" --head "${FIX}" \
               --title "docs(readme): auto-sync version and counts" \
-              --body "Automated README repair from the weekly maintenance run (MARKETING_VERSION + WHAT_DOES_NOT_EXIST.md)."
+              --body "Automated README repair from the weekly maintenance run (MARKETING_VERSION + WHAT_DOES_NOT_EXIST.md)."; then
+              echo "README PR opened from ${FIX}."
+            else
+              echo "::warning title=README sync::The README PR could not be opened (GitHub Actions may not be allowed to create pull requests). The changes are staged on branch '${FIX}' — open the PR manually or enable the setting under Settings → Actions → General → Workflow permissions."
+            fi
           fi
 
   label-sync:
