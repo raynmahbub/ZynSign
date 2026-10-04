@@ -26,6 +26,10 @@ struct BundleExplorerView: View {
         )
     }
 
+    /// The explorer body. This view is pushed (application detail, signing),
+    /// so it must not open a navigation container of its own — and neither may
+    /// what it shows here. `IPAExplorerScreen` takes `embedsNavigationStack`,
+    /// which is why its container is switched off below.
     var body: some View {
         content
             .navigationTitle(title)
@@ -41,7 +45,10 @@ struct BundleExplorerView: View {
         case .loading:
             BundleExplorerLoadingView()
         case .loaded(let contents):
-            IPAExplorerScreen(contents: contents, recordID: recordID)
+            // The host's stack is the only container: this screen is pushed,
+            // and the explorer's own `NavigationStack` / `NavigationSplitView`
+            // nested inside it is a runtime crash, not a warning.
+            IPAExplorerScreen(contents: contents, recordID: recordID, embedsNavigationStack: false)
         case .empty:
             BundleExplorerEmptyView()
         case .failed(let message):
