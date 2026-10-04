@@ -37,9 +37,7 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 ForEach(visibleCategories) { category in
-                    NavigationLink {
-                        destination(for: category)
-                    } label: {
+                    NavigationLink(value: category) {
                         SettingsCategoryRow(category: category)
                     }
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
@@ -64,6 +62,9 @@ struct SettingsView: View {
             .environment(\.editMode, $editMode)
             .searchable(text: $searchText, prompt: "Search Settings")
             .navigationTitle("Settings")
+            .navigationDestination(for: SettingsCategory.self) { category in
+                destination(for: category)
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(editMode == .active ? "Done" : "Edit") {

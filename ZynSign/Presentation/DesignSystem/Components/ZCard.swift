@@ -6,6 +6,8 @@ import SwiftUI
 /// Handles corner radii, backgrounds, subtle borders, and elevation shadows
 /// consistently across Light and Dark Mode.
 struct ZCard<Content: View>: View {
+    @Environment(\.appTheme) private var appTheme
+
     enum Variant {
         case filled      // secondarySystemBackground + soft shadow + subtle border
         case material    // ultraThinMaterial + soft shadow + subtle border
@@ -32,6 +34,16 @@ struct ZCard<Content: View>: View {
                 if variant == .outlined {
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .stroke(Color(.separator), lineWidth: 0.5)
+                } else if appTheme.liquidGlass {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.35), Color.white.opacity(0.08)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
                 } else {
                     // Subtle border ensures cards maintain crisp contrast against pure OLED black
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -42,10 +54,14 @@ struct ZCard<Content: View>: View {
 
     @ViewBuilder
     private var background: some View {
-        switch variant {
-        case .filled: ZColors.cardBackground
-        case .material: Rectangle().fill(ZColors.headerMaterial)
-        case .outlined: Color.clear
+        if appTheme.liquidGlass {
+            Rectangle().fill(.ultraThinMaterial)
+        } else {
+            switch variant {
+            case .filled: ZColors.cardBackground
+            case .material: Rectangle().fill(ZColors.headerMaterial)
+            case .outlined: Color.clear
+            }
         }
     }
 }

@@ -18,8 +18,7 @@
 # title, commitlint over every commit, path labels, and the Danger Swift
 # review — and on demand it produces the private test IPA.
 #
-# The static gates that need no Xcode live in 02-quality.yml; the weekly deep
-# sweep lives in 99-command-center.yml; publishing lives in 03-release.yml.
+# The static gates that need no Xcode live in 02-quality.yml; publishing lives in 03-release.yml.
 # See docs/development/continuous-integration.md for what each job
 # establishes and what it explicitly does not claim.
 name: 🔨 Build

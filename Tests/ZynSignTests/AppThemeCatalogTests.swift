@@ -4,9 +4,9 @@ import XCTest
 /// Tests for the shipped theme catalog and hex color parsing.
 final class AppThemeCatalogTests: XCTestCase {
 
-    func testFourThemesShip() {
-        XCTAssertEqual(AppThemeCatalog.all.count, 4)
-        XCTAssertEqual(AppThemeCatalog.all.map(\.displayName), ["ZynSign", "Ember", "Midnight", "Graphite"])
+    func testFiveThemesShip() {
+        XCTAssertEqual(AppThemeCatalog.all.count, 5)
+        XCTAssertEqual(AppThemeCatalog.all.map(\.displayName), ["ZynSign", "Liquid Glass", "Ember", "Midnight", "Graphite"])
     }
 
     func testEveryThemeHasValidHexStops() {

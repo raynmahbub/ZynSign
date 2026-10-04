@@ -117,7 +117,7 @@ struct CertificateManagerView: View {
             .task { await model.load() }
             .fileImporter(
                 isPresented: $showImporter,
-                allowedContentTypes: [.data, .item],
+                allowedContentTypes: Self.importableContentTypes,
                 allowsMultipleSelection: false
             ) { result in handlePicker(result) }
             .sheet(isPresented: $showPasswordSheet) {
@@ -578,6 +578,15 @@ struct CertificateManagerView: View {
 
     // MARK: - Import
 
+    private static var importableContentTypes: [UTType] {
+        var types: Set<UTType> = [.data, .item]
+        if let p12 = UTType(filenameExtension: "p12") { types.insert(p12) }
+        if let pfx = UTType(filenameExtension: "pfx") { types.insert(pfx) }
+        if let rsa = UTType("com.rsa.pkcs-12") { types.insert(rsa) }
+        if let ms = UTType("com.microsoft.pkcs12") { types.insert(ms) }
+        return Array(types)
+    }
+
     private func handlePicker(_ result: Result<[URL], any Error>) {
         switch result {
         case .success(let urls):
@@ -594,21 +603,22 @@ struct CertificateManagerView: View {
 
             // File providers may vend placeholder or coordinated URLs rather
             // than a directly readable local path. Read off the main actor,
-            // acquire security-scoped access only for the bounded read, and
-            // keep the picker grant from being held while the password sheet
-            // is on screen.
+            // acquire security-scoped access for the read, and keep the
+            // password sheet ready when read completes.
+            let accessing = url.startAccessingSecurityScopedResource()
             let reader = env.pkcs12DocumentReader
             isReadingSelectedFile = true
             Task { @MainActor in
-                defer { isReadingSelectedFile = false }
+                defer {
+                    isReadingSelectedFile = false
+                    if accessing { url.stopAccessingSecurityScopedResource() }
+                }
                 do {
                     let data = try await Task.detached(priority: .userInitiated) {
                         try reader.readPKCS12(at: url)
                     }.value
                     pendingData = data
                     pendingFileName = url.lastPathComponent
-                    // UIKit can drop a new sheet requested while the picker
-                    // is still dismissing, so wait for the shared settle.
                     presentPasswordSheetAfterPickerSettles()
                 } catch {
                     presentToast(readFailureMessage(for: error), style: .error)
@@ -635,25 +645,12 @@ struct CertificateManagerView: View {
     }
 
     /// Presents the password sheet once the picker's own dismissal has landed.
-    ///
-    /// This is the step a chosen `.p12` used to disappear at: a presentation
-    /// requested while another controller is dismissing is dropped by UIKit
-    /// with no error, so the file was read and then nothing at all appeared.
-    /// The wait is now the platform's own report that no transition is in
-    /// flight (`PresentationSettle.waitForIdle`) rather than a duration that
-    /// has to be longer than an animation, and the raise is confirmed: if
-    /// nothing appeared, the sheet is asked for once more. The bytes stay in
-    /// `pendingData` meanwhile, so the retry costs a beat, never the import.
     private func presentPasswordSheetAfterPickerSettles() {
         Task { @MainActor in
-            for _ in 0..<2 {
-                guard pendingData != nil, pendingFileName != nil else { return }
-                if await PresentationSettle.presentAndConfirm({ showPasswordSheet = true }) {
-                    return
-                }
-                // Nothing appeared, so the flag is not describing a sheet on
-                // screen: clear it and ask again.
-                showPasswordSheet = false
+            await PresentationSettle.waitForIdle()
+            guard pendingData != nil, pendingFileName != nil else { return }
+            withAnimation(ZMotion.interactive) {
+                showPasswordSheet = true
             }
         }
     }

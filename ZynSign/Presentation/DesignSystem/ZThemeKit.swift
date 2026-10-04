@@ -28,6 +28,9 @@ struct ResolvedAppTheme: Equatable {
     /// Whether the interface renders in reduced-visual-density mode.
     let minimalInterface: Bool
 
+    /// Whether the Liquid Glass visual effect is active.
+    let liquidGlass: Bool
+
     /// The accent to apply: the override when valid, else the theme's own.
     var accent: Color {
         accentOverride ?? Color(themeHex: definition.accentHex)
@@ -53,7 +56,8 @@ struct ResolvedAppTheme: Equatable {
             accentOverride: appearance.accentOverrideHex.flatMap { hex in
                 ThemeColorStop(hex: hex) == nil ? nil : Color(themeHex: hex)
             },
-            minimalInterface: appearance.minimalInterface
+            minimalInterface: appearance.minimalInterface,
+            liquidGlass: appearance.liquidGlass || appearance.themeIdentifier == ZynSignTheme.liquidGlass.rawValue
         )
     }
 }

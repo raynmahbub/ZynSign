@@ -22,3 +22,4 @@ If publication succeeds but the changelog-sync job fails, the release is already
 - [Checklist](Checklist.md) — release-specific readiness checks.
 - [Screenshot plan](screenshots.md) — marketing capture rules; check every screen against the current train before using it.
 - [Historical release notes](notes-v0.0.1.md) — notes for the first stable train stop.
+- [Alpha 1 release notes](notes-v0.1.0-alpha.1.md) — notes for the Alpha 1 release.
