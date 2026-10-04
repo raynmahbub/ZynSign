@@ -11,6 +11,15 @@ struct IPAExplorerScreen: View {
     let contents: BundleContents
     let recordID: ApplicationRecordIdentifier
 
+    /// Whether this screen brings its own navigation container.
+    ///
+    /// `BundleExplorerView` pushes it, and a pushed destination that opens its
+    /// own `NavigationStack` — or a `NavigationSplitView` — crashes at runtime.
+    /// Nesting is invisible to the compiler and to tests, so the flag is the
+    /// sanctioned way out: the host owns the container when this is `false`,
+    /// and details are pushed through the host's own stack.
+    var embedsNavigationStack: Bool = true
+
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var expanded: Set<ExplorerNodeID> = [.payload, .application]
     @State private var windows: [ExplorerNodeID: Int] = [:]
@@ -44,7 +53,8 @@ struct IPAExplorerScreen: View {
 
     var body: some View {
         Group {
-            if isRegular {
+            if embedsNavigationStack, isRegular {
+                // Room for both panes, and this screen owns the container.
                 NavigationSplitView {
                     sidebar
                         .navigationSplitViewColumnWidth(min: 280, ideal: 340, max: 480)
@@ -52,13 +62,22 @@ struct IPAExplorerScreen: View {
                     inspector(for: selection ?? .application)
                 }
                 .navigationSplitViewStyle(.balanced)
-            } else {
+            } else if embedsNavigationStack {
                 NavigationStack {
                     sidebar
                         .navigationDestination(item: $phoneDetail) { node in
                             inspector(for: node)
                         }
                 }
+            } else {
+                // Pushed by the host: its stack is the only container, and the
+                // detail push goes through it. A second container here — split
+                // view or stack — is the runtime crash this branch exists to
+                // avoid.
+                sidebar
+                    .navigationDestination(item: $phoneDetail) { node in
+                        inspector(for: node)
+                    }
             }
         }
         .zToast(isPresented: $showCopiedToast, message: copiedMessage, style: .info)

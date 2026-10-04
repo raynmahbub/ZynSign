@@ -48,6 +48,13 @@ struct RootView: View {
     @StateObject private var appLock: AppLockController
 
     @State private var selected: ShellSection
+
+    /// The tabs that have been opened at least once. A destination is built
+    /// when it is first selected and kept alive afterwards, so state the user
+    /// expects to persist — a scroll position, a push, an in-flight import —
+    /// survives leaving a tab and coming back to it.
+    @State private var visitedTabs: Set<ShellSection>
+
     @State private var featurePath: [FeatureCatalogDestination] = []
     @State private var isShowingImport = false
     @State private var hubRequest: ImportHubRequest = .none
@@ -122,9 +129,11 @@ struct RootView: View {
             authenticator: environment.biometricAuthenticator,
             preferences: { model.preferences }
         ))
-        _selected = State(initialValue: Self.visibleSelection(
+        let landing = Self.visibleSelection(
             for: model.preferences.general.landingTab.selectable.shellSection
-        ))
+        )
+        _selected = State(initialValue: landing)
+        _visitedTabs = State(initialValue: [landing])
         _thumbnailPipeline = StateObject(wrappedValue: ThumbnailPipeline(
             engine: environment.performanceEngine,
             icons: environment.appIcons
@@ -345,20 +354,31 @@ struct RootView: View {
     }
 
     /// The tab container, split from `body` so the type checker solves the
-    /// tab labels and the environment chain as two modest expressions.
+    /// tab list and the environment chain as two modest expressions.
+    ///
+    /// The shell draws its own bar (`ShellTabBar`) rather than using UIKit's,
+    /// whose five-item ceiling folds the rest of the product into a pushed
+    /// *More* list — the crash this shell used to work around by hiding
+    /// destinations. Content is laid out behind that bar, and a destination is
+    /// built the first time it is selected and kept alive afterwards, so each
+    /// area keeps its scroll position, push state, and in-flight work: the
+    /// lifetime a `TabView` gives, without the ceiling.
     private var rootTabs: some View {
-        TabView(selection: $selected) {
+        ZStack {
             ForEach(visibleTabs) { section in
-                tabContent(section)
-                    .tabItem {
-                        Label(
-                            section.title,
-                            systemImage: selected == section ? section.symbolName : section.symbolNameUnselected
-                        )
-                    }
-                    .tag(section)
-                    .badge(badgeCount(for: section))
+                if visitedTabs.contains(section) {
+                    tabContent(section)
+                        .opacity(section == selected ? 1 : 0)
+                        .allowsHitTesting(section == selected)
+                        .accessibilityHidden(section != selected)
+                }
             }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            ShellTabBar(tabs: visibleTabs, selection: $selected, badgeCount: badgeCount(for:))
+        }
+        .onChange(of: selected) { _, section in
+            visitedTabs.insert(section)
         }
     }
 
@@ -438,16 +458,17 @@ struct RootView: View {
 
     /// Tabs the user can select at this release stop.
     ///
-    /// Store and Downloads remain stable shell destinations; the other
-    /// staged tab sections continue to follow the release gate. The core
-    /// tabs are always present, so there is always somewhere to land.
+    /// Every destination the running release exposes is a tab: the staged ones
+    /// follow the release gate, and the ungated ones are always present, so
+    /// there is always somewhere to land.
     private var visibleTabs: [ShellSection] {
         ShellSection.primaryTabs
     }
 
-    /// The tab to actually select for a requested section. Older saved
-    /// Store / Downloads selections now resolve to Features; other destinations
-    /// without a native tab resolve to Library or Settings.
+    /// The tab to actually select for a requested section. A destination that
+    /// is a tab is selected; one that is only reached from Settings — a
+    /// certificate, a profile, a preset — names Settings, and anything else
+    /// resolves to the Library or the first tab the build shows.
     static func visibleSelection(for section: ShellSection) -> ShellSection {
         visibleSelection(for: section, in: ShellSection.primaryTabs)
     }
@@ -466,20 +487,10 @@ struct RootView: View {
         return tabs.contains(.library) ? .library : (tabs.first ?? .settings)
     }
 
-    /// Home can request Store or Downloads without assigning a selection the
-    /// native tab bar cannot represent. Route through Features and install the
-    /// corresponding child route before switching tabs.
+    /// Home can request any destination it links to; a destination that is a
+    /// tab is selected, and one that lives inside Settings opens Settings.
     private func openHomeSection(_ section: ShellSection) {
-        switch section {
-        case .appStore:
-            featurePath = [.appStore]
-            selected = .features
-        case .downloads:
-            featurePath = [.downloads]
-            selected = .features
-        default:
-            selected = ShellSection.tab(toOpen: section)
-        }
+        selected = ShellSection.tab(toOpen: section)
     }
 
     private func badgeCount(for section: ShellSection) -> Int {
@@ -487,10 +498,9 @@ struct RootView: View {
         case .library:
             return activeSigningJobBadge
         case .downloads:
-            return activeDownloadBadge
-        case .features:
-            // Downloads is reached from Features rather than the native bar;
-            // keep transfer progress visible on its host tab.
+            // Downloads is a tab of its own again. The badge follows the same
+            // gate as the tab, so a build without the destination holds no
+            // state for it.
             return ReleaseTrain.isAvailable(.downloads) ? activeDownloadBadge : 0
         default:
             return 0
@@ -504,14 +514,23 @@ struct RootView: View {
     /// presenting over a dismissing sheet would race.
     private func presentSigningQueue() {
         guard SigningQueueAvailability.isAvailable else { return }
-        if isShowingImport {
-            isShowingImport = false
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 450_000_000)
-                isShowingSigningQueue = true
-            }
-        } else {
+        guard isShowingImport else {
             isShowingSigningQueue = true
+            return
+        }
+        // The hub is up, and a sheet raised in the frame it is dismissing is
+        // dropped by UIKit with no error: the queue would simply never open.
+        // The retry is the platform's report that the hierarchy is idle plus a
+        // confirmation that the sheet appeared — not a fixed wait that a slow
+        // device can outlast.
+        isShowingImport = false
+        Task { @MainActor in
+            for _ in 0..<2 {
+                if await PresentationSettle.presentAndConfirm({ isShowingSigningQueue = true }) {
+                    return
+                }
+                isShowingSigningQueue = false
+            }
         }
     }
 

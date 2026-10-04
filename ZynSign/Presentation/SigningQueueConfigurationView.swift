@@ -403,13 +403,7 @@ struct SigningQueueConfigurationView: View {
             VStack(spacing: ZSpacing.xs) {
                 Button {
                     onDone()
-                    // The dashboard is presented by the shell after this
-                    // sheet has gone away — presenting over a dismissing
-                    // sheet would race, so the hand-off waits one beat.
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 400_000_000)
-                        onOpenQueue()
-                    }
+                    openQueueAfterDismissal()
                 } label: {
                     Label("Open Signing Queue", systemImage: "list.bullet.rectangle")
                         .frame(maxWidth: .infinity)
@@ -427,6 +421,21 @@ struct SigningQueueConfigurationView: View {
     }
 
     // MARK: - Actions
+
+    /// Presents the queue dashboard once this sheet has gone away.
+    ///
+    /// Presenting over a dismissing sheet is dropped by UIKit with no error, so
+    /// the hand-off waits for the platform's report that nothing is
+    /// transitioning and confirms something appeared, asking once more if it
+    /// did not — rather than sleeping a beat a slow device can outlast. Kept
+    /// apart from `successContent` so the view body stays one expression deep.
+    private func openQueueAfterDismissal() {
+        Task { @MainActor in
+            for _ in 0..<2 {
+                if await PresentationSettle.presentAndConfirm({ onOpenQueue() }) { break }
+            }
+        }
+    }
 
     private func loadIdentities() async {
         isLoadingIdentities = true

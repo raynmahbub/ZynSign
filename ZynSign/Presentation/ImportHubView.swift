@@ -46,10 +46,12 @@ struct ImportHubView: View {
     /// A `chooseFiles` request that arrived before the sheet finished
     /// presenting, waiting for the hub to be on screen.
     @State private var wantsFilePickerOnAppear = false
-    /// Whether the hub's own sheet has finished appearing. `presentPendingFilePick`
-    /// is driven by `.task` before this turns true, and by the request itself
-    /// after — a request that lands while the sheet is still animating in has
-    /// nowhere to go otherwise, and the picker is simply never raised.
+    /// Whether the hub's own sheet has finished appearing, reported by the
+    /// sheet's controller rather than assumed after a delay.
+    /// `presentPendingFilePick` is driven by `.task` before this turns true,
+    /// and by the request itself after — a request that lands while the sheet
+    /// is still animating in has nowhere to go otherwise, and the picker is
+    /// simply never raised.
     ///
     /// It is also what lets the hub's own *Choose Files* button open the
     /// picker immediately: by the time the user can tap it the sheet is
@@ -164,11 +166,13 @@ struct ImportHubView: View {
                 // away.
                 await presentPendingFilePick(waitingForSheet: true)
             }
-            .task {
-                // One settle beat after the sheet appears, a request is no
-                // longer at risk of landing inside its transition.
-                try? await Task.sleep(for: PresentationSettle.beat)
-                hasSettled = true
+            .background {
+                // The sheet reports its own appearance: a picker asked for
+                // before this fires would be asked for inside the sheet's
+                // transition, where UIKit drops it without an error.
+                SheetPresentationReporter { hasSettled = true }
+                    .frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
             }
         .onChange(of: hub.lastFinishedBatch) { _, entry in
             announce(entry)
@@ -651,21 +655,36 @@ struct ImportHubView: View {
     /// cleared before the picker is raised, so neither path can present twice.
     ///
     /// - Parameter waitingForSheet: Whether the hub's own sheet may still be
-    ///   animating in. When it may, the shared settle beat is waited out first:
-    ///   a yield alone is not the transition, and a second controller put on
-    ///   screen inside that window is the drop this whole path exists to avoid.
-    ///   When the sheet has already settled — the user tapped *Choose Files* in
-    ///   a hub that is fully up — the picker is raised on the next frame, with
-    ///   no invented wait to notice.
+    ///   animating in. When it may, the sheet's own appearance report is
+    ///   awaited (`SheetPresentationReporter`) — the platform's answer to "the
+    ///   hub is up", not a duration that is usually long enough. When the sheet
+    ///   has already settled — the user tapped *Choose Files* in a hub that is
+    ///   fully up — the picker is raised straight away.
+    ///
+    /// The raise is confirmed and, if the platform accepted nothing, asked once
+    /// more: a picker dropped inside the sheet's transition is the reported
+    /// "Import does nothing", and a silent second drop would leave the tap
+    /// unanswered again.
     private func presentPendingFilePick(waitingForSheet: Bool) async {
-        guard wantsFilePickerOnAppear else { return }
-        await Task.yield()
-        if waitingForSheet {
-            try? await Task.sleep(for: PresentationSettle.beat)
+        guard wantsFilePickerOnAppear, !isShowingPicker else {
+            wantsFilePickerOnAppear = false
+            return
         }
-        guard wantsFilePickerOnAppear else { return }
-        wantsFilePickerOnAppear = false
-        isShowingPicker = true
+        if waitingForSheet {
+            await PresentationSettle.waitUntil { hasSettled }
+        }
+        for _ in 0..<2 {
+            guard wantsFilePickerOnAppear, !isShowingPicker else { return }
+            wantsFilePickerOnAppear = false
+            if await PresentationSettle.presentAndConfirm({ isShowingPicker = true }) {
+                return
+            }
+            // Nothing appeared, so the flag is not describing a picker on
+            // screen: clear it and ask again rather than leaving the tap with
+            // no answer at all.
+            isShowingPicker = false
+            wantsFilePickerOnAppear = true
+        }
     }
 
     private func openRecord(_ record: ApplicationRecord) {

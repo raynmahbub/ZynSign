@@ -82,9 +82,20 @@ struct SettingsView: View {
         }
     }
 
+    /// Applies a reorder from the list's own edit mode.
+    ///
+    /// `Array.move(fromOffsets:toOffset:)` traps when an offset is outside the
+    /// array, and the list's indices come from the *visible* rows: while a
+    /// search is active those rows are a subset, so a drop could name a
+    /// position the stored order does not have. The reorder is ignored unless
+    /// the indices fit the order being edited — a refused drag is a far better
+    /// outcome for a user than a trap, and the section is the one Settings
+    /// screen whose contents the user can change while it is on screen.
     private func moveCategories(from source: IndexSet, to destination: Int) {
         guard searchText.isEmpty else { return }
         var reordered = orderedCategories
+        guard reordered.indices.contains(destination) || destination == reordered.count,
+              source.allSatisfy({ reordered.indices.contains($0) }) else { return }
         reordered.move(fromOffsets: source, toOffset: destination)
         storedCategoryOrder = reordered.map(\.rawValue).joined(separator: ",")
     }

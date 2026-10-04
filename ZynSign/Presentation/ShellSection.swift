@@ -1,9 +1,13 @@
 import Foundation
 
-/// Sections understood by the application shell. The native tab bar has a
-/// five-item ceiling; Features is the stable home for the complete catalogue
-/// and for Store / Downloads, while less central destinations remain linked
-/// from Settings.
+/// Sections understood by the application shell.
+///
+/// Every destination a release exposes is a tab. The shell draws its own bar
+/// (`ShellTabBar`) instead of UIKit's, so nothing has to be folded into a
+/// *More* list and no destination is reached only by a detour — Store and
+/// Downloads are tabs again, which is what a tester reported missing.
+/// Certificates, Profiles, Presets, and the installation workspace are not
+/// areas: they are workflows opened from Settings, and they stay there.
 enum ShellSection: Hashable, CaseIterable, Identifiable {
     case home
     case library
@@ -19,23 +23,19 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
 
     var id: Self { self }
 
-    /// Every candidate primary destination, in product order. Store and
-    /// Downloads remain routable from Features but give up individual tab
-    /// slots so the native bar never creates UIKit's pushed "More" screen.
+    /// Every candidate destination, in bar order.
     static let allTabs: [ShellSection] = [
-        .files, .library, .home, .features, .appStore, .downloads, .settings,
+        .files, .library, .home, .appStore, .downloads, .features, .settings,
     ]
 
-    /// UIKit's bottom tab bar supports five visible items. More than five
-    /// creates a system-owned navigation stack around the overflow tab; that
-    /// is incompatible with the independent NavigationStacks each ZynSign
-    /// destination owns.
-    static let tabBarItemLimit = 5
-
-    /// Candidates removed first when the product adds more than five
-    /// destinations. Files, Library, Home, Features, and Settings are the
-    /// invariant five; Store and Downloads are available from Features.
-    static let tabOverflowOrder: [ShellSection] = [.downloads, .appStore, .files]
+    /// What UIKit's own tab bar can draw before it folds the rest into a
+    /// *More* list that it pushes.
+    ///
+    /// The shell does not use that bar (see `ShellTabBar`), and this number is
+    /// kept only so the reason stays pinned by a test rather than by memory: a
+    /// bar that can hold five items must never again decide which destinations
+    /// a build shows.
+    static let nativeTabBarItemLimit = 5
 
     /// The staged capability associated with a destination, if any.
     var requiredFeature: ReleaseFeature? {
@@ -52,25 +52,22 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
 
     /// The visible tabs for a release gate. The predicate keeps the policy
     /// testable without coupling tests to a particular build configuration.
+    ///
+    /// Nothing is dropped for its position any more: a gated destination is
+    /// shown when the stage exposes it and hidden when it does not, and every
+    /// destination that survives the gate is drawn.
     static func primaryTabs(where isAvailable: (ReleaseFeature) -> Bool) -> [ShellSection] {
-        let wanted = allTabs.filter { section in
+        allTabs.filter { section in
             section.requiredFeature.map(isAvailable) ?? true
         }
-        guard wanted.count > tabBarItemLimit else { return wanted }
-        let present = tabOverflowOrder.filter { wanted.contains($0) }
-        let dropped = Set(present.prefix(wanted.count - tabBarItemLimit))
-        return wanted.filter { !dropped.contains($0) }
     }
 
-    /// The tab to select for a requested destination. Store and Downloads
-    /// open their corresponding catalogue detail from Features; destinations
-    /// such as Certificates and Profiles are reached from Settings.
+    /// The tab to select for a requested destination. A destination that is a
+    /// tab is selected; the workflows reached from Settings name Settings, and
+    /// a build that somehow renders no Settings tab falls back to its first.
     static func tab(toOpen section: ShellSection) -> ShellSection {
         let tabs = primaryTabs
         if tabs.contains(section) { return section }
-        if section == .appStore || section == .downloads, tabs.contains(.features) {
-            return .features
-        }
         return tabs.contains(.settings) ? .settings : (tabs.first ?? .settings)
     }
 
@@ -86,8 +83,10 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
     }
 
     /// Resolves values saved by older builds to a real picker choice. Store
-    /// and Downloads now live inside Features; retired Certificates and
-    /// Profiles still resolve to the Library, where imported applications are.
+    /// and Downloads are tabs of their own again, so a saved Store or
+    /// Downloads preference is honoured rather than migrated; retired
+    /// Certificates and Profiles still resolve to the Library, where imported
+    /// applications are.
     static func effectiveLandingTab(for stored: LandingTab) -> LandingTab {
         let migrated = stored.selectable
         return offerableLandingTabs.contains(migrated) ? migrated : .library

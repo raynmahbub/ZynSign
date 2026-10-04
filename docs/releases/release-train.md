@@ -38,7 +38,7 @@ Each stop accumulates features from earlier stops. The stage definitions, prereq
 
 ## What the app exposes
 
-- **Five native tabs:** Files, Library, Home, Features, and Settings. Store and Downloads are reached from Features rather than using extra tab slots; Certificates and Profiles are in Settings. This keeps the tab bar within UIKit's five-item limit and avoids its system-owned overflow navigation stack.
+- **A tab per destination:** Files, Library, Home, Store, Downloads, Features, and Settings — every destination the stop exposes, each with its own slot. The shell draws its own bar (`ShellTabBar`) instead of using UIKit's, whose five-item ceiling folds the rest into a *More* list it pushes, and a pushed destination that owns a `NavigationStack` crashes at runtime. Earlier stops worked around that by hiding destinations, which is how the Store tab came to be missing; the shell now shows them instead. Certificates, Profiles, Presets, and the installation workspace remain workflows opened from Settings.
 - **Features index:** available, staged, and unsupported capabilities are searchable and filterable. `CoreFeature.allCases`, `ReleaseFeature.allCases`, and `UnsupportedFeature.allCases` feed the catalogue. Adding a case includes it automatically; exhaustive metadata switches require its title, category, and explanation.
 - **Release vs. Debug:** Release builds use the current train gate. Debug builds expose all release-gated features for development. The complete catalogue still labels the Release availability honestly.
 

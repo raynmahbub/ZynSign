@@ -636,16 +636,25 @@ struct CertificateManagerView: View {
 
     /// Presents the password sheet once the picker's own dismissal has landed.
     ///
-    /// The window is the one every post-picker presentation in ZynSign waits
-    /// out (`PresentationSettle`): a presentation requested while another is
-    /// dismissing is dropped by UIKit without an error, which is why a `.p12`
-    /// could be chosen and nothing at all appeared to happen afterwards. The
-    /// bytes stay in `pendingData` meanwhile, so a slow device costs a beat,
-    /// not the import.
+    /// This is the step a chosen `.p12` used to disappear at: a presentation
+    /// requested while another controller is dismissing is dropped by UIKit
+    /// with no error, so the file was read and then nothing at all appeared.
+    /// The wait is now the platform's own report that no transition is in
+    /// flight (`PresentationSettle.waitForIdle`) rather than a duration that
+    /// has to be longer than an animation, and the raise is confirmed: if
+    /// nothing appeared, the sheet is asked for once more. The bytes stay in
+    /// `pendingData` meanwhile, so the retry costs a beat, never the import.
     private func presentPasswordSheetAfterPickerSettles() {
-        PresentationSettle.afterDismissal {
-            guard pendingData != nil, pendingFileName != nil, !showPasswordSheet else { return }
-            showPasswordSheet = true
+        Task { @MainActor in
+            for _ in 0..<2 {
+                guard pendingData != nil, pendingFileName != nil else { return }
+                if await PresentationSettle.presentAndConfirm({ showPasswordSheet = true }) {
+                    return
+                }
+                // Nothing appeared, so the flag is not describing a sheet on
+                // screen: clear it and ask again.
+                showPasswordSheet = false
+            }
         }
     }
 

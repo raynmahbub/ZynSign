@@ -139,11 +139,19 @@ struct FilesView: View {
             // The hub is a sheet raised from the picker's own completion
             // frame, where UIKit drops a presentation while the picker is
             // still dismissing — the same drop the certificate import's
-            // password sheet waits out. Asking for it after the beat makes the
-            // hand-off land instead of leaving the hub closed with the picked
-            // package already queued behind it.
+            // password sheet waits out. Asking for it once the hierarchy is
+            // idle, and confirming something appeared, makes the hand-off land
+            // instead of leaving the hub closed with the picked package
+            // already queued behind it.
             let present = importPresentation.present
-            PresentationSettle.afterDismissal { present() }
+            Task { @MainActor in
+                // Confirmed, and asked once more if the platform accepted
+                // nothing: a hub dropped in the picker's dismissal frame is a
+                // package already queued behind a sheet that never opened.
+                for _ in 0..<2 {
+                    if await PresentationSettle.presentAndConfirm({ present() }) { break }
+                }
+            }
         }
         if !others.isEmpty {
             model.importFiles(urls: others)
