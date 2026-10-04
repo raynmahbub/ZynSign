@@ -56,6 +56,6 @@ python3 Scripts/release_train.py promote alpha2          # a named stop
 
 ## Release and verification
 
-The **Release** workflow (`.github/workflows/03-release.yml`) validates the train stop and quality gates, builds assets, generates categorized release notes, and publishes only on a non-dry run. It then opens or updates a changelog PR; it does not write generated changelog edits directly to the default branch. See [release automation](release-automation.md).
+The **Release** workflow (`.github/workflows/03-release.yml`) validates the train stop and quality gates, builds assets, generates categorized release notes, and publishes only on a non-dry run. It then opens or updates a changelog PR (or leaves the changelog staged on an automation branch when the repository does not let Actions open PRs); it does not write generated changelog edits directly to the default branch. See [release automation](release-automation.md).
 
 Builds and passing CI are not device evidence. Follow the required physical-device and simulator checks in [private testing](private-testing.md), and keep unsupported platform behavior documented in [WHAT_DOES_NOT_EXIST.md](../product/WHAT_DOES_NOT_EXIST.md). See [version strategy](version-strategy.md) for stage exit criteria and [Nova roadmap](../product/ROADMAP-v3.0-nova.md) for the post-1.0 plan.
