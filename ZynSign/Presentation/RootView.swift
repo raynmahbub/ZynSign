@@ -504,14 +504,23 @@ struct RootView: View {
     /// presenting over a dismissing sheet would race.
     private func presentSigningQueue() {
         guard SigningQueueAvailability.isAvailable else { return }
-        if isShowingImport {
-            isShowingImport = false
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 450_000_000)
-                isShowingSigningQueue = true
-            }
-        } else {
+        guard isShowingImport else {
             isShowingSigningQueue = true
+            return
+        }
+        // The hub is up, and a sheet raised in the frame it is dismissing is
+        // dropped by UIKit with no error: the queue would simply never open.
+        // The retry is the platform's report that the hierarchy is idle plus a
+        // confirmation that the sheet appeared — not a fixed wait that a slow
+        // device can outlast.
+        isShowingImport = false
+        Task { @MainActor in
+            for _ in 0..<2 {
+                if await PresentationSettle.presentAndConfirm({ isShowingSigningQueue = true }) {
+                    return
+                }
+                isShowingSigningQueue = false
+            }
         }
     }
 
