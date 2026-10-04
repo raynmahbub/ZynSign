@@ -12,7 +12,8 @@ code review convention.
 The rule this script enforces:
 
     A view that is pushed as a `NavigationLink` destination or a
-    `navigationDestination` must not itself open a `NavigationStack`.
+    `navigationDestination` must not itself open a `NavigationStack` —
+    directly or through a view it builds in its own body.
 
 Presenting the same view in a `sheet` is fine and is not reported: a sheet
 is a fresh presentation context, so a stack inside it is correct. A view is
@@ -20,9 +21,14 @@ also allowed to own a stack when it takes an `embedsNavigationStack` flag and
 supplies its own container only when the host does not — that is the
 sanctioned pattern, and these three views use it.
 
-A finding therefore means one of two things: the pushed view needs the
-`embedsNavigationStack` treatment, or the call site should present it as a
-sheet instead of pushing it.
+The direct form is the one that is easy to see. The *indirect* form is the
+one that shipped: a pushed screen built a second screen in its body, and that
+second screen opened a `NavigationStack` (`BundleExplorerView` →
+`IPAExplorerScreen`). Neither view is wrong on its own, the compiler is happy,
+and every unit test passes — the explorer simply died the first time it was
+opened. A finding therefore means one of three things: the pushed view needs
+the `embedsNavigationStack` treatment, the view it builds there does, or the
+call site should present it as a sheet instead of pushing it.
 
 Usage:
     python3 Scripts/audit_navigation_stack.py            # compare and report
@@ -201,6 +207,32 @@ class ScreenInfo:
     path: Path
     owns_stack: bool
     self_managed: bool
+    #: Types this screen constructs in its own body — sheet closures already
+    #: dropped — mapped to whether the construction opted out of the built
+    #: view's own container (`embedsNavigationStack: false`).
+    builds: dict[str, bool]
+
+
+def constructions(body: str) -> dict[str, bool]:
+    """Every type constructed in `body`, and whether the call opted out.
+
+    `body` must already have its sheet-like closures dropped: a stack built
+    inside a sheet is a fresh presentation context and is not nested into the
+    host's stack, so it is not the script's business.
+
+    The opt-out is the sanctioned `embedsNavigationStack: false` argument at
+    the construction site, which is how a view that owns a container is told
+    the host already has one.
+    """
+    found: dict[str, bool] = {}
+    for match in re.finditer(r"\b([A-Z][A-Za-z0-9_]*)\s*\(", body):
+        name = match.group(1)
+        argument_end = _skip_arguments(body, match.end() - 1)
+        if argument_end is None:
+            continue
+        arguments = body[match.end() - 1 : argument_end]
+        found[name] = bool(re.search(r"embedsNavigationStack\s*:\s*false", arguments))
+    return found
 
 
 def scan_screens() -> dict[str, ScreenInfo]:
@@ -215,19 +247,29 @@ def scan_screens() -> dict[str, ScreenInfo]:
             if brace == -1:
                 continue
             body = text[brace : brace_span(text, brace)]
-            owns = "NavigationStack" in drop_fresh_contexts(body)
+            rendered = drop_fresh_contexts(body)
             screens[name] = ScreenInfo(
                 name=name,
                 path=path,
-                owns_stack=owns,
+                # A real use opens a container (`NavigationStack {` or
+                # `NavigationStack(path:) {`). The plain substring test also
+                # matched `embedsNavigationStack`, the flag that says the host
+                # owns the container, which is the opposite of a stack here.
+                owns_stack=bool(re.search(r"\bNavigationStack\s*[({]", rendered)),
                 self_managed=bool(SELF_MANAGED.search(body)),
+                builds=constructions(rendered),
             )
     return screens
 
 
-def scan_push_sites() -> list[tuple[str, Path, int]]:
-    """Every `(view, file, line)` that pushes a view onto the host's stack."""
-    sites: list[tuple[str, Path, int]] = []
+def scan_push_sites() -> list[tuple[str, Path, int, bool]]:
+    """Every push site: `(view, file, line, opted_out)`.
+
+    `opted_out` records whether the call itself passed
+    `embedsNavigationStack: false` — the sanctioned way to hand a view that can
+    own a container the host's stack instead.
+    """
+    sites: list[tuple[str, Path, int, bool]] = []
     for path in sorted(PRESENTATION_DIR.rglob("*.swift")):
         text = strip_comments_and_literals(path.read_text(encoding="utf-8"))
         line_starts = [0]
@@ -247,25 +289,86 @@ def scan_push_sites() -> list[tuple[str, Path, int]]:
 
         for pattern in PUSHED:
             for match in pattern.finditer(text):
-                sites.append((match.group(1), path, line_of(match.start())))
+                open_paren = match.end() - 1
+                end = _skip_arguments(text, open_paren)
+                arguments = text[open_paren:end] if end is not None else ""
+                sites.append(
+                    (
+                        match.group(1),
+                        path,
+                        line_of(match.start()),
+                        bool(re.search(r"embedsNavigationStack\s*:\s*false", arguments)),
+                    )
+                )
     return sites
+
+
+def nested_stack_chain(name: str, screens: dict[str, ScreenInfo]) -> list[str] | None:
+    """The construction chain from `name` to a stack owner, if there is one.
+
+    Follows what a screen builds in its own body, skipping any construction
+    that passed `embedsNavigationStack: false` — that view is being handed the
+    host's container on purpose. Depth is bounded: this is a gate, not a
+    whole-program analysis, and a chain longer than a few screens is not a
+    shape anyone should have to reason about.
+    """
+    queue: list[tuple[str, list[str]]] = [(name, [name])]
+    seen = {name}
+    while queue:
+        current, chain = queue.pop(0)
+        info = screens.get(current)
+        if info is None or len(chain) > 4:
+            continue
+        for built, opted_out in info.builds.items():
+            if opted_out or built in seen:
+                continue
+            target = screens.get(built)
+            if target is None:
+                continue
+            seen.add(built)
+            if target.owns_stack:
+                return chain + [built]
+            queue.append((built, chain + [built]))
+    return None
 
 
 def audit() -> list[Finding]:
     screens = scan_screens()
     findings: list[Finding] = []
-    for name, path, line in scan_push_sites():
+    reported: set[tuple[str, str, int]] = set()
+    for name, path, line, opted_out in scan_push_sites():
         info = screens.get(name)
-        if info is None or not info.owns_stack or info.self_managed:
+        if info is None or opted_out:
             continue
+        key = (name, path.relative_to(ROOT).as_posix(), line)
+        if info.owns_stack:
+            findings.append(
+                Finding(
+                    view=name,
+                    pushed_from=key[1],
+                    line=line,
+                    detail=(
+                        "give it an embedsNavigationStack flag and pass false, "
+                        "or present it as a sheet instead of pushing it"
+                    ),
+                )
+            )
+            reported.add(key)
+            continue
+        chain = nested_stack_chain(name, screens)
+        if chain is None or key in reported:
+            continue
+        reported.add(key)
         findings.append(
             Finding(
                 view=name,
-                pushed_from=path.relative_to(ROOT).as_posix(),
+                pushed_from=key[1],
                 line=line,
                 detail=(
-                    "give it an embedsNavigationStack flag and pass false, "
-                    "or present it as a sheet instead of pushing it"
+                    "it builds " + " → ".join(chain[1:]) + ", which opens its own "
+                    "NavigationStack; give that view an embedsNavigationStack flag "
+                    "and pass false where it is built, or present this screen as a "
+                    "sheet instead of pushing it"
                 ),
             )
         )
