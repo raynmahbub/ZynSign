@@ -19,6 +19,44 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Fixed
+
+- **The App Store tab.** The shell showed five destinations and dropped Store
+  and Downloads, because UIKit's own tab bar draws five items and folds the
+  rest into a *More* list it **pushes** — and a pushed destination that owns a
+  `NavigationStack` (every ZynSign area does) crashes at runtime. Hiding
+  destinations was that crash's workaround; the shell now draws its own bar
+  (`ShellTabBar`) and gives every destination the release exposes its own tab:
+  Files, Library, Home, Store, Downloads, Features, Settings. `ShellSection`
+  caps and drops nothing, a saved Store or Downloads landing preference is
+  honoured again instead of being folded into Features, and the five-item
+  ceiling of UIKit's bar no longer decides what the product shows. Pinned by
+  `ShellSectionTabTests`.
+- **The Bundle Explorer no longer crashes on open.** `BundleExplorerView`
+  (application detail → *View Bundle*, signing → *Explore IPA*) is pushed onto
+  the host's stack, and it built `IPAExplorerScreen`, which opened its own
+  `NavigationStack` (and a `NavigationSplitView` on iPad). A stack nested inside
+  a pushed destination is a runtime crash — the same class that made Settings
+  unusable — and this instance was invisible to `audit_navigation_stack.py`
+  because the pushed view was fine on its own and the view underneath it was
+  not. `IPAExplorerScreen` now takes `embedsNavigationStack` and
+  `BundleExplorerView` passes `false`, so details push through the host's
+  stack. The audit follows a pushed view's own constructions now, requires a
+  real `NavigationStack` use rather than the `embedsNavigationStack` flag that
+  contains the word, and honours the opt-out at the call site — three
+  regressions were injected and caught while adding it.
+- **Import waits on reports, not on a guessed delay.** The Import Hub's file
+  picker, the `.p12` password sheet, and the hub raised from Files all slept a
+  fixed 400 ms beat before presenting. A presentation requested while another
+  controller is transitioning is dropped by UIKit with no error — the tap that
+  appears to do nothing — and on a device slower than the guess (a Release
+  build, a cold first render) the beat elapses before the animation does, so
+  the request was dropped again. `PresentationSettle` now waits for the
+  platform's own state (no in-flight transition; a sheet's own appearance
+  report, `SheetPresentationReporter`), and `presentAndConfirm` checks that
+  something appeared, asking once more when nothing did, instead of leaving the
+  tap unanswered. `PresentationSettle.beat` is gone.
+
 ## [0.1.0-alpha.1] - 2026-10-03 — Auto-generated
 
 ### Fixed
