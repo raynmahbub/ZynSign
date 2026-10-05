@@ -184,8 +184,9 @@ final class ZynSignPreferencesTests: XCTestCase {
     }
 
     func testShippedThemesAreStored() {
-        XCTAssertEqual(ZynSignTheme.allCases.count, 5)
-        XCTAssertEqual(ZynSignTheme.defaultIdentifier, "zynsign.default")
+        // Storefront joins the set and ships as the default from v0.1.0-alpha.2.
+        XCTAssertEqual(ZynSignTheme.allCases.count, 6)
+        XCTAssertEqual(ZynSignTheme.defaultIdentifier, "zynsign.storefront")
     }
 
     // MARK: - Reset

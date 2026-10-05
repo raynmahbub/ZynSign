@@ -27,7 +27,7 @@ final class AppThemeCatalogTests: XCTestCase {
 
     func testUnknownIdentifierFallsBackToDefault() {
         XCTAssertEqual(AppThemeCatalog.theme(identifier: "does.not.exist").identifier, ZynSignTheme.defaultIdentifier)
-        XCTAssertEqual(AppThemeCatalog.defaultTheme.identifier, ZynSignTheme.zynSign.rawValue)
+        XCTAssertEqual(AppThemeCatalog.defaultTheme.identifier, ZynSignTheme.storefront.rawValue)
     }
 
     func testThemeIdentifiersMatchThePreferenceEnum() {

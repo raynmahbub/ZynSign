@@ -506,13 +506,15 @@ final class SecurityScopedArtifactIntake: ArtifactIntake, ImportStagingArea {
     private func readSignature(of url: URL) -> Bool? {
         guard let reader = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? reader.close() }
-        let head: Data?
+        let head: Data
         do {
-            head = try reader.read(upToCount: 4)
+            // `read(upToCount:)` reports EOF as nil: an empty file reads
+            // zero bytes without failing, and that is an observation, not an
+            // unread. Only a throw means the bytes could not be seen.
+            head = try reader.read(upToCount: 4) ?? Data()
         } catch {
             return nil
         }
-        guard let head else { return nil }
         if head.count >= 4 {
             let bytes = [UInt8](head)
             guard bytes[0] == 0x50, bytes[1] == 0x4B else { return false }
