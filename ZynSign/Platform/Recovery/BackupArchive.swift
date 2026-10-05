@@ -246,99 +246,176 @@ actor BackupArchive {
         return try unpack(url, password: password, into: destination)
     }
 
+    private struct UnpackContext {
+        let key: SymmetricKey
+        let manifest: BackupManifest
+    }
+
     private func unpack(_ url: URL, password: String, into destination: URL?) throws -> BackupManifest {
         let input = try FileHandle(forReadingFrom: url)
         defer { try? input.close() }
-        guard try read(input, count: 8) == Self.magic else { throw BackupFailure.invalid("Not a ZynSign backup.") }
+        let context = try readUnpackContext(from: input, password: password)
+        try unpackEntries(context.manifest.entries, from: input, key: context.key, into: destination)
+        try validateNoTrailingData(in: input)
+        if let destination {
+            try validateUnpackedContents(context.manifest, in: destination)
+        }
+        return context.manifest
+    }
+
+    private func readUnpackContext(from input: FileHandle, password: String) throws -> UnpackContext {
+        guard try read(input, count: 8) == Self.magic else {
+            throw BackupFailure.invalid("Not a ZynSign backup.")
+        }
         let encryptionKey = try key(password, salt: read(input, count: 16))
-        let manifest = try JSONDecoder().decode(BackupManifest.self,
-            from: readFrame(input, key: encryptionKey, limit: Self.maximumManifest))
+        let manifest = try JSONDecoder().decode(
+            BackupManifest.self,
+            from: readFrame(input, key: encryptionKey, limit: Self.maximumManifest)
+        )
         guard manifest.version == BackupManifest.version else {
             throw BackupFailure.invalid("This backup version is not supported. Update ZynSign before restoring.")
         }
-        guard !manifest.entries.isEmpty, manifest.entries.count <= Self.maximumEntries,
+        guard !manifest.entries.isEmpty,
+              manifest.entries.count <= Self.maximumEntries,
               Set(manifest.entries.map(\.path)).count == manifest.entries.count else {
             throw BackupFailure.invalid("Invalid backup catalog.")
         }
-        for entry in manifest.entries {
-            guard Self.category(for: entry.path) == entry.category,
-                  entry.bytes >= 0, entry.bytes <= 500_000_000_000, entry.sha256.count == 64,
-                  entry.sha256.allSatisfy({ $0.isHexDigit }) else {
-                throw BackupFailure.invalid("Backup contains an unsupported item.")
-            }
-            let output: FileHandle?
-            if let destination {
-                let file = destination.appendingPathComponent(entry.path)
-                try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-                fm.createFile(atPath: file.path, contents: nil)
-                output = try FileHandle(forWritingTo: file)
-            } else { output = nil }
-            var remaining = entry.bytes
-            var hash = SHA256()
-            do {
-                while remaining > 0 {
-                    try Task.checkCancellation()
-                    let frame = try readFrame(input, key: encryptionKey, limit: Self.chunk)
-                    guard Int64(frame.count) == min(Int64(Self.chunk), remaining) else {
-                        throw BackupFailure.invalid("Backup item length is invalid.")
-                    }
-                    remaining -= Int64(frame.count)
-                    hash.update(data: frame)
-                    try output?.write(contentsOf: frame)
-                }
-                try output?.close()
-            } catch { try? output?.close(); throw error }
-            guard hash.finalize().map({ String(format: "%02x", $0) }).joined() == entry.sha256 else {
-                throw BackupFailure.invalid("Backup checksum failed for \(entry.path).")
-            }
+        return UnpackContext(key: encryptionKey, manifest: manifest)
+    }
+
+    private func unpackEntries(
+        _ entries: [BackupManifest.Entry],
+        from input: FileHandle,
+        key encryptionKey: SymmetricKey,
+        into destination: URL?
+    ) throws {
+        for entry in entries {
+            try validateManifestEntry(entry)
+            try unpackEntry(entry, from: input, key: encryptionKey, into: destination)
         }
+    }
+
+    private func validateManifestEntry(_ entry: BackupManifest.Entry) throws {
+        guard Self.category(for: entry.path) == entry.category,
+              entry.bytes >= 0,
+              entry.bytes <= 500_000_000_000,
+              entry.sha256.count == 64,
+              entry.sha256.allSatisfy({ $0.isHexDigit }) else {
+            throw BackupFailure.invalid("Backup contains an unsupported item.")
+        }
+    }
+
+    private func unpackEntry(
+        _ entry: BackupManifest.Entry,
+        from input: FileHandle,
+        key encryptionKey: SymmetricKey,
+        into destination: URL?
+    ) throws {
+        let output = try makeOutput(for: entry, in: destination)
+        var remaining = entry.bytes
+        var hash = SHA256()
+        do {
+            while remaining > 0 {
+                try Task.checkCancellation()
+                let frame = try readFrame(input, key: encryptionKey, limit: Self.chunk)
+                guard Int64(frame.count) == min(Int64(Self.chunk), remaining) else {
+                    throw BackupFailure.invalid("Backup item length is invalid.")
+                }
+                remaining -= Int64(frame.count)
+                hash.update(data: frame)
+                try output?.write(contentsOf: frame)
+            }
+            try output?.close()
+        } catch {
+            try? output?.close()
+            throw error
+        }
+        guard hash.finalize().map({ String(format: "%02x", $0) }).joined() == entry.sha256 else {
+            throw BackupFailure.invalid("Backup checksum failed for \(entry.path).")
+        }
+    }
+
+    private func makeOutput(for entry: BackupManifest.Entry, in destination: URL?) throws -> FileHandle? {
+        guard let destination else { return nil }
+        let file = destination.appendingPathComponent(entry.path)
+        try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        fm.createFile(atPath: file.path, contents: nil)
+        return try FileHandle(forWritingTo: file)
+    }
+
+    private func validateNoTrailingData(in input: FileHandle) throws {
         let trailing = try input.read(upToCount: 1)
         guard trailing?.isEmpty ?? true else {
             throw BackupFailure.invalid("Backup has unexpected trailing data.")
         }
-        if let destination {
-            for entry in manifest.entries where entry.category != .library && entry.category != .collections {
-                let data = try Data(contentsOf: destination.appendingPathComponent(entry.path), options: .mappedIfSafe)
-                let object = try JSONSerialization.jsonObject(with: data)
-                guard object is [String: Any] || object is [Any] else {
-                    throw BackupFailure.invalid("A backup document is not valid JSON.")
-                }
-                if entry.path == "Preferences.json" {
-                    guard let envelope = object as? [String: Any],
-                          let version = envelope["schemaVersion"] as? Int,
-                          version >= 1, version <= ZynSignPreferences.schemaVersion,
-                          let preferences = envelope["preferences"],
-                          let encoded = try? JSONSerialization.data(withJSONObject: preferences),
-                          let decoded = try? JSONDecoder().decode(ZynSignPreferences.self, from: encoded),
-                          decoded.schemaVersion <= ZynSignPreferences.schemaVersion else {
-                        throw BackupFailure.invalid("Preferences contents or version are unsupported.")
-                    }
-                }
-            }
-            let catalog = destination.appendingPathComponent("catalog.json")
-            if fm.fileExists(atPath: catalog.path) {
-                let records = try FileApplicationRecordStore.readCatalog(at: catalog)
-                guard manifest.libraryItems == records.count,
-                      manifest.favoriteItems == records.values.filter(\.isFavorite).count else {
-                    throw BackupFailure.invalid("Library contents do not match the backup preview.")
-                }
-                for record in records.values {
-                    let file = destination.appendingPathComponent("Artifacts/\(record.artifact.artifactID.rawValue).ipa")
-                    guard fm.fileExists(atPath: file.path),
-                          (try file.resourceValues(forKeys: [.fileSizeKey])).fileSize == record.artifact.byteCount,
-                          try digest(file).1 == record.artifact.fingerprint.hexDigest else {
-                        throw BackupFailure.invalid("A library package is missing or does not match its recorded fingerprint.")
-                    }
-                }
-            }
-            let organization = destination.appendingPathComponent("Organization.json")
-            if fm.fileExists(atPath: organization.path) {
-                let count = try FileLibraryOrganizationStore(documentLocation: organization).loadOrganization().collections.count
-                guard manifest.collectionCount == count else {
-                    throw BackupFailure.invalid("Collections do not match the backup preview.")
-                }
-            }
-        }
-        return manifest
     }
+
+    private func validateUnpackedContents(_ manifest: BackupManifest, in destination: URL) throws {
+        try validateJSONDocuments(manifest, in: destination)
+        try validateLibraryContents(manifest, in: destination)
+        try validateOrganization(manifest, in: destination)
+    }
+
+    private func validateJSONDocuments(_ manifest: BackupManifest, in destination: URL) throws {
+        for entry in manifest.entries where entry.category != .library && entry.category != .collections {
+            try validateJSONDocument(entry, in: destination)
+        }
+    }
+
+    private func validateJSONDocument(_ entry: BackupManifest.Entry, in destination: URL) throws {
+        let file = destination.appendingPathComponent(entry.path)
+        let data = try Data(contentsOf: file, options: .mappedIfSafe)
+        let object = try JSONSerialization.jsonObject(with: data)
+        guard object is [String: Any] || object is [Any] else {
+            throw BackupFailure.invalid("A backup document is not valid JSON.")
+        }
+        if entry.path == "Preferences.json" {
+            try validatePreferences(object)
+        }
+    }
+
+    private func validatePreferences(_ object: Any) throws {
+        guard let envelope = object as? [String: Any],
+              let version = envelope["schemaVersion"] as? Int,
+              version >= 1,
+              version <= ZynSignPreferences.schemaVersion,
+              let preferences = envelope["preferences"],
+              let encoded = try? JSONSerialization.data(withJSONObject: preferences),
+              let decoded = try? JSONDecoder().decode(ZynSignPreferences.self, from: encoded),
+              decoded.schemaVersion <= ZynSignPreferences.schemaVersion else {
+            throw BackupFailure.invalid("Preferences contents or version are unsupported.")
+        }
+    }
+
+    private func validateLibraryContents(_ manifest: BackupManifest, in destination: URL) throws {
+        let catalog = destination.appendingPathComponent("catalog.json")
+        guard fm.fileExists(atPath: catalog.path) else { return }
+        let records = try FileApplicationRecordStore.readCatalog(at: catalog)
+        guard manifest.libraryItems == records.count,
+              manifest.favoriteItems == records.values.filter(\.isFavorite).count else {
+            throw BackupFailure.invalid("Library contents do not match the backup preview.")
+        }
+        for record in records.values {
+            try validateLibraryArtifact(record, in: destination)
+        }
+    }
+
+    private func validateLibraryArtifact(_ record: ApplicationRecord, in destination: URL) throws {
+        let file = destination.appendingPathComponent("Artifacts/\(record.artifact.artifactID.rawValue).ipa")
+        guard fm.fileExists(atPath: file.path),
+              (try file.resourceValues(forKeys: [.fileSizeKey])).fileSize == record.artifact.byteCount,
+              try digest(file).1 == record.artifact.fingerprint.hexDigest else {
+            throw BackupFailure.invalid("A library package is missing or does not match its recorded fingerprint.")
+        }
+    }
+
+    private func validateOrganization(_ manifest: BackupManifest, in destination: URL) throws {
+        let organization = destination.appendingPathComponent("Organization.json")
+        guard fm.fileExists(atPath: organization.path) else { return }
+        let count = try FileLibraryOrganizationStore(documentLocation: organization).loadOrganization().collections.count
+        guard manifest.collectionCount == count else {
+            throw BackupFailure.invalid("Collections do not match the backup preview.")
+        }
+    }
+
 }

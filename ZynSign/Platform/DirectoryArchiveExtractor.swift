@@ -208,6 +208,12 @@ struct DirectoryArchiveExtractor {
     }
 
     private func validate(table: [ArchiveEntry]) throws -> PlannedExtraction {
+        let kindsByPath = try validatedEntryKinds(in: table)
+        let implied = try impliedDirectories(in: table, kindsByPath: kindsByPath)
+        return try plannedEntries(in: table, impliedDirectories: implied)
+    }
+
+    private func validatedEntryKinds(in table: [ArchiveEntry]) throws -> [String: ArchiveEntryKind] {
         var kindsByPath: [String: ArchiveEntryKind] = [:]
         var declaredBytes = 0
         for entry in table {
@@ -221,20 +227,7 @@ struct DirectoryArchiveExtractor {
                     diagnosticDetail: "The container records one location more than once."
                 )
             }
-            switch entry.kind {
-            case .directory, .regularFile:
-                break
-            case .symbolicLink:
-                if policy.symlinkPolicy == .refuse {
-                    throw ZynSignError.unsafeArchiveEntry(
-                        diagnosticDetail: "The container records a symbolic link, which this extraction refuses."
-                    )
-                }
-            case .unsupported:
-                throw ZynSignError.unsupportedArchiveFeature(
-                    diagnosticDetail: "The container records an entry form ZynSign cannot reproduce."
-                )
-            }
+            try validateEntryKind(entry.kind)
             let (accumulated, overflow) = declaredBytes.addingReportingOverflow(entry.uncompressedSize)
             guard !overflow, accumulated <= policy.maximumExtractedBytes else {
                 throw ZynSignError.archiveResourceLimitExceeded(
@@ -244,49 +237,62 @@ struct DirectoryArchiveExtractor {
             declaredBytes = accumulated
             kindsByPath[path.rawValue] = entry.kind
         }
+        return kindsByPath
+    }
 
-        // Every file and link needs directory ancestors, and an ancestor
-        // claimed by a non-directory entry is a conflict, not a directory.
+    private func validateEntryKind(_ kind: ArchiveEntryKind) throws {
+        switch kind {
+        case .directory, .regularFile:
+            return
+        case .symbolicLink where policy.symlinkPolicy == .recreateWithinRoot:
+            return
+        case .symbolicLink:
+            throw ZynSignError.unsafeArchiveEntry(
+                diagnosticDetail: "The container records a symbolic link, which this extraction refuses."
+            )
+        case .unsupported:
+            throw ZynSignError.unsupportedArchiveFeature(
+                diagnosticDetail: "The container records an entry form ZynSign cannot reproduce."
+            )
+        }
+    }
+
+    private func impliedDirectories(
+        in table: [ArchiveEntry],
+        kindsByPath: [String: ArchiveEntryKind]
+    ) throws -> [String] {
         var implied: [String] = []
         var impliedSet: Set<String> = []
         for entry in table {
-            guard let path = entry.path else {
-                continue
-            }
-            if entry.kind == .directory {
-                continue
-            }
-            var components = path.components
-            components.removeLast()
+            guard let path = entry.path, entry.kind != .directory else { continue }
             var prefix = ""
-            for component in components {
-                if prefix.isEmpty {
-                    prefix = component
-                } else {
-                    prefix = prefix + "/" + component
-                }
+            for component in path.components.dropLast() {
+                prefix = prefix.isEmpty ? component : prefix + "/" + component
                 if let claimed = kindsByPath[prefix] {
-                    if claimed != .directory {
+                    guard claimed == .directory else {
                         throw ZynSignError.unsafeArchiveEntry(
                             diagnosticDetail: "The container records one location as both a directory and another entry kind."
                         )
                     }
                     continue
                 }
-                if !impliedSet.contains(prefix) {
-                    impliedSet.insert(prefix)
+                if impliedSet.insert(prefix).inserted {
                     implied.append(prefix)
                 }
             }
         }
+        return implied
+    }
 
+    private func plannedEntries(
+        in table: [ArchiveEntry],
+        impliedDirectories: [String]
+    ) throws -> PlannedExtraction {
         var directories: [ArchivePath] = []
         var files: [PlannedEntry] = []
         var symbolicLinks: [PlannedEntry] = []
         for entry in table {
-            guard let path = entry.path else {
-                continue
-            }
+            guard let path = entry.path else { continue }
             switch entry.kind {
             case .directory:
                 directories.append(path)
@@ -300,7 +306,7 @@ struct DirectoryArchiveExtractor {
                 )
             }
         }
-        for ancestor in implied {
+        for ancestor in impliedDirectories {
             guard let path = ArchivePath(rawValue: ancestor) else {
                 throw ZynSignError.unsafeArchiveEntry(
                     diagnosticDetail: "The container implies a directory ZynSign cannot safely name."
@@ -308,20 +314,17 @@ struct DirectoryArchiveExtractor {
             }
             directories.append(path)
         }
-
-        directories.sort { left, right in
-            if left.components.count != right.components.count {
-                return left.components.count < right.components.count
-            }
-            return left.rawValue < right.rawValue
-        }
-        files.sort { left, right in
-            left.path.rawValue < right.path.rawValue
-        }
-        symbolicLinks.sort { left, right in
-            left.path.rawValue < right.path.rawValue
-        }
+        directories.sort(by: directoryOrder)
+        files.sort { $0.path.rawValue < $1.path.rawValue }
+        symbolicLinks.sort { $0.path.rawValue < $1.path.rawValue }
         return PlannedExtraction(directories: directories, files: files, symbolicLinks: symbolicLinks)
+    }
+
+    private func directoryOrder(_ left: ArchivePath, _ right: ArchivePath) -> Bool {
+        if left.components.count != right.components.count {
+            return left.components.count < right.components.count
+        }
+        return left.rawValue < right.rawValue
     }
 
     // MARK: - Writing helpers

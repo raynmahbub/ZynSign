@@ -216,103 +216,251 @@ actor RecoveryStore {
     static func applyPending(at root: URL) {
         let fm = FileManager.default
         let directory = root.appendingPathComponent("Recovery", isDirectory: true)
-        let pending = directory.appendingPathComponent("PendingRestore.json")
-        guard let data = try? Data(contentsOf: pending),
-              let plan = try? JSONDecoder().decode(PendingRestore.self, from: data),
-              plan.stage.hasPrefix("Stage-"), UUID(uuidString: String(plan.stage.dropFirst(6))) != nil else { return }
+        guard let plan = pendingPlan(in: directory) else { return }
         let stage = directory.appendingPathComponent(plan.stage, isDirectory: true)
-        let rollback = directory.appendingPathComponent("Rollback-" + plan.stage, isDirectory: true)
-        let paths = plan.categories.flatMap { category -> [String] in
-            switch category {
-            case .library: return ["Artifacts", "catalog.json"]
-            case .collections: return ["Organization.json"]
-            case .settings: return ["Preferences.json"]
-            case .history: return ["ImportHistory.json", "SigningHistory.json", "Exports.json"]
-            }
-        }.filter { fm.fileExists(atPath: stage.appendingPathComponent($0).path) }
+        let paths = restorePaths(for: plan, stage: stage, fileManager: fm)
         guard !paths.isEmpty else { return }
         // Do not touch live data unless every selected staged item is intact.
         // The authenticated archive manifest was captured in the pending plan.
+        guard validateStage(plan, at: stage, directory: directory, fileManager: fm) else { return }
+        let rollback = directory.appendingPathComponent("Rollback-" + plan.stage, isDirectory: true)
+        let pending = directory.appendingPathComponent("PendingRestore.json")
+        installPendingRestore(
+            plan,
+            paths: paths,
+            root: root,
+            stage: stage,
+            rollback: rollback,
+            pending: pending,
+            directory: directory,
+            fileManager: fm
+        )
+    }
+
+    private static func pendingPlan(in directory: URL) -> PendingRestore? {
+        let pending = directory.appendingPathComponent("PendingRestore.json")
+        guard let data = try? Data(contentsOf: pending),
+              let plan = try? JSONDecoder().decode(PendingRestore.self, from: data),
+              plan.stage.hasPrefix("Stage-"),
+              UUID(uuidString: String(plan.stage.dropFirst(6))) != nil else {
+            return nil
+        }
+        return plan
+    }
+
+    private static func restorePaths(
+        for plan: PendingRestore,
+        stage: URL,
+        fileManager fm: FileManager
+    ) -> [String] {
+        plan.categories.flatMap { destinationPaths(for: $0) }.filter {
+            fm.fileExists(atPath: stage.appendingPathComponent($0).path)
+        }
+    }
+
+    private static func destinationPaths(for category: BackupCategory) -> [String] {
+        switch category {
+        case .library: return ["Artifacts", "catalog.json"]
+        case .collections: return ["Organization.json"]
+        case .settings: return ["Preferences.json"]
+        case .history: return ["ImportHistory.json", "SigningHistory.json", "Exports.json"]
+        }
+    }
+
+    private static func validateStage(
+        _ plan: PendingRestore,
+        at stage: URL,
+        directory: URL,
+        fileManager fm: FileManager
+    ) -> Bool {
         do {
-            guard !plan.entries.isEmpty,
-                  Set(plan.entries.map(\.path)).count == plan.entries.count else {
-                throw BackupFailure.invalid("Restore plan is empty or invalid.")
-            }
-            let stagedArtifacts = stage.appendingPathComponent("Artifacts", isDirectory: true)
-            if fm.fileExists(atPath: stagedArtifacts.path) {
-                let expected = Set(plan.entries.filter { $0.path.hasPrefix("Artifacts/") }
-                    .map { URL(fileURLWithPath: $0.path).lastPathComponent })
-                guard Set(try fm.contentsOfDirectory(atPath: stagedArtifacts.path)) == expected else {
-                    throw BackupFailure.invalid("Staged library contains unexpected files.")
-                }
-            }
-            for entry in plan.entries {
-                guard BackupArchive.category(for: entry.path) == entry.category,
-                      plan.categories.contains(entry.category),
-                      try checksum(stage.appendingPathComponent(entry.path)) == entry.sha256 else {
-                    throw BackupFailure.invalid("Staged backup failed integrity verification.")
-                }
-            }
+            try validateRestorePlan(plan)
+            try validateStagedArtifacts(plan, at: stage, fileManager: fm)
+            try validateStagedEntries(plan, at: stage)
+            return true
         } catch {
             try? "Staged backup is damaged. Local data was not changed.".write(
-                to: directory.appendingPathComponent("RestoreError.txt"), atomically: true, encoding: .utf8)
-            return
+                to: directory.appendingPathComponent("RestoreError.txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+            return false
         }
+    }
+
+    private static func validateRestorePlan(_ plan: PendingRestore) throws {
+        guard !plan.entries.isEmpty,
+              Set(plan.entries.map(\.path)).count == plan.entries.count else {
+            throw BackupFailure.invalid("Restore plan is empty or invalid.")
+        }
+    }
+
+    private static func validateStagedArtifacts(
+        _ plan: PendingRestore,
+        at stage: URL,
+        fileManager fm: FileManager
+    ) throws {
+        let artifacts = stage.appendingPathComponent("Artifacts", isDirectory: true)
+        guard fm.fileExists(atPath: artifacts.path) else { return }
+        let expected = Set(plan.entries.filter { $0.path.hasPrefix("Artifacts/") }
+            .map { URL(fileURLWithPath: $0.path).lastPathComponent })
+        guard Set(try fm.contentsOfDirectory(atPath: artifacts.path)) == expected else {
+            throw BackupFailure.invalid("Staged library contains unexpected files.")
+        }
+    }
+
+    private static func validateStagedEntries(_ plan: PendingRestore, at stage: URL) throws {
+        for entry in plan.entries {
+            guard BackupArchive.category(for: entry.path) == entry.category,
+                  plan.categories.contains(entry.category),
+                  try checksum(stage.appendingPathComponent(entry.path)) == entry.sha256 else {
+                throw BackupFailure.invalid("Staged backup failed integrity verification.")
+            }
+        }
+    }
+
+    private static func installPendingRestore(
+        _ plan: PendingRestore,
+        paths: [String],
+        root: URL,
+        stage: URL,
+        rollback: URL,
+        pending: URL,
+        directory: URL,
+        fileManager fm: FileManager
+    ) {
         let originalsFile = rollback.appendingPathComponent("Originals.json")
         do {
             try fm.createDirectory(at: rollback, withIntermediateDirectories: true)
-            let originalPaths: [String]
-            if fm.fileExists(atPath: originalsFile.path) {
-                originalPaths = try JSONDecoder().decode([String].self, from: Data(contentsOf: originalsFile))
-                guard Set(originalPaths).isSubset(of: Set(paths)) else { return }
-                // An interrupted install may have left a new file behind.
-                // Restore the original state before retrying from the stage.
-                for path in paths {
-                    let target = root.appendingPathComponent(path)
-                    let previous = rollback.appendingPathComponent(path)
-                    if fm.fileExists(atPath: previous.path) {
-                        if fm.fileExists(atPath: target.path) { try fm.removeItem(at: target) }
-                        try fm.moveItem(at: previous, to: target)
-                    } else if !originalPaths.contains(path), fm.fileExists(atPath: target.path) {
-                        try fm.removeItem(at: target)
-                    }
-                }
-            } else {
-                originalPaths = paths.filter { fm.fileExists(atPath: root.appendingPathComponent($0).path) }
-                // Durable journal written BEFORE the first modification.
-                try JSONEncoder().encode(originalPaths).write(to: originalsFile, options: .atomic)
+            guard try prepareRollback(
+                originalsFile,
+                paths: paths,
+                root: root,
+                rollback: rollback,
+                fileManager: fm
+            ) else {
+                return
             }
-            for path in paths {
-                let target = root.appendingPathComponent(path)
-                let previous = rollback.appendingPathComponent(path)
-                if fm.fileExists(atPath: target.path) { try fm.moveItem(at: target, to: previous) }
-                try fm.copyItem(at: stage.appendingPathComponent(path), to: target)
-                for entry in plan.entries where entry.path == path || (path == "Artifacts" && entry.path.hasPrefix("Artifacts/")) {
-                    guard try Self.checksum(root.appendingPathComponent(entry.path)) == entry.sha256 else {
-                        throw BackupFailure.invalid("Installed item failed integrity verification.")
-                    }
-                }
-            }
-            // Keep pre-restore files; cleanup is always a separate action.
-            try fm.removeItem(at: pending)
-            try? fm.removeItem(at: stage)
-            try? fm.removeItem(at: directory.appendingPathComponent("RestoreError.txt"))
-            try? "Restore verified after restart. Previous files are retained for recovery.".write(
-                to: directory.appendingPathComponent("RestoreComplete.txt"), atomically: true, encoding: .utf8)
+            try installPaths(plan, paths: paths, root: root, stage: stage, rollback: rollback, fileManager: fm)
+            // Keep pre-restore files; cleanup remains a separate action.
+            try completeRestore(stage: stage, pending: pending, directory: directory, fileManager: fm)
         } catch {
-            let originalPaths = (try? JSONDecoder().decode([String].self, from: Data(contentsOf: originalsFile))) ?? []
-            for path in paths.reversed() {
-                let target = root.appendingPathComponent(path)
-                let previous = rollback.appendingPathComponent(path)
-                if fm.fileExists(atPath: previous.path) {
-                    try? fm.removeItem(at: target)
-                    try? fm.moveItem(at: previous, to: target)
-                } else if !originalPaths.contains(path) {
-                    try? fm.removeItem(at: target)
-                }
-            }
-            let message = "Restore could not finish. Previous files are retained in Recovery. Close and reopen ZynSign to retry."
-            try? message.write(to: directory.appendingPathComponent("RestoreError.txt"), atomically: true, encoding: .utf8)
+            restoreAfterFailedInstall(
+                paths: paths,
+                root: root,
+                rollback: rollback,
+                originalsFile: originalsFile,
+                directory: directory,
+                fileManager: fm
+            )
         }
+    }
+
+    private static func prepareRollback(
+        _ originalsFile: URL,
+        paths: [String],
+        root: URL,
+        rollback: URL,
+        fileManager fm: FileManager
+    ) throws -> Bool {
+        if fm.fileExists(atPath: originalsFile.path) {
+            let originalPaths = try JSONDecoder().decode([String].self, from: Data(contentsOf: originalsFile))
+            guard Set(originalPaths).isSubset(of: Set(paths)) else { return false }
+            // An interrupted install may have left a new file behind; restore
+            // the original state before retrying from the stage.
+            try restoreInterruptedInstall(paths, originals: originalPaths, root: root, rollback: rollback, fileManager: fm)
+            return true
+        }
+        let originalPaths = paths.filter { fm.fileExists(atPath: root.appendingPathComponent($0).path) }
+        // Durable journal written before the first modification.
+        try JSONEncoder().encode(originalPaths).write(to: originalsFile, options: .atomic)
+        return true
+    }
+
+    private static func restoreInterruptedInstall(
+        _ paths: [String],
+        originals: [String],
+        root: URL,
+        rollback: URL,
+        fileManager fm: FileManager
+    ) throws {
+        for path in paths {
+            let target = root.appendingPathComponent(path)
+            let previous = rollback.appendingPathComponent(path)
+            if fm.fileExists(atPath: previous.path) {
+                if fm.fileExists(atPath: target.path) { try fm.removeItem(at: target) }
+                try fm.moveItem(at: previous, to: target)
+            } else if !originals.contains(path), fm.fileExists(atPath: target.path) {
+                try fm.removeItem(at: target)
+            }
+        }
+    }
+
+    private static func installPaths(
+        _ plan: PendingRestore,
+        paths: [String],
+        root: URL,
+        stage: URL,
+        rollback: URL,
+        fileManager fm: FileManager
+    ) throws {
+        for path in paths {
+            let target = root.appendingPathComponent(path)
+            let previous = rollback.appendingPathComponent(path)
+            if fm.fileExists(atPath: target.path) { try fm.moveItem(at: target, to: previous) }
+            try fm.copyItem(at: stage.appendingPathComponent(path), to: target)
+            try verifyInstalledEntries(plan, for: path, at: root)
+        }
+    }
+
+    private static func verifyInstalledEntries(_ plan: PendingRestore, for path: String, at root: URL) throws {
+        for entry in plan.entries where entry.path == path || (path == "Artifacts" && entry.path.hasPrefix("Artifacts/")) {
+            guard try checksum(root.appendingPathComponent(entry.path)) == entry.sha256 else {
+                throw BackupFailure.invalid("Installed item failed integrity verification.")
+            }
+        }
+    }
+
+    private static func completeRestore(
+        stage: URL,
+        pending: URL,
+        directory: URL,
+        fileManager fm: FileManager
+    ) throws {
+        try fm.removeItem(at: pending)
+        try? fm.removeItem(at: stage)
+        try? fm.removeItem(at: directory.appendingPathComponent("RestoreError.txt"))
+        try? "Restore verified after restart. Previous files are retained for recovery.".write(
+            to: directory.appendingPathComponent("RestoreComplete.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    private static func restoreAfterFailedInstall(
+        paths: [String],
+        root: URL,
+        rollback: URL,
+        originalsFile: URL,
+        directory: URL,
+        fileManager fm: FileManager
+    ) {
+        let originalPaths = (try? JSONDecoder().decode([String].self, from: Data(contentsOf: originalsFile))) ?? []
+        for path in paths.reversed() {
+            let target = root.appendingPathComponent(path)
+            let previous = rollback.appendingPathComponent(path)
+            if fm.fileExists(atPath: previous.path) {
+                try? fm.removeItem(at: target)
+                try? fm.moveItem(at: previous, to: target)
+            } else if !originalPaths.contains(path) {
+                try? fm.removeItem(at: target)
+            }
+        }
+        let message = "Restore could not finish. Previous files are retained in Recovery. Close and reopen ZynSign to retry."
+        try? message.write(
+            to: directory.appendingPathComponent("RestoreError.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
     }
 }
