@@ -3,10 +3,11 @@ import SwiftUI
 
 /// The root of the ZynSign interface: the tab shell the user navigates.
 ///
-/// The shell's six root destinations: Files, Library, Home, Store, Downloads,
-/// and Settings. The searchable Features catalogue and signing materials live
-/// inside Settings; Store and Downloads keep direct tabs when their release
-/// gates are open. Each root destination keeps its own navigation state.
+/// The shell draws exactly five tabs — Home, Library, Store, Downloads, and
+/// Settings, the Storefront shell order. The Files browser, the searchable
+/// Features catalogue, and the signing materials live inside Settings; Store
+/// and Downloads keep direct tabs when their release gates are open. Each
+/// root destination keeps its own navigation state.
 ///
 /// The shell is also the single owner of the Import Hub. Every way a
 /// package can arrive — a quick action, a toolbar button, a share-sheet
@@ -270,9 +271,14 @@ struct RootView: View {
     }
 
     /// The theme the whole interface renders with, resolved once from
-    /// preferences so every screen agrees on accent, gradient, and density.
+    /// preferences so every screen agrees on accent, gradient, density, and
+    /// whether the glass is on. The `ZGlass` mirror follows the resolution —
+    /// the same one-place pattern `motion` uses for `ZMotion` — so a flip in
+    /// Settings → Appearance turns every glass surface in the app at once.
     private var resolvedTheme: ResolvedAppTheme {
-        ResolvedAppTheme.resolve(settings.preferences.appearance)
+        let resolved = ResolvedAppTheme.resolve(settings.preferences.appearance)
+        ZGlass.isEnabled = resolved.liquidGlass
+        return resolved
     }
 
     /// The tabs with their environment, transaction rules, and lock
@@ -281,6 +287,7 @@ struct RootView: View {
     private var configuredRoot: some View {
         rootTabs
         .tint(resolvedTheme.accent)
+        .zGlassNavigationChrome()
         .environment(\.appTheme, resolvedTheme)
         .environment(\.thumbnailPipeline, thumbnailPipeline)
         .environment(\.zMotion, motion)
@@ -454,8 +461,9 @@ struct RootView: View {
     }
 
     /// The root tab to select for a requested section. A destination that is
-    /// a tab is selected; the Features catalogue and signing tools name
-    /// Settings, and a gated destination resolves to Settings or the Library.
+    /// a tab is selected; the Files browser, the Features catalogue, and the
+    /// signing tools name Settings, and a gated destination resolves to
+    /// Settings or the Library.
     static func visibleSelection(for section: ShellSection) -> ShellSection {
         visibleSelection(for: section, in: ShellSection.primaryTabs)
     }
@@ -465,7 +473,7 @@ struct RootView: View {
     /// only reaches in a Release build.
     static func visibleSelection(for section: ShellSection, in tabs: [ShellSection]) -> ShellSection {
         if tabs.contains(section) { return section }
-        if section == .features || section == .presets || section == .install
+        if section == .files || section == .features || section == .presets || section == .install
             || section == .certificates || section == .profiles
             || section == .appStore || section == .downloads {
             return tabs.contains(.settings) ? .settings : (tabs.contains(.library) ? .library : (tabs.first ?? .settings))

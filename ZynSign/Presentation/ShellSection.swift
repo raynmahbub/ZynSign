@@ -2,10 +2,12 @@ import Foundation
 
 /// Sections understood by the application shell.
 ///
-/// The root destinations that get permanent slots in the shell bar. The
-/// Features catalogue and signing materials are reachable workflows inside
-/// Settings; Store and Downloads remain direct destinations when their
-/// release gates are open.
+/// The main screen draws exactly five tabs — the storefront order the
+/// Storefront look gives the product: Home, Library, Store, Downloads, and
+/// Settings. The Files browser, the Features catalogue, and the signing
+/// materials are workflows reachable inside Settings, never tabs of their
+/// own; the gated Store and Downloads tabs appear when their release feature
+/// is open and leave before the stage that exposes them.
 enum ShellSection: Hashable, CaseIterable, Identifiable {
     case home
     case library
@@ -21,18 +23,26 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
 
     var id: Self { self }
 
-    /// Every candidate destination, in bar order.
+    /// Every candidate destination, in bar order. The bar carries five — no
+    /// more: Files moved inside Settings so the five roots each get a full
+    /// tap target, and the count fits UIKit's own ceiling without needing
+    /// UIKit's own folding.
     static let allTabs: [ShellSection] = [
-        .files, .library, .home, .appStore, .downloads, .settings,
+        .home, .library, .appStore, .downloads, .settings,
     ]
+
+    /// The number of tabs the main screen draws: exactly five, a product
+    /// contract as much as a layout choice.
+    static let tabCount = 5
 
     /// What UIKit's own tab bar can draw before it folds the rest into a
     /// *More* list that it pushes.
     ///
     /// The shell does not use that bar (see `ShellTabBar`), and this number is
-    /// kept only so the reason stays pinned by a test rather than by memory: a
-    /// bar that can hold five items must never again decide which destinations
-    /// a build shows.
+    /// kept so the reason stays pinned by a test rather than by memory: the
+    /// five-tab contract fits the ceiling, but it is the product that chose
+    /// five — a future build must never let the ceiling decide which
+    /// destinations exist.
     static let nativeTabBarItemLimit = 5
 
     /// The staged capability associated with a destination, if any.

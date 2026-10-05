@@ -16,6 +16,8 @@
 - **Discovery & delivery:** repository feeds, validated downloads, update review, a searchable IPSW firmware browser with reported signing status, and OTA hand-off materials for an IPA you host. ZynSign does not install apps or host packages.
 - **Workspace & care:** Home, accessibility-aware preferences, local diagnostics, backups, and privacy controls.
 
+The main screen draws exactly five tabs — Home, Library, Store, Downloads, and Settings — in the **Storefront** shell: the storefront look that ships as the default theme, rendered in liquid glass across cards, bars, chrome, and toasts (iOS 26 uses the platform's own glass effect; earlier systems get ZynSign's material treatment). **Settings → Appearance → Liquid Glass** turns the glass off without touching anything else, and the previous themes stay selectable. Files, the Features catalogue, and signing materials live inside Settings.
+
 The **Features** catalogue lives at **Settings → Features** and shows what is available, staged for a later train stop, or unsupported. [`CoreFeature`, `ReleaseFeature`, and `UnsupportedFeature`](ZynSign/Application/FeatureCatalog.swift) registries feed the catalogue through `allCases`; adding a case adds it automatically, while exhaustive metadata keeps its title, category, and explanation explicit. **Home → Certificates & Profiles** opens one combined signing-material area. The IPSW Browser is available from Home and **Settings → Updates**.
 
 ## Platform boundaries

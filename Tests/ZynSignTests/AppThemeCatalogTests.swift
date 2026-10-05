@@ -4,9 +4,15 @@ import XCTest
 /// Tests for the shipped theme catalog and hex color parsing.
 final class AppThemeCatalogTests: XCTestCase {
 
-    func testFiveThemesShip() {
-        XCTAssertEqual(AppThemeCatalog.all.count, 5)
-        XCTAssertEqual(AppThemeCatalog.all.map(\.displayName), ["ZynSign", "Liquid Glass", "Ember", "Midnight", "Graphite"])
+    func testSixThemesShipAndStorefrontLeadsAsTheDefault() {
+        XCTAssertEqual(AppThemeCatalog.all.count, 6)
+        XCTAssertEqual(
+            AppThemeCatalog.all.map(\.displayName),
+            ["Storefront", "ZynSign", "Liquid Glass", "Ember", "Midnight", "Graphite"]
+        )
+        // The storefront look is what a new install opens on; the older
+        // themes stay selectable so no update takes an appearance away.
+        XCTAssertEqual(AppThemeCatalog.defaultTheme.displayName, "Storefront")
     }
 
     func testEveryThemeHasValidHexStops() {
