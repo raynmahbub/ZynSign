@@ -1,8 +1,8 @@
 # Engineering Command Center
 
 _Live internal engineering dashboard — generated 2026-10-01 at commit `02f629d` by
-`Scripts/ci/metrics_report.sh`; updated by every CI summary and refreshed
-by an on-demand full run._
+`Scripts/ci/metrics_report.sh`; updated by every CI summary and the weekly
+`04-maintenance.yml` sweep._
 
 ## Status Board
 
@@ -38,4 +38,4 @@ Current release : v0.0.1  (stage .horizon) Xcode project   : MARKETING_VERSION 0
 - `Scripts/ci/dependency_check.sh` → `build/metrics/dependencies.txt`
 - `Scripts/ci/docs_check.sh` → `build/metrics/docs.txt`
 - `Scripts/ci/security_scan.sh` → `build/metrics/security.txt`
-- `02-quality.yml` posts it on every pull request; `Scripts/ci/metrics_report.sh` refreshes it on demand.
+- `02-quality.yml` posts it on every pull request; `04-maintenance.yml` refreshes it weekly.

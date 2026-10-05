@@ -3,6 +3,8 @@
 # One workflow owns the commit lifecycle, so the Actions page shows a single
 # verdict per push and per pull request:
 #
+#   triage               — one verdict per commit: a push already covered by
+#                          an open pull request skips the duplicate build
 #   hygiene              — keys, certificates, generated state, release train,
 #                          release metadata self-test, host vectors, RC audits,
 #                          hardening report                     (ubuntu)
@@ -18,11 +20,12 @@
 # On a pull request the same run also carries the PR gates — conventional
 # title, commitlint over every commit, path labels, and the Danger Swift
 # review. On demand (Actions → 🔨 Build → Run workflow) it produces the
-# private test IPA: Scripts/ci/private_ipa.sh always delivers one — a signed
-# ad-hoc export when the TEAM_ID secret is configured, otherwise an unsigned
-# Payload package named `-private-unsigned.ipa` that must be re-signed before
-# installation. A green `private-ipa` job contains an IPA; a run with none
-# fails. It never creates a tag and never publishes a release.
+# private test IPA: Scripts/ci/private_ipa.sh always delivers one — by
+# default the unsigned `ZynSign-{tag}-{config}-private-unsigned.ipa` that
+# recipients sign with their own Apple certificate (the artifact carries a
+# SIGNING.md saying exactly how), or a signed ad-hoc export when a TEAM_ID
+# secret is configured. A green `private-ipa` job contains an IPA; a run
+# with none fails. It never creates a tag and never publishes a release.
 #
 # Manual-run options:
 #   mode          build (verify only) | private-ipa (also deliver the IPA)
@@ -75,8 +78,47 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
 
 jobs:
+  # Every push gets exactly one verdict: its own run, or the pull-request
+  # run that already covers the same commit. A push to a branch with an
+  # open pull request is that duplicate — the PR run carries the required
+  # checks, so the push run skips its heavy jobs and the macOS bill is cut
+  # in half for every PR update. Pushes to main and to branches without a
+  # pull request always build.
+  triage:
+    name: Push triage
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - name: Decide whether this push is already covered by a pull request
+        id: decide
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.ref_name }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -eu
+          if [ "${EVENT}" != "push" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          open="$(gh api "repos/${GITHUB_REPOSITORY}/pulls" \
+            -f state=open -f head="${GITHUB_REPOSITORY}:${BRANCH}" --jq 'length')"
+          if [ "${open}" -gt 0 ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Push triage::An open pull request already covers ${BRANCH} — its run is this commit's verdict."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
   hygiene:
     name: Repository hygiene
+    needs: triage
+    if: needs.triage.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -172,6 +214,8 @@ jobs:
 
   build-and-test:
     name: Build and test (Xcode)
+    needs: triage
+    if: needs.triage.outputs.run == 'true'
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -230,6 +274,8 @@ jobs:
   # one clean, reviewable diff.
   lint-and-format:
     name: Lint and format
+    needs: triage
+    if: needs.triage.outputs.run == 'true'
     runs-on: macos-15
     timeout-minutes: 20
     steps:
@@ -237,7 +283,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install the tooling
-        run: HOMEBREW_NO_AUTO_UPDATE=1 brew install swiftlint swiftformat
+        run: HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install swiftlint swiftformat
 
       - name: SwiftLint
         run: Scripts/ci/lint.sh
@@ -252,6 +298,8 @@ jobs:
   # See docs/architecture/external-validation.md.
   external-validation:
     name: External validation (Apple tooling)
+    needs: triage
+    if: needs.triage.outputs.run == 'true'
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -401,7 +449,17 @@ jobs:
 
       # Danger is the reviewer who always shows up; it advises, it does not
       # block. Both steps tolerate failure and annotate what went wrong, so an
-      # advisory outage never masks a healthy merge.
+      # advisory outage never masks a healthy merge. The Homebrew download
+      # cache plus the no-dependents-check flags keep the tap install at a
+      # few seconds instead of a full formula solve.
+      - name: Restore the Homebrew download cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: homebrew-danger-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: |
+            homebrew-danger-${{ runner.arch }}-
+
       - name: Install Danger Swift
         continue-on-error: true
         run: |
@@ -409,7 +467,7 @@ jobs:
           # tap is explicitly trusted.
           brew trust danger/tap </dev/null || true
           status=0
-          HOMEBREW_NO_AUTO_UPDATE=1 brew install danger/tap/danger-swift 2>&1 | tee /tmp/brew-install.log || status=$?
+          HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install danger/tap/danger-swift 2>&1 | tee /tmp/brew-install.log || status=$?
           if [[ "${status}" -ne 0 ]]; then
             grep -E 'Error|error' /tmp/brew-install.log | tail -5 | while IFS= read -r line; do
               printf '::error title=brew::%s\n' "${line//'%'/'%25'}"

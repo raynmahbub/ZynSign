@@ -154,8 +154,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # QUICK=1 runs the fast guards itself and skips Periphery, so this job
-      # is self-contained; the full dashboards come from a plain
-      # Scripts/ci/metrics_report.sh run on demand (Periphery included).
+      # is self-contained; the full dashboards (Periphery included) are
+      # refreshed by the weekly sweep in 04-maintenance.yml.
       - name: Run the quick metrics report
         run: QUICK=1 Scripts/ci/metrics_report.sh
 
@@ -197,7 +197,9 @@ jobs:
 
       # README is the storefront: it must agree with MARKETING_VERSION and the
       # counts in docs/product/WHAT_DOES_NOT_EXIST.md. When it drifts, fix it
-      # with `python3 Scripts/update_readme.py` and commit the result.
+      # with `python3 Scripts/update_readme.py` and commit the result — the
+      # weekly sweep in 04-maintenance.yml does that automatically and opens
+      # a reviewable pull request.
       - name: Refuse a stale README
         run: |
           set -eu

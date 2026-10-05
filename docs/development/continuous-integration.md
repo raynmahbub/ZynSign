@@ -123,8 +123,9 @@ matched. See the Compatibility Lab (Settings → Compatibility Lab) and [private
 
 ## The engineering suite
 
-Three workflows, no duplicated gates: every job calls a reusable script in
-`Scripts/ci/`, so CI logic never lives in YAML and never appears twice.
+Three gate workflows and one weekly sweep, no duplicated gates: every job
+calls a reusable script in `Scripts/ci/`, so CI logic never lives in YAML
+and never appears twice.
 Failing unit tests are surfaced as check annotations by
 `Scripts/ci/annotate_test_failures.sh`, which reads the run's result
 bundle so the failing suites are readable without opening a raw log.
@@ -135,9 +136,10 @@ jobs that genuinely need Xcode run on macOS:
 
 | Workflow | Trigger | Jobs | Gate type |
 | --- | --- | --- | --- |
-| `01-build.yml` · 🔨 Build | PR + every push; manual (`mode: build \| private-ipa`, plus `configuration`, `run_unit_tests`, `note`) | `hygiene` (ubuntu) · `build-and-test` · `lint-and-format` · `external-validation` (macOS); on a PR also `pr-title` · `commitlint` · `label-pr` (ubuntu) · `danger` (macOS); on demand `private-ipa` | blocking, except external validation (measures) and Danger (advises) |
+| `01-build.yml` · 🔨 Build | PR + every push (a push already covered by an open PR skips via `triage` — the PR run is that commit's verdict); manual (`mode: build \| private-ipa`, plus `configuration`, `run_unit_tests`, `note`) | `hygiene` (ubuntu) · `build-and-test` · `lint-and-format` · `external-validation` (macOS); on a PR also `pr-title` · `commitlint` · `label-pr` (ubuntu) · `danger` (macOS); on demand `private-ipa` | blocking, except external validation (measures) and Danger (advises) |
 | `02-quality.yml` · 🛡 Quality | PR + push to main | 8 ubuntu jobs: `architecture-guard` · `dependency-validation` · `docs-check` · `secret-policy` · `gitleaks` · `complexity-check` · `engineering-summary` · `readme-check` | blocking, except complexity and the summary |
 | `03-release.yml` · 🚀 Release | tag `v*` + manual (`version`, `dry_run`) | `meta` → quality gate → build/test → assets → publish → verdict; `dry_run: true` is the full rehearsal and publishes nothing | blocking |
+| `04-maintenance.yml` · 🧹 Maintenance | Monday 03:23 UTC + manual (`repair`) | one macOS sweep: full metrics (Periphery), `format.sh apply`, `update_readme.py`, then one repair PR (staged on a branch with a warning when Actions may not open PRs) | advisory — nothing requires it |
 
 Scripts behind the gates:
 
@@ -152,7 +154,7 @@ Scripts behind the gates:
 | `update_readme.py --check` | README agrees with `MARKETING_VERSION` and `WHAT_DOES_NOT_EXIST.md` |
 | `complexity_check.sh` | function 80 / file 800 / nesting 4 — advisory |
 | `dead_code_scan.sh` | Periphery, on demand (the quick metrics run skips it), never deletes |
-| `metrics_report.sh` | the Engineering Command Center per PR, full dashboards on demand |
+| `metrics_report.sh` | the Engineering Command Center per PR, full dashboards in the weekly sweep |
 | `private_ipa.sh` | the device archive and its IPA: signed ad-hoc export with `TEAM_ID`, unsigned Payload package without — always an IPA |
 | `release_meta.sh` | version derivation; fails a non-current train stop in the first job |
 | `release_validate.sh` | train stage, `MARKETING_VERSION`, build number, changelog, notes |

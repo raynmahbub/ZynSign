@@ -2,14 +2,15 @@
 #
 # ZynSign CI — the private test IPA (docs/releases/private-testing.md).
 #
-# Archives the app for a real device and *always* produces an IPA:
+# Archives the app for a real device and *always* produces an IPA. The
+# expected deliverable is the **unsigned** build: recipients apply their
+# own Apple certificate to it (the artifact carries a SIGNING.md saying
+# exactly how), because ZynSign has no distribution identity of its own:
 #
-#   TEAM_ID set       signed, ad-hoc exported
-#                     ZynSign-{TAG}-{CONFIG}-private.ipa
-#                     (installable on devices provisioned for the team)
-#   TEAM_ID missing   unsigned Payload package — the raw archived .app zipped
-#                     ZynSign-{TAG}-{CONFIG}-private-unsigned.ipa
-#                     (re-sign before installing; a warning says so)
+#   expected (no TEAM_ID)  unsigned Payload package
+#                          ZynSign-{TAG}-{CONFIG}-private-unsigned.ipa
+#   optional (TEAM_ID set) signed ad-hoc export
+#                          ZynSign-{TAG}-{CONFIG}-private.ipa
 #
 # The job's contract is "a green run contains an IPA": the script exits
 # non-zero only when no IPA could be produced at all. Every fallback is
@@ -26,7 +27,9 @@
 #   Scripts/ci/private_ipa.sh [--configuration Release|Debug] [--output-dir DIR]
 #
 # Environment:
-#   TEAM_ID   optional Apple Developer team id; enables automatic signing
+#   TEAM_ID   optional Apple Developer team id; enables the optional signed
+#             export. Without it — the expected path — the IPA is unsigned
+#             and recipients apply their own Apple certificate.
 #   NOTE      optional free-text label; folded into the artifact name only
 #             (sanitized), never into the IPA file name
 #
@@ -132,10 +135,11 @@ if [[ ! -d "${APP}" ]]; then
 fi
 
 # --- 2. the IPA -------------------------------------------------------------
-# With signing material: the real deliverable, an ad-hoc export installable
-# on provisioned devices. Without it (or when the export fails): an unsigned
-# Payload package of the same app, honestly named, so the artifact always
-# contains an IPA instead of only logs.
+# The expected deliverable is the unsigned Payload package: the same app the
+# archive built, zipped as an IPA, to be signed by whoever installs it with
+# their own Apple certificate. With signing material (optional) the export is
+# the ad-hoc signed variant instead; a failed signed export falls back to the
+# unsigned package, honestly named, so the artifact always contains an IPA.
 IPA_SIGNED="false"
 EXPORT_DIR="$(mktemp -d)"
 trap 'rm -rf "${EXPORT_DIR}"' EXIT
@@ -156,11 +160,11 @@ if [[ -n "${TEAM_ID}" ]]; then
     if [[ "${export_status}" -eq 0 && -f "${EXPORT_DIR}/out/ZynSign.ipa" ]]; then
         IPA_SIGNED="true"
     else
-        crystal_warn "Signed export failed (exit ${export_status}) — falling back to an unsigned IPA. See export.log." "Private IPA"
+        crystal_warn "Signed export failed (exit ${export_status}) — delivering the unsigned IPA instead. See export.log." "Private IPA"
         tail -n 60 "${EXPORT_LOG}" || true
     fi
 else
-    crystal_warn "No TEAM_ID secret — the IPA will be unsigned and must be re-signed before it can be installed." "Private IPA"
+    crystal_info "No TEAM_ID secret — delivering the unsigned IPA (the expected build; recipients sign it with their own Apple certificate)"
     : > "${EXPORT_LOG}"
 fi
 
@@ -185,6 +189,68 @@ else
     CHECKSUM="$(sha256sum "${IPA}" | awk '{print $1}')"
 fi
 printf '%s  %s\n' "${CHECKSUM}" "${IPA_NAME}" > "${OUT_DIR}/${IPA_NAME}.sha256"
+
+# --- 3b. the signing guide --------------------------------------------------
+# The unsigned IPA is meant to be signed by whoever installs it, with their
+# own Apple certificate. The artifact says how, so the build is self-
+# describing wherever it travels.
+if [[ "${IPA_SIGNED}" != "true" ]]; then
+    cat > "${OUT_DIR}/SIGNING.md" <<EOF
+# Signing ZynSign for your own devices
+
+This IPA is **unsigned on purpose**. CI has no distribution identity of its
+own — you apply your own Apple certificate before installing, which keeps
+every install traceable to the person who signed it.
+
+| | |
+| --- | --- |
+| Artifact | \`${IPA_NAME}\` |
+| SHA-256 | \`${CHECKSUM}\` |
+
+Verify first: \`shasum -a 256 -c ${IPA_NAME}.sha256\`
+
+## What you need
+
+- An Apple ID. A free account installs for 7 days on development-signed
+  devices; the Apple Developer Program extends that to a year.
+- A Mac with Xcode, or Apple Configurator, or any re-signing tool that uses
+  your certificate.
+
+## The easy path — Apple Configurator
+
+1. Open Configurator, connect the device, trust it.
+2. **Add → Apps → Choose from my Mac…** and select this IPA.
+3. When prompted, pick your signing identity and team. Configurator signs
+   and installs in one step.
+
+## The manual path — Xcode command line
+
+\`\`\`sh
+unzip "${IPA_NAME}" -d ZynSign-payload
+# In Xcode → Settings → Accounts, create an "Apple Development" certificate,
+# then:
+security find-identity -v -p codesigning            # list your identities
+codesign --force --sign "Apple Development: YOUR NAME (ID)" \\
+  --entitlements <(codesign -d --entitlements :- ZynSign-payload/Payload/ZynSign.app 2>/dev/null) \\
+  ZynSign-payload/Payload/ZynSign.app
+(cd ZynSign-payload && zip -qry "../${IPA_NAME%.ipa}-signed.ipa" Payload)
+\`\`\`
+
+Then install the re-signed IPA with Xcode (Window → Devices and Simulators)
+or \`xcrun devicectl device install app\`.
+
+## Honest limits
+
+- Signature checks are the device's, not ours: a re-sign must preserve the
+  app's entitlements or iOS will refuse it.
+- ZynSign itself installs nothing — see
+  \`docs/product/WHAT_DOES_NOT_EXIST.md\` and
+  \`docs/architecture/installation-compatibility.md\` in the repository.
+- This build passed CI's simulator tests only. Device behaviour is not
+  claimed before the device matrix in \`docs/releases/private-testing.md\`
+  has been run on real hardware.
+EOF
+fi
 
 # --- 4. outputs -------------------------------------------------------------
 ARTIFACT_NAME="ZynSign-private-${TAG}-${CONFIGURATION}-${SHORT_SHA}"
@@ -220,11 +286,11 @@ human() {
 }
 
 if [[ "${IPA_SIGNED}" == "true" ]]; then
-    STATUS_LINE="Signed ad-hoc — installable on provisioned devices"
+    STATUS_LINE="Signed ad-hoc (TEAM_ID) — installable on provisioned devices"
     NEXT_LINE="Run the device matrix in \\`docs/releases/private-testing.md\\`, then tag \\`${TAG}\\`"
 else
-    STATUS_LINE="Unsigned — re-sign before installing"
-    NEXT_LINE="Set the \\`TEAM_ID\\` secret for a signed export; re-sign this IPA to install it"
+    STATUS_LINE="Unsigned by design — recipients sign with their own Apple certificate"
+    NEXT_LINE="Share the artifact; \\`SIGNING.md\\` inside it says exactly how to sign and install"
 fi
 crystal_card_begin "${CRYSTAL_BUILD}" "Private Test Build" "Never a tag, never a release" "Success"
 crystal_card_row "Candidate" "\\`${TAG}\\` (${SHORT_SHA})"

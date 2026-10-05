@@ -32,6 +32,7 @@ when the suite was consolidated, only the file they live in.
 | `Build and test (Xcode)` | `01-build.yml` | `build-and-test` |
 | `Lint and format` | `01-build.yml` | `lint-and-format` |
 | `Repository hygiene` | `01-build.yml` | `hygiene` |
+| `External validation (Apple tooling)` | `01-build.yml` | `external-validation` |
 | `Enforce the layered architecture contract` | `02-quality.yml` | `architecture-guard` |
 | `Enforce the dependency allowlist` | `02-quality.yml` | `dependency-validation` |
 | `Links, images, orphans, markdown quality` | `02-quality.yml` | `docs-check` |
@@ -41,13 +42,18 @@ when the suite was consolidated, only the file they live in.
 | `Conventional PR title` | `01-build.yml` | `pr-title` |
 | `Conventional commit messages` | `01-build.yml` | `commitlint` |
 
-`Complexity thresholds (warnings only)`, `Engineering Command Center`, the
-`External validation (Apple tooling)` measurement, `Danger Swift review`
-and `Label the pull request` stay advisory — they measure and report, they
-do not block. Formatting is repaired locally with
-`Scripts/ci/format.sh apply`, a stale README with
+`Complexity thresholds (warnings only)`, `Engineering Command Center`,
+`Danger Swift review`, `Label the pull request` and the weekly
+`Maintenance` sweep stay advisory — they measure and report, they do not
+block. `External validation (Apple tooling)` **is** in the required list
+above: it blocks when the harness itself cannot run — a red there is a red
+worth reading, and every `codesign`/`otool` verdict lands in the report
+either way. The job reports on every pull request unconditionally.
+Formatting is repaired
+with `Scripts/ci/format.sh apply`, a stale README with
 `python3 Scripts/update_readme.py`, and the full dashboards with
-`Scripts/ci/metrics_report.sh` — each as a reviewable commit.
+`Scripts/ci/metrics_report.sh` — locally as a reviewable commit, or
+automatically by the weekly `04-maintenance.yml` repair PR.
 
 > Every required check must actually report on the pull request. A job that
 > is skipped by an `if:` or excluded by a `paths:` filter never produces a
