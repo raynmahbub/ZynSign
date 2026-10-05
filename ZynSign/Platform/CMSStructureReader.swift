@@ -220,27 +220,57 @@ enum CMSStructureReader {
         }
     }
 
+    private struct EncapsulatedContentFields {
+        let contentType: String
+        let content: Data?
+    }
+
+    private struct SignedDataTrailingFields {
+        let certificateEncodings: [Data]
+        let certificateRevocationListCount: Int
+        let signerInfos: [CMSStructureSignerInfo]
+    }
+
     private static func readStructure(_ data: Data, mode: CMSStructureReadingMode) throws -> CMSStructure {
-        if data.isEmpty {
-            throw CMSStructureError.empty
-        }
-        if data.count > ProvisioningProfileInput.maximumByteCount {
+        let bytes = try validatedMessageBytes(data)
+        var signedData = try signedDataReader(in: bytes)
+        let version = try readSignedDataVersion(from: &signedData, bytes: bytes)
+        let digestAlgorithms = try readDigestAlgorithmIdentifiers(from: &signedData, bytes: bytes)
+        let encapsulated = try readEncapsulatedContent(from: &signedData, bytes: bytes)
+        let trailing = try readSignedDataTrailingFields(from: &signedData, bytes: bytes, mode: mode)
+        return CMSStructure(
+            contentType: CMSObjectIdentifiers.signedData,
+            version: version,
+            digestAlgorithmIdentifiers: digestAlgorithms,
+            encapsulatedContentType: encapsulated.contentType,
+            encapsulatedContent: encapsulated.content,
+            certificateEncodings: trailing.certificateEncodings,
+            certificateRevocationListCount: trailing.certificateRevocationListCount,
+            signerInfos: trailing.signerInfos
+        )
+    }
+
+    private static func validatedMessageBytes(_ data: Data) throws -> [UInt8] {
+        guard !data.isEmpty else { throw CMSStructureError.empty }
+        guard data.count <= ProvisioningProfileInput.maximumByteCount else {
             throw CMSStructureError.tooLarge
         }
         let bytes = [UInt8](data)
-        if bytes.starts(with: armoredPrefix) {
+        guard !bytes.starts(with: armoredPrefix) else {
             throw CMSStructureError.unsupported(
                 "Armored CMS input is not accepted; a DER-encoded message is required."
             )
         }
+        return bytes
+    }
 
+    private static func signedDataReader(in bytes: [UInt8]) throws -> Reader {
         var reader = Reader(bytes: bytes, index: 0, end: bytes.count, depth: 0)
         let contentInfo = try reader.readTLV()
         guard contentInfo.tag == Tag.sequence, reader.isExhausted else {
             throw CMSStructureError.invalid("The container is not exactly one CMS ContentInfo value.")
         }
         var contentInfoBody = try reader.enter(contentInfo)
-
         let contentTypeTLV = try contentInfoBody.readTLV()
         guard contentTypeTLV.tag == Tag.objectIdentifier else {
             throw CMSStructureError.invalid("The container's content type is not an object identifier.")
@@ -249,7 +279,6 @@ enum CMSStructureReader {
         guard contentType == CMSObjectIdentifiers.signedData else {
             throw CMSStructureError.unsupportedContentType(contentType)
         }
-
         let contentTLV = try contentInfoBody.readTLV()
         guard contentTLV.tag == Tag.context0, contentInfoBody.isExhausted else {
             throw CMSStructureError.invalid("The container's content is not an explicit context value.")
@@ -259,104 +288,127 @@ enum CMSStructureReader {
         guard signedDataTLV.tag == Tag.sequence, explicitContent.isExhausted else {
             throw CMSStructureError.invalid("SignedData is not a single sequence value.")
         }
-        var signedData = try explicitContent.enter(signedDataTLV)
+        return try explicitContent.enter(signedDataTLV)
+    }
 
+    private static func readSignedDataVersion(
+        from signedData: inout Reader,
+        bytes: [UInt8]
+    ) throws -> Int {
         let versionTLV = try signedData.readTLV()
         guard versionTLV.tag == Tag.integer else {
             throw CMSStructureError.invalid("The SignedData version is not an integer.")
         }
-        let version = try smallInteger(bytes, range: versionTLV.content, accepted: 1...5)
+        return try smallInteger(bytes, range: versionTLV.content, accepted: 1...5)
+    }
 
-        let digestAlgorithmsTLV = try signedData.readTLV()
-        guard digestAlgorithmsTLV.tag == Tag.setOf else {
+    private static func readDigestAlgorithmIdentifiers(
+        from signedData: inout Reader,
+        bytes: [UInt8]
+    ) throws -> [String] {
+        let algorithmsTLV = try signedData.readTLV()
+        guard algorithmsTLV.tag == Tag.setOf else {
             throw CMSStructureError.invalid("The digest algorithm collection is not a set.")
         }
-        var digestAlgorithms = try signedData.enter(digestAlgorithmsTLV)
-        var digestAlgorithmIdentifiers: [String] = []
-        while !digestAlgorithms.isExhausted {
-            let algorithmTLV = try digestAlgorithms.readTLV()
+        var algorithmsReader = try signedData.enter(algorithmsTLV)
+        var identifiers: [String] = []
+        while !algorithmsReader.isExhausted {
+            let algorithmTLV = try algorithmsReader.readTLV()
             guard algorithmTLV.tag == Tag.sequence else {
                 throw CMSStructureError.invalid("A digest algorithm entry is not a sequence.")
             }
-            guard digestAlgorithmIdentifiers.count < maximumDigestAlgorithmCount else {
+            guard identifiers.count < maximumDigestAlgorithmCount else {
                 throw CMSStructureError.resourceLimit("The message declares too many digest algorithms.")
             }
-            digestAlgorithmIdentifiers.append(
-                try algorithmIdentifier(algorithmTLV, enteredFrom: digestAlgorithms, bytes: bytes)
-            )
+            identifiers.append(try algorithmIdentifier(
+                algorithmTLV,
+                enteredFrom: algorithmsReader,
+                bytes: bytes
+            ))
         }
+        return identifiers
+    }
 
+    private static func readEncapsulatedContent(
+        from signedData: inout Reader,
+        bytes: [UInt8]
+    ) throws -> EncapsulatedContentFields {
         let encapsulatedTLV = try signedData.readTLV()
         guard encapsulatedTLV.tag == Tag.sequence else {
             throw CMSStructureError.invalid("The encapsulated content information is not a sequence.")
         }
         var encapsulated = try signedData.enter(encapsulatedTLV)
-        let encapsulatedTypeTLV = try encapsulated.readTLV()
-        guard encapsulatedTypeTLV.tag == Tag.objectIdentifier else {
+        let typeTLV = try encapsulated.readTLV()
+        guard typeTLV.tag == Tag.objectIdentifier else {
             throw CMSStructureError.invalid("The encapsulated content type is not an object identifier.")
         }
-        let encapsulatedContentType = try objectIdentifier(bytes, range: encapsulatedTypeTLV.content)
-        var encapsulatedContent: Data?
-        if !encapsulated.isExhausted {
-            let explicitContentTLV = try encapsulated.readTLV()
-            guard explicitContentTLV.tag == Tag.context0, encapsulated.isExhausted else {
-                throw CMSStructureError.invalid("The encapsulated content is not an explicit context value.")
-            }
-            var contentBody = try encapsulated.enter(explicitContentTLV)
-            let octetsTLV = try contentBody.readTLV()
-            guard octetsTLV.tag == Tag.octetString, contentBody.isExhausted else {
-                throw CMSStructureError.invalid("The encapsulated content is not an octet string.")
-            }
-            guard octetsTLV.length <= ProvisioningProfilePayload.maximumByteCount else {
-                throw CMSStructureError.resourceLimit("The encapsulated content exceeds the payload bound.")
-            }
-            encapsulatedContent = Data(bytes[octetsTLV.content])
-        }
+        let contentType = try objectIdentifier(bytes, range: typeTLV.content)
+        let content = try readEncapsulatedOctets(from: &encapsulated, bytes: bytes)
+        return EncapsulatedContentFields(contentType: contentType, content: content)
+    }
 
-        var certificateEncodings: [Data] = []
-        var certificateRevocationListCount = 0
+    private static func readEncapsulatedOctets(
+        from encapsulated: inout Reader,
+        bytes: [UInt8]
+    ) throws -> Data? {
+        guard !encapsulated.isExhausted else { return nil }
+        let explicitTLV = try encapsulated.readTLV()
+        guard explicitTLV.tag == Tag.context0, encapsulated.isExhausted else {
+            throw CMSStructureError.invalid("The encapsulated content is not an explicit context value.")
+        }
+        var contentBody = try encapsulated.enter(explicitTLV)
+        let octetsTLV = try contentBody.readTLV()
+        guard octetsTLV.tag == Tag.octetString, contentBody.isExhausted else {
+            throw CMSStructureError.invalid("The encapsulated content is not an octet string.")
+        }
+        guard octetsTLV.length <= ProvisioningProfilePayload.maximumByteCount else {
+            throw CMSStructureError.resourceLimit("The encapsulated content exceeds the payload bound.")
+        }
+        return Data(bytes[octetsTLV.content])
+    }
+
+    private static func readSignedDataTrailingFields(
+        from signedData: inout Reader,
+        bytes: [UInt8],
+        mode: CMSStructureReadingMode
+    ) throws -> SignedDataTrailingFields {
+        var certificates: [Data] = []
+        var revocationCount = 0
         var signerInfos: [CMSStructureSignerInfo]?
         while !signedData.isExhausted {
-            let tag = try signedData.peekTag()
-            switch tag {
+            switch try signedData.peekTag() {
             case Tag.context0:
                 guard signerInfos == nil else {
                     throw CMSStructureError.invalid("SignedData fields are out of order.")
                 }
                 let bagTLV = try signedData.readTLV()
-                var bag = try signedData.enter(bagTLV)
-                while !bag.isExhausted {
-                    let certificateTLV = try bag.readTLV()
-                    guard certificateTLV.tag == Tag.sequence else {
-                        throw CMSStructureError.invalid("A certificate bag entry is not a sequence.")
-                    }
-                    guard certificateEncodings.count < maximumEmbeddedCertificateCount else {
-                        throw CMSStructureError.resourceLimit("The certificate bag exceeds the configured bound.")
-                    }
-                    guard certificateTLV.length <= CertificateInput.maximumByteCount else {
-                        throw CMSStructureError.resourceLimit("A certificate bag entry exceeds the certificate bound.")
-                    }
-                    certificateEncodings.append(Data(bytes[certificateTLV.full]))
-                }
+                certificates.append(contentsOf: try readCertificateBag(
+                    bagTLV,
+                    enteredFrom: signedData,
+                    bytes: bytes,
+                    existingCount: certificates.count
+                ))
             case Tag.context1:
                 guard signerInfos == nil else {
                     throw CMSStructureError.invalid("SignedData fields are out of order.")
                 }
                 let revocationTLV = try signedData.readTLV()
-                var revocation = try signedData.enter(revocationTLV)
-                while !revocation.isExhausted {
-                    _ = try revocation.readTLV()
-                    certificateRevocationListCount += 1
-                    guard certificateRevocationListCount <= maximumEmbeddedCertificateCount else {
-                        throw CMSStructureError.resourceLimit("The revocation collection exceeds the configured bound.")
-                    }
-                }
+                revocationCount += try readRevocationCount(
+                    revocationTLV,
+                    enteredFrom: signedData,
+                    existingCount: revocationCount
+                )
             case Tag.setOf:
                 guard signerInfos == nil else {
                     throw CMSStructureError.invalid("The message declares signer information twice.")
                 }
                 let signersTLV = try signedData.readTLV()
-                signerInfos = try readSignerInfos(signersTLV, enteredFrom: signedData, bytes: bytes, mode: mode)
+                signerInfos = try readSignerInfos(
+                    signersTLV,
+                    enteredFrom: signedData,
+                    bytes: bytes,
+                    mode: mode
+                )
             default:
                 throw CMSStructureError.invalid("SignedData contains an unexpected field.")
             }
@@ -364,311 +416,59 @@ enum CMSStructureReader {
         guard let signerInfos else {
             throw CMSStructureError.invalid("SignedData declares no signer information collection.")
         }
-
-        return CMSStructure(
-            contentType: contentType,
-            version: version,
-            digestAlgorithmIdentifiers: digestAlgorithmIdentifiers,
-            encapsulatedContentType: encapsulatedContentType,
-            encapsulatedContent: encapsulatedContent,
-            certificateEncodings: certificateEncodings,
-            certificateRevocationListCount: certificateRevocationListCount,
+        return SignedDataTrailingFields(
+            certificateEncodings: certificates,
+            certificateRevocationListCount: revocationCount,
             signerInfos: signerInfos
         )
     }
 
+    private static func readCertificateBag(
+        _ tlv: TLV,
+        enteredFrom reader: Reader,
+        bytes: [UInt8],
+        existingCount: Int
+    ) throws -> [Data] {
+        var bag = try reader.enter(tlv)
+        var encodings: [Data] = []
+        while !bag.isExhausted {
+            let certificateTLV = try bag.readTLV()
+            guard certificateTLV.tag == Tag.sequence else {
+                throw CMSStructureError.invalid("A certificate bag entry is not a sequence.")
+            }
+            guard existingCount + encodings.count < maximumEmbeddedCertificateCount else {
+                throw CMSStructureError.resourceLimit("The certificate bag exceeds the configured bound.")
+            }
+            guard certificateTLV.length <= CertificateInput.maximumByteCount else {
+                throw CMSStructureError.resourceLimit("A certificate bag entry exceeds the certificate bound.")
+            }
+            encodings.append(Data(bytes[certificateTLV.full]))
+        }
+        return encodings
+    }
+
+    private static func readRevocationCount(
+        _ tlv: TLV,
+        enteredFrom reader: Reader,
+        existingCount: Int
+    ) throws -> Int {
+        var revocations = try reader.enter(tlv)
+        var count = 0
+        while !revocations.isExhausted {
+            _ = try revocations.readTLV()
+            count += 1
+            guard existingCount + count <= maximumEmbeddedCertificateCount else {
+                throw CMSStructureError.resourceLimit("The revocation collection exceeds the configured bound.")
+            }
+        }
+        return count
+    }
+
     private static let armoredPrefix: [UInt8] = Array("-----BEGIN".utf8)
-
-    // MARK: - Signers
-
-    private static func readSignerInfos(
-        _ tlv: TLV,
-        enteredFrom reader: Reader,
-        bytes: [UInt8],
-        mode: CMSStructureReadingMode
-    ) throws -> [CMSStructureSignerInfo] {
-        var collection = try reader.enter(tlv)
-        var infos: [CMSStructureSignerInfo] = []
-        while !collection.isExhausted {
-            let infoTLV = try collection.readTLV()
-            guard infoTLV.tag == Tag.sequence else {
-                throw CMSStructureError.invalid("A signer entry is not a sequence.")
-            }
-            guard infos.count < maximumSignerCount else {
-                throw CMSStructureError.resourceLimit("The message declares too many signers.")
-            }
-            infos.append(try signerInfo(infoTLV, enteredFrom: collection, bytes: bytes, mode: mode))
-        }
-        return infos
-    }
-
-    private static func signerInfo(
-        _ tlv: TLV,
-        enteredFrom reader: Reader,
-        bytes: [UInt8],
-        mode: CMSStructureReadingMode
-    ) throws -> CMSStructureSignerInfo {
-        var body = try reader.enter(tlv)
-
-        let versionTLV = try body.readTLV()
-        guard versionTLV.tag == Tag.integer else {
-            throw CMSStructureError.invalid("The signer version is not an integer.")
-        }
-        let version = try smallInteger(bytes, range: versionTLV.content, accepted: 1...3)
-        guard version == 1 || version == 3 else {
-            throw CMSStructureError.unsupported("Signer version \(version) is not supported.")
-        }
-
-        let identifierTLV = try body.readTLV()
-        let identifier: CMSStructureSignerIdentifier
-        let issuerDER: Data?
-        switch identifierTLV.tag {
-        case Tag.sequence:
-            guard version == 1 else {
-                throw CMSStructureError.invalid("The signer version and identifier form disagree.")
-            }
-            var issuerAndSerial = try body.enter(identifierTLV)
-            let issuerStart = issuerAndSerial.index
-            let issuerTLV = try issuerAndSerial.readTLV()
-            guard issuerTLV.tag == Tag.sequence else {
-                throw CMSStructureError.invalid("The signer issuer name is not a sequence.")
-            }
-            let serialTLV = try issuerAndSerial.readTLV()
-            guard serialTLV.tag == Tag.integer, issuerAndSerial.isExhausted else {
-                throw CMSStructureError.invalid("The signer serial number is not an integer.")
-            }
-            guard serialTLV.length > 0, serialTLV.length <= maximumIdentifierByteCount else {
-                throw CMSStructureError.invalid("The signer serial number is empty or oversized.")
-            }
-            issuerDER = Data(bytes[issuerStart..<issuerTLV.content.upperBound])
-            identifier = .issuerAndSerialNumber(serialContentBytes: Array(bytes[serialTLV.content]))
-        case Tag.context0:
-            guard version == 3 else {
-                throw CMSStructureError.invalid("The signer version and identifier form disagree.")
-            }
-            var explicitIdentifier = try body.enter(identifierTLV)
-            let keyIdentifierTLV = try explicitIdentifier.readTLV()
-            guard keyIdentifierTLV.tag == Tag.octetString, explicitIdentifier.isExhausted else {
-                throw CMSStructureError.invalid("The signer key identifier is not an octet string.")
-            }
-            guard keyIdentifierTLV.length > 0, keyIdentifierTLV.length <= maximumIdentifierByteCount else {
-                throw CMSStructureError.invalid("The signer key identifier is empty or oversized.")
-            }
-            issuerDER = nil
-            identifier = .subjectKeyIdentifier(Array(bytes[keyIdentifierTLV.content]))
-        default:
-            throw CMSStructureError.invalid("The signer identifier has an unexpected form.")
-        }
-
-        let digestAlgorithmTLV = try body.readTLV()
-        guard digestAlgorithmTLV.tag == Tag.sequence else {
-            throw CMSStructureError.invalid("The signer digest algorithm is not a sequence.")
-        }
-        let digestAlgorithm = try algorithmIdentifier(digestAlgorithmTLV, enteredFrom: body, bytes: bytes)
-
-        var signedAttributes: CMSStructureSignedAttributes?
-        if !body.isExhausted, try body.peekTag() == Tag.context0 {
-            let attributesTLV = try body.readTLV()
-            signedAttributes = try readSignedAttributes(attributesTLV, enteredFrom: body, bytes: bytes, mode: mode)
-        }
-
-        let signatureAlgorithmTLV = try body.readTLV()
-        guard signatureAlgorithmTLV.tag == Tag.sequence else {
-            throw CMSStructureError.invalid("The signer signature algorithm is not a sequence.")
-        }
-        let signatureAlgorithm = try algorithmIdentifier(signatureAlgorithmTLV, enteredFrom: body, bytes: bytes)
-
-        let signatureTLV = try body.readTLV()
-        guard signatureTLV.tag == Tag.octetString, signatureTLV.length > 0 else {
-            throw CMSStructureError.invalid("The signer signature value is not a non-empty octet string.")
-        }
-        guard signatureTLV.length <= 1024 else {
-            throw CMSStructureError.resourceLimit("The signer signature value exceeds the configured bound.")
-        }
-        let signature = Data(bytes[signatureTLV.content])
-
-        var unsignedAttributeCount = 0
-        if !body.isExhausted {
-            // Unsigned attributes are not covered by the signature, are not
-            // part of a provisioning profile, and are refused rather than
-            // silently dropped in that mode. A code signature may carry them —
-            // a timestamp token is the common case — so the code-signature mode
-            // counts them without entering or interpreting their values.
-            guard mode == .codeSignature, try body.peekTag() == Tag.context1 else {
-                throw CMSStructureError.unsupported("The signer carries attributes outside the signed set.")
-            }
-            let unsignedTLV = try body.readTLV()
-            var unsigned = try body.enter(unsignedTLV)
-            while !unsigned.isExhausted {
-                let attributeTLV = try unsigned.readTLV()
-                guard attributeTLV.tag == Tag.sequence else {
-                    throw CMSStructureError.invalid("An unsigned attribute is not a sequence.")
-                }
-                unsignedAttributeCount += 1
-                guard unsignedAttributeCount <= maximumSignedAttributeCount else {
-                    throw CMSStructureError.resourceLimit("The signer carries too many unsigned attributes.")
-                }
-            }
-            guard body.isExhausted else {
-                throw CMSStructureError.invalid("The signer carries values after its unsigned attributes.")
-            }
-        }
-
-        return CMSStructureSignerInfo(
-            version: version,
-            identifier: identifier,
-            issuerDER: issuerDER,
-            digestAlgorithm: digestAlgorithm,
-            signatureAlgorithm: signatureAlgorithm,
-            signature: signature,
-            signedAttributes: signedAttributes,
-            unsignedAttributeCount: unsignedAttributeCount
-        )
-    }
-
-    private static func readSignedAttributes(
-        _ tlv: TLV,
-        enteredFrom reader: Reader,
-        bytes: [UInt8],
-        mode: CMSStructureReadingMode
-    ) throws -> CMSStructureSignedAttributes {
-        var attributes = try reader.enter(tlv)
-        var identifiers: [String] = []
-        var messageDigest: Data?
-        var contentType: String?
-        var signingTime: Date?
-        while !attributes.isExhausted {
-            let attributeTLV = try attributes.readTLV()
-            guard attributeTLV.tag == Tag.sequence else {
-                throw CMSStructureError.invalid("A signed attribute is not a sequence.")
-            }
-            guard identifiers.count < maximumSignedAttributeCount else {
-                throw CMSStructureError.resourceLimit("The signer carries too many signed attributes.")
-            }
-            var attribute = try attributes.enter(attributeTLV)
-            let typeTLV = try attribute.readTLV()
-            guard typeTLV.tag == Tag.objectIdentifier else {
-                throw CMSStructureError.invalid("A signed attribute type is not an object identifier.")
-            }
-            let identifier = try objectIdentifier(bytes, range: typeTLV.content)
-            identifiers.append(identifier)
-
-            let valuesTLV = try attribute.readTLV()
-            guard valuesTLV.tag == Tag.setOf, attribute.isExhausted else {
-                throw CMSStructureError.invalid("A signed attribute value collection is not a set.")
-            }
-            var values = try attribute.enter(valuesTLV)
-            let valueTLV = try values.readTLV()
-            guard values.isExhausted else {
-                throw CMSStructureError.invalid("A signed attribute carries more than one value.")
-            }
-
-            switch identifier {
-            case CMSObjectIdentifiers.attributeMessageDigest:
-                guard valueTLV.tag == Tag.octetString, messageDigest == nil else {
-                    throw CMSStructureError.invalid("The message-digest attribute is malformed or repeated.")
-                }
-                guard valueTLV.length <= 64 else {
-                    throw CMSStructureError.invalid("The message-digest attribute is oversized.")
-                }
-                messageDigest = Data(bytes[valueTLV.content])
-            case CMSObjectIdentifiers.attributeContentType:
-                guard valueTLV.tag == Tag.objectIdentifier, contentType == nil else {
-                    throw CMSStructureError.invalid("The content-type attribute is malformed or repeated.")
-                }
-                contentType = try objectIdentifier(bytes, range: valueTLV.content)
-            case CMSObjectIdentifiers.attributeSigningTime:
-                // Read only when single-valued and well formed. A malformed
-                // time is left unread, exactly as this attribute was before it
-                // was modeled, rather than refusing the message.
-                if signingTime == nil {
-                    signingTime = declaredTime(bytes, tag: valueTLV.tag, range: valueTLV.content)
-                }
-            default:
-                // Recorded by identifier above and otherwise left alone. An
-                // attribute ZynSign does not model is not interpreted.
-                break
-            }
-        }
-        guard !identifiers.isEmpty else {
-            throw CMSStructureError.invalid("The signed attribute collection is empty.")
-        }
-
-        let attributeContent = Array(bytes[tlv.content])
-        var verificationMessage: [UInt8] = [Tag.setOf]
-        verificationMessage.append(contentsOf: lengthEncoding(attributeContent.count))
-        verificationMessage.append(contentsOf: attributeContent)
-        return CMSStructureSignedAttributes(
-            verificationMessage: Data(verificationMessage),
-            attributeObjectIdentifiers: identifiers,
-            messageDigest: messageDigest,
-            contentType: contentType,
-            signingTime: signingTime
-        )
-    }
-
-    /// Reads a UTCTime (`YYMMDDHHMMSSZ`) or GeneralizedTime
-    /// (`YYYYMMDDHHMMSSZ`) value in the strict UTC form DER requires.
-    /// Anything else yields `nil`.
-    private static func declaredTime(_ bytes: [UInt8], tag: UInt8, range: Range<Int>) -> Date? {
-        let utcTimeTag: UInt8 = 0x17
-        let generalizedTimeTag: UInt8 = 0x18
-        let digitCount: Int
-        switch tag {
-        case utcTimeTag: digitCount = 12
-        case generalizedTimeTag: digitCount = 14
-        default: return nil
-        }
-        guard range.count == digitCount + 1, bytes[range.upperBound - 1] == UInt8(ascii: "Z") else {
-            return nil
-        }
-        var digits: [Int] = []
-        digits.reserveCapacity(digitCount)
-        for index in range.lowerBound..<(range.upperBound - 1) {
-            let byte = bytes[index]
-            guard byte >= UInt8(ascii: "0"), byte <= UInt8(ascii: "9") else { return nil }
-            digits.append(Int(byte - UInt8(ascii: "0")))
-        }
-        func number(_ start: Int, _ length: Int) -> Int {
-            digits[start..<(start + length)].reduce(0) { $0 * 10 + $1 }
-        }
-        var components = DateComponents()
-        let cursor: Int
-        if tag == utcTimeTag {
-            // RFC 5280: two-digit years 50–99 are 19YY, 00–49 are 20YY.
-            let year = number(0, 2)
-            components.year = year >= 50 ? 1900 + year : 2000 + year
-            cursor = 2
-        } else {
-            components.year = number(0, 4)
-            cursor = 4
-        }
-        components.month = number(cursor, 2)
-        components.day = number(cursor + 2, 2)
-        components.hour = number(cursor + 4, 2)
-        components.minute = number(cursor + 6, 2)
-        components.second = number(cursor + 8, 2)
-        guard let month = components.month, (1...12).contains(month),
-              let day = components.day, (1...31).contains(day),
-              let hour = components.hour, (0...23).contains(hour),
-              let minute = components.minute, (0...59).contains(minute),
-              let second = components.second, (0...60).contains(second) else {
-            return nil
-        }
-        var calendar = Calendar(identifier: .gregorian)
-        guard let utc = TimeZone(secondsFromGMT: 0) else { return nil }
-        calendar.timeZone = utc
-        components.timeZone = utc
-        guard let date = calendar.date(from: components),
-              calendar.dateComponents([.year, .month, .day], from: date).day == day else {
-            return nil
-        }
-        return date
-    }
 
     // MARK: - Shared value readers
 
-    private static func algorithmIdentifier(
+    static func algorithmIdentifier(
         _ tlv: TLV,
         enteredFrom reader: Reader,
         bytes: [UInt8]
@@ -694,7 +494,7 @@ enum CMSStructureReader {
         return identifier
     }
 
-    private static func smallInteger(
+    static func smallInteger(
         _ bytes: [UInt8],
         range: Range<Int>,
         accepted: ClosedRange<Int>
@@ -712,7 +512,7 @@ enum CMSStructureReader {
         return value
     }
 
-    private static func objectIdentifier(_ bytes: [UInt8], range: Range<Int>) throws -> String {
+    static func objectIdentifier(_ bytes: [UInt8], range: Range<Int>) throws -> String {
         guard !range.isEmpty else {
             throw CMSStructureError.invalid("An object identifier is empty.")
         }
@@ -753,7 +553,7 @@ enum CMSStructureReader {
     /// Minimal definite-length encoding of `length`, matching the DER the
     /// reader accepts. Re-encoding a signed-attribute collection with this
     /// reproduces the bytes a signature over those attributes covers.
-    private static func lengthEncoding(_ length: Int) -> [UInt8] {
+    static func lengthEncoding(_ length: Int) -> [UInt8] {
         if length < 0x80 {
             return [UInt8(length)]
         }
@@ -768,7 +568,7 @@ enum CMSStructureReader {
 
     // MARK: - Reader
 
-    private enum Tag {
+    enum Tag {
         static let integer: UInt8 = 0x02
         static let octetString: UInt8 = 0x04
         static let null: UInt8 = 0x05
@@ -783,7 +583,7 @@ enum CMSStructureReader {
         static let context1: UInt8 = 0xA1
     }
 
-    private struct TLV {
+    struct TLV {
         let tag: UInt8
         let full: Range<Int>
         let content: Range<Int>
@@ -797,7 +597,7 @@ enum CMSStructureReader {
     /// two are deliberately separate because their structures, bounds, and
     /// failure taxonomies differ, and consolidating them is recorded as a
     /// deferred cleanup rather than done blind here.
-    private struct Reader {
+    struct Reader {
         let bytes: [UInt8]
         var index: Int
         let end: Int
@@ -888,7 +688,7 @@ enum CMSStructureReader {
 
 /// The structural failures this reader distinguishes, mapped to the shared
 /// CMS error vocabulary.
-private enum CMSStructureError: Error {
+enum CMSStructureError: Error {
 
     case empty
     case tooLarge

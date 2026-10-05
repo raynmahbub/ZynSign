@@ -66,7 +66,7 @@ jobs:
             homebrew-maintenance-${{ runner.arch }}-
 
       - name: Install the sweep tooling
-        run: HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install periphery swiftformat
+        run: HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install periphery swiftformat
 
       # The full report (QUICK unset) includes the Periphery dead-code scan —
       # the slow part this job exists to run. It records findings; it does

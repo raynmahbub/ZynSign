@@ -71,6 +71,63 @@ struct MachOCodeSignatureWriter {
         signedCodeLimit: UInt64,
         existingSignaturePolicy: MachOExistingCodeSignaturePolicy
     ) throws -> MachOCodeSignaturePreparation {
+        let slice = try validatedSlice(
+            bytes,
+            serializedSuperBlobLength: serializedSuperBlobLength,
+            existingSignaturePolicy: existingSignaturePolicy
+        )
+        let appendLayout = try preparedAppendLayout(
+            serializedLength: serializedSuperBlobLength,
+            fileLength: bytes.count,
+            signedCodeLimit: signedCodeLimit
+        )
+        let requiredCommandEnd = try validatedLoadCommandPadding(in: slice, source: bytes)
+        let linkEdit = try validatedLinkEditSegment(
+            in: slice,
+            sourceFileLength: bytes.count,
+            resultingFileLength: appendLayout.layout.resultingFileLength
+        )
+        let updatedFields = try updatedLoadCommandFields(for: slice)
+        let prefix = try makePreparedPrefix(
+            bytes,
+            slice: slice,
+            layout: appendLayout.layout,
+            fields: appendLayout.fields,
+            requiredCommandEnd: requiredCommandEnd,
+            linkEdit: linkEdit,
+            updatedFields: updatedFields
+        )
+        let modifiedRanges = [
+            16..<20,
+            20..<24,
+            slice.loadCommandsEndOffset..<requiredCommandEnd,
+            linkEdit.segment.fileSizeFieldRange,
+            bytes.count..<appendLayout.layout.resultingFileLength
+        ]
+        return MachOCodeSignaturePreparation(
+            prefix: prefix,
+            layout: appendLayout.layout,
+            loadCommandFields: appendLayout.fields,
+            signedCodeLimit: signedCodeLimit,
+            modifiedByteRanges: modifiedRanges
+        )
+    }
+
+    private struct PreparedAppendLayout {
+        let layout: MachOCodeSignatureRegionLayout
+        let fields: MachOCodeSignatureLoadCommandFields
+    }
+
+    private struct UpdatedLoadCommandFields {
+        let count: UInt32
+        let byteCount: UInt32
+    }
+
+    private func validatedSlice(
+        _ bytes: Data,
+        serializedSuperBlobLength: Int,
+        existingSignaturePolicy: MachOExistingCodeSignaturePolicy
+    ) throws -> MachOSlice {
         guard bytes.startIndex == 0 else { throw MachOCodeSignatureRegionError.invalidFileLength }
         guard serializedSuperBlobLength > 0 else { throw MachOCodeSignatureRegionError.invalidLength }
         guard serializedSuperBlobLength <= SignatureSuperBlob.maximumSerializedLength else {
@@ -83,8 +140,7 @@ struct MachOCodeSignatureWriter {
         guard slice.fileRange == 0..<bytes.count else {
             throw MachOCodeSignatureRegionError.inconsistentMutation
         }
-
-        if slice.embeddedSignature != nil {
+        guard slice.embeddedSignature == nil else {
             switch existingSignaturePolicy {
             case .rejectExistingSignature:
                 throw MachOCodeSignatureRegionError.existingSignatureRejected
@@ -92,49 +148,64 @@ struct MachOCodeSignatureWriter {
                 throw MachOCodeSignatureRegionError.replacementUnsupported
             }
         }
+        return slice
+    }
 
+    private func preparedAppendLayout(
+        serializedLength: Int,
+        fileLength: Int,
+        signedCodeLimit: UInt64
+    ) throws -> PreparedAppendLayout {
         let layout = try MachOCodeSignatureRegionLayout(
-            appendingSerializedSuperBlobLength: serializedSuperBlobLength,
-            toFileLength: bytes.count)
+            appendingSerializedSuperBlobLength: serializedLength,
+            toFileLength: fileLength
+        )
         try layout.validate(signedCodeLimit: signedCodeLimit)
-        let fields = try layout.loadCommandFields()
         guard layout.resultingFileLength <= Self.maximumResultingFileBytes else {
             throw MachOCodeSignatureRegionError.resourceLimitExceeded
         }
+        return PreparedAppendLayout(layout: layout, fields: try layout.loadCommandFields())
+    }
 
-        let (requiredCommandEnd, commandEndOverflow) = slice.loadCommandsEndOffset.addingReportingOverflow(16)
-        guard !commandEndOverflow else {
-            throw MachOCodeSignatureRegionError.integerOverflow
-        }
+    private func validatedLoadCommandPadding(
+        in slice: MachOSlice,
+        source bytes: Data
+    ) throws -> Int {
+        let (requiredEnd, overflow) = slice.loadCommandsEndOffset.addingReportingOverflow(16)
+        guard !overflow else { throw MachOCodeSignatureRegionError.integerOverflow }
         guard let firstFileBackedContentOffset = slice.firstFileBackedContentOffset else {
             throw MachOCodeSignatureRegionError.missingLoadCommandCapacityBoundary
         }
-        guard requiredCommandEnd <= firstFileBackedContentOffset else {
+        guard requiredEnd <= firstFileBackedContentOffset else {
             throw MachOCodeSignatureRegionError.insufficientLoadCommandCapacity(
-                requiredEndOffset: requiredCommandEnd,
+                requiredEndOffset: requiredEnd,
                 firstFileBackedContentOffset: firstFileBackedContentOffset
             )
         }
-        let loadCommandPadding = slice.loadCommandsEndOffset..<requiredCommandEnd
-        guard loadCommandPadding.upperBound <= bytes.count,
-              bytes[loadCommandPadding].allSatisfy({ $0 == 0 }) else {
+        let padding = slice.loadCommandsEndOffset..<requiredEnd
+        guard padding.upperBound <= bytes.count,
+              bytes[padding].allSatisfy({ $0 == 0 }) else {
             throw MachOCodeSignatureRegionError.nonZeroLoadCommandPadding
         }
+        return requiredEnd
+    }
 
-        let linkEdit = try validatedLinkEditSegment(
-            in: slice,
-            sourceFileLength: bytes.count,
-            resultingFileLength: layout.resultingFileLength
+    private func updatedLoadCommandFields(for slice: MachOSlice) throws -> UpdatedLoadCommandFields {
+        UpdatedLoadCommandFields(
+            count: try checkedUInt32(slice.header.loadCommandCount + 1, narrowingError: .inconsistentMutation),
+            byteCount: try checkedUInt32(slice.header.loadCommandsSize + 16, narrowingError: .inconsistentMutation)
         )
-        let updatedLoadCommandCount = try checkedUInt32(
-            slice.header.loadCommandCount + 1,
-            narrowingError: .inconsistentMutation
-        )
-        let updatedLoadCommandsSize = try checkedUInt32(
-            slice.header.loadCommandsSize + 16,
-            narrowingError: .inconsistentMutation
-        )
+    }
 
+    private func makePreparedPrefix(
+        _ bytes: Data,
+        slice: MachOSlice,
+        layout: MachOCodeSignatureRegionLayout,
+        fields: MachOCodeSignatureLoadCommandFields,
+        requiredCommandEnd: Int,
+        linkEdit: ValidatedLinkEdit,
+        updatedFields: UpdatedLoadCommandFields
+    ) throws -> Data {
         var output = Data()
         output.reserveCapacity(layout.offset)
         output.append(bytes)
@@ -144,25 +215,40 @@ struct MachOCodeSignatureWriter {
         guard output.count == layout.offset else {
             throw MachOCodeSignatureRegionError.inconsistentMutation
         }
+        try writeLoadCommandFields(updatedFields, at: slice.loadCommandsEndOffset, fields: fields, order: slice.header.byteOrder, into: &output)
+        try writeLinkEditFileSize(linkEdit, order: slice.header.byteOrder, into: &output)
+        guard requiredCommandEnd <= output.count else {
+            throw MachOCodeSignatureRegionError.inconsistentMutation
+        }
+        return output
+    }
 
-        let order = slice.header.byteOrder
-        try replaceUInt32(updatedLoadCommandCount, at: 16, order: order, in: &output)
-        try replaceUInt32(updatedLoadCommandsSize, at: 20, order: order, in: &output)
-        try replaceUInt32(MachOLoadCommandType.codeSignature, at: slice.loadCommandsEndOffset, order: order, in: &output)
-        try replaceUInt32(16, at: slice.loadCommandsEndOffset + 4, order: order, in: &output)
-        try replaceUInt32(fields.dataOffset, at: slice.loadCommandsEndOffset + 8, order: order, in: &output)
-        try replaceUInt32(fields.dataSize, at: slice.loadCommandsEndOffset + 12, order: order, in: &output)
+    private func writeLoadCommandFields(
+        _ updated: UpdatedLoadCommandFields,
+        at commandOffset: Int,
+        fields: MachOCodeSignatureLoadCommandFields,
+        order: MachOByteOrder,
+        into output: inout Data
+    ) throws {
+        try replaceUInt32(updated.count, at: 16, order: order, in: &output)
+        try replaceUInt32(updated.byteCount, at: 20, order: order, in: &output)
+        try replaceUInt32(MachOLoadCommandType.codeSignature, at: commandOffset, order: order, in: &output)
+        try replaceUInt32(16, at: commandOffset + 4, order: order, in: &output)
+        try replaceUInt32(fields.dataOffset, at: commandOffset + 8, order: order, in: &output)
+        try replaceUInt32(fields.dataSize, at: commandOffset + 12, order: order, in: &output)
+    }
+
+    private func writeLinkEditFileSize(
+        _ linkEdit: ValidatedLinkEdit,
+        order: MachOByteOrder,
+        into output: inout Data
+    ) throws {
         switch linkEdit.wordSize {
         case .bits32:
             guard let fileSize = UInt32(exactly: linkEdit.newFileSize) else {
                 throw MachOCodeSignatureRegionError.unsafeLinkEditLayout
             }
-            try replaceUInt32(
-                fileSize,
-                at: linkEdit.segment.fileSizeFieldRange.lowerBound,
-                order: order,
-                in: &output
-            )
+            try replaceUInt32(fileSize, at: linkEdit.segment.fileSizeFieldRange.lowerBound, order: order, in: &output)
         case .bits64:
             try replaceUInt64(
                 UInt64(linkEdit.newFileSize),
@@ -171,21 +257,6 @@ struct MachOCodeSignatureWriter {
                 in: &output
             )
         }
-
-        let modifiedRanges = [
-            16..<20,
-            20..<24,
-            slice.loadCommandsEndOffset..<requiredCommandEnd,
-            linkEdit.segment.fileSizeFieldRange,
-            bytes.count..<layout.resultingFileLength
-        ]
-        return MachOCodeSignaturePreparation(
-            prefix: output,
-            layout: layout,
-            loadCommandFields: fields,
-            signedCodeLimit: signedCodeLimit,
-            modifiedByteRanges: modifiedRanges
-        )
     }
 
     /// Finishing cannot resize or rewrite the prepared prefix. A size mismatch

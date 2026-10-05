@@ -208,6 +208,11 @@ enum ZipCentralDirectoryScanner {
 
     // MARK: - Central directory
 
+    private struct ParsedCentralDirectoryRecord {
+        let record: ZipCentralDirectoryRecord
+        let nextPosition: Int
+    }
+
     private static func readCentralDirectory(
         location: DirectoryLocation,
         limits: ArchiveLimits,
@@ -216,100 +221,171 @@ enum ZipCentralDirectoryScanner {
         var records: [ZipCentralDirectoryRecord] = []
         var position = location.offset
         let end = location.offset + location.size
-
         while position + centralDirectoryRecordSize <= end {
-            let header = try read(position, centralDirectoryRecordSize)
-            guard header.count == centralDirectoryRecordSize else {
-                throw ZynSignError.unreadableArtifact(
-                    diagnosticDetail: "The archive's central directory is truncated."
-                )
-            }
-            guard ZipField.uint32(header, 0) == centralDirectorySignature else {
-                throw ZynSignError.unreadableArtifact(
-                    diagnosticDetail: "The archive's central directory holds a record with an unrecognized signature."
-                )
-            }
-
-            let versionMadeBy = ZipField.uint16(header, 4)
-            let flags = ZipField.uint16(header, 8)
-            let compressionMethod = ZipField.uint16(header, 10)
-            let checksum = ZipField.uint32(header, 16)
-            var compressedSize = Int(ZipField.uint32(header, 20))
-            var uncompressedSize = Int(ZipField.uint32(header, 24))
-            let nameLength = Int(ZipField.uint16(header, 28))
-            let extraLength = Int(ZipField.uint16(header, 30))
-            let commentLength = Int(ZipField.uint16(header, 32))
-            let externalAttributes = ZipField.uint32(header, 38)
-            var localHeaderOffset = Int(ZipField.uint32(header, 42))
-
-            let variableLength = nameLength + extraLength + commentLength
-            guard position + centralDirectoryRecordSize + variableLength <= end else {
-                throw ZynSignError.unreadableArtifact(
-                    diagnosticDetail: "The archive's central directory is truncated."
-                )
-            }
-            var variable: [UInt8] = []
-            if variableLength > 0 {
-                variable = try read(position + centralDirectoryRecordSize, variableLength)
-            }
-            guard variable.count == variableLength else {
-                throw ZynSignError.unreadableArtifact(
-                    diagnosticDetail: "The archive's central directory is truncated."
-                )
-            }
-            let nameBytes = Array(variable[0..<nameLength])
-            let extraBytes = Array(variable[nameLength..<(nameLength + extraLength)])
-            position += centralDirectoryRecordSize + variableLength
-
-            if ZipField.uint32(header, 24) == zip64Placeholder32
-                || ZipField.uint32(header, 20) == zip64Placeholder32
-                || ZipField.uint32(header, 42) == zip64Placeholder32 {
-                applyZip64Sizes(
-                    extraBytes,
-                    uncompressedSize: &uncompressedSize,
-                    compressedSize: &compressedSize,
-                    localHeaderOffset: &localHeaderOffset,
-                    uncompressedIsExtended: ZipField.uint32(header, 24) == zip64Placeholder32,
-                    compressedIsExtended: ZipField.uint32(header, 20) == zip64Placeholder32,
-                    offsetIsExtended: ZipField.uint32(header, 42) == zip64Placeholder32
-                )
-            }
-
-            let decodedName = String(bytes: nameBytes, encoding: .utf8)
-            let kind = entryKind(
-                versionMadeBy: versionMadeBy,
-                externalAttributes: externalAttributes,
-                nameEndsWithSeparator: decodedName?.hasSuffix("/") ?? false
+            let parsed = try readCentralDirectoryRecord(
+                at: position,
+                end: end,
+                limits: limits,
+                read: read
             )
-            let entry = makeEntry(
-                nameBytes: nameBytes,
-                decodedName: decodedName,
-                kind: kind,
-                uncompressedSize: uncompressedSize,
-                compressedSize: compressedSize,
-                unixMode: recordedUnixMode(
-                    versionMadeBy: versionMadeBy,
-                    externalAttributes: externalAttributes
-                ),
-                limits: limits
-            )
-
-            records.append(
-                ZipCentralDirectoryRecord(
-                    entry: entry,
-                    compressionMethod: compressionMethod,
-                    localHeaderOffset: localHeaderOffset,
-                    checksum: checksum,
-                    isEncrypted: (flags & 0x0001) != 0
-                )
-            )
-
+            records.append(parsed.record)
+            position = parsed.nextPosition
             if records.count > limits.maximumEntryCount {
                 break
             }
         }
-
         return records
+    }
+
+    private static func readCentralDirectoryRecord(
+        at position: Int,
+        end: Int,
+        limits: ArchiveLimits,
+        read: (Int, Int) throws -> [UInt8]
+    ) throws -> ParsedCentralDirectoryRecord {
+        let header = try readCentralDirectoryHeader(at: position, read: read)
+        let variableLength = centralDirectoryVariableLength(in: header)
+        let variableStart = position + centralDirectoryRecordSize
+        guard variableLength <= end - variableStart else {
+            throw ZynSignError.unreadableArtifact(
+                diagnosticDetail: "The archive's central directory is truncated."
+            )
+        }
+        let variable: [UInt8]
+        if variableLength > 0 {
+            variable = try read(variableStart, variableLength)
+        } else {
+            variable = []
+        }
+        guard variable.count == variableLength else {
+            throw ZynSignError.unreadableArtifact(
+                diagnosticDetail: "The archive's central directory is truncated."
+            )
+        }
+        return ParsedCentralDirectoryRecord(
+            record: try decodeCentralDirectoryRecord(header, variable: variable, limits: limits),
+            nextPosition: variableStart + variableLength
+        )
+    }
+
+    private static func readCentralDirectoryHeader(
+        at position: Int,
+        read: (Int, Int) throws -> [UInt8]
+    ) throws -> [UInt8] {
+        let header = try read(position, centralDirectoryRecordSize)
+        guard header.count == centralDirectoryRecordSize else {
+            throw ZynSignError.unreadableArtifact(
+                diagnosticDetail: "The archive's central directory is truncated."
+            )
+        }
+        guard ZipField.uint32(header, 0) == centralDirectorySignature else {
+            throw ZynSignError.unreadableArtifact(
+                diagnosticDetail: "The archive's central directory holds a record with an unrecognized signature."
+            )
+        }
+        return header
+    }
+
+    private static func centralDirectoryVariableLength(in header: [UInt8]) -> Int {
+        Int(ZipField.uint16(header, 28))
+            + Int(ZipField.uint16(header, 30))
+            + Int(ZipField.uint16(header, 32))
+    }
+
+    private static func decodeCentralDirectoryRecord(
+        _ header: [UInt8],
+        variable: [UInt8],
+        limits: ArchiveLimits
+    ) throws -> ZipCentralDirectoryRecord {
+        let fields = centralDirectoryFields(in: header)
+        let nameBytes = Array(variable[0..<fields.nameLength])
+        let extraBytes = Array(variable[fields.nameLength..<(fields.nameLength + fields.extraLength)])
+        var sizes = CentralDirectorySizes(
+            compressed: fields.compressedSize,
+            uncompressed: fields.uncompressedSize,
+            localHeaderOffset: fields.localHeaderOffset
+        )
+        applyZip64Extensions(in: extraBytes, header: header, to: &sizes)
+
+        let decodedName = String(bytes: nameBytes, encoding: .utf8)
+        let kind = entryKind(
+            versionMadeBy: fields.versionMadeBy,
+            externalAttributes: fields.externalAttributes,
+            nameEndsWithSeparator: decodedName?.hasSuffix("/") ?? false
+        )
+        let entry = makeEntry(
+            nameBytes: nameBytes,
+            decodedName: decodedName,
+            kind: kind,
+            uncompressedSize: sizes.uncompressed,
+            compressedSize: sizes.compressed,
+            unixMode: recordedUnixMode(
+                versionMadeBy: fields.versionMadeBy,
+                externalAttributes: fields.externalAttributes
+            ),
+            limits: limits
+        )
+        return ZipCentralDirectoryRecord(
+            entry: entry,
+            compressionMethod: fields.compressionMethod,
+            localHeaderOffset: sizes.localHeaderOffset,
+            checksum: fields.checksum,
+            isEncrypted: (fields.flags & 0x0001) != 0
+        )
+    }
+
+    private struct CentralDirectoryFields {
+        let versionMadeBy: UInt16
+        let flags: UInt16
+        let compressionMethod: UInt16
+        let checksum: UInt32
+        let compressedSize: Int
+        let uncompressedSize: Int
+        let nameLength: Int
+        let extraLength: Int
+        let externalAttributes: UInt32
+        let localHeaderOffset: Int
+    }
+
+    private struct CentralDirectorySizes {
+        var compressed: Int
+        var uncompressed: Int
+        var localHeaderOffset: Int
+    }
+
+    private static func centralDirectoryFields(in header: [UInt8]) -> CentralDirectoryFields {
+        CentralDirectoryFields(
+            versionMadeBy: ZipField.uint16(header, 4),
+            flags: ZipField.uint16(header, 8),
+            compressionMethod: ZipField.uint16(header, 10),
+            checksum: ZipField.uint32(header, 16),
+            compressedSize: Int(ZipField.uint32(header, 20)),
+            uncompressedSize: Int(ZipField.uint32(header, 24)),
+            nameLength: Int(ZipField.uint16(header, 28)),
+            extraLength: Int(ZipField.uint16(header, 30)),
+            externalAttributes: ZipField.uint32(header, 38),
+            localHeaderOffset: Int(ZipField.uint32(header, 42))
+        )
+    }
+
+    private static func applyZip64Extensions(
+        in extraBytes: [UInt8],
+        header: [UInt8],
+        to sizes: inout CentralDirectorySizes
+    ) {
+        let uncompressedIsExtended = ZipField.uint32(header, 24) == zip64Placeholder32
+        let compressedIsExtended = ZipField.uint32(header, 20) == zip64Placeholder32
+        let offsetIsExtended = ZipField.uint32(header, 42) == zip64Placeholder32
+        guard uncompressedIsExtended || compressedIsExtended || offsetIsExtended else { return }
+        applyZip64Sizes(
+            extraBytes,
+            uncompressedSize: &sizes.uncompressed,
+            compressedSize: &sizes.compressed,
+            localHeaderOffset: &sizes.localHeaderOffset,
+            uncompressedIsExtended: uncompressedIsExtended,
+            compressedIsExtended: compressedIsExtended,
+            offsetIsExtended: offsetIsExtended
+        )
     }
 
     /// Applies the ZIP64 extra field's extended sizes, which appear only for

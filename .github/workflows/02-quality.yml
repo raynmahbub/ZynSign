@@ -43,7 +43,7 @@ concurrency:
 jobs:
   architecture-guard:
     name: Enforce the layered architecture contract
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Check out the repository
@@ -63,7 +63,7 @@ jobs:
 
   dependency-validation:
     name: Enforce the dependency allowlist
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Check out the repository
@@ -74,7 +74,7 @@ jobs:
 
   docs-check:
     name: Links, images, orphans, markdown quality
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Check out the repository
@@ -85,7 +85,7 @@ jobs:
 
   secret-policy:
     name: Repository secret policy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Check out the repository
@@ -96,7 +96,7 @@ jobs:
 
   gitleaks:
     name: Gitleaks (full history)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       # Full history on purpose: a secret committed and then removed is still
@@ -114,7 +114,7 @@ jobs:
 
   complexity-check:
     name: Complexity thresholds (warnings only)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -141,7 +141,7 @@ jobs:
 
   engineering-summary:
     name: Engineering Command Center
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     # This job executes scripts from the pull-request revision, so it is
     # intentionally read-only. PR comments must be produced by a separate
@@ -189,7 +189,7 @@ jobs:
 
   readme-check:
     name: README freshness
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Check out the repository

@@ -47,7 +47,6 @@ struct IPABundleMetadataInspection {
         guard artifact.permitsLaterStages, let bundle = artifact.discoveredBundle else {
             return artifact
         }
-
         let reader: any ArchiveReader
         do {
             reader = try readerProvider.archiveReader(for: artifact.id)
@@ -59,7 +58,14 @@ struct IPABundleMetadataInspection {
             )
         }
         defer { reader.close() }
+        return inspectBundle(artifact, bundle: bundle, reader: reader)
+    }
 
+    private func inspectBundle(
+        _ artifact: IPAArtifact,
+        bundle: ApplicationBundle,
+        reader: any ArchiveReader
+    ) -> IPAArtifact {
         let entryTable: [ArchiveEntry]
         do {
             entryTable = try reader.readEntryTable()
@@ -70,9 +76,50 @@ struct IPABundleMetadataInspection {
                 detail: "The archive for artifact '\(artifact.id.rawValue)' could not be enumerated: \(Self.diagnosticSummary(of: error))"
             )
         }
-
         let kindsByPath = Self.kinds(byPath: entryTable)
+        guard let informationPath = checkedInformationPath(for: bundle, kindsByPath: kindsByPath) else {
+            return recordInformationPathFailure(for: bundle, artifact: artifact, kindsByPath: kindsByPath)
+        }
+        let infoPlistData: Data
+        do {
+            infoPlistData = try reader.readEntryData(
+                at: informationPath,
+                maximumBytes: limits.maximumInspectionReadBytes
+            )
+        } catch {
+            return recordFailure(
+                on: artifact,
+                code: .unreadableInfoPlist,
+                detail: "The bundle information file at '\(informationPath)' could not be read: \(Self.diagnosticSummary(of: error))",
+                location: informationPath
+            )
+        }
+        let examination = ApplicationMetadataReader.read(from: infoPlistData)
+        return recordExamination(
+            examination,
+            on: artifact,
+            bundle: bundle,
+            informationPath: informationPath,
+            kindsByPath: kindsByPath
+        )
+    }
 
+    private func checkedInformationPath(
+        for bundle: ApplicationBundle,
+        kindsByPath: [ArchivePath: ArchiveEntryKind]
+    ) -> ArchivePath? {
+        guard let informationPath = IPALayout.bundleInformationPath(within: bundle.bundlePath),
+              kindsByPath[informationPath] == .regularFile else {
+            return nil
+        }
+        return informationPath
+    }
+
+    private func recordInformationPathFailure(
+        for bundle: ApplicationBundle,
+        artifact: IPAArtifact,
+        kindsByPath: [ArchivePath: ArchiveEntryKind]
+    ) -> IPAArtifact {
         guard let informationPath = IPALayout.bundleInformationPath(within: bundle.bundlePath) else {
             return recordFailure(
                 on: artifact,
@@ -88,83 +135,89 @@ struct IPABundleMetadataInspection {
                 detail: "The application bundle at '\(bundle.bundlePath)' records no '\(IPALayout.bundleInformationFileName)'.",
                 location: informationPath
             )
-        case .some(let kind) where kind != .regularFile:
+        case .some(let kind):
             return recordFailure(
                 on: artifact,
                 code: .missingInfoPlist,
                 detail: "The bundle information file at '\(informationPath)' is \(kind.displayName) rather than a regular file.",
                 location: informationPath
             )
-        case .some:
-            break
         }
+    }
 
-        let infoPlistData: Data
-        do {
-            infoPlistData = try reader.readEntryData(
-                at: informationPath,
-                maximumBytes: limits.maximumInspectionReadBytes
-            )
-        } catch {
-            return recordFailure(
-                on: artifact,
-                code: .unreadableInfoPlist,
-                detail: "The bundle information file at '\(informationPath)' could not be read: \(Self.diagnosticSummary(of: error))",
-                location: informationPath
-            )
-        }
-
-        let examination = ApplicationMetadataReader.read(from: infoPlistData)
-        // The reader works on bare bytes and therefore does not know the
-        // file's location; the use case, which does, stamps it onto the
-        // findings so diagnostics can name the entry.
+    private func recordExamination(
+        _ examination: ApplicationMetadataExamination,
+        on artifact: IPAArtifact,
+        bundle: ApplicationBundle,
+        informationPath: ArchivePath,
+        kindsByPath: [ArchivePath: ArchiveEntryKind]
+    ) -> IPAArtifact {
         var findings = examination.findings.map {
             ValidationFinding(severity: $0.severity, code: $0.code, detail: $0.detail, location: informationPath)
         }
-
-        var updatedBundle = bundle
+        let updatedBundle: ApplicationBundle
         if let metadata = examination.metadata {
-            var executablePath: ArchivePath?
-            if let name = metadata.executableName,
-               let candidate = bundle.bundlePath.appending(component: name) {
-                if kindsByPath[candidate] == .regularFile {
-                    executablePath = candidate
-                } else {
-                    findings.append(
-                        ValidationFinding(
-                            severity: .error,
-                            code: .missingExecutable,
-                            detail: "The declared executable '\(name)' is not a regular file inside the bundle at '\(candidate)'.",
-                            location: candidate
-                        )
-                    )
-                }
-            }
-            do {
-                updatedBundle = try ApplicationBundle(
-                    bundlePath: bundle.bundlePath,
-                    identity: metadata.identity,
-                    executablePath: executablePath
-                )
-            } catch {
-                // The bundle path already passed structural validation and
-                // the executable path was derived from it, so this cannot
-                // fail; keep the structurally examined bundle if it ever
-                // does rather than dropping the outcome.
-                updatedBundle = bundle
-            }
+            updatedBundle = updatingBundle(bundle, metadata: metadata, kindsByPath: kindsByPath, findings: &findings)
+        } else {
+            updatedBundle = bundle
         }
-
         let structuralFindings = artifact.validation?.findings ?? []
+        let allFindings = structuralFindings + findings
         let validation = ValidationResult(
-            classification: IPAStructureValidator.classification(for: structuralFindings + findings),
-            findings: structuralFindings + findings
+            classification: IPAStructureValidator.classification(for: allFindings),
+            findings: allFindings
         )
         return artifact.metadataExamined(
             bundle: updatedBundle,
             metadata: examination.metadata,
             validation: validation
         )
+    }
+
+    private func updatingBundle(
+        _ bundle: ApplicationBundle,
+        metadata: ApplicationMetadata,
+        kindsByPath: [ArchivePath: ArchiveEntryKind],
+        findings: inout [ValidationFinding]
+    ) -> ApplicationBundle {
+        let executablePath = resolvedExecutablePath(
+            metadata.executableName,
+            within: bundle.bundlePath,
+            kindsByPath: kindsByPath,
+            findings: &findings
+        )
+        do {
+            return try ApplicationBundle(
+                bundlePath: bundle.bundlePath,
+                identity: metadata.identity,
+                executablePath: executablePath
+            )
+        } catch {
+            // Structural validation already accepted this bundle path.
+            return bundle
+        }
+    }
+
+    private func resolvedExecutablePath(
+        _ executableName: String?,
+        within bundlePath: ArchivePath,
+        kindsByPath: [ArchivePath: ArchiveEntryKind],
+        findings: inout [ValidationFinding]
+    ) -> ArchivePath? {
+        guard let executableName,
+              let candidate = bundlePath.appending(component: executableName) else {
+            return nil
+        }
+        guard kindsByPath[candidate] == .regularFile else {
+            findings.append(ValidationFinding(
+                severity: .error,
+                code: .missingExecutable,
+                detail: "The declared executable '\(executableName)' is not a regular file inside the bundle at '\(candidate)'.",
+                location: candidate
+            ))
+            return nil
+        }
+        return candidate
     }
 
     // MARK: - Failure recording

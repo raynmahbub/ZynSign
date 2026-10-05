@@ -93,40 +93,76 @@ extension CompositionRoot {
     /// renders the first library icon it finds. Nothing signs, imports,
     /// or writes to the library.
     static func makePerformanceBenchmarks(environment: ApplicationEnvironment) -> [PerformanceBenchmark] {
-        let library = environment.library
-        let provenance = environment.applicationProvenance
-        let organizer = environment.libraryOrganizer
-        let identities = environment.identityStore
-        let profiles = environment.provisioningProfiles
-        let icons = environment.appIcons
-        var suite: [PerformanceBenchmark] = []
+        var suite = [
+            libraryLoadBenchmark(
+                library: environment.library,
+                organizer: environment.libraryOrganizer,
+                provenance: environment.applicationProvenance
+            ),
+            indexBuildBenchmark(library: environment.library, provenance: environment.applicationProvenance),
+            searchLatencyBenchmark(library: environment.library, provenance: environment.applicationProvenance),
+            storeLoadingBenchmark(),
+            importSpeedBenchmark(),
+            signingPreparationBenchmark(
+                library: environment.library,
+                identities: environment.identityStore,
+                profiles: environment.provisioningProfiles
+            ),
+        ]
+        if let icons = environment.appIcons {
+            suite.append(thumbnailGenerationBenchmark(library: environment.library, icons: icons))
+        }
+        return suite
+    }
 
-        suite.append(PerformanceBenchmark(kind: .libraryLoad) {
+    private static func libraryLoadBenchmark(
+        library: ApplicationLibrary,
+        organizer: LibraryOrganizer?,
+        provenance: ApplicationProvenanceExtraction?
+    ) -> PerformanceBenchmark {
+        PerformanceBenchmark(kind: .libraryLoad) {
             let entries = try await library.entries()
             let organization = (try? await organizer?.organization()) ?? .empty
             let known = await provenance?.knownProvenance() ?? [:]
-            let index = LibraryIndex(entries: entries, organization: organization, provenance: known)
-            return index.count
-        })
-        suite.append(PerformanceBenchmark(kind: .indexBuild) {
+            return LibraryIndex(entries: entries, organization: organization, provenance: known).count
+        }
+    }
+
+    private static func indexBuildBenchmark(
+        library: ApplicationLibrary,
+        provenance: ApplicationProvenanceExtraction?
+    ) -> PerformanceBenchmark {
+        PerformanceBenchmark(kind: .indexBuild) {
             let entries = try await library.entries()
             let known = await provenance?.knownProvenance() ?? [:]
-            let index = LibraryIndex(entries: entries, provenance: known)
-            return index.searchIndex.count
-        })
-        suite.append(PerformanceBenchmark(kind: .searchLatency) {
+            return LibraryIndex(entries: entries, provenance: known).searchIndex.count
+        }
+    }
+
+    private static func searchLatencyBenchmark(
+        library: ApplicationLibrary,
+        provenance: ApplicationProvenanceExtraction?
+    ) -> PerformanceBenchmark {
+        PerformanceBenchmark(kind: .searchLatency) {
             let entries = try await library.entries()
             let known = await provenance?.knownProvenance() ?? [:]
             let index = LibraryIndex(entries: entries, provenance: known)
             let queries = ["a", "com", "app 1", "2.0", "xyzzy"]
             var total = 0
             for text in queries {
-                total += index.results(for: LibraryQuery(searchText: text, filters: [], sort: .name), in: .all, now: Date()).count
+                total += index.results(
+                    for: LibraryQuery(searchText: text, filters: [], sort: .name),
+                    in: .all,
+                    now: Date()
+                ).count
             }
             _ = total
             return max(1, index.count) * queries.count
-        })
-        suite.append(PerformanceBenchmark(kind: .storeLoading) {
+        }
+    }
+
+    private static func storeLoadingBenchmark() -> PerformanceBenchmark {
+        PerformanceBenchmark(kind: .storeLoading) {
             let count = 500
             let apps = (0..<count).map { offset in
                 "{\"name\":\"Sample App \(offset)\",\"bundleIdentifier\":\"com.example.sample\(offset)\",\"version\":\"1.\(offset % 20)\",\"subtitle\":\"Benchmark entry\"}"
@@ -136,12 +172,17 @@ extension CompositionRoot {
                   let manifest = StoreManifestCache.decodeFeed(
                 data, sourceID: "benchmark", url: benchmarkURL,
                 entityTag: nil, lastModified: nil, fetchedAt: Date()
-            ) else { throw ZynSignError.packagingFailure(diagnosticDetail: "The benchmark manifest did not decode.") }
+            ) else {
+                throw ZynSignError.packagingFailure(diagnosticDetail: "The benchmark manifest did not decode.")
+            }
             let catalog = StoreCatalog(manifests: [manifest])
             _ = catalog.matching("sample 4")
             return catalog.count
-        })
-        suite.append(PerformanceBenchmark(kind: .importSpeed) {
+        }
+    }
+
+    private static func importSpeedBenchmark() -> PerformanceBenchmark {
+        PerformanceBenchmark(kind: .importSpeed) {
             let scratch = FileManager.default.temporaryDirectory
                 .appendingPathComponent("ZynSignBenchmark", isDirectory: true)
             try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
@@ -156,40 +197,52 @@ extension CompositionRoot {
             var bytes = Data()
             try ZipArchiveWriter().writeArchive(entries: entries, policy: .default) { bytes.append($0) }
             try bytes.write(to: package, options: .atomic)
-            // Intake copies the file into its own directory, then reads
-            // the entry table; the benchmark does the same.
+            // Intake copies the file into its own directory, then reads the
+            // entry table; the benchmark does the same.
             let staged = scratch.appendingPathComponent("Staged.ipa", isDirectory: false)
             try FileManager.default.copyItem(at: package, to: staged)
-            let table = try ZipArchiveReader(location: staged).readEntryTable()
-            return table.count
-        })
-        suite.append(PerformanceBenchmark(kind: .signingPreparation) {
+            return try ZipArchiveReader(location: staged).readEntryTable().count
+        }
+    }
+
+    private static func signingPreparationBenchmark(
+        library: ApplicationLibrary,
+        identities: any IdentityStore,
+        profiles: ProvisioningProfileLibrary?
+    ) -> PerformanceBenchmark {
+        PerformanceBenchmark(kind: .signingPreparation) {
             let identityCount = (try? identities.listIdentities().count) ?? 0
             let profileCount = (try? await profiles?.allProfiles().count) ?? 0
             let entries = try await library.entries()
             return max(1, identityCount + profileCount + entries.count)
-        })
-        if let icons {
-            suite.append(PerformanceBenchmark(kind: .thumbnailGeneration) {
-                let entries = try await library.entries()
-                var source: Data?
-                for entry in entries where entry.isArtifactAvailable {
-                    if let data = await icons.iconData(for: entry.record.artifact.artifactID) {
-                        source = data
-                        break
-                    }
-                }
-                guard let source else {
-                    throw ZynSignError.packagingFailure(diagnosticDetail: "No library icon is available to render.")
-                }
-                let renderer = ImageIOThumbnailRenderer()
-                var rendered = 0
-                for variant in ThumbnailVariant.allCases where renderer.renderThumbnail(from: source, maximumPixelSize: variant.maximumPixelSize) != nil {
-                    rendered += 1
-                }
-                return max(1, rendered)
-            })
         }
-        return suite
+    }
+
+    private static func thumbnailGenerationBenchmark(
+        library: ApplicationLibrary,
+        icons: AppIconExtraction
+    ) -> PerformanceBenchmark {
+        PerformanceBenchmark(kind: .thumbnailGeneration) {
+            let entries = try await library.entries()
+            var source: Data?
+            for entry in entries where entry.isArtifactAvailable {
+                if let data = await icons.iconData(for: entry.record.artifact.artifactID) {
+                    source = data
+                    break
+                }
+            }
+            guard let source else {
+                throw ZynSignError.packagingFailure(diagnosticDetail: "No library icon is available to render.")
+            }
+            let renderer = ImageIOThumbnailRenderer()
+            var rendered = 0
+            for variant in ThumbnailVariant.allCases where renderer.renderThumbnail(
+                from: source,
+                maximumPixelSize: variant.maximumPixelSize
+            ) != nil {
+                rendered += 1
+            }
+            return max(1, rendered)
+        }
     }
 }

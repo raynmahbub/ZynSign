@@ -68,7 +68,7 @@ concurrency:
 jobs:
   meta:
     name: Derive release metadata
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       version: ${{ steps.meta.outputs.version }}
@@ -95,7 +95,7 @@ jobs:
   # --- Quality gate: validation + static guards ------------------------------
   quality-gate:
     name: Release quality gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: meta
     timeout-minutes: 15
     steps:
@@ -119,7 +119,7 @@ jobs:
 
   secret-history:
     name: Gitleaks over the full history
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: meta
     timeout-minutes: 15
     steps:
@@ -242,7 +242,7 @@ jobs:
     # Skipped entirely on a dry run: the rehearsal proves every gate and
     # builds the assets, but never touches the public release.
     if: ${{ !inputs.dry_run }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [meta, assets]
     timeout-minutes: 20
     permissions:
@@ -328,7 +328,7 @@ jobs:
   sync-changelog:
     name: Open the generated changelog PR
     if: ${{ !inputs.dry_run && needs.publish.result == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [meta, publish]
     timeout-minutes: 10
     outputs:
@@ -438,7 +438,7 @@ jobs:
   verdict:
     name: Release verdict
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [meta, assets, publish, sync-changelog]
     timeout-minutes: 5
     steps:

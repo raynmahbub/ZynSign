@@ -20,26 +20,57 @@ final class IPADownloadValidator: DownloadValidating {
 
     func validate(fileAt url: URL, expectedSHA256: String?) async -> DownloadArtifactValidation {
         let checkedAt = Date()
-        let size = (try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]))
-        guard size?.isRegularFile != false, let byteCount = size?.fileSize, byteCount > 0 else {
-            return failure("The download is empty or unreadable.", detail: nil, checksum: checksumResult(expected: expectedSHA256, matched: nil), at: checkedAt)
-        }
-        guard Int64(byteCount) <= maximumArtifactBytes else {
-            return failure("The download is larger than ZynSign will accept.", detail: nil, checksum: false, at: checkedAt)
-        }
-        let checksum = await checksumMatch(url: url, expected: expectedSHA256)
-        if checksum == false {
-            return DownloadArtifactValidation(
-                archiveReadable: false,
-                ipaStructureAccepted: false,
-                extractionReady: false,
-                metadataAvailable: false,
-                checksumMatched: false,
-                summary: "The download's checksum does not match the source. It was kept isolated and was not imported.",
-                detail: "A declared SHA-256 did not match the file. The source listing was not treated as trust.",
-                checkedAt: checkedAt
+        guard let byteCount = readableFileSize(at: url) else {
+            return failure(
+                "The download is empty or unreadable.",
+                detail: nil,
+                checksum: checksumResult(expected: expectedSHA256, matched: nil),
+                at: checkedAt
             )
         }
+        guard Int64(byteCount) <= maximumArtifactBytes else {
+            return failure(
+                "The download is larger than ZynSign will accept.",
+                detail: nil,
+                checksum: false,
+                at: checkedAt
+            )
+        }
+        let checksum = await checksumMatch(url: url, expected: expectedSHA256)
+        guard checksum != false else {
+            return checksumMismatch(at: checkedAt)
+        }
+        return validateArchive(at: url, checksum: checksum, checkedAt: checkedAt)
+    }
+
+    private func readableFileSize(at url: URL) -> Int? {
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+        guard values?.isRegularFile != false,
+              let byteCount = values?.fileSize,
+              byteCount > 0 else {
+            return nil
+        }
+        return byteCount
+    }
+
+    private func checksumMismatch(at checkedAt: Date) -> DownloadArtifactValidation {
+        DownloadArtifactValidation(
+            archiveReadable: false,
+            ipaStructureAccepted: false,
+            extractionReady: false,
+            metadataAvailable: false,
+            checksumMatched: false,
+            summary: "The download's checksum does not match the source. It was kept isolated and was not imported.",
+            detail: "A declared SHA-256 did not match the file. The source listing was not treated as trust.",
+            checkedAt: checkedAt
+        )
+    }
+
+    private func validateArchive(
+        at url: URL,
+        checksum: Bool?,
+        checkedAt: Date
+    ) -> DownloadArtifactValidation {
         let reader = ZipArchiveReader(location: url, limits: limits)
         defer { reader.close() }
         let table: [ArchiveEntry]
@@ -55,24 +86,19 @@ final class IPADownloadValidator: DownloadValidating {
             )
         }
         let inspection = IPAStructureValidator(limits: limits).validate(entryTable: table)
+        return evaluate(inspection, with: reader, checksum: checksum, checkedAt: checkedAt)
+    }
+
+    private func evaluate(
+        _ inspection: IPAStructureInspection,
+        with reader: ZipArchiveReader,
+        checksum: Bool?,
+        checkedAt: Date
+    ) -> DownloadArtifactValidation {
         let structureOK = inspection.isValid
         let extractionReady = structureOK
-        var metadataOK = false
-        var detail = inspection.validation.findings.first?.detail
-        if let bundle = inspection.bundle, let infoPath = IPALayout.bundleInformationPath(within: bundle.bundlePath) {
-            do {
-                let info = try reader.readEntryData(at: infoPath, maximumBytes: limits.maximumInspectionReadBytes)
-                let examination = ApplicationMetadataReader.read(from: info)
-                metadataOK = examination.isValid
-                if !metadataOK {
-                    detail = examination.findings.first?.detail ?? detail
-                }
-            } catch {
-                metadataOK = false
-                detail = "The bundle information file could not be read."
-            }
-        }
-        let ready = structureOK && extractionReady && metadataOK && checksum != false
+        let metadata = metadataResult(for: inspection, with: reader)
+        let ready = structureOK && extractionReady && metadata.isValid && checksum != false
         if ready {
             return DownloadArtifactValidation(
                 archiveReadable: true,
@@ -85,24 +111,51 @@ final class IPADownloadValidator: DownloadValidating {
                 checkedAt: checkedAt
             )
         }
-        let summary: String
-        if !structureOK {
-            summary = "The archive does not have the expected app package layout. It was kept isolated and was not imported."
-        } else if !metadataOK {
-            summary = "The package does not include readable application metadata. It was kept isolated and was not imported."
-        } else {
-            summary = "The download did not pass validation. It was kept isolated and was not imported."
-        }
         return DownloadArtifactValidation(
             archiveReadable: true,
             ipaStructureAccepted: structureOK,
             extractionReady: extractionReady,
-            metadataAvailable: metadataOK,
+            metadataAvailable: metadata.isValid,
             checksumMatched: checksum,
-            summary: summary,
-            detail: detail,
+            summary: validationSummary(structureAccepted: structureOK, metadataAvailable: metadata.isValid),
+            detail: metadata.detail ?? inspection.validation.findings.first?.detail,
             checkedAt: checkedAt
         )
+    }
+
+    private struct MetadataResult {
+        let isValid: Bool
+        let detail: String?
+    }
+
+    private func metadataResult(
+        for inspection: IPAStructureInspection,
+        with reader: ZipArchiveReader
+    ) -> MetadataResult {
+        guard let bundle = inspection.bundle,
+              let infoPath = IPALayout.bundleInformationPath(within: bundle.bundlePath) else {
+            return MetadataResult(isValid: false, detail: inspection.validation.findings.first?.detail)
+        }
+        do {
+            let info = try reader.readEntryData(at: infoPath, maximumBytes: limits.maximumInspectionReadBytes)
+            let examination = ApplicationMetadataReader.read(from: info)
+            return MetadataResult(
+                isValid: examination.isValid,
+                detail: examination.isValid ? nil : examination.findings.first?.detail
+            )
+        } catch {
+            return MetadataResult(isValid: false, detail: "The bundle information file could not be read.")
+        }
+    }
+
+    private func validationSummary(structureAccepted: Bool, metadataAvailable: Bool) -> String {
+        if !structureAccepted {
+            return "The archive does not have the expected app package layout. It was kept isolated and was not imported."
+        }
+        if !metadataAvailable {
+            return "The package does not include readable application metadata. It was kept isolated and was not imported."
+        }
+        return "The download did not pass validation. It was kept isolated and was not imported."
     }
 
     private func failure(

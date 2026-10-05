@@ -78,6 +78,8 @@ struct ZipArchiveWriter: ArchiveWriter {
     private struct EntryLayout {
         let localHeader: [UInt8]
         let centralRecord: [UInt8]
+        let nextOffset: UInt64
+        let centralDirectorySize: UInt64
     }
 
     private struct ContainerLayout {
@@ -87,76 +89,16 @@ struct ZipArchiveWriter: ArchiveWriter {
     }
 
     private static func layout(for plan: ArchiveWritePlan) throws -> ContainerLayout {
-        let entries = plan.entries
         var records: [EntryLayout] = []
-        records.reserveCapacity(entries.count)
+        records.reserveCapacity(plan.entries.count)
         var offset: UInt64 = 0
         var centralSize: UInt64 = 0
 
-        for entry in entries {
-            let nameBytes = Array(ArchiveWritePlan.recordedName(for: entry).utf8)
-            guard nameBytes.count <= Int(UInt16.max) else {
-                throw ZynSignError.packagingFailure(
-                    diagnosticDetail: "An entry name exceeds what the container form can record."
-                )
-            }
-            let contentCount = UInt64(entry.content.count)
-            guard contentCount <= UInt64(UInt32.max) else {
-                throw ZynSignError.packagingFailure(
-                    diagnosticDetail: "An entry carries more content than the container form can record."
-                )
-            }
-            let checksum = crc32(of: entry.content)
-            let mode = mode(for: entry.kind)
-
-            let headerEnd = try adding(offset, UInt64(localFileHeaderSize + nameBytes.count))
-            let contentEnd = try adding(headerEnd, contentCount)
-            let recordLength = UInt64(centralDirectoryRecordSize + nameBytes.count)
-            centralSize = try adding(centralSize, recordLength)
-            guard contentEnd <= UInt64(UInt32.max) else {
-                throw ZynSignError.packagingFailure(
-                    diagnosticDetail: "The container would grow beyond what the container form can address."
-                )
-            }
-
-            var localHeader: [UInt8] = []
-            localHeader.reserveCapacity(localFileHeaderSize + nameBytes.count)
-            appendUInt32(&localHeader, localFileHeaderSignature)
-            appendUInt16(&localHeader, versionNeeded)
-            appendUInt16(&localHeader, generalPurposeFlags)
-            appendUInt16(&localHeader, storedMethod)
-            appendUInt16(&localHeader, fixedTime)
-            appendUInt16(&localHeader, fixedDate)
-            appendUInt32(&localHeader, checksum)
-            appendUInt32(&localHeader, UInt32(contentCount))
-            appendUInt32(&localHeader, UInt32(contentCount))
-            appendUInt16(&localHeader, UInt16(nameBytes.count))
-            appendUInt16(&localHeader, 0)
-            localHeader.append(contentsOf: nameBytes)
-
-            var centralRecord: [UInt8] = []
-            centralRecord.reserveCapacity(centralDirectoryRecordSize + nameBytes.count)
-            appendUInt32(&centralRecord, centralDirectorySignature)
-            appendUInt16(&centralRecord, versionMadeBy)
-            appendUInt16(&centralRecord, versionNeeded)
-            appendUInt16(&centralRecord, generalPurposeFlags)
-            appendUInt16(&centralRecord, storedMethod)
-            appendUInt16(&centralRecord, fixedTime)
-            appendUInt16(&centralRecord, fixedDate)
-            appendUInt32(&centralRecord, checksum)
-            appendUInt32(&centralRecord, UInt32(contentCount))
-            appendUInt32(&centralRecord, UInt32(contentCount))
-            appendUInt16(&centralRecord, UInt16(nameBytes.count))
-            appendUInt16(&centralRecord, 0)
-            appendUInt16(&centralRecord, 0)
-            appendUInt16(&centralRecord, 0)
-            appendUInt16(&centralRecord, 0)
-            appendUInt32(&centralRecord, UInt32(mode) << 16)
-            appendUInt32(&centralRecord, UInt32(offset))
-            centralRecord.append(contentsOf: nameBytes)
-
-            records.append(EntryLayout(localHeader: localHeader, centralRecord: centralRecord))
-            offset = contentEnd
+        for entry in plan.entries {
+            let record = try entryLayout(for: entry, at: offset)
+            centralSize = try adding(centralSize, record.centralDirectorySize)
+            offset = record.nextOffset
+            records.append(record)
         }
 
         let centralEnd = try adding(offset, centralSize)
@@ -172,22 +114,113 @@ struct ZipArchiveWriter: ArchiveWriter {
             )
         }
 
-        var endRecord: [UInt8] = []
-        endRecord.reserveCapacity(endOfCentralDirectorySize)
-        appendUInt32(&endRecord, endOfCentralDirectorySignature)
-        appendUInt16(&endRecord, 0)
-        appendUInt16(&endRecord, 0)
-        appendUInt16(&endRecord, UInt16(records.count))
-        appendUInt16(&endRecord, UInt16(records.count))
-        appendUInt32(&endRecord, UInt32(centralSize))
-        appendUInt32(&endRecord, UInt32(offset))
-        appendUInt16(&endRecord, 0)
-
         return ContainerLayout(
             records: records,
             centralSize: Int(centralSize),
-            endRecord: endRecord
+            endRecord: endRecord(entryCount: records.count, centralSize: centralSize, centralOffset: offset)
         )
+    }
+
+    private static func entryLayout(for entry: ArchiveWriteEntry, at offset: UInt64) throws -> EntryLayout {
+        let nameBytes = Array(ArchiveWritePlan.recordedName(for: entry).utf8)
+        guard nameBytes.count <= Int(UInt16.max) else {
+            throw ZynSignError.packagingFailure(
+                diagnosticDetail: "An entry name exceeds what the container form can record."
+            )
+        }
+        let contentCount = UInt64(entry.content.count)
+        guard contentCount <= UInt64(UInt32.max) else {
+            throw ZynSignError.packagingFailure(
+                diagnosticDetail: "An entry carries more content than the container form can record."
+            )
+        }
+
+        let headerEnd = try adding(offset, UInt64(localFileHeaderSize + nameBytes.count))
+        let contentEnd = try adding(headerEnd, contentCount)
+        guard contentEnd <= UInt64(UInt32.max) else {
+            throw ZynSignError.packagingFailure(
+                diagnosticDetail: "The container would grow beyond what the container form can address."
+            )
+        }
+
+        let checksum = crc32(of: entry.content)
+        let common = EntryRecordFields(
+            nameBytes: nameBytes,
+            checksum: checksum,
+            contentCount: contentCount,
+            offset: offset,
+            mode: mode(for: entry.kind)
+        )
+        return EntryLayout(
+            localHeader: localHeader(for: common),
+            centralRecord: centralRecord(for: common),
+            nextOffset: contentEnd,
+            centralDirectorySize: UInt64(centralDirectoryRecordSize + nameBytes.count)
+        )
+    }
+
+    private struct EntryRecordFields {
+        let nameBytes: [UInt8]
+        let checksum: UInt32
+        let contentCount: UInt64
+        let offset: UInt64
+        let mode: UInt16
+    }
+
+    private static func localHeader(for fields: EntryRecordFields) -> [UInt8] {
+        var header: [UInt8] = []
+        header.reserveCapacity(localFileHeaderSize + fields.nameBytes.count)
+        appendUInt32(&header, localFileHeaderSignature)
+        appendUInt16(&header, versionNeeded)
+        appendUInt16(&header, generalPurposeFlags)
+        appendUInt16(&header, storedMethod)
+        appendUInt16(&header, fixedTime)
+        appendUInt16(&header, fixedDate)
+        appendUInt32(&header, fields.checksum)
+        appendUInt32(&header, UInt32(fields.contentCount))
+        appendUInt32(&header, UInt32(fields.contentCount))
+        appendUInt16(&header, UInt16(fields.nameBytes.count))
+        appendUInt16(&header, 0)
+        header.append(contentsOf: fields.nameBytes)
+        return header
+    }
+
+    private static func centralRecord(for fields: EntryRecordFields) -> [UInt8] {
+        var record: [UInt8] = []
+        record.reserveCapacity(centralDirectoryRecordSize + fields.nameBytes.count)
+        appendUInt32(&record, centralDirectorySignature)
+        appendUInt16(&record, versionMadeBy)
+        appendUInt16(&record, versionNeeded)
+        appendUInt16(&record, generalPurposeFlags)
+        appendUInt16(&record, storedMethod)
+        appendUInt16(&record, fixedTime)
+        appendUInt16(&record, fixedDate)
+        appendUInt32(&record, fields.checksum)
+        appendUInt32(&record, UInt32(fields.contentCount))
+        appendUInt32(&record, UInt32(fields.contentCount))
+        appendUInt16(&record, UInt16(fields.nameBytes.count))
+        appendUInt16(&record, 0)
+        appendUInt16(&record, 0)
+        appendUInt16(&record, 0)
+        appendUInt16(&record, 0)
+        appendUInt32(&record, UInt32(fields.mode) << 16)
+        appendUInt32(&record, UInt32(fields.offset))
+        record.append(contentsOf: fields.nameBytes)
+        return record
+    }
+
+    private static func endRecord(entryCount: Int, centralSize: UInt64, centralOffset: UInt64) -> [UInt8] {
+        var record: [UInt8] = []
+        record.reserveCapacity(endOfCentralDirectorySize)
+        appendUInt32(&record, endOfCentralDirectorySignature)
+        appendUInt16(&record, 0)
+        appendUInt16(&record, 0)
+        appendUInt16(&record, UInt16(entryCount))
+        appendUInt16(&record, UInt16(entryCount))
+        appendUInt32(&record, UInt32(centralSize))
+        appendUInt32(&record, UInt32(centralOffset))
+        appendUInt16(&record, 0)
+        return record
     }
 
     private static func mode(for kind: ArchiveWriteEntryKind) -> UInt16 {
