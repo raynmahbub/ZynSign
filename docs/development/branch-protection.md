@@ -24,7 +24,7 @@ check the moment protection is switched on._
 
 GitHub matches a required check against the **job's display name**, so these
 are the exact strings to enter in Settings → Branches → Add required status
-check. Five workflows produce them; the checks themselves did not change
+check. Three workflows produce them; the checks themselves did not change
 when the suite was consolidated, only the file they live in.
 
 | Check (enter this string) | Workflow | Job |
@@ -42,11 +42,12 @@ when the suite was consolidated, only the file they live in.
 | `Conventional commit messages` | `01-build.yml` | `commitlint` |
 
 `Complexity thresholds (warnings only)`, `Engineering Command Center`, the
-`External validation (Apple tooling)` measurement, the weekly Periphery
-dead-code scan, and the labeling/stale/README-repair jobs stay advisory —
-they measure and report, they do not block. The repair jobs are also opt-in:
-the weekly Command Center run is read-only, and labeling, stale-closing, README
-syncing and formatting happen only in a manual dispatch with `mode: repair`.
+`External validation (Apple tooling)` measurement, `Danger Swift review`
+and `Label the pull request` stay advisory — they measure and report, they
+do not block. Formatting is repaired locally with
+`Scripts/ci/format.sh apply`, a stale README with
+`python3 Scripts/update_readme.py`, and the full dashboards with
+`Scripts/ci/metrics_report.sh` — each as a reviewable commit.
 
 > Every required check must actually report on the pull request. A job that
 > is skipped by an `if:` or excluded by a `paths:` filter never produces a
@@ -63,9 +64,9 @@ see [../releases/release-train.md](../releases/release-train.md)); add
 
 ## After enabling
 
-1. Confirm the maintenance workflow can still publish dashboards. With
-   direct pushes blocked, it falls back to opening a pull request
-   automatically (its design supports both).
+1. Open a test pull request and confirm every required check above
+   reports on it — a required check that never reports blocks merges
+   forever.
 2. Add `CODEOWNERS` review requests (`.github/CODEOWNERS` is already in
    place — protection makes the requests mandatory).
 3. Watch one full release cycle: dry run, tag, quality gate, publish.

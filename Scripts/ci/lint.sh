@@ -65,7 +65,7 @@ fi
 # runtime error), surface its output so the reason is still visible.
 if [[ "${status}" -ne 0 && "${GITHUB_ACTIONS:-}" == "true" ]] && ! grep -q '^::' "$OUT"; then
     grep -E 'error|Error' "$OUT" | tail -10 | while IFS= read -r line; do
-        printf '::error title=SwiftLint::%s\n' "$line"
+        printf '::error title=SwiftLint::%s\n' "$(crystal_escape "${line}")"
     done || true
 fi
 

@@ -13,9 +13,10 @@ there by design, as it does everywhere without
 | Job | Runner | Steps |
 | --- | --- | --- |
 | Repository hygiene | `ubuntu-latest` | Refuse private-key material anywhere; refuse certificate text outside `Tests/`; refuse generated artifacts and machine state (`DerivedData/`, `xcuserdata/`, `*.xcresult`, `*.xcuserstate`, `.DS_Store`); check the release train is consistent; check the release metadata derivation (`release_meta.sh --self-test`); run the host vector scripts and the external validation harness self-test; **refuse a crash surface that disagrees with its baseline; refuse an accessibility finding in the sources; refuse a regression catalogue that names a test which does not exist; build and upload the hardening report** |
-| Build and test (Xcode) | `macos-15` | Select the newest stable Xcode, record the toolchain versions, restore the Swift Package cache, then run `Scripts/ci/build.sh`: resolve packages, clean Derived Data, build every target, build the test targets, run the unit tests on a resolved iPhone simulator, annotate each failing case from the result bundle, and upload `build/logs/` on failure |
-| Lint and format | `macos-15` | One Homebrew install of SwiftLint and SwiftFormat, then `Scripts/ci/lint.sh` (error-severity findings block) and `Scripts/ci/format.sh check` (the pinned `.swiftformat` rule set; the weekly maintenance run applies it) |
+| Build and test (Xcode) | `macos-15` | Select the newest stable Xcode, record the toolchain versions, restore the Swift Package cache, then run `Scripts/ci/build.sh`: resolve packages, clean Derived Data, build every target, build the test targets, run the unit tests on a resolved iPhone simulator, annotate each failing case from the result bundle, and upload `build/logs/` on failure. The manual `run_unit_tests: false` switch turns the run into a compile-only gate |
+| Lint and format | `macos-15` | One Homebrew install of SwiftLint and SwiftFormat, then `Scripts/ci/lint.sh` (error-severity findings block) and `Scripts/ci/format.sh check` (the pinned `.swiftformat` rule set, repaired with `Scripts/ci/format.sh apply`) |
 | External validation (Apple tooling) | `macos-15` | Run `ExternalValidationExportTests` with `TEST_RUNNER_ZYNSIGN_EXPORT_DIR` set, judge the exported artifacts with `Tests/Host/external_validation.py run` (`codesign`, `otool`, `ditto`, `unzip`, OpenSSL, ad hoc reference signing), publish the report to the job summary, upload the report and the exports as the `external-validation` artifact, and emit one notice per artifact |
+| Private test IPA (manual, `mode: private-ipa`) | `macos-15` | Run `Scripts/ci/private_ipa.sh`: archive for a real device and **always** deliver an IPA — `ZynSign-{tag}-{config}-private.ipa`, a signed ad-hoc export, when the `TEAM_ID` secret is configured; otherwise `ZynSign-{tag}-{config}-private-unsigned.ipa`, the raw Payload package, which must be re-signed before installation. The artifact is a 7-day workflow artifact (`build/private/` with the IPA, its SHA-256 and the logs) — never a tag, never a release. A green job always contains an IPA; when none can be produced the job fails |
 
 The hygiene job's certificate rule has one deliberate exception: synthetic
 certificate text appears in `Tests/ZynSignTests/` as rejection vectors for
@@ -33,8 +34,10 @@ matching outside `Tests/` fails the job.
   binding, and nested-signing ordering, and whether the external validation
   harness's self-test passes.
 - What Apple's desktop tooling says about the artifacts ZynSign signs, in
-  the external validation report. That job is a release gate: it fails when
-  the harness cannot run or when Apple tooling rejects an artifact. See
+  the external validation report. The job fails when the harness itself
+  cannot run; `codesign`/`otool` verdicts are recorded findings in the
+  report, because macOS desktop verification is not iOS platform
+  acceptance. See
   [external-validation.md](../architecture/external-validation.md).
 - **That the crash surface still matches its inventory.** Every `try!`,
   `as!`, force unwrap, `fatalError`, `preconditionFailure`, `precondition`,
@@ -120,7 +123,7 @@ matched. See the Compatibility Lab (Settings → Compatibility Lab) and [private
 
 ## The engineering suite
 
-Five workflows, no duplicated gates: every job calls a reusable script in
+Three workflows, no duplicated gates: every job calls a reusable script in
 `Scripts/ci/`, so CI logic never lives in YAML and never appears twice.
 Failing unit tests are surfaced as check annotations by
 `Scripts/ci/annotate_test_failures.sh`, which reads the run's result
@@ -132,7 +135,7 @@ jobs that genuinely need Xcode run on macOS:
 
 | Workflow | Trigger | Jobs | Gate type |
 | --- | --- | --- | --- |
-| `01-build.yml` · 🔨 Build | PR + every push; manual (`mode: private-ipa`) | `hygiene` (ubuntu) · `build-and-test` · `lint-and-format` · `external-validation` (macOS); on a PR also `pr-title` · `commitlint` · `label-pr` (ubuntu) · `danger` (macOS); on demand `private-ipa` | blocking, except external validation (measures) and Danger (advises) |
+| `01-build.yml` · 🔨 Build | PR + every push; manual (`mode: build \| private-ipa`, plus `configuration`, `run_unit_tests`, `note`) | `hygiene` (ubuntu) · `build-and-test` · `lint-and-format` · `external-validation` (macOS); on a PR also `pr-title` · `commitlint` · `label-pr` (ubuntu) · `danger` (macOS); on demand `private-ipa` | blocking, except external validation (measures) and Danger (advises) |
 | `02-quality.yml` · 🛡 Quality | PR + push to main | 8 ubuntu jobs: `architecture-guard` · `dependency-validation` · `docs-check` · `secret-policy` · `gitleaks` · `complexity-check` · `engineering-summary` · `readme-check` | blocking, except complexity and the summary |
 | `03-release.yml` · 🚀 Release | tag `v*` + manual (`version`, `dry_run`) | `meta` → quality gate → build/test → assets → publish → verdict; `dry_run: true` is the full rehearsal and publishes nothing | blocking |
 
@@ -141,15 +144,16 @@ Scripts behind the gates:
 | Script | What it establishes |
 | --- | --- |
 | `build.sh` | packages, clean, build every target, build the test targets, run the unit tests, annotate failures |
-| `lint.sh` / `format.sh check` | `.swiftlint.yml` two-tier rules (errors block) · the pinned `.swiftformat` rule set |
+| `lint.sh` / `format.sh check` | `.swiftlint.yml` two-tier rules (errors block) · the pinned `.swiftformat` rule set (`format.sh apply` repairs drift) |
 | `architecture_guard.sh` | 8 layer rules + the ratcheted baseline |
 | `dependency_check.sh` | the allowlist — dependency-free by design |
 | `security_scan.sh` + Gitleaks | the repository's secret policy on this tree, and over the full history |
 | `docs_check.sh` | links and images block; orphans and markdown quality warn |
 | `update_readme.py --check` | README agrees with `MARKETING_VERSION` and `WHAT_DOES_NOT_EXIST.md` |
 | `complexity_check.sh` | function 80 / file 800 / nesting 4 — advisory |
-| `dead_code_scan.sh` | Periphery, weekly, never deletes |
-| `metrics_report.sh` | the Engineering Command Center per PR, dashboards weekly |
+| `dead_code_scan.sh` | Periphery, on demand (the quick metrics run skips it), never deletes |
+| `metrics_report.sh` | the Engineering Command Center per PR, full dashboards on demand |
+| `private_ipa.sh` | the device archive and its IPA: signed ad-hoc export with `TEAM_ID`, unsigned Payload package without — always an IPA |
 | `release_meta.sh` | version derivation; fails a non-current train stop in the first job |
 | `release_validate.sh` | train stage, `MARKETING_VERSION`, build number, changelog, notes |
 

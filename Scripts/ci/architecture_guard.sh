@@ -47,7 +47,7 @@ FINDINGS=""
 
 violation() { # rule, location, message
     local rule="$1" location="$2" message="$3"
-    echo "::error file=${location%%:*},title=architecture-guard ${rule}::${message}"
+    echo "::error file=$(crystal_escape "${location%%:*}"),title=$(crystal_escape "architecture-guard ${rule}")::$(crystal_escape "${message}")"
     FINDINGS="${FINDINGS}  [${rule}] ${location} — ${message}"$'\n'
     VIOLATIONS=$((VIOLATIONS + 1))
 }

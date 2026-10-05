@@ -125,7 +125,7 @@ cat > "${HEALTH}" <<EOF
 # Repository Health
 
 _Generated ${TODAY} by \`Scripts/ci/metrics_report.sh\` at commit \`${COMMIT}\` (\`${BRANCH}\`).
-The weekly maintenance workflow keeps this dashboard current._
+Every CI summary and an on-demand full run keep this dashboard current._
 
 ## Overview
 
@@ -188,8 +188,8 @@ cat > "${COMMAND}" <<EOF
 # Engineering Command Center
 
 _Live internal engineering dashboard — generated ${TODAY} at commit \`${COMMIT}\` by
-\`Scripts/ci/metrics_report.sh\`; updated by every CI summary and the weekly
-maintenance run._
+\`Scripts/ci/metrics_report.sh\`; updated by every CI summary and refreshed
+by an on-demand full run._
 
 ## Status Board
 
@@ -223,7 +223,7 @@ $(tail -n +2 "${HISTORY}" 2>/dev/null | tail -10 | awk -F, '{print "| "$1" | "$2
 - \`Scripts/ci/dependency_check.sh\` → \`build/metrics/dependencies.txt\`
 - \`Scripts/ci/docs_check.sh\` → \`build/metrics/docs.txt\`
 - \`Scripts/ci/security_scan.sh\` → \`build/metrics/security.txt\`
-- \`02-quality.yml\` posts it on every pull request; \`99-command-center.yml\` commits it weekly.
+- \`02-quality.yml\` posts it on every pull request; \`Scripts/ci/metrics_report.sh\` refreshes it on demand.
 EOF
 
 echo "Dashboards written: ${HEALTH}, ${COMMAND}"

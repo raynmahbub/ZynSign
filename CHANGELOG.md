@@ -56,6 +56,27 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   report, `SheetPresentationReporter`), and `presentAndConfirm` checks that
   something appeared, asking once more when nothing did, instead of leaving the
   tap unanswered. `PresentationSettle.beat` is gone.
+- **The private test IPA is always an IPA.** `mode: private-ipa` used to end
+  in a warning and an artifact of bare logs whenever the `TEAM_ID` secret was
+  absent — the export was skipped and nothing packaged the archive. The whole
+  archive-and-package pipeline now lives in `Scripts/ci/private_ipa.sh`: with
+  `TEAM_ID` it delivers the signed ad-hoc export
+  (`ZynSign-{tag}-{config}-private.ipa`), without it the same app as an
+  honestly named unsigned Payload package that must be re-signed before
+  installing, and a run that cannot produce any IPA **fails** instead of going
+  green with logs alone. The committed ExportOptions template is no longer
+  edited in place at export time (the team id goes into a temporary copy), and
+  a manual run can skip the unit-test gate (`run_unit_tests: false`) for a
+  faster artifact.
+- **Workflow annotations tell the truth.** Every GitHub annotation now escapes
+  `%`, newlines and carriage returns per the workflow-command spec, carries a
+  meaningful title instead of `crystal`, and `select_simulator.sh` emits its
+  notices and errors to stderr — they were being swallowed by the caller's
+  `$( … )` capture and never reached the checks page. The deprecated Node 20
+  `actions/download-artifact` pin was lifted to v7 (Node 24), the floating
+  `setup-xcode` tag-object pin was pinned to its commit, every action pin now
+  carries its version in a comment, and a manual dispatch no longer cancels
+  (or gets cancelled by) in-flight CI runs.
 
 ## [0.1.0-alpha.1] - 2026-10-03 — Auto-generated
 

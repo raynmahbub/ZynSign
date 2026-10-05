@@ -58,8 +58,8 @@ case "${MODE}" in
             if [[ -z "${findings}" ]]; then
                 findings="$(grep -v '^\s*$' "$OUT" | head -5 || true)"
             fi
-            printf '::error title=SwiftFormat::Formatting check failed (exit %s) — run Scripts/ci/format.sh apply and review the diff. Output: %s\n' \
-                "${status}" "$(printf '%s' "${findings}" | tr '\n' ';')"
+            printf '::error title=SwiftFormat::%s\n' \
+                "$(crystal_escape "Formatting check failed (exit ${status}) — run Scripts/ci/format.sh apply and review the diff. Output: $(printf '%s' "${findings}" | tr '\n' ';')")"
         fi
         rm -f "$OUT"
         exit "${status}"

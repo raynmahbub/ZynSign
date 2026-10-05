@@ -57,7 +57,7 @@ run_logged() {
         if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
             local toolchain
             toolchain="$(xcodebuild -version 2>/dev/null | tr '\n' ' '); runtimes: $(xcrun simctl list runtimes 2>/dev/null | sed -n '2,5p' | sed 's/;/ /g' | tr '\n' '|')"
-            printf '::notice title=Toolchain::%s\n' "${toolchain}"
+            printf '::notice title=Toolchain::%s\n' "$(crystal_escape "${toolchain}")"
             local bundle="${RESULT_BUNDLE:-}"
             if [[ -n "${bundle}" && -d "${bundle}" ]]; then
                 # Test run: the result bundle records every failed test
@@ -73,7 +73,7 @@ run_logged() {
                 fi
                 if [[ -n "${errors}" ]]; then
                     while IFS= read -r line; do
-                        printf '::error title=xcodebuild::%s\n' "${line}"
+                        printf '::error title=xcodebuild::%s\n' "$(crystal_escape "${line}")"
                     done <<< "${errors}"
                 fi
             fi

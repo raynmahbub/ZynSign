@@ -38,6 +38,18 @@ CRYSTAL_COMMAND="⚙"
 
 # --- log lines --------------------------------------------------------------
 
+# crystal_escape <text> — encode one annotation data field for the GitHub
+# Actions runner. Workflow commands interpret `%0A`, `%0D` and `%25`
+# sequences literally, so raw percents or line breaks in a message would
+# garble the annotation. Percent is encoded first, as the spec requires.
+crystal_escape() {
+    local s="${1-}"
+    s="${s//'%'/'%25'}"
+    s="${s//$'\r'/'%0D'}"
+    s="${s//$'\n'/'%0A'}"
+    printf '%s' "${s}"
+}
+
 # crystal_phase <icon> <workflow> <phase> — open a section of the log.
 crystal_phase() {
     local bar="━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -50,20 +62,24 @@ crystal_ok() { printf '✓ %s\n' "$1"; }
 # crystal_info <message> — a fact worth recording, neither pass nor fail.
 crystal_info() { printf '• %s\n' "$1"; }
 
-# crystal_warn <message> — a warning, annotated when running in Actions.
+# crystal_warn <message> [title] — a warning, annotated when running in
+# Actions. The optional title names the subject (e.g. "Private IPA");
+# the annotation data is escaped.
 crystal_warn() {
     printf '⚠ %s\n' "$1"
     if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
-        printf '::warning title=crystal::%s\n' "$1"
+        printf '::warning title=%s::%s\n' \
+            "$(crystal_escape "${2:-CI}")" "$(crystal_escape "$1")"
     fi
 }
 
-# crystal_fail <message> — a failure, annotated when running in Actions.
-# Does not exit; the caller decides whether the run stops.
+# crystal_fail <message> [title] — a failure, annotated when running in
+# Actions. Does not exit; the caller decides whether the run stops.
 crystal_fail() {
     printf '✗ %s\n' "$1" >&2
     if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
-        printf '::error title=crystal::%s\n' "$1" >&2
+        printf '::error title=%s::%s\n' \
+            "$(crystal_escape "${2:-CI}")" "$(crystal_escape "$1")" >&2
     fi
 }
 
