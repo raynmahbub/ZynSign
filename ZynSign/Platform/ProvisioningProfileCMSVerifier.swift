@@ -33,7 +33,90 @@ struct ProvisioningProfileCMSVerifier: CMSVerifier {
         self.signatureVerifier = signatureVerifier
     }
 
+    private struct VerificationEvidence {
+        let signerCount: Int
+        let payload: Data?
+        let embeddedCertificates: [Certificate]
+        let unparsableEmbeddedCertificateCount: Int
+        var signerCertificate: Certificate? = nil
+        var signerCertificateStatus: CMSSignerCertificateStatus = .notSought
+        var signerIdentifier: CMSSignerIdentifier? = nil
+        var digestAlgorithm: CMSDigestAlgorithm? = nil
+        var signatureAlgorithm: SignatureAlgorithm? = nil
+        var verificationAlgorithm: CMSVerificationAlgorithm? = nil
+    }
+
+    private struct PreparedVerificationMessage {
+        let message: Data
+        let signedAttributes: CMSSignedAttributeObservation
+    }
+
+    private enum MessagePreparation {
+        case ready(PreparedVerificationMessage)
+        case rejected(CMSVerificationResult)
+    }
+
     func verify(_ input: ProvisioningProfileInput) throws -> CMSVerificationResult {
+        try validateInput(input)
+        let structure = try readStructure(from: input)
+        let payload = try encapsulatedPayload(from: structure)
+        let embedded = parseEmbeddedCertificates(structure.certificateEncodings)
+        var evidence = VerificationEvidence(
+            signerCount: structure.signerInfos.count,
+            payload: payload,
+            embeddedCertificates: embedded.certificates,
+            unparsableEmbeddedCertificateCount: embedded.unparsableCount
+        )
+        guard structure.signerInfos.count == 1,
+              let signer = structure.signerInfos.first else {
+            return resultForSignerCount(evidence)
+        }
+
+        evidence.digestAlgorithm = CMSDigestAlgorithm.from(objectIdentifier: signer.digestAlgorithm)
+        evidence.signatureAlgorithm = SignatureAlgorithm.from(objectIdentifier: signer.signatureAlgorithm)
+        evidence.signerIdentifier = Self.domainIdentifier(from: signer.identifier)
+        let selection = selectSignerCertificate(
+            identifier: signer.identifier,
+            parsed: embedded.certificates,
+            unparsableCount: embedded.unparsableCount
+        )
+        guard case .extracted(let signerCertificate) = selection else {
+            evidence.signerCertificateStatus = selection.signerCertificateStatus
+            return resultForCertificateSelection(selection, evidence: evidence)
+        }
+        evidence.signerCertificate = signerCertificate
+        evidence.signerCertificateStatus = .extracted
+
+        let algorithm = CMSVerificationAlgorithm.from(
+            digestObjectIdentifier: signer.digestAlgorithm,
+            signatureObjectIdentifier: signer.signatureAlgorithm
+        )
+        evidence.verificationAlgorithm = algorithm
+        guard algorithm.isSupported else {
+            return resultForUnsupportedAlgorithm(signer, evidence: evidence)
+        }
+
+        let preparation = try prepareVerificationMessage(
+            signer.signedAttributes,
+            encapsulatedContentType: structure.encapsulatedContentType,
+            payload: payload,
+            evidence: evidence
+        )
+        switch preparation {
+        case .rejected(let result):
+            return result
+        case .ready(let prepared):
+            return verifySignature(
+                signer,
+                certificate: signerCertificate,
+                algorithm: algorithm,
+                prepared: prepared,
+                evidence: evidence
+            )
+        }
+    }
+
+    private func validateInput(_ input: ProvisioningProfileInput) throws {
         guard !input.bytes.isEmpty else {
             throw ZynSignError.cms(.emptyInput, diagnosticDetail: "The CMS container input is empty.")
         }
@@ -43,10 +126,11 @@ struct ProvisioningProfileCMSVerifier: CMSVerifier {
                 diagnosticDetail: "The CMS container input exceeded the configured byte bound."
             )
         }
+    }
 
-        let structure: CMSStructure
+    private func readStructure(from input: ProvisioningProfileInput) throws -> CMSStructure {
         do {
-            structure = try CMSStructureReader.read(input.bytes)
+            return try CMSStructureReader.read(input.bytes)
         } catch let error as ZynSignError where error.cmsFailure != nil {
             throw error
         } catch {
@@ -55,7 +139,9 @@ struct ProvisioningProfileCMSVerifier: CMSVerifier {
                 diagnosticDetail: "The CMS container could not be decoded (cause: \(Self.safeCauseSummary(error)))."
             )
         }
+    }
 
+    private func encapsulatedPayload(from structure: CMSStructure) throws -> Data {
         guard let payload = structure.encapsulatedContent else {
             throw ZynSignError.cms(
                 .payloadUnavailable,
@@ -74,161 +160,116 @@ struct ProvisioningProfileCMSVerifier: CMSVerifier {
                 diagnosticDetail: "The CMS encapsulated content exceeded the payload bound."
             )
         }
+        return payload
+    }
 
-        let embedded = parseEmbeddedCertificates(structure.certificateEncodings)
-        let signerCount = structure.signerInfos.count
+    private func resultForSignerCount(_ evidence: VerificationEvidence) -> CMSVerificationResult {
+        let isEmpty = evidence.signerCount == 0
+        return makeResult(
+            status: isEmpty ? .noSigner : .multipleSigners,
+            failure: isEmpty ? .signerUnavailable : .multipleSigners,
+            failureDetail: isEmpty
+                ? "The CMS message declares no signer."
+                : "The CMS message declares \(evidence.signerCount) signers; ZynSign does not choose one.",
+            evidence: evidence
+        )
+    }
 
-        guard signerCount == 1, let signer = structure.signerInfos.first else {
-            let isEmpty = signerCount == 0
-            return makeResult(
-                status: isEmpty ? .noSigner : .multipleSigners,
-                failure: isEmpty ? .signerUnavailable : .multipleSigners,
-                failureDetail: isEmpty
-                    ? "The CMS message declares no signer."
-                    : "The CMS message declares \(signerCount) signers; ZynSign does not choose one.",
-                signerCount: signerCount,
-                payload: payload,
-                embeddedCertificates: embedded.certificates,
-                unparsableEmbeddedCertificateCount: embedded.unparsableCount
+    private func resultForCertificateSelection(
+        _ selection: SignerCertificateSelection,
+        evidence: VerificationEvidence
+    ) -> CMSVerificationResult {
+        makeResult(
+            status: .signerCertificateUnavailable,
+            failure: .signerCertificateUnavailable,
+            failureDetail: selection.diagnosticDetail(signerCount: evidence.embeddedCertificates.count),
+            evidence: evidence
+        )
+    }
+
+    private func resultForUnsupportedAlgorithm(
+        _ signer: CMSStructureSignerInfo,
+        evidence: VerificationEvidence
+    ) -> CMSVerificationResult {
+        makeResult(
+            status: .unsupportedAlgorithm,
+            failure: .unsupportedAlgorithm,
+            failureDetail: "The CMS declares digest \(signer.digestAlgorithm) with signature algorithm \(signer.signatureAlgorithm).",
+            evidence: evidence
+        )
+    }
+
+    private func prepareVerificationMessage(
+        _ attributes: CMSStructureSignedAttributes?,
+        encapsulatedContentType: String?,
+        payload: Data,
+        evidence: VerificationEvidence
+    ) throws -> MessagePreparation {
+        guard let attributes else {
+            return .ready(PreparedVerificationMessage(message: payload, signedAttributes: .absent))
+        }
+        guard let messageDigest = attributes.messageDigest else {
+            throw ZynSignError.cms(
+                .unsupportedStructure,
+                diagnosticDetail: "The CMS signed attributes omit the message-digest attribute, "
+                    + "so the payload is not bound to the signature."
             )
         }
-
-        let digestAlgorithm = CMSDigestAlgorithm.from(objectIdentifier: signer.digestAlgorithm)
-        let signatureAlgorithm = SignatureAlgorithm.from(objectIdentifier: signer.signatureAlgorithm)
-        let signerIdentifier = Self.domainIdentifier(from: signer.identifier)
-        let selection = selectSignerCertificate(
-            identifier: signer.identifier,
-            parsed: embedded.certificates,
-            unparsableCount: embedded.unparsableCount
+        let contentTypeMatches = attributes.contentType.map { $0 == encapsulatedContentType }
+        let hasSHA256Digest = messageDigest.count == CMSSHA256Digest.length
+        let digestMatches = hasSHA256Digest && messageDigest == Data(CMSSHA256Digest.of(payload))
+        let observation = CMSSignedAttributeObservation(
+            present: true,
+            attributeObjectIdentifiers: attributes.attributeObjectIdentifiers,
+            messageDigestPresent: true,
+            messageDigestMatchesContent: hasSHA256Digest ? digestMatches : nil,
+            contentTypePresent: attributes.contentType != nil,
+            contentTypeMatchesEncapsulated: contentTypeMatches
         )
-
-        guard case .extracted(let signerCertificate) = selection else {
-            let status = selection.signerCertificateStatus
-            return makeResult(
-                status: .signerCertificateUnavailable,
-                failure: .signerCertificateUnavailable,
-                failureDetail: selection.diagnosticDetail(signerCount: embedded.certificates.count),
-                signerCount: signerCount,
-                payload: payload,
-                signerCertificateStatus: status,
-                signerIdentifier: signerIdentifier,
-                embeddedCertificates: embedded.certificates,
-                unparsableEmbeddedCertificateCount: embedded.unparsableCount,
-                digestAlgorithm: digestAlgorithm,
-                signatureAlgorithm: signatureAlgorithm
-            )
-        }
-
-        let verificationAlgorithm = CMSVerificationAlgorithm.from(
-            digestObjectIdentifier: signer.digestAlgorithm,
-            signatureObjectIdentifier: signer.signatureAlgorithm
-        )
-        guard verificationAlgorithm.isSupported else {
-            return makeResult(
+        if !hasSHA256Digest {
+            return .rejected(makeResult(
                 status: .unsupportedAlgorithm,
                 failure: .unsupportedAlgorithm,
-                failureDetail: "The CMS declares digest \(signer.digestAlgorithm) with signature algorithm \(signer.signatureAlgorithm).",
-                signerCount: signerCount,
-                payload: payload,
-                signerCertificate: signerCertificate,
-                signerCertificateStatus: .extracted,
-                signerIdentifier: signerIdentifier,
-                embeddedCertificates: embedded.certificates,
-                unparsableEmbeddedCertificateCount: embedded.unparsableCount,
-                digestAlgorithm: digestAlgorithm,
-                signatureAlgorithm: signatureAlgorithm,
-                verificationAlgorithm: verificationAlgorithm
-            )
+                failureDetail: "The message-digest attribute carries \(messageDigest.count) bytes, which is not a SHA-256 digest.",
+                evidence: evidence,
+                signedAttributes: observation
+            ))
         }
-
-        // Bind the payload to the signature. With signed attributes present the
-        // signature covers the attributes, so the payload is authenticated only
-        // if the message-digest attribute is the digest of that payload.
-        let observation: CMSSignedAttributeObservation
-        let message: Data
-        if let attributes = signer.signedAttributes {
-            guard let messageDigest = attributes.messageDigest else {
-                throw ZynSignError.cms(
-                    .unsupportedStructure,
-                    diagnosticDetail: "The CMS signed attributes omit the message-digest attribute, "
-                        + "so the payload is not bound to the signature."
-                )
-            }
-            let contentTypeMatches = attributes.contentType.map { $0 == structure.encapsulatedContentType }
-            let digestMatches = messageDigest.count == CMSSHA256Digest.length
-                && messageDigest == Data(CMSSHA256Digest.of(payload))
-            observation = CMSSignedAttributeObservation(
-                present: true,
-                attributeObjectIdentifiers: attributes.attributeObjectIdentifiers,
-                messageDigestPresent: true,
-                messageDigestMatchesContent: messageDigest.count == CMSSHA256Digest.length ? digestMatches : nil,
-                contentTypePresent: attributes.contentType != nil,
-                contentTypeMatchesEncapsulated: contentTypeMatches
-            )
-            guard messageDigest.count == CMSSHA256Digest.length else {
-                return makeResult(
-                    status: .unsupportedAlgorithm,
-                    failure: .unsupportedAlgorithm,
-                    failureDetail: "The message-digest attribute carries \(messageDigest.count) bytes, which is not a SHA-256 digest.",
-                    signerCount: signerCount,
-                    payload: payload,
-                    signerCertificate: signerCertificate,
-                    signerCertificateStatus: .extracted,
-                    signerIdentifier: signerIdentifier,
-                    embeddedCertificates: embedded.certificates,
-                    unparsableEmbeddedCertificateCount: embedded.unparsableCount,
-                    digestAlgorithm: digestAlgorithm,
-                    signatureAlgorithm: signatureAlgorithm,
-                    verificationAlgorithm: verificationAlgorithm,
-                    signedAttributes: observation
-                )
-            }
-            guard digestMatches else {
-                return makeResult(
-                    status: .invalid,
-                    failure: .signatureInvalid,
-                    failureDetail: "The message-digest attribute does not bind the encapsulated content.",
-                    signerCount: signerCount,
-                    payload: payload,
-                    signerCertificate: signerCertificate,
-                    signerCertificateStatus: .extracted,
-                    signerIdentifier: signerIdentifier,
-                    embeddedCertificates: embedded.certificates,
-                    unparsableEmbeddedCertificateCount: embedded.unparsableCount,
-                    digestAlgorithm: digestAlgorithm,
-                    signatureAlgorithm: signatureAlgorithm,
-                    verificationAlgorithm: verificationAlgorithm,
-                    signedAttributes: observation
-                )
-            }
-            message = attributes.verificationMessage
-        } else {
-            observation = .absent
-            message = payload
+        guard digestMatches else {
+            return .rejected(makeResult(
+                status: .invalid,
+                failure: .signatureInvalid,
+                failureDetail: "The message-digest attribute does not bind the encapsulated content.",
+                evidence: evidence,
+                signedAttributes: observation
+            ))
         }
+        return .ready(PreparedVerificationMessage(
+            message: attributes.verificationMessage,
+            signedAttributes: observation
+        ))
+    }
 
+    private func verifySignature(
+        _ signer: CMSStructureSignerInfo,
+        certificate: Certificate,
+        algorithm: CMSVerificationAlgorithm,
+        prepared: PreparedVerificationMessage,
+        evidence: VerificationEvidence
+    ) -> CMSVerificationResult {
         do {
             let verified = try signatureVerifier.verify(
-                message: message,
+                message: prepared.message,
                 signature: signer.signature,
-                algorithm: verificationAlgorithm,
-                certificate: signerCertificate
+                algorithm: algorithm,
+                certificate: certificate
             )
             return makeResult(
                 status: verified ? .verified : .invalid,
                 failure: verified ? nil : .signatureInvalid,
                 failureDetail: verified ? nil : "The signature mechanism rejected the CMS signature.",
-                signerCount: signerCount,
-                payload: payload,
-                signerCertificate: signerCertificate,
-                signerCertificateStatus: .extracted,
-                signerIdentifier: signerIdentifier,
-                embeddedCertificates: embedded.certificates,
-                unparsableEmbeddedCertificateCount: embedded.unparsableCount,
-                digestAlgorithm: digestAlgorithm,
-                signatureAlgorithm: signatureAlgorithm,
-                verificationAlgorithm: verificationAlgorithm,
-                signedAttributes: observation
+                evidence: evidence,
+                signedAttributes: prepared.signedAttributes
             )
         } catch let error as ZynSignError {
             let reason = error.cmsFailure ?? .unexpectedSecurityError
@@ -236,34 +277,16 @@ struct ProvisioningProfileCMSVerifier: CMSVerifier {
                 status: Self.status(for: reason),
                 failure: reason,
                 failureDetail: error.diagnosticDetail,
-                signerCount: signerCount,
-                payload: payload,
-                signerCertificate: signerCertificate,
-                signerCertificateStatus: .extracted,
-                signerIdentifier: signerIdentifier,
-                embeddedCertificates: embedded.certificates,
-                unparsableEmbeddedCertificateCount: embedded.unparsableCount,
-                digestAlgorithm: digestAlgorithm,
-                signatureAlgorithm: signatureAlgorithm,
-                verificationAlgorithm: verificationAlgorithm,
-                signedAttributes: observation
+                evidence: evidence,
+                signedAttributes: prepared.signedAttributes
             )
         } catch {
             return makeResult(
                 status: .verificationFailed,
                 failure: .unexpectedSecurityError,
                 failureDetail: "The signature mechanism failed (cause: \(Self.safeCauseSummary(error))).",
-                signerCount: signerCount,
-                payload: payload,
-                signerCertificate: signerCertificate,
-                signerCertificateStatus: .extracted,
-                signerIdentifier: signerIdentifier,
-                embeddedCertificates: embedded.certificates,
-                unparsableEmbeddedCertificateCount: embedded.unparsableCount,
-                digestAlgorithm: digestAlgorithm,
-                signatureAlgorithm: signatureAlgorithm,
-                verificationAlgorithm: verificationAlgorithm,
-                signedAttributes: observation
+                evidence: evidence,
+                signedAttributes: prepared.signedAttributes
             )
         }
     }
@@ -395,32 +418,23 @@ struct ProvisioningProfileCMSVerifier: CMSVerifier {
         status: CMSSignatureVerificationStatus,
         failure: CMSFailure?,
         failureDetail: String?,
-        signerCount: Int,
-        payload: Data?,
-        signerCertificate: Certificate? = nil,
-        signerCertificateStatus: CMSSignerCertificateStatus = .notSought,
-        signerIdentifier: CMSSignerIdentifier? = nil,
-        embeddedCertificates: [Certificate] = [],
-        unparsableEmbeddedCertificateCount: Int = 0,
-        digestAlgorithm: CMSDigestAlgorithm? = nil,
-        signatureAlgorithm: SignatureAlgorithm? = nil,
-        verificationAlgorithm: CMSVerificationAlgorithm? = nil,
+        evidence: VerificationEvidence,
         signedAttributes: CMSSignedAttributeObservation = .absent
     ) -> CMSVerificationResult {
         CMSVerificationResult(
             status: status,
             failure: failure,
             failureDetail: failureDetail,
-            signerCount: signerCount,
-            signedPayload: payload,
-            signerCertificate: signerCertificate,
-            signerCertificateStatus: signerCertificateStatus,
-            signerIdentifier: signerIdentifier,
-            embeddedCertificates: embeddedCertificates,
-            unparsableEmbeddedCertificateCount: unparsableEmbeddedCertificateCount,
-            digestAlgorithm: digestAlgorithm,
-            signatureAlgorithm: signatureAlgorithm,
-            verificationAlgorithm: verificationAlgorithm,
+            signerCount: evidence.signerCount,
+            signedPayload: evidence.payload,
+            signerCertificate: evidence.signerCertificate,
+            signerCertificateStatus: evidence.signerCertificateStatus,
+            signerIdentifier: evidence.signerIdentifier,
+            embeddedCertificates: evidence.embeddedCertificates,
+            unparsableEmbeddedCertificateCount: evidence.unparsableEmbeddedCertificateCount,
+            digestAlgorithm: evidence.digestAlgorithm,
+            signatureAlgorithm: evidence.signatureAlgorithm,
+            verificationAlgorithm: evidence.verificationAlgorithm,
             signedAttributes: signedAttributes,
             trustEvaluation: .notPerformed
         )

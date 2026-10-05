@@ -52,12 +52,12 @@ struct ReadOnlyMachOParser: MachOParsing {
         }
     }
 
-    private enum Encoding {
+    enum Encoding {
         case thin(MachOHeaderMagic, MachOByteOrder)
         case universal(MachOUniversalMagic, MachOByteOrder)
     }
 
-    private static func magic(in reader: BoundedBinaryReader) throws -> Encoding {
+    static func magic(in reader: BoundedBinaryReader) throws -> Encoding {
         let raw = try reader.uint32(at: 0, order: .bigEndian, boundary: .magic)
         switch raw {
         case 0xFEEDFACE: return .thin(.mach32, .bigEndian)
@@ -70,216 +70,6 @@ struct ReadOnlyMachOParser: MachOParsing {
         case 0xBFBAFECA: return .universal(.fat64, .littleEndian)
         default: throw MachOParsingError(.unsupportedFormat, at: .magic)
         }
-    }
-
-    private static func universal(
-        in reader: BoundedBinaryReader,
-        magic: MachOUniversalMagic,
-        order: MachOByteOrder
-    ) throws -> MachOUniversal {
-        let rawCount = try reader.uint32(at: 4, order: order, boundary: .architectureTable)
-        guard let count = Int(exactly: rawCount), count > 0 else {
-            throw MachOParsingError(.malformedHeader, at: .architectureTable)
-        }
-        guard count <= maximumArchitectures else {
-            throw MachOParsingError(.resourceLimitExceeded, at: .architectureTable)
-        }
-        // count is bounded above, so neither this product nor the addition
-        // can overflow Int. A short table remains a truncated-input failure.
-        let recordSize = magic == .fat64 ? 32 : 20
-        let tableEnd = 8 + count * recordSize
-        let table = try reader.view(at: 8, length: count * recordSize, boundary: .architectureTable)
-
-        var architectures: [MachOArchitecture] = []
-        architectures.reserveCapacity(count)
-        for index in 0..<count {
-            do {
-                let position = index * recordSize
-                let cpu = MachOCPU(rawValue: try table.int32(at: position, order: order, boundary: .architectureTable))
-                let subtype = try table.int32(at: position + 4, order: order, boundary: .architectureTable)
-                let rawOffset: UInt64
-                let rawSize: UInt64
-                let exponent: UInt32
-                let reserved: UInt32?
-                if magic == .fat64 {
-                    rawOffset = try table.uint64(at: position + 8, order: order, boundary: .architectureTable)
-                    rawSize = try table.uint64(at: position + 16, order: order, boundary: .architectureTable)
-                    exponent = try table.uint32(at: position + 24, order: order, boundary: .architectureTable)
-                    reserved = try table.uint32(at: position + 28, order: order, boundary: .architectureTable)
-                } else {
-                    rawOffset = UInt64(try table.uint32(at: position + 8, order: order, boundary: .architectureTable))
-                    rawSize = UInt64(try table.uint32(at: position + 12, order: order, boundary: .architectureTable))
-                    exponent = try table.uint32(at: position + 16, order: order, boundary: .architectureTable)
-                    reserved = nil
-                }
-                guard let offset = Int(exactly: rawOffset) else {
-                    throw MachOParsingError(.invalidOffset, at: .architectureSlice)
-                }
-                guard let size = Int(exactly: rawSize), size > 0 else {
-                    throw MachOParsingError(.invalidLength, at: .architectureSlice)
-                }
-                // A larger exponent cannot describe a slice within the input
-                // bound. Limiting the shift is also independent of word size.
-                guard exponent <= 30 else {
-                    throw MachOParsingError(.invalidLength, at: .architectureTable)
-                }
-                let alignment = 1 << Int(exponent)
-                guard offset >= tableEnd, offset % alignment == 0 else {
-                    throw MachOParsingError(.invalidOffset, at: .architectureSlice)
-                }
-                let range = try reader.checkedRange(
-                    at: offset, length: size, boundary: .architectureSlice, ifTooLong: .invalidLength
-                )
-                guard !architectures.contains(where: { $0.fileRange.overlaps(range) }) else {
-                    throw MachOParsingError(.invalidOffset, at: .architectureSlice)
-                }
-                architectures.append(.init(
-                    cpu: cpu, cpuSubtype: subtype, fileRange: range,
-                    alignmentExponent: exponent, reserved: reserved
-                ))
-            } catch let error as MachOParsingError {
-                throw error.inArchitecture(index)
-            }
-        }
-
-        var slices: [MachOSlice] = []
-        slices.reserveCapacity(count)
-        for (index, architecture) in architectures.enumerated() {
-            do {
-                let readerForSlice = try reader.view(
-                    at: architecture.fileRange.lowerBound,
-                    length: architecture.fileRange.count,
-                    boundary: .architectureSlice
-                )
-                guard case .thin(let sliceMagic, let sliceOrder) = try Self.magic(in: readerForSlice) else {
-                    throw MachOParsingError(.unsupportedFormat, at: .architectureSlice)
-                }
-                let parsed = try slice(in: readerForSlice, magic: sliceMagic, order: sliceOrder)
-                guard parsed.header.cpu == architecture.cpu,
-                      parsed.header.cpuSubtype == architecture.cpuSubtype else {
-                    throw MachOParsingError(.malformedHeader, at: .architectureSlice)
-                }
-                slices.append(parsed)
-            } catch let error as MachOParsingError {
-                throw error.inArchitecture(index)
-            }
-        }
-        return MachOUniversal(magic: magic, byteOrder: order, architectures: architectures, slices: slices)
-    }
-
-    private static func slice(
-        in reader: BoundedBinaryReader,
-        magic: MachOHeaderMagic,
-        order: MachOByteOrder
-    ) throws -> MachOSlice {
-        let headerSize = magic == .mach64 ? 32 : 28
-        _ = try reader.checkedRange(at: 0, length: headerSize, boundary: .header)
-        let rawCount = try reader.uint32(at: 16, order: order, boundary: .header)
-        let rawSize = try reader.uint32(at: 20, order: order, boundary: .header)
-        guard let commandCount = Int(exactly: rawCount),
-              let commandsSize = Int(exactly: rawSize) else {
-            throw MachOParsingError(.malformedHeader, at: .header)
-        }
-        guard commandCount <= maximumLoadCommands, commandsSize <= maximumLoadCommandBytes else {
-            throw MachOParsingError(.resourceLimitExceeded, at: .loadCommands)
-        }
-        let alignment = magic == .mach64 ? 8 : 4
-        guard commandsSize % alignment == 0,
-              commandsSize >= commandCount * 8,
-              (commandCount != 0 || commandsSize == 0) else {
-            throw MachOParsingError(.malformedHeader, at: .header)
-        }
-        let header = MachOHeader(
-            magic: magic, byteOrder: order,
-            cpu: MachOCPU(rawValue: try reader.int32(at: 4, order: order, boundary: .header)),
-            cpuSubtype: try reader.int32(at: 8, order: order, boundary: .header),
-            fileType: try reader.uint32(at: 12, order: order, boundary: .header),
-            loadCommandCount: commandCount, loadCommandsSize: commandsSize,
-            flags: try reader.uint32(at: 24, order: order, boundary: .header),
-            reserved: magic == .mach64 ? try reader.uint32(at: 28, order: order, boundary: .header) : nil
-        )
-        let commands = try reader.view(at: headerSize, length: commandsSize, boundary: .loadCommands)
-        var loadCommands: [MachOLoadCommand] = []
-        loadCommands.reserveCapacity(commandCount)
-        var segments: [MachOSegment] = []
-        segments.reserveCapacity(commandCount)
-        var signatureCommand: MachOCodeSignatureCommand?
-        var cursor = 0
-        for _ in 0..<commandCount {
-            _ = try commands.checkedRange(at: cursor, length: 8, boundary: .loadCommands)
-            let type = try commands.uint32(at: cursor, order: order, boundary: .loadCommands)
-            let rawCommandSize = try commands.uint32(at: cursor + 4, order: order, boundary: .loadCommands)
-            guard let size = Int(exactly: rawCommandSize), size >= 8,
-                  size % alignment == 0, size <= commands.count - cursor else {
-                throw MachOParsingError(.invalidLoadCommand, at: .loadCommands)
-            }
-            let commandRange = try commands.checkedRange(at: cursor, length: size, boundary: .loadCommands)
-            loadCommands.append(MachOLoadCommand(type: type, fileRange: commandRange))
-            if type == MachOLoadCommandType.segment || type == MachOLoadCommandType.segment64 {
-                let command = try commands.view(at: cursor, length: size, boundary: .segment)
-                segments.append(try segment(
-                    in: command, type: type, wordSize: header.wordSize,
-                    order: order, sliceLength: reader.count
-                ))
-            }
-            if type == MachOLoadCommandType.codeSignature {
-                guard signatureCommand == nil, size == 16 else {
-                    throw MachOParsingError(.invalidLoadCommand, at: .codeSignatureCommand)
-                }
-                let offset = try commands.uint32AsInt(
-                    at: cursor + 8, order: order, boundary: .codeSignatureCommand, ifUnrepresentable: .invalidOffset
-                )
-                let length = try commands.uint32AsInt(
-                    at: cursor + 12, order: order, boundary: .codeSignatureCommand, ifUnrepresentable: .invalidLength
-                )
-                guard length > 0 else {
-                    throw MachOParsingError(.invalidLength, at: .signatureRegion)
-                }
-                // The signature is separate from the header and commands.
-                // Offset and size are relative to this slice, even in a fat file.
-                guard offset >= headerSize + commandsSize else {
-                    throw MachOParsingError(.invalidOffset, at: .signatureRegion)
-                }
-                let region = try reader.checkedRange(
-                    at: offset, length: length, boundary: .signatureRegion, ifTooLong: .invalidLength
-                )
-                signatureCommand = MachOCodeSignatureCommand(
-                    commandRange: commandRange, dataOffset: offset, dataSize: length, fileRange: region
-                )
-            }
-            cursor += size  // size <= commands.count - cursor
-        }
-        guard cursor == commands.count else {
-            throw MachOParsingError(.invalidLoadCommand, at: .loadCommands)
-        }
-        let signature: MachOEmbeddedSignature?
-        if let command = signatureCommand {
-            let region = try reader.view(
-                at: command.dataOffset, length: command.dataSize, boundary: .signatureRegion
-            )
-            signature = MachOEmbeddedSignature(
-                command: command,
-                superBlob: try superBlob(in: region, signatureOffset: command.dataOffset)
-            )
-        } else {
-            signature = nil
-        }
-        let firstFileBackedContentOffset = segments.compactMap { segment -> Int? in
-            if let sectionOffset = segment.firstFileBackedSectionOffset {
-                return sectionOffset
-            }
-            guard segment.sectionCount == 0,
-                  segment.fileOffset > 0,
-                  segment.fileSize > 0 else {
-                return nil
-            }
-            return Int(exactly: segment.fileOffset)
-        }.min()
-        return MachOSlice(
-            fileRange: reader.fileRange, header: header, loadCommands: loadCommands,
-            segments: segments, firstFileBackedContentOffset: firstFileBackedContentOffset,
-            embeddedSignature: signature
-        )
     }
 
     private struct SegmentFormat {
@@ -306,7 +96,7 @@ struct ReadOnlyMachOParser: MachOParsing {
     /// boundary. Each file-backed section is proved to lie inside both its
     /// segment's file range and the containing slice before it can establish
     /// header-padding capacity.
-    private static func segment(
+    static func segment(
         in command: BoundedBinaryReader,
         type: UInt32,
         wordSize: MachOWordSize,
@@ -525,7 +315,7 @@ struct ReadOnlyMachOParser: MachOParsing {
         let length: Int
     }
 
-    private static func superBlob(
+    static func superBlob(
         in signature: BoundedBinaryReader,
         signatureOffset: Int?
     ) throws -> MachOSuperBlob {
@@ -535,18 +325,28 @@ struct ReadOnlyMachOParser: MachOParsing {
             throw MachOParsingError(.malformedSuperBlob, at: .superBlob)
         }
         let length = try signature.uint32AsInt(
-            at: 4, order: .bigEndian, boundary: .superBlob, ifUnrepresentable: .invalidLength
+            at: 4,
+            order: .bigEndian,
+            boundary: .superBlob,
+            ifUnrepresentable: .invalidLength
         )
         let count = try signature.uint32AsInt(at: 8, order: .bigEndian, boundary: .superBlob)
-        guard length >= 12 else {
-            throw MachOParsingError(.invalidLength, at: .superBlob)
-        }
+        guard length >= 12 else { throw MachOParsingError(.invalidLength, at: .superBlob) }
         guard count <= maximumSignatureEntries else {
             throw MachOParsingError(.resourceLimitExceeded, at: .superBlob)
         }
         let blob = try signature.view(at: 0, length: length, boundary: .superBlob)
-        // Both operands are bounded (count <= 128). An index cannot begin in
-        // the middle of the table, even if it points to a plausible blob.
+        let indexed = try indexedSignatureBlobs(in: blob, count: count, length: length)
+        let entries = try signatureEntries(in: blob, indexed: indexed, signatureOffset: signatureOffset)
+        return MachOSuperBlob(magic: magic, fileRange: blob.fileRange, entries: entries)
+    }
+
+    private static func indexedSignatureBlobs(
+        in blob: BoundedBinaryReader,
+        count: Int,
+        length: Int
+    ) throws -> [IndexedBlob] {
+        // Both operands are bounded (count <= 128), so this table cannot overflow.
         let tableEnd = 12 + count * 8
         guard tableEnd <= length else {
             throw MachOParsingError(.malformedSuperBlob, at: .superBlob)
@@ -555,56 +355,119 @@ struct ReadOnlyMachOParser: MachOParsing {
         indexed.reserveCapacity(count)
         var seenSlots: Set<UInt32> = []
         for index in 0..<count {
-            let position = 12 + index * 8
-            let slot = try blob.uint32(at: position, order: .bigEndian, boundary: .superBlob)
-            let offset = try blob.uint32AsInt(
-                at: position + 4, order: .bigEndian, boundary: .superBlob, ifUnrepresentable: .invalidOffset
+            let item = try indexedSignatureBlob(
+                at: index,
+                in: blob,
+                tableEnd: tableEnd,
+                seenSlots: &seenSlots
             )
-            guard seenSlots.insert(slot).inserted else {
-                throw MachOParsingError(.malformedSuperBlob, at: .superBlob)
-            }
-            guard offset >= tableEnd else {
-                throw MachOParsingError(.invalidOffset, at: .signatureBlob)
-            }
-            let blobHeader = try blob.view(at: offset, length: 8, boundary: .signatureBlob)
-            let typeMagic = try blobHeader.uint32(at: 0, order: .bigEndian, boundary: .signatureBlob)
-            let blobLength = try blobHeader.uint32AsInt(
-                at: 4, order: .bigEndian, boundary: .signatureBlob, ifUnrepresentable: .invalidLength
-            )
-            guard blobLength >= 8 else {
-                throw MachOParsingError(.invalidLength, at: .signatureBlob)
-            }
-            let range = try blob.checkedRange(
-                at: offset, length: blobLength, boundary: .signatureBlob, ifTooLong: .invalidLength
-            )
-            guard !indexed.contains(where: { $0.fileRange.overlaps(range) }) else {
+            guard !indexed.contains(where: { $0.fileRange.overlaps(item.fileRange) }) else {
                 throw MachOParsingError(.malformedSignatureBlob, at: .signatureBlob)
             }
-            indexed.append(.init(slotNumber: slot, relativeOffset: offset,
-                                 magic: typeMagic, fileRange: range, length: blobLength))
+            indexed.append(item)
         }
+        return indexed
+    }
 
+    private static func indexedSignatureBlob(
+        at index: Int,
+        in blob: BoundedBinaryReader,
+        tableEnd: Int,
+        seenSlots: inout Set<UInt32>
+    ) throws -> IndexedBlob {
+        let position = 12 + index * 8
+        let slot = try blob.uint32(at: position, order: .bigEndian, boundary: .superBlob)
+        let offset = try blob.uint32AsInt(
+            at: position + 4,
+            order: .bigEndian,
+            boundary: .superBlob,
+            ifUnrepresentable: .invalidOffset
+        )
+        guard seenSlots.insert(slot).inserted else {
+            throw MachOParsingError(.malformedSuperBlob, at: .superBlob)
+        }
+        guard offset >= tableEnd else {
+            throw MachOParsingError(.invalidOffset, at: .signatureBlob)
+        }
+        let header = try blob.view(at: offset, length: 8, boundary: .signatureBlob)
+        let typeMagic = try header.uint32(at: 0, order: .bigEndian, boundary: .signatureBlob)
+        let blobLength = try header.uint32AsInt(
+            at: 4,
+            order: .bigEndian,
+            boundary: .signatureBlob,
+            ifUnrepresentable: .invalidLength
+        )
+        guard blobLength >= 8 else {
+            throw MachOParsingError(.invalidLength, at: .signatureBlob)
+        }
+        let range = try blob.checkedRange(
+            at: offset,
+            length: blobLength,
+            boundary: .signatureBlob,
+            ifTooLong: .invalidLength
+        )
+        return IndexedBlob(
+            slotNumber: slot,
+            relativeOffset: offset,
+            magic: typeMagic,
+            fileRange: range,
+            length: blobLength
+        )
+    }
+
+    private static func signatureEntries(
+        in blob: BoundedBinaryReader,
+        indexed: [IndexedBlob],
+        signatureOffset: Int?
+    ) throws -> [MachOSignatureEntry] {
         var entries: [MachOSignatureEntry] = []
-        entries.reserveCapacity(count)
+        entries.reserveCapacity(indexed.count)
         for item in indexed {
             let slot = CodeSignatureBlobType(rawValue: item.slotNumber)
-            if let expectedMagic = slot.expectedMagic, item.magic != expectedMagic {
-                throw MachOParsingError(.malformedSignatureBlob, at: .signatureBlob)
-            }
-            let directory: MachOCodeDirectory?
-            switch slot {
-            case .codeDirectory, .alternateCodeDirectory:
-                let member = try blob.view(
-                    at: item.relativeOffset, length: item.length, boundary: .codeDirectory
-                )
-                directory = try codeDirectory(in: member, signatureOffset: signatureOffset)
-            default:
-                directory = nil
-            }
-            entries.append(.init(slotNumber: item.slotNumber, slot: slot,
-                                 relativeOffset: item.relativeOffset, magic: item.magic,
-                                 fileRange: item.fileRange, codeDirectory: directory))
+            try validateSignatureBlobMagic(item, slot: slot)
+            let directory = try codeDirectoryIfPresent(
+                item,
+                slot: slot,
+                in: blob,
+                signatureOffset: signatureOffset
+            )
+            entries.append(MachOSignatureEntry(
+                slotNumber: item.slotNumber,
+                slot: slot,
+                relativeOffset: item.relativeOffset,
+                magic: item.magic,
+                fileRange: item.fileRange,
+                codeDirectory: directory
+            ))
         }
-        return MachOSuperBlob(magic: magic, fileRange: blob.fileRange, entries: entries)
+        return entries
     }
+
+    private static func validateSignatureBlobMagic(
+        _ item: IndexedBlob,
+        slot: CodeSignatureBlobType
+    ) throws {
+        guard let expectedMagic = slot.expectedMagic, item.magic != expectedMagic else { return }
+        throw MachOParsingError(.malformedSignatureBlob, at: .signatureBlob)
+    }
+
+    private static func codeDirectoryIfPresent(
+        _ item: IndexedBlob,
+        slot: CodeSignatureBlobType,
+        in blob: BoundedBinaryReader,
+        signatureOffset: Int?
+    ) throws -> MachOCodeDirectory? {
+        switch slot {
+        case .codeDirectory, .alternateCodeDirectory:
+            let member = try blob.view(
+                at: item.relativeOffset,
+                length: item.length,
+                boundary: .codeDirectory
+            )
+            return try codeDirectory(in: member, signatureOffset: signatureOffset)
+        default:
+            return nil
+        }
+    }
+
 }
