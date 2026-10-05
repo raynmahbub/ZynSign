@@ -18,6 +18,9 @@ struct ApplicationEnvironment {
     /// App-owned Store services survive navigation between Store and Downloads.
     var storeBrowser: StoreBrowserModel? = nil
 
+    /// Apple firmware catalog used by Home and Settings → Updates.
+    var ipswFirmwareCatalog: (any IPSWFirmwareCatalog)? = nil
+
     /// Facts about the running application, shown by the shell.
     let applicationInfo: ApplicationInfo
 
@@ -124,7 +127,7 @@ struct ApplicationEnvironment {
     let storageManagement: StorageManagement
 
     /// Imports `.mobileprovision` files into the provisioning-profile
-    /// library. Presented by the Profiles tab; `nil` where the composition
+    /// library. Presented by the Profiles section; `nil` where composition
     /// root supplies no profile storage, and treated as read-only after
     /// construction.
     var provisioningProfileImporter: ProvisioningProfileImporter? = nil

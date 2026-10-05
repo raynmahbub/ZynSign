@@ -172,6 +172,9 @@ enum CompositionRoot {
             repository: StoreRepository(storage: FileStoreCache(directory: FileStoreCache.root)),
             downloads: StoreDownloadQueue(directory: FileStoreCache.root.appendingPathComponent("Quarantine"))
         )
+        environment.ipswFirmwareCatalog = IPSWFirmwareCatalogService(
+            transport: URLSessionIPSWCatalogTransport()
+        )
         let resourceReader = cachingLibraryReaderProvider()
         environment.resourceInspection = makeResourceStudioInspection(library: library, readerProvider: resourceReader)
         if let binary = environment.binaryInspection {

@@ -13,10 +13,10 @@
 - **Import & library:** bounded `.ipa`, `.tipa`, and archive intake; persistent app library, files, collections, search, and storage controls.
 - **Identity & signing:** Keychain-backed `.p12`/`.pfx` identities, provisioning profiles, compatibility checks, signing pipeline, queue, and presets as each release-train stage exposes them.
 - **Inspection:** read-only bundle, binary, signature, resource, entitlement, and compatibility views.
-- **Discovery & delivery:** repository feeds, validated downloads, update review, and OTA hand-off materials for an IPA you host. ZynSign does not install apps or host packages.
+- **Discovery & delivery:** repository feeds, validated downloads, update review, a searchable IPSW firmware browser with reported signing status, and OTA hand-off materials for an IPA you host. ZynSign does not install apps or host packages.
 - **Workspace & care:** Home, accessibility-aware preferences, local diagnostics, backups, and privacy controls.
 
-The in-app **Features** tab is the capability index: it shows what is available, staged for a later train stop, or unsupported. [`CoreFeature`, `ReleaseFeature`, and `UnsupportedFeature`](ZynSign/Application/FeatureCatalog.swift) registries feed the tab through `allCases`; adding a case adds it automatically, while exhaustive metadata keeps its title, category, and explanation explicit.
+The **Features** catalogue lives at **Settings → Features** and shows what is available, staged for a later train stop, or unsupported. [`CoreFeature`, `ReleaseFeature`, and `UnsupportedFeature`](ZynSign/Application/FeatureCatalog.swift) registries feed the catalogue through `allCases`; adding a case adds it automatically, while exhaustive metadata keeps its title, category, and explanation explicit. **Home → Certificates & Profiles** opens one combined signing-material area. The IPSW Browser is available from Home and **Settings → Updates**.
 
 ## Platform boundaries
 

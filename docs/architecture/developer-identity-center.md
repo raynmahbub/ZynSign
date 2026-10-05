@@ -196,8 +196,8 @@ and every team section is announced with its members.
 `ReleaseFeature.identityCenter` ships at `v0.1.0-alpha.3`, with
 prerequisites `certificateStudio`, `smartSign`, and
 `provisioningProfileManager`. Entry points: Settings → **Developer
-Identity**, and toolbar links from the Certificates and Profiles tabs.
-The signing screen's recommendation is gated by the same feature.
+Identity**, and toolbar links from the combined Certificates & Profiles
+screens. The signing screen's recommendation is gated by the same feature.
 
 Coverage: `DeveloperTeamTests`, `IdentityHealthCenterTests`,
 `IdentityConflictDetectionTests`, `ExpirationForecastTests`,

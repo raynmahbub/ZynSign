@@ -38,8 +38,9 @@ Each stop accumulates features from earlier stops. The stage definitions, prereq
 
 ## What the app exposes
 
-- **A tab per destination:** Files, Library, Home, Store, Downloads, Features, and Settings — every destination the stop exposes, each with its own slot. The shell draws its own bar (`ShellTabBar`) instead of using UIKit's, whose five-item ceiling folds the rest into a *More* list it pushes, and a pushed destination that owns a `NavigationStack` crashes at runtime. Earlier stops worked around that by hiding destinations, which is how the Store tab came to be missing; the shell now shows them instead. Certificates, Profiles, Presets, and the installation workspace remain workflows opened from Settings.
-- **Features index:** available, staged, and unsupported capabilities are searchable and filterable. `CoreFeature.allCases`, `ReleaseFeature.allCases`, and `UnsupportedFeature.allCases` feed the catalogue. Adding a case includes it automatically; exhaustive metadata switches require its title, category, and explanation.
+- **Root navigation:** Files, Library, Home, Store, Downloads, and Settings have direct slots in the shell bar. The searchable Features catalogue is under `Settings → Features`; Certificates and Profiles share one `Home → Certificates & Profiles` entry and one `Settings → Signing` screen. Store and Downloads remain direct tabs when their release gates are open. The shell draws its own bar (`ShellTabBar`) instead of UIKit's five-item bar, which would fold destinations into a pushed *More* list.
+- **Features index:** available, staged, and unsupported capabilities are searchable and filterable from Settings. `CoreFeature.allCases`, `ReleaseFeature.allCases`, and `UnsupportedFeature.allCases` feed the catalogue. Adding a case includes it automatically; exhaustive metadata switches require its title, category, and explanation.
+- **IPSW Browser:** Home and `Settings → Updates` provide device search, per-device firmware lists, signing status, and Apple-hosted download links. Status is reported by the public IPSW.me API and is not a restore guarantee.
 - **Release vs. Debug:** Release builds use the current train gate. Debug builds expose all release-gated features for development. The complete catalogue still labels the Release availability honestly.
 
 ## Commands

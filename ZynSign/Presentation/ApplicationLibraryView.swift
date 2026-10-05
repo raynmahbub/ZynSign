@@ -98,7 +98,7 @@ struct ApplicationLibraryView: View {
     var body: some View {
         NavigationStack(path: $path) {
             // Skeleton to library, library to a failure: the same cross-fade
-            // the Certificates and Profiles screens use, keyed on the phase so
+            // the Certificates and Profiles segments use, keyed on the phase so
             // a search keystroke, a selection, or a rename never re-animates
             // the list.
             ZStack { content }

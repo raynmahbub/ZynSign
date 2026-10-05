@@ -54,6 +54,19 @@ struct ZSecondaryButtonStyle: ButtonStyle {
     }
 }
 
+/// Lightweight press feedback for tappable cards and dashboard rows.
+/// Motion follows the shared user preference and Reduce Motion policy.
+struct ZCardPressStyle: ButtonStyle {
+    @Environment(\.zMotion) private var motion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && motion.permitsAnimation ? 0.985 : 1)
+            .opacity(configuration.isPressed ? 0.88 : 1)
+            .animation(motion.fast, value: configuration.isPressed)
+    }
+}
+
 /// Destructive action button.
 struct ZDestructiveButtonStyle: ButtonStyle {
     var isFullWidth: Bool = false

@@ -12,7 +12,7 @@ import Foundation
 /// Files, Home, and the honest Settings screens — is not a `ReleaseFeature`:
 /// it ships in every release, so there is nothing to gate.
 enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
-    /// Settings → Certificates: `.p12`/`.pfx` import, detail, public JSON export.
+    /// Settings → Signing → Certificates & Profiles: `.p12`/`.pfx` import, detail, public JSON export.
     case certificateStudio
     /// The nine-stage signing pipeline: `Sign Application…`, Signing Options,
     /// the Library “Signed” segment, Settings → Installation.

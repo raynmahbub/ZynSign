@@ -115,6 +115,7 @@ struct SettingsView: View {
         case .reset: RecoverySettingsSection()
         case .about: AboutSettingsSection()
         case .socials: socialsCategory
+        case .features: FeatureCatalogView(embedsNavigationStack: false)
         }
     }
 
@@ -125,27 +126,13 @@ struct SettingsView: View {
                     ZSettingsLabel(title: "Signing Preferences", subtitle: "Default identity, profile, and selection behavior.", symbol: "slider.horizontal.3")
                 }
                 NavigationLink {
-                    CertificateManagerView(
-                        store: environment.identityStore,
-                        annotations: environment.identityAnnotations,
-                        importer: environment.pkcs12Importer
-                    )
+                    SigningMaterialsView(embedsNavigationStack: false)
                 } label: {
-                    ZSettingsLabel(title: "Certificates", subtitle: "Import and manage .p12 / .pfx identities.", symbol: "signature")
-                }
-                NavigationLink {
-                    ProfilesView(
-                        profiles: environment.provisioningProfiles,
-                        importer: environment.provisioningProfileImporter,
-                        compatibility: environment.profileCompatibility,
-                        selections: environment.profileSelections,
-                        recordEvent: { name, succeeded in
-                            environment.recordAnalyticsEvent(category: .intake, name: name, succeeded: succeeded)
-                        },
-                        embedsNavigationStack: false
+                    ZSettingsLabel(
+                        title: "Certificates & Profiles",
+                        subtitle: "Import .p12 / .pfx identities and manage provisioning profiles.",
+                        symbol: "person.text.rectangle"
                     )
-                } label: {
-                    ZSettingsLabel(title: "Provisioning Profiles", subtitle: "Import, inspect, and select profiles.", symbol: "person.text.rectangle")
                 }
             }
             Section("Signing Tools") {
@@ -214,6 +201,17 @@ struct SettingsView: View {
             } else {
                 Section {
                     ContentUnavailableView("Updates Unavailable", systemImage: "arrow.triangle.2.circlepath", description: Text("Repository and download services are not configured in this build."))
+                }
+            }
+            Section("Apple Firmware") {
+                NavigationLink {
+                    IPSWBrowserView(embedsNavigationStack: false)
+                } label: {
+                    ZSettingsLabel(
+                        title: "IPSW Browser",
+                        subtitle: "Browse device firmware and current signing status.",
+                        symbol: "iphone.gen3"
+                    )
                 }
             }
         }
@@ -398,13 +396,14 @@ struct SettingsView: View {
 /// cannot reach — and the index is a `@ViewBuilder` switch, which nothing
 /// else can read.
 enum SettingsCategory: String, CaseIterable, Identifiable {
-    case signing, updates, general, security, devices, servers, miscellaneous, diagnostics, reset, about, socials
+    case signing, updates, features, general, security, devices, servers, miscellaneous, diagnostics, reset, about, socials
 
     var id: String { rawValue }
     var title: String {
         switch self {
         case .signing: return "Signing"
         case .updates: return "Updates"
+        case .features: return "Features"
         case .general: return "General"
         case .security: return "Security"
         case .devices: return "Devices"
@@ -419,7 +418,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     var summary: String {
         switch self {
         case .signing: return "Certificates, profiles, signing defaults, and tools"
-        case .updates: return "Repositories, available updates, and downloads"
+        case .updates: return "Repositories, app updates, downloads, and Apple firmware"
+        case .features: return "Browse available, staged, and unsupported capabilities"
         case .general: return "Appearance, tabs, app behavior, and storage"
         case .security: return "Face ID lock, sensitive actions, and what stays masked"
         case .devices: return "Supported device handoff and capability status"
@@ -435,6 +435,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .signing: return "signature"
         case .updates: return "arrow.triangle.2.circlepath"
+        case .features: return "square.grid.3x3.fill"
         case .general: return "gearshape"
         case .security: return "faceid"
         case .devices: return "iphone.gen3"
@@ -472,7 +473,7 @@ extension SettingsCategory {
         case .diagnostics: return [.diagnostics, .compatibilityLab]
         case .reset: return [.recovery]
         case .about: return [.about]
-        case .updates, .devices, .servers, .socials: return []
+        case .updates, .features, .devices, .servers, .socials: return []
         }
     }
 }

@@ -459,7 +459,21 @@ struct SigningView: View {
             if isLoadingIdentities { ZSkeleton(rows: 2) }
             else if let err = identitiesError { Label(err, systemImage: "exclamationmark.triangle").foregroundStyle(.orange); Button("Retry") { Task { await loadIdentities() } } }
             else if identities.isEmpty {
-                ContentUnavailableView { Label("No Certificates", systemImage: "signature") } description: { Text("Import a .p12 identity in the Certificates tab to sign.") } actions: { NavigationLink { CertificateManagerView(store: env.identityStore, annotations: env.identityAnnotations, importer: env.pkcs12Importer) } label: { Label("Open Certificates", systemImage: "key.fill") }.buttonStyle(.bordered) }
+                ContentUnavailableView {
+                    Label("No Certificates", systemImage: "signature")
+                } description: {
+                    Text("Import a .p12 identity from Certificates & Profiles to sign.")
+                } actions: {
+                    NavigationLink {
+                        SigningMaterialsView(
+                            initialSelection: .certificates,
+                            embedsNavigationStack: false
+                        )
+                    } label: {
+                        Label("Open Certificates & Profiles", systemImage: "key.fill")
+                    }
+                    .buttonStyle(.bordered)
+                }
                 .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
             } else {
                 Picker("Signing Identity", selection: $selectedIdentityID) {

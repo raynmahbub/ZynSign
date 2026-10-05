@@ -10,14 +10,14 @@ import Foundation
 ///   persisted, and never leaves this type. A document that needs no scope
 ///   is handled identically, because the platform reports the grant as not
 ///   required.
-/// - **Selection triage.** The selected location must exist and must be a
-///   regular file. The file-type policy was applied before staging; this
-///   check is about what the provider actually produced, not about names.
-/// - **Description.** The selected document is examined — reachable, a
-///   regular file rather than a directory, its size, and whether it begins
-///   the way a ZIP container begins — without copying any of it, so the
-///   pre-import checks can refuse a selection before ZynSign spends storage
-///   on it. The description is an observation, never a verdict.
+/// - **Selection triage.** The selected location must not be a directory.
+///   The file-type policy was applied before staging; coordinated reads are
+///   the authority on whether a provider can supply the bytes.
+/// - **Description.** The selected document is examined for its type, size,
+///   and whether its first bytes look like a ZIP container, without copying
+///   any of it. Provider-only or still-downloading content remains unknown
+///   until a coordinated read can supply it. The description is an
+///   observation, never a verdict.
 /// - **Staging.** The document is copied in bounded chunks — the whole file
 ///   is never held in memory — into a unique application-owned location
 ///   named only by the artifact's identifier. The identifier is a freshly
@@ -173,26 +173,19 @@ final class SecurityScopedArtifactIntake: ArtifactIntake, ImportStagingArea {
 
     // MARK: - Selection triage
 
-    /// Checks what the file provider actually produced before anything is
-    /// read: the location must be reachable and must not be a directory.
-    /// Uses resource-values rather than only `fileExists(atPath:)` so that
-    /// coordinated / iCloud / Files-provider URLs that are not simple
-    /// POSIX paths are still recognised, and so the check does not swallow
-    /// the provider's own error.
+    /// Refuses a selected directory before any bytes are staged. It does not
+    /// treat an immediate reachability check as final: iCloud downloads are
+    /// asynchronous, and File Provider URLs must be read through coordination.
     private func verifySelectedDocument(_ source: URL) throws {
-        // `checkResourceIsReachable` reports the provider's truth; a plain
-        // `fileExists` can return false for a not-yet-downloaded ubiquitous
-        // item that the picker still offered.
-        if (try? source.checkResourceIsReachable()) == false {
-            // Try to trigger a download for ubiquitous items.
+        let isUbiquitousItem = (try? source.resourceValues(forKeys: [.isUbiquitousItemKey]).isUbiquitousItem) == true
+        let isCurrentlyUnreachable = (try? source.checkResourceIsReachable()) == false
+        let needsUbiquitousDownload = isUbiquitousItem && isCurrentlyUnreachable
+        if needsUbiquitousDownload {
+            // This is a request, not a synchronous download. The coordinated
+            // read below waits for the provider to make the selected bytes
+            // available; an immediate second reachability check would reject
+            // a valid item while that download is still in progress.
             try? FileManager.default.startDownloadingUbiquitousItem(at: source)
-            // Re-check after the attempt; if still unreachable, fail with the
-            // honest unavailable error rather than falling through to open.
-            if (try? source.checkResourceIsReachable()) == false {
-                throw ZynSignError.selectedFileUnavailable(
-                    diagnosticDetail: "The selected document could not be reached at the URL the picker returned."
-                )
-            }
         }
         // Prefer resource-values (works with file coordinators / providers),
         // fall back to fileExists for plain temp URLs produced by fileImporter.
@@ -212,6 +205,7 @@ final class SecurityScopedArtifactIntake: ArtifactIntake, ImportStagingArea {
         }
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: source.path, isDirectory: &isDirectory) else {
+            if needsUbiquitousDownload { return }
             throw ZynSignError.selectedFileUnavailable(
                 diagnosticDetail: "The selected document no longer exists."
             )

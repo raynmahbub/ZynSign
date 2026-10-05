@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// Routes exposed from the catalogue. Store and Downloads remain complete
-/// destinations, but opening them from this tab avoids exceeding the native
-/// tab bar's five-item limit.
+/// Routes exposed by the capability catalogue. Store and Downloads are
+/// complete destinations reached directly from relevant entries.
 enum FeatureCatalogDestination: Hashable {
     case appStore
     case downloads
@@ -12,66 +11,75 @@ enum FeatureCatalogDestination: Hashable {
 /// product capabilities. Gateable items come directly from
 /// `ReleaseFeature.allCases` through `FeatureCatalog`.
 struct FeatureCatalogView: View {
-    @Binding private var path: [FeatureCatalogDestination]
+    @State private var path: [FeatureCatalogDestination] = []
     @State private var query = ""
     @State private var availabilityFilter: AvailabilityFilter = .all
 
+    var embedsNavigationStack: Bool
     private let gate = ReleaseTrain.gate
     private let entries = FeatureCatalog.allEntries
 
-    init(path: Binding<[FeatureCatalogDestination]>) {
-        _path = path
+    init(embedsNavigationStack: Bool = true) {
+        self.embedsNavigationStack = embedsNavigationStack
     }
 
     var body: some View {
-        NavigationStack(path: $path) {
-            List {
-                catalogueSummary
+        Group {
+            if embedsNavigationStack {
+                NavigationStack(path: $path) { content }
+            } else {
+                content
+            }
+        }
+    }
 
-                ForEach(FeatureCatalogCategory.allCases) { category in
-                    let categoryEntries = visibleEntries.filter { $0.category == category }
-                    if !categoryEntries.isEmpty {
-                        Section(category.title) {
-                            ForEach(categoryEntries) { entry in
-                                featureRow(entry)
-                            }
+    private var content: some View {
+        List {
+            catalogueSummary
+
+            ForEach(FeatureCatalogCategory.allCases) { category in
+                let categoryEntries = visibleEntries.filter { $0.category == category }
+                if !categoryEntries.isEmpty {
+                    Section(category.title) {
+                        ForEach(categoryEntries) { entry in
+                            featureRow(entry)
                         }
                     }
                 }
+            }
 
-                if visibleEntries.isEmpty {
-                    ContentUnavailableView(
-                        query.isEmpty ? "No Features Match This Filter" : "No Matching Features",
-                        systemImage: "magnifyingglass",
-                        description: Text(query.isEmpty ? "Choose another availability filter." : "Try a shorter search or a different term.")
-                    )
-                }
+            if visibleEntries.isEmpty {
+                ContentUnavailableView(
+                    query.isEmpty ? "No Features Match This Filter" : "No Matching Features",
+                    systemImage: "magnifyingglass",
+                    description: Text(query.isEmpty ? "Choose another availability filter." : "Try a shorter search or a different term.")
+                )
             }
-            .listStyle(.insetGrouped)
-            .navigationTitle("Features")
-            .navigationBarTitleDisplayMode(.large)
-            .searchable(text: $query, prompt: "Search features")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Picker("Availability", selection: $availabilityFilter) {
-                            ForEach(AvailabilityFilter.allCases) { filter in
-                                Text(filter.title).tag(filter)
-                            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Features")
+        .navigationBarTitleDisplayMode(.large)
+        .searchable(text: $query, prompt: "Search features")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("Availability", selection: $availabilityFilter) {
+                        ForEach(AvailabilityFilter.allCases) { filter in
+                            Text(filter.title).tag(filter)
                         }
-                    } label: {
-                        Image(systemName: "line.3.horizontal.decrease.circle")
                     }
-                    .accessibilityLabel("Filter features by availability")
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
                 }
+                .accessibilityLabel("Filter features by availability")
             }
-            .navigationDestination(for: FeatureCatalogDestination.self) { destination in
-                switch destination {
-                case .appStore:
-                    AppStoreView(embedsNavigationStack: false)
-                case .downloads:
-                    DownloadsView(embedsNavigationStack: false)
-                }
+        }
+        .navigationDestination(for: FeatureCatalogDestination.self) { destination in
+            switch destination {
+            case .appStore:
+                AppStoreView(embedsNavigationStack: false)
+            case .downloads:
+                DownloadsView(embedsNavigationStack: false)
             }
         }
     }

@@ -100,15 +100,37 @@ struct ProvisioningProfileImporter {
         )
     }
 
+    /// Reads through the file-provider coordination contract. Files and iCloud
+    /// may return a security-scoped URL whose bytes are not readable until the
+    /// provider has coordinated access; a direct FileHandle read is not enough.
     private func readBoundedProfile(at sourceURL: URL) throws -> Data {
-        if let size = try? sourceURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+        var result: Result<Data, any Error>?
+        var coordinationError: NSError?
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        coordinator.coordinate(readingItemAt: sourceURL, options: [], error: &coordinationError) { coordinatedURL in
+            do {
+                result = .success(try readBoundedProfileBytes(at: coordinatedURL))
+            } catch {
+                result = .failure(error)
+            }
+        }
+
+        if let result { return try result.get() }
+        throw ZynSignError.invalidProvisioningProfileFile(
+            diagnosticDetail: "The selected profile could not be coordinated with its file provider.",
+            underlyingError: coordinationError
+        )
+    }
+
+    private func readBoundedProfileBytes(at url: URL) throws -> Data {
+        if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
            size > ProvisioningProfileInput.maximumByteCount {
             throw ZynSignError.provisioningProfileInputTooLarge(
                 diagnosticDetail: "The selected profile exceeds the bounded CMS input size."
             )
         }
         do {
-            let handle = try FileHandle(forReadingFrom: sourceURL)
+            let handle = try FileHandle(forReadingFrom: url)
             defer { try? handle.close() }
             let data = try handle.read(upToCount: ProvisioningProfileInput.maximumByteCount + 1) ?? Data()
             guard !data.isEmpty else {

@@ -101,7 +101,7 @@ struct RevocationCenterView: View {
                     ContentUnavailableView(
                         "No Certificates",
                         systemImage: "signature",
-                        description: Text("Import a certificate in Settings → Certificates, then check its revocation exposure here.")
+                        description: Text("Import a certificate in Settings → Signing → Certificates & Profiles, then check its revocation exposure here.")
                     )
                 }
             }

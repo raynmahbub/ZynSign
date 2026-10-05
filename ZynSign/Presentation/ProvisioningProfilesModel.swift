@@ -3,7 +3,7 @@ import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The presentation-side state machine for the Profiles tab, rebuilt as the
+/// The presentation-side state machine for the Profiles section, rebuilt as the
 /// Provisioning Profile Manager.
 ///
 /// One content phase at a time — loading, loaded, empty, failed — so the

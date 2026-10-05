@@ -748,7 +748,7 @@ struct ApplicationDetailView: View {
             .foregroundStyle(.secondary)
         case .noProfiles:
             Label(
-                "No profiles yet. Import a .mobileprovision file in the Profiles tab, then return here for a suggestion.",
+                "No profiles yet. Import a .mobileprovision file in Certificates & Profiles → Profiles, then return here for a suggestion.",
                 systemImage: "person.text.rectangle"
             )
             .font(.footnote)

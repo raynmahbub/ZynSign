@@ -114,7 +114,7 @@ struct SigningPreferencesSection: View {
         } header: {
             Text("Provisioning Profile")
         } footer: {
-            Text("Profiles are named by the name the profile declares about itself. Import and remove them in the Profiles tab.")
+            Text("Profiles are named by the name the profile declares about itself. Import and remove them in Certificates & Profiles → Profiles.")
         }
     }
 

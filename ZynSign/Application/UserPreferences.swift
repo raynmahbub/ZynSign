@@ -252,11 +252,11 @@ extension AdvancedPreferences {
 
 /// The tab ZynSign opens on launch.
 ///
-/// The values mirror the shell's primary tabs. The mapping to a presentation
-/// section lives in the presentation layer, so a change to the shell's tabs
-/// does not change the stored preference.
+/// The values name the shell's current primary tabs plus older destinations
+/// kept for decoding and migration. The mapping to a presentation section
+/// lives in the presentation layer, so the stored preference is not a view.
 enum LandingTab: String, CaseIterable, Hashable, Sendable, Codable {
-    // Every destination the shell draws as a tab, in bar order.
+    // Current root-tab choices; Features remains below as a retired value.
     case files
     case library
     case home
@@ -265,10 +265,8 @@ enum LandingTab: String, CaseIterable, Hashable, Sendable, Codable {
     case features
     case settings
 
-    // Identifiers for areas that are not tabs. They stay decodable so an
-    // older preferences file does not fail as a whole, and they migrate to the
-    // Library, which is where imported applications and the identities that
-    // sign them are reached from.
+    // Former workflows kept decodable so an older preferences file does not
+    // fail as a whole; the signing-material destinations now migrate to Settings.
     case certificates
     case profiles
 
@@ -279,19 +277,19 @@ enum LandingTab: String, CaseIterable, Hashable, Sendable, Codable {
 
     var isSelectableTab: Bool {
         switch self {
-        case .files, .library, .home, .appStore, .downloads, .features, .settings:
+        case .files, .library, .home, .appStore, .downloads, .settings:
             return true
-        case .certificates, .profiles:
+        case .features, .certificates, .profiles:
             return false
         }
     }
 
-    /// Migrates saved destinations that are not tabs. Store and Downloads are
-    /// tabs again — a preference saved when they were tabs is honoured as
-    /// itself rather than folded into another destination.
+    /// Migrates saved destinations that are no longer root tabs. Store and
+    /// Downloads remain tabs; Features and signing-material destinations move
+    /// into Settings.
     var selectable: LandingTab {
         switch self {
-        case .certificates, .profiles: return .library
+        case .features, .certificates, .profiles: return .settings
         default: return self
         }
     }

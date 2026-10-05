@@ -425,7 +425,7 @@ struct ProfileCompatibilityEngine {
                     check: .certificateAvailable,
                     severity: .error,
                     title: "Missing certificate",
-                    message: "This profile names \(recorded.count) certificate\(recorded.count == 1 ? "" : "s"), but no certificates are imported on this device. Import the .p12 this profile was issued with on the Certificates tab."
+                    message: "This profile names \(recorded.count) certificate\(recorded.count == 1 ? "" : "s"), but no certificates are imported on this device. Import the .p12 this profile was issued with in Certificates & Profiles → Certificates."
                 )
             )
         }

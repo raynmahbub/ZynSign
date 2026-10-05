@@ -320,7 +320,7 @@ struct IdentityConflictDetector: Sendable {
                 teamID: certificate.teamID,
                 title: "Missing profile",
                 message: "Team \(certificate.teamID ?? "") has a usable certificate but no provisioning profile. Signing needs a profile that matches the app and the team.",
-                remedy: "Import a .mobileprovision for this team in the Profiles tab.",
+                remedy: "Import a .mobileprovision for this team in Certificates & Profiles → Profiles.",
                 certificateFingerprints: [certificate.fingerprintHex],
                 profileIDs: []
             )

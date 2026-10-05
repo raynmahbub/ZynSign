@@ -5,15 +5,13 @@ import SwiftUI
 /// The shell does not use UIKit's tab bar, and this view is the reason: that
 /// bar draws five items and folds everything after the fifth into a *More*
 /// list it **pushes**. A pushed destination that owns a `NavigationStack` —
-/// which every ZynSign area does — crashes at runtime, and the earlier fix for
-/// that crash was to stop showing destinations: the five-item ceiling decided
-/// that Store and Downloads could not be tabs, which is how the Store tab came
-/// to be missing from the build a tester opened.
+/// which every ZynSign area does — crashes at runtime. Store and Downloads
+/// remain direct destinations when their release gates are open; the Features
+/// catalogue and signing materials are workflows inside Settings.
 ///
-/// A bar that can hold five items must not be the thing that decides what the
-/// product shows, so the shell draws its own. Every destination the running
-/// release exposes gets a real slot here, and nothing is reached only by a
-/// detour. The bar owns no navigation and no state: the selection belongs to
+/// The shell draws its own bar so UIKit's five-item ceiling cannot decide
+/// which root destinations the product shows. Every root tab the release
+/// exposes gets a real slot here. The bar owns no navigation and no state: the selection belongs to
 /// the shell, the content lives in `RootView`, and a tap is reported through
 /// the binding.
 struct ShellTabBar: View {

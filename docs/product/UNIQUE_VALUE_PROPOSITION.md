@@ -18,7 +18,7 @@ Instead of competing on one feature, ZynSign wins on the **complete experience**
 
 | What users want | ZynSign advantage | Where it lives |
 |---|---|---|
-| Easy setup | Guided onboarding | `App/RootView` 6-tab shell + `Settings → Certificates` import flow |
+| Easy setup | Guided onboarding | Six-destination shell + `Settings → Signing → Certificates & Profiles` import flow |
 | Easy signing | Smart Sign workflow | `SigningView` + `ZProgressRing` + `ZSigningStatusMachine` (9 stages) + `ZToast` |
 | Certificate management | Certificate Studio | `CertificatesView` + `SecureIdentityStore` + `ZStatusBadge` health |
 | Beautiful UI | Apple-style design | `DesignSystem` (`ZCard` liquid glass, `ZRadius`, `ZToast` spring, `ZHaptics`) |
