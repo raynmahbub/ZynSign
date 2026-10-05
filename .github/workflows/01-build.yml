@@ -106,7 +106,7 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          open="$(gh api "repos/${GITHUB_REPOSITORY}/pulls" \
+          open="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/pulls" \
             -f state=open -f head="${GITHUB_REPOSITORY}:${BRANCH}" --jq 'length')"
           if [ "${open}" -gt 0 ]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
