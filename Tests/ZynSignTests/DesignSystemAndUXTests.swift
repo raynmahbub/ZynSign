@@ -116,14 +116,14 @@ final class DesignSystemAndUXTests: XCTestCase {
         let errorView = ZErrorView(
             title: "Signing Blocked",
             explanation: "This provisioning profile has expired. Choose another profile before signing.",
-            suggestedAction: "Select an active profile in Profiles tab.",
+            suggestedAction: "Select an active profile in Certificates & Profiles → Profiles.",
             technicalDetails: "code: profileExpired | expired: 2026-09-01",
             onRetry: { retried = true }
         )
 
         XCTAssertEqual(errorView.title, "Signing Blocked")
         XCTAssertTrue(errorView.explanation.contains("expired"))
-        XCTAssertEqual(errorView.suggestedAction, "Select an active profile in Profiles tab.")
+        XCTAssertEqual(errorView.suggestedAction, "Select an active profile in Certificates & Profiles → Profiles.")
         XCTAssertEqual(errorView.technicalDetails, "code: profileExpired | expired: 2026-09-01")
 
         errorView.onRetry?()

@@ -1,7 +1,7 @@
 import XCTest
 @testable import ZynSign
 
-/// The Profiles tab model's pure projections: search matching, sort
+/// The Profiles section model's pure projections: search matching, sort
 /// orders, type and expiration filters, and the import-failure notice
 /// titles. The view-observed phases are exercised through these static
 /// rules so no view is needed. The model is main-actor isolated, so the

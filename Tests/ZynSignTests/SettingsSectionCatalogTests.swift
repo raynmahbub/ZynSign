@@ -153,6 +153,14 @@ final class SettingsSectionCatalogTests: XCTestCase {
     /// Every category the index lists has a title, a summary, and a symbol, or
     /// it renders as a blank row — and its raw value is what the persisted
     /// order is keyed by, so a case with no raw value could not be reordered.
+    func testFeaturesCatalogueAndSigningMaterialsAreReachableFromSettings() {
+        XCTAssertTrue(SettingsCategory.allCases.contains(.features))
+        XCTAssertEqual(SettingsCategory.features.title, "Features")
+        XCTAssertEqual(SigningMaterialsSection.allCases, [.certificates, .profiles])
+        XCTAssertEqual(SigningMaterialsSection.certificates.title, "Certificates")
+        XCTAssertEqual(SigningMaterialsSection.profiles.title, "Profiles")
+    }
+
     func testEveryCategoryDescribesItself() {
         for category in SettingsCategory.allCases {
             XCTAssertFalse(category.title.isEmpty, "\(category.rawValue) has no title")

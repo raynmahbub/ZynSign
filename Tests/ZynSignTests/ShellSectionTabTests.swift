@@ -9,18 +9,18 @@ import XCTest
 /// every ZynSign area does, crashes at runtime. The previous way out of that
 /// was to stop showing destinations: Store and Downloads lost their slots, and
 /// a tester opened a build whose App Store tab was simply missing. These tests
-/// pin the two halves of the fix: every destination the release exposes is a
-/// tab, and the number UIKit's bar can draw no longer decides anything.
+/// pin the root-tab contract: every ungated or release-enabled root destination
+/// gets a slot, while Settings-owned workflows remain reachable there.
 final class ShellSectionTabTests: XCTestCase {
 
     /// The destinations no gate can remove.
     private let alwaysAvailableTabs: [ShellSection] = [
-        .files, .library, .home, .features, .settings,
+        .files, .library, .home, .settings,
     ]
 
     func testCandidateTabsAreUniqueAndInProductOrder() {
         XCTAssertEqual(ShellSection.allTabs, [
-            .files, .library, .home, .appStore, .downloads, .features, .settings,
+            .files, .library, .home, .appStore, .downloads, .settings,
         ])
         XCTAssertEqual(Set(ShellSection.allTabs).count, ShellSection.allTabs.count)
     }
@@ -46,7 +46,7 @@ final class ShellSectionTabTests: XCTestCase {
         // A gate that opens one feature opens that feature's tab and no other.
         XCTAssertEqual(
             ShellSection.primaryTabs { $0 == .appStore },
-            [.files, .library, .home, .appStore, .features, .settings]
+            [.files, .library, .home, .appStore, .settings]
         )
         for feature in ReleaseFeature.allCases {
             let tabs = ShellSection.primaryTabs { $0 == feature }
@@ -73,7 +73,7 @@ final class ShellSectionTabTests: XCTestCase {
     }
 
     func testSettingsOwnsNonTabWorkflows() {
-        for section in [ShellSection.certificates, .profiles, .presets, .install] {
+        for section in [ShellSection.certificates, .profiles, .presets, .install, .features] {
             XCTAssertEqual(ShellSection.tab(toOpen: section), .settings)
         }
         XCTAssertFalse(ShellSection.allTabs.contains(.certificates))
@@ -103,7 +103,7 @@ final class ShellSectionTabTests: XCTestCase {
 
     func testLandingPickerOffersEveryTabInBarOrder() {
         XCTAssertEqual(LandingTab.tabCases, [
-            .files, .library, .home, .appStore, .downloads, .features, .settings,
+            .files, .library, .home, .appStore, .downloads, .settings,
         ])
         XCTAssertEqual(ShellSection.offerableLandingTabs, LandingTab.tabCases)
         for tab in LandingTab.tabCases {
@@ -114,34 +114,40 @@ final class ShellSectionTabTests: XCTestCase {
     }
 
     func testSavedStoreSelectionIsHonouredAgain() {
-        // A preferences file written when Store was a tab names Store, and a
-        // later build that folded it into Features must not keep the user
-        // somewhere else now that it is a tab again.
+        // A preferences file written when Store was hidden must not keep the
+        // user somewhere else now that Store and Downloads have direct tabs.
         XCTAssertEqual(LandingTab.appStore.selectable, .appStore)
         XCTAssertEqual(LandingTab.downloads.selectable, .downloads)
         XCTAssertEqual(ShellSection.effectiveLandingTab(for: .appStore), .appStore)
         XCTAssertEqual(ShellSection.effectiveLandingTab(for: .downloads), .downloads)
     }
 
-    func testNonTabLandingPreferencesMigrateToTheLibrary() {
-        XCTAssertEqual(LandingTab.certificates.selectable, .library)
-        XCTAssertEqual(LandingTab.profiles.selectable, .library)
-        XCTAssertEqual(ShellSection.effectiveLandingTab(for: .certificates), .library)
-        XCTAssertEqual(ShellSection.effectiveLandingTab(for: .profiles), .library)
+    func testSavedFeaturesLandingMigratesIntoSettings() {
+        XCTAssertEqual(LandingTab.features.isSelectableTab, false)
+        XCTAssertEqual(LandingTab.features.selectable, .settings)
+        XCTAssertEqual(ShellSection.effectiveLandingTab(for: .features), .settings)
+        XCTAssertEqual(RootView.visibleSelection(for: .features), .settings)
+    }
+
+    func testSigningMaterialLandingPreferencesMigrateToSettings() {
+        XCTAssertEqual(LandingTab.certificates.selectable, .settings)
+        XCTAssertEqual(LandingTab.profiles.selectable, .settings)
+        XCTAssertEqual(ShellSection.effectiveLandingTab(for: .certificates), .settings)
+        XCTAssertEqual(ShellSection.effectiveLandingTab(for: .profiles), .settings)
     }
 
     func testAllRetiredLandingIdentifiersStillDecode() throws {
         let decoder = JSONDecoder()
-        for raw in ["appStore", "downloads", "certificates", "profiles"] {
+        for raw in ["appStore", "downloads", "features", "certificates", "profiles"] {
             let data = Data("\"\(raw)\"".utf8)
             XCTAssertEqual(try decoder.decode(LandingTab.self, from: data).rawValue, raw)
         }
     }
 
     func testSavedPreferencesCannotSelectATabABuildDoesNotRender() {
-        let core: [ShellSection] = [.files, .library, .home, .features, .settings]
-        XCTAssertEqual(RootView.visibleSelection(for: .appStore, in: core), .features)
-        XCTAssertEqual(RootView.visibleSelection(for: .downloads, in: core), .features)
+        let core: [ShellSection] = [.files, .library, .home, .settings]
+        XCTAssertEqual(RootView.visibleSelection(for: .appStore, in: core), .settings)
+        XCTAssertEqual(RootView.visibleSelection(for: .downloads, in: core), .settings)
         XCTAssertEqual(RootView.visibleSelection(for: .certificates, in: core), .settings)
         XCTAssertEqual(RootView.visibleSelection(for: .profiles, in: core), .settings)
         for tab in core {
