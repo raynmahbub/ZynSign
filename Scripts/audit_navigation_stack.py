@@ -9,11 +9,22 @@ dies the first time it is navigated to. That is the exact shape of the bug
 that made Settings unusable, and the reason it is worth a gate rather than a
 code review convention.
 
+A `NavigationSplitView` is the same container with two panes, and it crashes
+in exactly the same way when a pushed destination opens one. The rule therefore
+reads every navigation container, not only the stack — and a view that claims
+to be host-controlled (`embedsNavigationStack: Bool`) must gate *every*
+container it constructs behind that flag. A split branch that checks only the
+size class ("if sizeClass == .regular { NavigationSplitView … }") is the bug
+the flag exists to prevent, and it is reported even when the stack branch is
+correctly gated.
+
 The rule this script enforces:
 
     A view that is pushed as a `NavigationLink` destination or a
-    `navigationDestination` must not itself open a `NavigationStack` —
-    directly or through a view it builds in its own body.
+    `navigationDestination` must not itself open a `NavigationStack` or a
+    `NavigationSplitView` — directly or through a view it builds in its own
+    body — and a view taking the opt-out flag must honour it at every
+    container it constructs.
 
 Presenting the same view in a `sheet` is fine and is not reported: a sheet
 is a fresh presentation context, so a stack inside it is correct. A view is
@@ -42,7 +53,7 @@ import argparse
 import json
 import re
 import sys
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -76,6 +87,11 @@ FRESH_CONTEXT = re.compile(
 # The sanctioned opt-out: a view that can be handed a host-owned stack.
 SELF_MANAGED = re.compile(r"\bembedsNavigationStack\s*:\s*Bool")
 
+# Every container that crashes when a pushed destination opens its own: the
+# stack, and the split view — a `NavigationSplitView` is a navigation
+# controller all the same, and nesting one nests the crash.
+CONTAINER = re.compile(r"\b(?:NavigationStack|NavigationSplitView)\s*[({]")
+
 
 @dataclass(frozen=True)
 class Finding:
@@ -88,7 +104,7 @@ class Finding:
 
     def render(self) -> str:
         return (
-            f"{self.view} opens a NavigationStack but is pushed from "
+            f"{self.view} opens a navigation container but is pushed from "
             f"{self.pushed_from}:{self.line} — {self.detail}"
         )
 
@@ -207,10 +223,40 @@ class ScreenInfo:
     path: Path
     owns_stack: bool
     self_managed: bool
+    #: Whether every container a self-managed screen opens is selected by the
+    #: `embedsNavigationStack` flag. A `NavigationSplitView` behind only a
+    #: size-class check is the bug the flag exists to prevent: the opt-out is
+    #: declared, and quietly ignored on the wide size class.
+    respects_opt_out: bool = True
     #: Types this screen constructs in its own body — sheet closures already
     #: dropped — mapped to whether the construction opted out of the built
     #: view's own container (`embedsNavigationStack: false`).
-    builds: dict[str, bool]
+    builds: dict[str, bool] = field(default_factory=dict)
+
+
+def containers_respect_opt_out(body: str) -> bool:
+    """Whether every container in `body` is opened from a branch the opt-out
+    flag selects.
+
+    A screen that takes `embedsNavigationStack: Bool` may open a container —
+    but only from a branch the flag names. The gate is the nearest preceding
+    `if`/`else if` line within a short window; when it never mentions the flag
+    (a bare size-class test, or no test at all), the host's `false` is
+    ignored there, and the pushed destination nests a controller anyway.
+    """
+    lines = body.splitlines()
+    for index, line in enumerate(lines):
+        if not CONTAINER.search(line):
+            continue
+        gate = ""
+        for earlier in range(index, max(index - 7, -1), -1):
+            stripped = lines[earlier].strip()
+            if stripped.startswith(("if ", "} else if", "else if")):
+                gate = stripped
+                break
+        if "embedsNavigationStack" not in gate:
+            return False
+    return True
 
 
 def constructions(body: str) -> dict[str, bool]:
@@ -251,12 +297,14 @@ def scan_screens() -> dict[str, ScreenInfo]:
             screens[name] = ScreenInfo(
                 name=name,
                 path=path,
-                # A real use opens a container (`NavigationStack {` or
-                # `NavigationStack(path:) {`). The plain substring test also
-                # matched `embedsNavigationStack`, the flag that says the host
-                # owns the container, which is the opposite of a stack here.
-                owns_stack=bool(re.search(r"\bNavigationStack\s*[({]", rendered)),
+                # A real use opens a container (`NavigationStack {`,
+                # `NavigationSplitView {`, or the `path:` initializer form).
+                # The plain substring test also matched `embedsNavigationStack`,
+                # the flag that says the host owns the container, which is the
+                # opposite of a stack here.
+                owns_stack=bool(CONTAINER.search(rendered)),
                 self_managed=bool(SELF_MANAGED.search(body)),
+                respects_opt_out=containers_respect_opt_out(rendered),
                 builds=constructions(rendered),
             )
     return screens
@@ -320,10 +368,15 @@ def nested_stack_chain(name: str, screens: dict[str, ScreenInfo]) -> list[str] |
         if info is None or len(chain) > 4:
             continue
         for built, opted_out in info.builds.items():
-            if opted_out or built in seen:
+            if built in seen:
                 continue
             target = screens.get(built)
             if target is None:
+                continue
+            # The construction is safe when it opted out *and* the built view
+            # honours the opt-out; a view that ignores its own flag nests a
+            # controller no matter what the call site passed.
+            if opted_out and target.respects_opt_out:
                 continue
             seen.add(built)
             if target.owns_stack:
@@ -338,9 +391,30 @@ def audit() -> list[Finding]:
     reported: set[tuple[str, str, int]] = set()
     for name, path, line, opted_out in scan_push_sites():
         info = screens.get(name)
-        if info is None or opted_out:
+        if info is None:
             continue
         key = (name, path.relative_to(ROOT).as_posix(), line)
+        if info.self_managed and not info.respects_opt_out:
+            # The screen declares the sanctioned flag and ignores it in at
+            # least one branch. Whether the call site passed `false` or not,
+            # the host can be handed a nested controller by the ungated one.
+            findings.append(
+                Finding(
+                    view=name,
+                    pushed_from=key[1],
+                    line=line,
+                    detail=(
+                        "it takes `embedsNavigationStack` but opens a "
+                        "NavigationStack or NavigationSplitView from a branch "
+                        "the flag does not select — gate every container it "
+                        "constructs behind the flag"
+                    ),
+                )
+            )
+            reported.add(key)
+            continue
+        if opted_out:
+            continue
         if info.owns_stack:
             findings.append(
                 Finding(
@@ -388,7 +462,7 @@ def main() -> int:
         return 1 if findings else 0
 
     if not findings:
-        print("No pushed view opens its own NavigationStack.")
+        print("No pushed view opens its own navigation container.")
         return 0
 
     print(
