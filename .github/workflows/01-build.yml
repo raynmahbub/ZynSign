@@ -125,7 +125,7 @@ jobs:
   hygiene:
     name: Repository hygiene
     needs: triage
-    if: needs.triage.outputs.run == 'true'
+    if: needs.triage.outputs.run != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -222,7 +222,7 @@ jobs:
   build-and-test:
     name: Build and test (Xcode)
     needs: triage
-    if: needs.triage.outputs.run == 'true'
+    if: needs.triage.outputs.run != 'false'
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -282,7 +282,7 @@ jobs:
   lint-and-format:
     name: Lint and format
     needs: triage
-    if: needs.triage.outputs.run == 'true'
+    if: needs.triage.outputs.run != 'false'
     runs-on: macos-15
     timeout-minutes: 20
     steps:
@@ -306,7 +306,7 @@ jobs:
   external-validation:
     name: External validation (Apple tooling)
     needs: triage
-    if: needs.triage.outputs.run == 'true'
+    if: needs.triage.outputs.run != 'false'
     runs-on: macos-15
     timeout-minutes: 45
     steps:
