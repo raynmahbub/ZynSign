@@ -106,13 +106,20 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          open="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/pulls" \
-            -f state=open -f head="${GITHUB_REPOSITORY}:${BRANCH}" --jq 'length')"
-          if [ "${open}" -gt 0 ]; then
+          # Match by head ref client-side: robust across gh versions and
+          # branch-name characters, unlike the head=OWNER:BRANCH filter.
+          # On any lookup failure run anyway — never skip on uncertainty.
+          if ! open="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/pulls" \
+              -f state=open -f per_page=100 \
+              --jq "[.[] | select(.head.ref == \"${BRANCH}\")] | length")"; then
+            open=1
+          fi
+          if [ "${open}" -gt 0 ] 2>/dev/null; then
             echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Push triage::An open pull request already covers ${BRANCH} — its run is this commit's verdict."
+            echo "::notice title=Push triage::${BRANCH} is covered by an open pull request — that run is this commit's verdict; skipping the duplicate build."
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Push triage::No open pull request covers ${BRANCH} — building."
           fi
 
   hygiene:
