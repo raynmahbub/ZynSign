@@ -120,7 +120,7 @@ private struct ShellBarBackground: ViewModifier {
                 .zynSoftShadow()
         } else {
             content
-                .background(.bar, in: RoundedRectangle(cornerRadius: 0))
+                .background(.bar, in: Rectangle())
                 .overlay(alignment: .top) {
                     Divider()
                 }
