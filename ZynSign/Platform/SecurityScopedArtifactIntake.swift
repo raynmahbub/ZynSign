@@ -105,6 +105,10 @@ final class SecurityScopedArtifactIntake: ArtifactIntake, ImportStagingArea {
             }
         }
 
+        // An iCloud placeholder answers "empty" and "not an archive" to every
+        // question asked of it. Ask only after the provider has had its
+        // bounded chance to hand the bytes over.
+        awaitUbiquitousContent(at: source)
         try verifySelectedDocument(source)
 
         var kind = ImportSourceDescription.Kind.unknown
@@ -151,6 +155,10 @@ final class SecurityScopedArtifactIntake: ArtifactIntake, ImportStagingArea {
             }
         }
 
+        // The copy is the authority on content, but only once there is content
+        // to copy: a dataless iCloud item fails every read until the provider
+        // materialises it, so the wait runs here too.
+        awaitUbiquitousContent(at: source)
         try verifySelectedDocument(source)
         try prepareDirectory()
         do {
@@ -179,7 +187,11 @@ final class SecurityScopedArtifactIntake: ArtifactIntake, ImportStagingArea {
     private func verifySelectedDocument(_ source: URL) throws {
         let isUbiquitousItem = (try? source.resourceValues(forKeys: [.isUbiquitousItemKey]).isUbiquitousItem) == true
         let isCurrentlyUnreachable = (try? source.checkResourceIsReachable()) == false
-        let needsUbiquitousDownload = isUbiquitousItem && isCurrentlyUnreachable
+        // A placeholder that is *reachable* but dataless answers "no bytes"
+        // to every read, exactly like one that is unreachable; both need the
+        // provider's download before they can be staged.
+        let needsUbiquitousDownload = isUbiquitousItem
+            && (isCurrentlyUnreachable || isDatalessUbiquitousItem(source))
         if needsUbiquitousDownload {
             // This is a request, not a synchronous download. The coordinated
             // read below waits for the provider to make the selected bytes
@@ -214,6 +226,48 @@ final class SecurityScopedArtifactIntake: ArtifactIntake, ImportStagingArea {
             throw ZynSignError.unsupportedImportFile(
                 diagnosticDetail: "The selected document is a directory, not a regular file."
             )
+        }
+    }
+
+    // MARK: - iCloud placeholders
+
+    /// How long staging will wait for iCloud to materialise a selected
+    /// document, and how often it asks. Bounded so a provider that never
+    /// answers produces the honest "could not be read" refusal — and a retry
+    /// button — rather than a hung import.
+    private static let ubiquitousWaitBudget: TimeInterval = 20
+    private static let ubiquitousPollInterval: TimeInterval = 0.25
+
+    /// Whether `source` is an iCloud item whose bytes are not on the device.
+    ///
+    /// A dataless placeholder is not an empty file; it is a file whose bytes
+    /// have not been fetched. The distinction is the whole reason this type
+    /// refuses an observation of *missing* content only after asking the
+    /// provider for it.
+    private func isDatalessUbiquitousItem(_ source: URL) -> Bool {
+        guard let values = try? source.resourceValues(forKeys: [
+            .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey,
+        ]), values.isUbiquitousItem == true else {
+            return false
+        }
+        return values.ubiquitousItemDownloadingStatus != .current
+    }
+
+    /// Asks iCloud for a dataless document's bytes and waits, bounded, for
+    /// the provider to deliver them.
+    ///
+    /// The wait never runs on the main thread — the import hub stages off the
+    /// interface, and a placeholder that outlasts the budget is answered with
+    /// an unknown observation, not a wrong one. The trigger is idempotent; an
+    /// already-downloading item simply needs the download to finish.
+    private func awaitUbiquitousContent(at source: URL) {
+        guard !Thread.isMainThread, isDatalessUbiquitousItem(source) else { return }
+        try? FileManager.default.startDownloadingUbiquitousItem(at: source)
+        let deadline = Date().addingTimeInterval(Self.ubiquitousWaitBudget)
+        while Date() < deadline {
+            if Task.isCancelled { return }
+            Thread.sleep(forTimeInterval: Self.ubiquitousPollInterval)
+            if !isDatalessUbiquitousItem(source) { return }
         }
     }
 
@@ -429,31 +483,54 @@ final class SecurityScopedArtifactIntake: ArtifactIntake, ImportStagingArea {
     /// could not be looked at here is not a document that failed a check.
     /// The pre-import policy refuses only an observation of *wrong* bytes.
     private func archiveSignatureMarker(at source: URL) -> Bool? {
-        if let marker = try? readLeadingBytes(of: source) {
+        if let marker = readSignature(of: source) {
             return marker
         }
         var coordinatedMarker: Bool?
         var coordinationError: NSError?
         NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: source, options: [], error: &coordinationError) { url in
-            coordinatedMarker = try? self.readLeadingBytes(of: url)
+            coordinatedMarker = self.readSignature(of: url)
         }
         return coordinatedMarker
     }
 
-    /// Reads the first four bytes and decides whether they begin a ZIP
-    /// container. A document shorter than four bytes cannot, and is reported
-    /// as such rather than treated as unreadable.
-    private func readLeadingBytes(of url: URL) throws -> Bool {
-        let reader = try FileHandle(forReadingFrom: url)
+    /// Decides whether the document begins a ZIP container from its first
+    /// bytes, returning `nil` when enough bytes could not be observed.
+    ///
+    /// Only bytes actually read can prove absence. A failed open, a provider
+    /// error, or a read that hands over less than four bytes of a document
+    /// that declares more is *unknown*, not a refusal — the shape a
+    /// dataless or still-downloading file presents. A local, regular file
+    /// that genuinely holds fewer than four bytes is the exception: there is
+    /// no archive in it to find, and that is a true observation.
+    private func readSignature(of url: URL) -> Bool? {
+        guard let reader = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? reader.close() }
-        guard let head = try reader.read(upToCount: 4), head.count == 4 else { return false }
-        let bytes = [UInt8](head)
-        guard bytes[0] == 0x50, bytes[1] == 0x4B else { return false }
-        // "PK\x03\x04" a local file header, "PK\x05\x06" an empty archive,
-        // "PK\x07\x08" a spanned-archive marker.
-        return (bytes[2] == 0x03 && bytes[3] == 0x04)
-            || (bytes[2] == 0x05 && bytes[3] == 0x06)
-            || (bytes[2] == 0x07 && bytes[3] == 0x08)
+        let head: Data?
+        do {
+            head = try reader.read(upToCount: 4)
+        } catch {
+            return nil
+        }
+        guard let head else { return nil }
+        if head.count >= 4 {
+            let bytes = [UInt8](head)
+            guard bytes[0] == 0x50, bytes[1] == 0x4B else { return false }
+            // "PK\x03\x04" a local file header, "PK\x05\x06" an empty archive,
+            // "PK\x07\x08" a spanned-archive marker.
+            return (bytes[2] == 0x03 && bytes[3] == 0x04)
+                || (bytes[2] == 0x05 && bytes[3] == 0x06)
+                || (bytes[2] == 0x07 && bytes[3] == 0x08)
+        }
+        // A short read: fewer than four bytes came back. It is a verdict only
+        // when the file itself is small and local — an empty or truncated
+        // package, observed.
+        let declaredSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        let isUbiquitous = (try? url.resourceValues(forKeys: [.isUbiquitousItemKey]))?.isUbiquitousItem == true
+        if let declaredSize, declaredSize < 4, !isUbiquitous {
+            return false
+        }
+        return nil
     }
 
     // MARK: - Leftover lifecycle

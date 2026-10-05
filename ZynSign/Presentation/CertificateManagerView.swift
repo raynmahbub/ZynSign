@@ -620,11 +620,11 @@ struct CertificateManagerView: View {
               !model.isImporting,
               pendingData == nil,
               !showPasswordSheet else { return }
-        let ext = url.pathExtension.lowercased()
-        guard ext == "p12" || ext == "pfx" else {
-            presentToast("That file is not a certificate. Choose a .p12 or .pfx file.", style: .warning)
-            return
-        }
+        // The name is not the verdict. The reader — which accepts a matching
+        // `.p12`/`.pfx`, sniffs content for a name Files rewrote, and refuses
+        // a foreign format by type — decides, and its typed failure becomes
+        // the message. Pre-judging the extension here is what hid valid
+        // certificates AirDrop had renamed.
 
         // File providers may vend placeholder or coordinated URLs rather
         // than a directly readable local path. Read off the main actor,
@@ -668,7 +668,7 @@ struct CertificateManagerView: View {
     private func readFailureMessage(for error: any Error) -> String {
         switch error as? PKCS12DocumentReadError {
         case .unsupportedFileType:
-            return "Choose a .p12 or .pfx certificate file."
+            return "That file is not a PKCS#12 certificate container. Choose the .p12 or .pfx your Apple developer tools exported."
         case .emptyFile:
             return "The selected certificate file is empty."
         case .fileTooLarge:
