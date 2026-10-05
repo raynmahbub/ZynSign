@@ -3,20 +3,35 @@
 # One workflow owns the commit lifecycle, so the Actions page shows a single
 # verdict per push and per pull request:
 #
+#   triage               — one verdict per commit: a push already covered by
+#                          an open pull request skips the duplicate build
 #   hygiene              — keys, certificates, generated state, release train,
 #                          release metadata self-test, host vectors, RC audits,
 #                          hardening report                     (ubuntu)
 #   build-and-test       — Scripts/ci/build.sh: resolve, clean, build every
 #                          target, build the test targets, run the unit tests,
 #                          annotate failures                     (macOS)
-#   lint-and-format      — SwiftLint errors block; SwiftFormat check blocks,
-#                          the weekly run applies the rule set   (macOS)
+#   lint-and-format      — SwiftLint errors block; the SwiftFormat check
+#                          blocks too, and Scripts/ci/format.sh apply
+#                          repairs any drift                     (macOS)
 #   external-validation  — ZynSign-signed artifacts judged by Apple's own
 #                          codesign/otool/ditto; findings are reported (macOS)
 #
 # On a pull request the same run also carries the PR gates — conventional
 # title, commitlint over every commit, path labels, and the Danger Swift
-# review — and on demand it produces the private test IPA.
+# review. On demand (Actions → 🔨 Build → Run workflow) it produces the
+# private test IPA: Scripts/ci/private_ipa.sh always delivers one — by
+# default the unsigned `ZynSign-{tag}-{config}-private-unsigned.ipa` that
+# recipients sign with their own Apple certificate (the artifact carries a
+# SIGNING.md saying exactly how), or a signed ad-hoc export when a TEAM_ID
+# secret is configured. A green `private-ipa` job contains an IPA; a run
+# with none fails. It never creates a tag and never publishes a release.
+#
+# Manual-run options:
+#   mode          build (verify only) | private-ipa (also deliver the IPA)
+#   configuration private-ipa: Release = what users get; Debug shows every feature
+#   run_unit_tests off turns the test run into a faster compile-only gate
+#   note          private-ipa: a label folded into the artifact name
 #
 # The static gates that need no Xcode live in 02-quality.yml; publishing lives in 03-release.yml.
 # See docs/development/continuous-integration.md for what each job
@@ -30,7 +45,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "What to produce"
+        description: "What to produce — build verifies only; private-ipa also delivers a device IPA"
         type: choice
         options: [build, private-ipa]
         default: build
@@ -39,29 +54,83 @@ on:
         type: choice
         options: [Release, Debug]
         default: Release
+      run_unit_tests:
+        description: "Run the unit tests (off = compile-only gate, faster)"
+        type: boolean
+        default: true
       note:
-        description: "private-ipa only: appears in the artifact name"
+        description: "private-ipa only: a label added to the artifact name"
         type: string
         default: ""
 
 # Every job reads; the hardening report, the external-validation artifacts and
-# the private IPA are the workflow's only outputs. Superseded pushes to the
-# same branch are cancelled — the newest commit is the one whose verdict
-# matters. Jobs that comment on a pull request widen their own permissions.
+# the private IPA are the workflow's only outputs. Superseded pushes and
+# pull-request updates to the same ref are cancelled — the newest commit is
+# the one whose verdict matters. Manual runs are never cancelled and never
+# cancel anything: a dispatch is a deliberate act, and a 45-minute archive
+# should not die because someone clicked a button or pushed a commit.
+# Jobs that comment on a pull request widen their own permissions.
 permissions:
   contents: read
 
 concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  group: build-${{ github.event_name }}-${{ github.ref }}-${{ inputs.mode || 'checks' }}
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
 
 jobs:
+  # Every push gets exactly one verdict: its own run, or the pull-request
+  # run that already covers the same commit. A push to a branch with an
+  # open pull request is that duplicate — the PR run carries the required
+  # checks, so the push run skips its heavy jobs and the macOS bill is cut
+  # in half for every PR update. Pushes to main and to branches without a
+  # pull request always build.
+  triage:
+    name: Push triage
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - name: Decide whether this push is already covered by a pull request
+        id: decide
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.ref_name }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -eu
+          if [ "${EVENT}" != "push" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Match by head ref client-side: robust across gh versions and
+          # branch-name characters, unlike the head=OWNER:BRANCH filter.
+          # On any lookup failure run anyway — never skip on uncertainty.
+          if ! open="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/pulls" \
+              -f state=open -f per_page=100 \
+              --jq "[.[] | select(.head.ref == \"${BRANCH}\")] | length")"; then
+            open=1
+          fi
+          if [ "${open}" -gt 0 ] 2>/dev/null; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Push triage::${BRANCH} is covered by an open pull request — that run is this commit's verdict; skipping the duplicate build."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Push triage::No open pull request covers ${BRANCH} — building."
+          fi
+
   hygiene:
     name: Repository hygiene
+    needs: triage
+    if: needs.triage.outputs.run != 'false'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Check out the repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Refuse private keys and misplaced certificates
         run: |
@@ -144,7 +213,7 @@ jobs:
         run: python3 Scripts/generate_hardening_report.py --output build/hardening/index.html
 
       - name: Upload the hardening report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: hardening-report
           path: build/hardening/index.html
@@ -152,14 +221,16 @@ jobs:
 
   build-and-test:
     name: Build and test (Xcode)
+    needs: triage
+    if: needs.triage.outputs.run != 'false'
     runs-on: macos-15
     timeout-minutes: 45
     steps:
       - name: Check out the repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Select the newest available Xcode
-        uses: maxim-lobanov/setup-xcode@1242409711ff5721add51979e9e11e23ebb7e5a4
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: latest-stable
 
@@ -172,7 +243,7 @@ jobs:
       # The project vendors no external packages today; the cache is wired
       # now so the first adopted package resolves instantly.
       - name: Restore Swift Package cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/Library/Caches/org.swift.swiftpm
@@ -185,13 +256,17 @@ jobs:
       # resolves packages, cleans DerivedData, builds every target, builds
       # the test targets, runs the unit tests on a resolved simulator, and
       # annotates each failing case from the result bundle — the whole gate
-      # lives in the script, so the workflow cannot drift from it.
+      # lives in the script, so the workflow cannot drift from it. The
+      # manual `run_unit_tests: false` switch turns the run into a
+      # compile-only check; every push and pull request keeps the tests.
       - name: Build every target and run the unit tests
+        env:
+          RUN_TESTS: ${{ (github.event_name != 'workflow_dispatch' || inputs.run_unit_tests) && '1' || '0' }}
         run: Scripts/ci/build.sh
 
       - name: Upload build and test logs on failure
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: build-test-logs
           path: |
@@ -202,18 +277,20 @@ jobs:
 
   # SwiftLint and SwiftFormat in one job: a single Homebrew invocation and a
   # single macOS runner for the pair. Lint errors block; the format check
-  # blocks too, and the weekly maintenance run applies the pinned rule set
-  # automatically so a drift repairs itself.
+  # blocks too. Local drift is repaired with Scripts/ci/format.sh apply —
+  # one clean, reviewable diff.
   lint-and-format:
     name: Lint and format
+    needs: triage
+    if: needs.triage.outputs.run != 'false'
     runs-on: macos-15
     timeout-minutes: 20
     steps:
       - name: Check out the repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install the tooling
-        run: HOMEBREW_NO_AUTO_UPDATE=1 brew install swiftlint swiftformat
+        run: HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install swiftlint swiftformat
 
       - name: SwiftLint
         run: Scripts/ci/lint.sh
@@ -228,13 +305,16 @@ jobs:
   # See docs/architecture/external-validation.md.
   external-validation:
     name: External validation (Apple tooling)
+    needs: triage
+    if: needs.triage.outputs.run != 'false'
     runs-on: macos-15
+    timeout-minutes: 45
     steps:
       - name: Check out the repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Select the newest available Xcode
-        uses: maxim-lobanov/setup-xcode@1242409711ff5721add51979e9e11e23ebb7e5a4
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: latest-stable
 
@@ -276,7 +356,7 @@ jobs:
 
       - name: Upload the report and the exported artifacts
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: external-validation
           path: |
@@ -299,7 +379,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Validate the PR title
-        uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50
+        uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -326,12 +406,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out the repository (full history for range linting)
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
 
@@ -351,7 +431,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Apply path-based labels
-        uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13
+        uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           configuration-path: .github/labeler.yml
@@ -370,13 +450,23 @@ jobs:
       pull-requests: read
     steps:
       - name: Check out the trusted base repository revision
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.base.sha }}
 
       # Danger is the reviewer who always shows up; it advises, it does not
       # block. Both steps tolerate failure and annotate what went wrong, so an
-      # advisory outage never masks a healthy merge.
+      # advisory outage never masks a healthy merge. The Homebrew download
+      # cache plus the no-dependents-check flags keep the tap install at a
+      # few seconds instead of a full formula solve.
+      - name: Restore the Homebrew download cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: homebrew-danger-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: |
+            homebrew-danger-${{ runner.arch }}-
+
       - name: Install Danger Swift
         continue-on-error: true
         run: |
@@ -384,10 +474,10 @@ jobs:
           # tap is explicitly trusted.
           brew trust danger/tap </dev/null || true
           status=0
-          HOMEBREW_NO_AUTO_UPDATE=1 brew install danger/tap/danger-swift 2>&1 | tee /tmp/brew-install.log || status=$?
+          HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install danger/tap/danger-swift 2>&1 | tee /tmp/brew-install.log || status=$?
           if [[ "${status}" -ne 0 ]]; then
             grep -E 'Error|error' /tmp/brew-install.log | tail -5 | while IFS= read -r line; do
-              printf '::error title=brew::%s\n' "${line}"
+              printf '::error title=brew::%s\n' "${line//'%'/'%25'}"
             done || true
             exit "${status}"
           fi
@@ -402,17 +492,22 @@ jobs:
           danger-swift ci --dangerfile Dangerfile.swift 2>&1 | tee /tmp/danger.log || status=$?
           if [[ "${status}" -ne 0 ]]; then
             grep -E 'error|Error|failed|Failed' /tmp/danger.log | tail -5 | while IFS= read -r line; do
-              printf '::error title=Danger::%s\n' "${line}"
+              printf '::error title=Danger::%s\n' "${line//'%'/'%25'}"
             done || true
             exit "${status}"
           fi
 
   # --- Private test IPA (manual only) ----------------------------------------
   # The private → public gate from docs/releases/private-testing.md: archive
-  # the commit you intend to tag and export an ad-hoc IPA for the device
-  # matrix. It never creates a tag and never publishes a release. The
-  # simulator build and the unit tests already ran in build-and-test above,
-  # so this job only archives and exports.
+  # the commit you intend to tag and deliver an IPA for the device matrix.
+  # It never creates a tag and never publishes a release. The simulator build
+  # and the unit tests already ran in build-and-test above, so this job only
+  # archives and packages. All of that lives in Scripts/ci/private_ipa.sh:
+  #   - TEAM_ID secret set   → signed ad-hoc export
+  #                            ZynSign-{tag}-{config}-private.ipa
+  #   - TEAM_ID missing      → unsigned Payload package
+  #                            ZynSign-{tag}-{config}-private-unsigned.ipa
+  #   - no IPA at all        → the job fails (a green run always has one)
   private-ipa:
     name: Private test IPA
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'private-ipa'
@@ -421,127 +516,28 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Check out the repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Select the newest stable Xcode
-        uses: maxim-lobanov/setup-xcode@1242409711ff5721add51979e9e11e23ebb7e5a4
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: latest-stable
 
       # The version is read from the release train, never typed: the private
-      # build must carry the same version as the tag it is testing for.
-      - name: Derive the candidate identity
-        id: identity
+      # build must carry the same version as the tag it is testing for. The
+      # script archives, exports or packages, checksums, writes the summary
+      # card, and names the artifact — the job below only ships it.
+      - name: Archive and produce the IPA
+        id: ipa
         env:
-          CONFIGURATION: ${{ inputs.configuration }}
-        run: |
-          set -eu
-          source Scripts/ci/crystal.sh
-          crystal_phase "${CRYSTAL_BUILD}" "Build" "Private IPA • ${CONFIGURATION}"
-          TAG="$(python3 Scripts/release_train.py current --tag)"
-          VERSION="${TAG#v}"
-          {
-            echo "tag=${TAG}"
-            echo "version=${VERSION}"
-          } >> "$GITHUB_OUTPUT"
-          crystal_ok "Release train stop: ${TAG}"
-          crystal_info "Configuration: ${CONFIGURATION}"
-          if [ "${CONFIGURATION}" = "Debug" ]; then
-            crystal_warn "Debug exposes EVERY feature regardless of ReleaseTrain.current — it is not release evidence."
-          fi
-
-      - name: Archive for device
-        id: archive
-        continue-on-error: true
-        env:
-          CONFIGURATION: ${{ inputs.configuration }}
-        run: |
-          set -eu
-          source Scripts/ci/crystal.sh
-          crystal_phase "${CRYSTAL_BUILD}" "Build" "Archive"
-          mkdir -p build/private
-          if [ -n "${{ secrets.TEAM_ID }}" ]; then
-            crystal_info "TEAM_ID present — archiving with automatic signing"
-            xcodebuild archive \
-              -project ZynSign.xcodeproj -scheme ZynSign \
-              -configuration "${CONFIGURATION}" \
-              -archivePath "$RUNNER_TEMP/ZynSign-private.xcarchive" \
-              -destination 'generic/platform=iOS' \
-              DEVELOPMENT_TEAM="${{ secrets.TEAM_ID }}" \
-              CODE_SIGN_STYLE=Automatic \
-              2>&1 | tee "$RUNNER_TEMP/archive.log"
-          else
-            crystal_info "No TEAM_ID secret — archiving unsigned so CI still verifies the product builds"
-            xcodebuild archive \
-              -project ZynSign.xcodeproj -scheme ZynSign \
-              -configuration "${CONFIGURATION}" \
-              -archivePath "$RUNNER_TEMP/ZynSign-private.xcarchive" \
-              -destination 'generic/platform=iOS' \
-              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-              2>&1 | tee "$RUNNER_TEMP/archive.log"
-          fi
-          status=${PIPESTATUS[0]}
-          echo "status=${status}" >> "$GITHUB_OUTPUT"
-          if [ "${status}" -ne 0 ]; then
-            crystal_warn "Archive did not complete — see archive.log. The simulator build and tests above are still the gate."
-            tail -n 120 "$RUNNER_TEMP/archive.log" || true
-            exit 0
-          fi
-          crystal_ok "Archive complete"
-
-      - name: Export the ad-hoc IPA
-        if: steps.archive.outputs.status == '0'
-        continue-on-error: true
-        env:
-          TAG: ${{ steps.identity.outputs.tag }}
-          CONFIGURATION: ${{ inputs.configuration }}
-        run: |
-          set -eu
-          source Scripts/ci/crystal.sh
-          crystal_phase "${CRYSTAL_BUILD}" "Build" "Export"
-          if [ -z "${{ secrets.TEAM_ID }}" ]; then
-            crystal_warn "No TEAM_ID secret — skipping the signed export (expected without signing credentials)."
-            exit 0
-          fi
-          # The team id is injected at export time so the committed plist stays a template.
-          /usr/libexec/PlistBuddy -c "Set :teamID ${{ secrets.TEAM_ID }}" docs/releases/ExportOptions-private-adhoc.plist
-          mkdir -p "$RUNNER_TEMP/private-export"
-          xcodebuild -exportArchive \
-            -archivePath "$RUNNER_TEMP/ZynSign-private.xcarchive" \
-            -exportPath "$RUNNER_TEMP/private-export" \
-            -exportOptionsPlist docs/releases/ExportOptions-private-adhoc.plist \
-            2>&1 | tee "$RUNNER_TEMP/export.log" || true
-          /usr/libexec/PlistBuddy -c "Set :teamID YOUR_TEAM_ID" docs/releases/ExportOptions-private-adhoc.plist || true
-          if [ -f "$RUNNER_TEMP/private-export/ZynSign.ipa" ]; then
-            mv "$RUNNER_TEMP/private-export/ZynSign.ipa" "$RUNNER_TEMP/private-export/ZynSign-${TAG}-${CONFIGURATION}-private.ipa"
-            crystal_ok "ZynSign-${TAG}-${CONFIGURATION}-private.ipa"
-          else
-            crystal_warn "Export produced no IPA — see export.log."
-          fi
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          NOTE: ${{ inputs.note }}
+        run: Scripts/ci/private_ipa.sh --configuration "${{ inputs.configuration }}" --output-dir build/private
 
       - name: Upload the private test artifacts (never a release)
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ZynSign-private-${{ steps.identity.outputs.tag }}-${{ inputs.configuration }}-${{ github.sha }}${{ inputs.note != '' && format('-{0}', inputs.note) || '' }}
-          if-no-files-found: warn
+          name: ${{ steps.ipa.outputs.artifact_name }}
+          path: build/private/
+          if-no-files-found: error
           retention-days: 7
-          path: |
-            ${{ runner.temp }}/private-export/**
-            ${{ runner.temp }}/archive.log
-            ${{ runner.temp }}/export.log
-
-      - name: Summarize
-        if: always()
-        env:
-          TAG: ${{ steps.identity.outputs.tag }}
-          CONFIGURATION: ${{ inputs.configuration }}
-        run: |
-          set -eu
-          source Scripts/ci/crystal.sh
-          crystal_card_begin "${CRYSTAL_BUILD}" "Private Test Build" "Never a tag, never a release" "Complete"
-          crystal_card_row "Candidate" "\`${TAG}\`"
-          crystal_card_row "Configuration" "${CONFIGURATION}"
-          crystal_card_row "Archive" "${{ steps.archive.outputs.status == '0' && 'success' || 'skipped or failed — see archive.log' }}"
-          crystal_card_row "Next" "Run the device matrix in \`docs/releases/private-testing.md\`, then tag \`${TAG}\`"
-          crystal_card_end

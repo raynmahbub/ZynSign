@@ -1,0 +1,178 @@
+# 🧹 Maintenance — the weekly deep sweep. Analyses and repairs, never gates.
+#
+# One scheduled job keeps the repository honest when nobody is watching:
+#
+#   full metrics       — Scripts/ci/metrics_report.sh with Periphery: the
+#                        dashboards in docs/internal/ and the trend line in
+#                        metrics-history.csv            (macOS — Periphery)
+#   formatting         — Scripts/ci/format.sh apply: the pinned .swiftformat
+#                        rule set, applied so drift is one clean commit
+#   README             — python3 Scripts/update_readme.py: the storefront
+#                        re-derived from MARKETING_VERSION and the honest
+#                        counts
+#
+# Everything the sweep changes is opened as one reviewable pull request —
+# never pushed to the default branch directly, and when the repository does
+# not let Actions open PRs the branch stays staged and the job warns. The
+# sweep is advisory: no branch protection requires it (branch-protection.md).
+#
+# Schedule: Monday 03:23 UTC — off-peak and off the hour, when the shared
+# runner fleet is quietest. Manual runs can skip the repair PR.
+name: 🧹 Maintenance
+
+on:
+  schedule:
+    - cron: "23 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      repair:
+        description: "Open a pull request with the drift the sweep finds"
+        type: boolean
+        default: true
+
+# Default to read-only; only the sweep job receives write permissions,
+# and only to stage its repair branch and pull request.
+permissions:
+  contents: read
+
+# One sweep at a time; a queued sweep waits rather than stacking up.
+concurrency:
+  group: maintenance
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: Weekly deep sweep
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Select the newest stable Xcode
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: latest-stable
+
+      - name: Restore the Homebrew download cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: homebrew-maintenance-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: |
+            homebrew-maintenance-${{ runner.arch }}-
+
+      - name: Install the sweep tooling
+        run: HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install periphery swiftformat
+
+      # The full report (QUICK unset) includes the Periphery dead-code scan —
+      # the slow part this job exists to run. It records findings; it does
+      # not gate.
+      - name: Run the full metrics report
+        run: Scripts/ci/metrics_report.sh
+
+      - name: Apply the pinned formatting
+        run: Scripts/ci/format.sh apply
+
+      - name: Repair a stale README
+        run: python3 Scripts/update_readme.py
+
+      - name: Upload the dashboards and reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: maintenance-sweep
+          path: |
+            docs/internal/
+            Reports/
+            build/metrics/
+          if-no-files-found: warn
+          retention-days: 30
+
+      # The repair PR is opened with plain git + gh, mirroring the release
+      # changelog sync: a repository that does not allow GitHub Actions to
+      # open pull requests gets the branch staged and a warning, never a
+      # failed sweep over something that already succeeded. A PR-capable
+      # RELEASE_CHANGELOG_TOKEN is used when present.
+      - name: Open the repair pull request
+        id: repair
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_CHANGELOG_TOKEN || secrets.GITHUB_TOKEN }}
+          REPAIR: ${{ github.event_name == 'schedule' || inputs.repair }}
+        run: |
+          set -eu
+          source Scripts/ci/crystal.sh
+          crystal_phase "${CRYSTAL_COMMAND}" "Maintenance" "Repair • $(date -u +%Y-%m-%d)"
+
+          if [ "${REPAIR}" != "true" ]; then
+            crystal_info "Repair PR skipped by request — the sweep results are in the artifact."
+            echo "operation=skipped" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          if ! git status --porcelain -- docs README.md .swiftformat ':(glob)**/*.swift' | grep -q .; then
+            crystal_ok "The sweep found no drift — nothing to repair."
+            echo "operation=clean" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          BRANCH="automation/maintenance-sweep"
+          TITLE="chore(maintenance): weekly repository sweep"
+          BODY="Automatic weekly sweep by \\`04-maintenance.yml\\`:
+
+          - \\`Scripts/ci/metrics_report.sh\\` (full, Periphery included) — refreshed \\`docs/internal/\\` dashboards and the trend line
+          - \\`Scripts/ci/format.sh apply\\` — the pinned \\`.swiftformat\\` rule set
+          - \\`python3 Scripts/update_readme.py\\` — README re-derived from \\`MARKETING_VERSION\\` and the honest counts
+
+          No functional change is intended; every diff here is the sweep doing its job. Generated by the workflow — review the commit diff before merging."
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "${BRANCH}"
+          git add -A
+          git commit -m "${TITLE}"
+          # The automation branch is fully owned by this job, so replacing
+          # it keeps weekly runs idempotent without duplicates.
+          git push --force origin "${BRANCH}"
+          crystal_ok "Sweep changes staged on ${BRANCH}"
+
+          EXISTING="$(gh pr list --head "${BRANCH}" --state open --json number,url --jq '.[0] | [.number, .url] | @tsv' || true)"
+          if [ -n "${EXISTING}" ]; then
+            PR_NUMBER="$(printf '%s' "${EXISTING}" | cut -f1)"
+            PR_URL="$(printf '%s' "${EXISTING}" | cut -f2)"
+            gh pr edit "${PR_NUMBER}" --title "${TITLE}" --body "${BODY}" >/dev/null 2>&1 \
+              || crystal_warn "Could not refresh the body of PR #${PR_NUMBER}; reusing it as-is." "Maintenance"
+            echo "operation=updated" >> "${GITHUB_OUTPUT}"
+            echo "pull-request-url=${PR_URL}" >> "${GITHUB_OUTPUT}"
+            crystal_ok "Reused the existing sweep PR #${PR_NUMBER}"
+            exit 0
+          fi
+
+          if PR_URL="$(gh pr create --base "${{ github.event.repository.default_branch }}" --head "${BRANCH}" --title "${TITLE}" --body "${BODY}" --label maintenance 2>/dev/null)"; then
+            echo "operation=created" >> "${GITHUB_OUTPUT}"
+            echo "pull-request-url=${PR_URL}" >> "${GITHUB_OUTPUT}"
+            crystal_ok "Opened sweep PR ${PR_URL}"
+            exit 0
+          fi
+
+          echo "::warning title=Maintenance sweep::The sweep changes could not be opened as a PR because this repository does not allow GitHub Actions to create pull requests. They are staged on branch '${BRANCH}' — enable Settings → Actions → General → Workflow permissions → 'Allow GitHub Actions to create and approve pull requests' (or add a RELEASE_CHANGELOG_TOKEN secret), then re-run this job, or open the PR from the branch manually."
+          echo "operation=branch-staged" >> "${GITHUB_OUTPUT}"
+          crystal_warn "Sweep changes staged on ${BRANCH}; PR creation is disabled for GitHub Actions in this repository." "Maintenance"
+
+      - name: Summarize
+        if: always()
+        env:
+          OPERATION: ${{ steps.repair.outputs.operation }}
+          PR_URL: ${{ steps.repair.outputs.pull-request-url }}
+        run: |
+          set -eu
+          source Scripts/ci/crystal.sh
+          crystal_card_begin "${CRYSTAL_COMMAND}" "Weekly Sweep" "Analyses and repairs — never a gate" "Success"
+          crystal_card_row "Dashboards" "\\`docs/internal/\\` refreshed — see the \\`maintenance-sweep\\` artifact"
+          crystal_card_row "Dead code" "$(grep -m1 '^engine=' build/metrics/dead_code.txt 2>/dev/null | cut -d= -f2 || echo 'see the artifact') engine"
+          crystal_card_row "Repair" "${OPERATION:-none}${PR_URL:+ — ${PR_URL}}"
+          crystal_card_row "Next" "Review and merge the sweep PR when it appears; nothing else is required"
+          crystal_card_end

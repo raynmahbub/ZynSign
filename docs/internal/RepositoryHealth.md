@@ -1,7 +1,7 @@
 # Repository Health
 
 _Generated 2026-10-01 by `Scripts/ci/metrics_report.sh` at commit `02f629d` (`arena/01a0f5e6-zynsign`).
-The weekly maintenance workflow keeps this dashboard current._
+Every CI summary and the weekly `04-maintenance.yml` sweep keep this dashboard current._
 
 ## Overview
 

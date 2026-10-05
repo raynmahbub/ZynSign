@@ -136,7 +136,23 @@ Both set `teamID: YOUR_TEAM_ID` (replace), `compileBitcode: false`, `signingStyl
 
 ## CI help
 
-`.github/workflows/01-build.yml` in `mode: private-ipa` builds `Release` on `macos-15` for `iphoneos`, after the same hygiene, build and unit-test gates every commit gets, and uploads `ZynSign-v{tag}-Release-private.ipa` as a **private** workflow artifact (`retention-days: 7`, not a release). Trigger: `workflow_dispatch` on the commit you intend to tag (normally `main`), with configuration **Release**. The version in the artifact name comes from `Scripts/release_train.py current --tag`, never from a typed value. Debug exposes every feature regardless of the release train, so it is not release evidence.
+`.github/workflows/01-build.yml` in `mode: private-ipa` archives `Release` on `macos-15` for `iphoneos`, after the same hygiene, build and unit-test gates every commit gets, and **always uploads an IPA** as a **private** workflow artifact (`retention-days: 7`, never a release). The expected deliverable is the **unsigned** build — everyone who installs it applies their own Apple certificate, which is what keeps each install traceable to the person who signed it:
+
+* `ZynSign-v{tag}-Release-private-unsigned.ipa` — the raw Payload package, **the expected build**. The artifact carries a `SIGNING.md` with the exact re-sign-and-install steps (Apple Configurator or `codesign`), plus the IPA's SHA-256 and the archive logs;
+* `ZynSign-v{tag}-Release-private.ipa` — an optional signed ad-hoc export, produced only when a `TEAM_ID` repository secret is configured, for teams that install on provisioned devices directly.
+
+A green `Private test IPA` job always contains an IPA; a run that cannot produce one fails instead of uploading logs alone.
+
+Trigger: **Actions → 🔨 Build → Run workflow** on the commit you intend to tag (normally `main`). Inputs:
+
+| Input | Default | Meaning |
+| --- | --- | --- |
+| `mode` | `build` | `private-ipa` to produce the device IPA; `build` verifies only |
+| `configuration` | `Release` | `Release` is what users get; `Debug` shows every feature |
+| `run_unit_tests` | on | off turns the test gate into a faster compile-only check |
+| `note` | empty | a label folded into the artifact name (never into the IPA name) |
+
+The version in the artifact name comes from `Scripts/release_train.py current --tag`, never from a typed value. The archive-and-package pipeline lives in `Scripts/ci/private_ipa.sh`, so it can also be run on a Mac outside CI. Debug exposes every feature regardless of the release train, so it is not release evidence.
 
 ## Checklist before you push the tag public
 

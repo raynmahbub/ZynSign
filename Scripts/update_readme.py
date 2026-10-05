@@ -4,8 +4,8 @@ update_readme.py — keep README.md honest and version-correct when features lan
 
 README is the storefront. When you add a feature in ZynSign/** or
 docs/product/**, this script regenerates the parts that must not drift.
-02-quality.yml refuses a stale README on a pull request; 99-command-center.yml
-repairs the default branch weekly. It regenerates:
+02-quality.yml refuses a stale README on a pull request; run this script and
+commit the result to repair it. It regenerates:
 
   1. Version badge — `https://img.shields.io/badge/version-X-<colour>`
      from ZynSign.xcodeproj/project.pbxproj MARKETING_VERSION

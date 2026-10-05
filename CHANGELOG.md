@@ -56,6 +56,37 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   report, `SheetPresentationReporter`), and `presentAndConfirm` checks that
   something appeared, asking once more when nothing did, instead of leaving the
   tap unanswered. `PresentationSettle.beat` is gone.
+- **The private test IPA is always an IPA.** `mode: private-ipa` used to end
+  in a warning and an artifact of bare logs whenever the `TEAM_ID` secret was
+  absent — the export was skipped and nothing packaged the archive. The whole
+  archive-and-package pipeline now lives in `Scripts/ci/private_ipa.sh`. The
+  expected deliverable is the unsigned `ZynSign-{tag}-{config}-private-unsigned.ipa`
+  — the distribution build, signed by whoever installs it with their own Apple
+  certificate, with a `SIGNING.md` in the artifact saying exactly how. A
+  `TEAM_ID` secret buys an optional signed ad-hoc export instead, and a run
+  that cannot produce any IPA **fails** instead of going green with logs
+  alone. The committed ExportOptions template is no longer
+  edited in place at export time (the team id goes into a temporary copy), and
+  a manual run can skip the unit-test gate (`run_unit_tests: false`) for a
+  faster artifact.
+- **Workflow annotations tell the truth.** Every GitHub annotation now escapes
+  `%`, newlines and carriage returns per the workflow-command spec, carries a
+  meaningful title instead of `crystal`, and `select_simulator.sh` emits its
+  notices and errors to stderr — they were being swallowed by the caller's
+  `$( … )` capture and never reached the checks page. The deprecated Node 20
+  `actions/download-artifact` pin was lifted to v7 (Node 24), the floating
+  `setup-xcode` tag-object pin was pinned to its commit, every action pin now
+  carries its version in a comment, and a manual dispatch no longer cancels
+  (or gets cancelled by) in-flight CI runs.
+- **One verdict per commit, half the macOS bill.** A push to a branch that
+  already has an open pull request now skips its duplicate build — the
+  pull-request run of the same commit carries the same gates and the required
+  checks — so every PR update stops paying for the same tests twice. The
+  Danger job's Homebrew install is cached and skips dependent checks. A new
+  weekly `04-maintenance.yml` sweep keeps the repository honest hands-free:
+  the full metrics report (Periphery dead-code scan included), the pinned
+  SwiftFormat rules applied, a stale README repaired — all opened as one
+  reviewable repair PR, never pushed directly.
 
 ## [0.1.0-alpha.1] - 2026-10-03 — Auto-generated
 

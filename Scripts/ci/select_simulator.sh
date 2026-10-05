@@ -23,9 +23,12 @@ first_iphone() {
         | sed -E 's/[[:space:]]+$//'
 }
 
+# The device name is this script's stdout product, and callers capture it
+# with $( … ) — workflow commands therefore go to stderr (the runner reads
+# annotations from both streams) instead of vanishing into the capture.
 announce() {
     if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
-        printf '::notice title=Simulator::%s\n' "$1"
+        printf '::notice title=Simulator::%s\n' "${1//'%'/'%25'}" >&2
     fi
     echo "$1" >&2
 }
@@ -51,7 +54,7 @@ fi
 if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
     xcrun simctl list runtimes 2>/dev/null | sed -n '2,8p' \
         | while IFS= read -r line; do
-            printf '::error title=Simulator::%s\n' "${line}"
+            printf '::error title=Simulator::%s\n' "${line//'%'/'%25'}" >&2
         done || true
 fi
 echo "No iPhone simulator available after downloading the iOS runtime." >&2

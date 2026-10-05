@@ -1,10 +1,10 @@
 # Reports
 
 Machine-generated engineering reports. The files in this
-directory are produced by `Scripts/ci/` and consumed by developers and
-the maintenance workflow — they are never hand-edited and are excluded
-from version control (CI uploads them as artifacts; the weekly
-maintenance run records their trends in `docs/internal/`).
+directory are produced by `Scripts/ci/` and consumed by developers —
+they are never hand-edited and are excluded from version control (CI
+uploads them as artifacts; `Scripts/ci/metrics_report.sh` records their
+trends in `docs/internal/`).
 
 | Report | Generator | Meaning |
 | --- | --- | --- |

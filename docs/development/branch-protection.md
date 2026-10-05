@@ -24,7 +24,7 @@ check the moment protection is switched on._
 
 GitHub matches a required check against the **job's display name**, so these
 are the exact strings to enter in Settings → Branches → Add required status
-check. Five workflows produce them; the checks themselves did not change
+check. Three workflows produce them; the checks themselves did not change
 when the suite was consolidated, only the file they live in.
 
 | Check (enter this string) | Workflow | Job |
@@ -32,6 +32,7 @@ when the suite was consolidated, only the file they live in.
 | `Build and test (Xcode)` | `01-build.yml` | `build-and-test` |
 | `Lint and format` | `01-build.yml` | `lint-and-format` |
 | `Repository hygiene` | `01-build.yml` | `hygiene` |
+| `External validation (Apple tooling)` | `01-build.yml` | `external-validation` |
 | `Enforce the layered architecture contract` | `02-quality.yml` | `architecture-guard` |
 | `Enforce the dependency allowlist` | `02-quality.yml` | `dependency-validation` |
 | `Links, images, orphans, markdown quality` | `02-quality.yml` | `docs-check` |
@@ -41,12 +42,18 @@ when the suite was consolidated, only the file they live in.
 | `Conventional PR title` | `01-build.yml` | `pr-title` |
 | `Conventional commit messages` | `01-build.yml` | `commitlint` |
 
-`Complexity thresholds (warnings only)`, `Engineering Command Center`, the
-`External validation (Apple tooling)` measurement, the weekly Periphery
-dead-code scan, and the labeling/stale/README-repair jobs stay advisory —
-they measure and report, they do not block. The repair jobs are also opt-in:
-the weekly Command Center run is read-only, and labeling, stale-closing, README
-syncing and formatting happen only in a manual dispatch with `mode: repair`.
+`Complexity thresholds (warnings only)`, `Engineering Command Center`,
+`Danger Swift review`, `Label the pull request` and the weekly
+`Maintenance` sweep stay advisory — they measure and report, they do not
+block. `External validation (Apple tooling)` **is** in the required list
+above: it blocks when the harness itself cannot run — a red there is a red
+worth reading, and every `codesign`/`otool` verdict lands in the report
+either way. The job reports on every pull request unconditionally.
+Formatting is repaired
+with `Scripts/ci/format.sh apply`, a stale README with
+`python3 Scripts/update_readme.py`, and the full dashboards with
+`Scripts/ci/metrics_report.sh` — locally as a reviewable commit, or
+automatically by the weekly `04-maintenance.yml` repair PR.
 
 > Every required check must actually report on the pull request. A job that
 > is skipped by an `if:` or excluded by a `paths:` filter never produces a
@@ -63,9 +70,9 @@ see [../releases/release-train.md](../releases/release-train.md)); add
 
 ## After enabling
 
-1. Confirm the maintenance workflow can still publish dashboards. With
-   direct pushes blocked, it falls back to opening a pull request
-   automatically (its design supports both).
+1. Open a test pull request and confirm every required check above
+   reports on it — a required check that never reports blocks merges
+   forever.
 2. Add `CODEOWNERS` review requests (`.github/CODEOWNERS` is already in
    place — protection makes the requests mandatory).
 3. Watch one full release cycle: dry run, tag, quality gate, publish.
