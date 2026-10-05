@@ -21,7 +21,7 @@ Professional: 2.0.0
 Nova:        3.0.0-nova.1 → 3.0.0
 ```
 
-The train lists new feature exposure per stop in [release-train.md](release-train.md). Later stops accumulate earlier capabilities. The in-app Features tab reports availability from the train; Debug builds may expose later-stage code for development, while Release builds follow the current stage.
+The train lists new feature exposure per stop in [release-train.md](release-train.md). Later stops accumulate earlier capabilities. The Features catalogue under Settings reports availability from the train; Debug builds may expose later-stage code for development, while Release builds follow the current stage.
 
 ## Stage exit criteria
 

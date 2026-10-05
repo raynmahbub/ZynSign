@@ -155,7 +155,7 @@ Accepted risks are Medium or Low. No Critical or High issue remains open.
   experiments E1, E3, E4, and E7. Mitigation until 0.1.0-dev: none of it
   was composed into the application or reachable from the interface; since
   0.1.0-dev the certificate import and the nine-stage pipeline are
-  reachable from `Library`/`Application Detail` and `Settings → Certificates` and therefore await device validation with real identities and profiles.
+  reachable from `Library`/`Application Detail` and `Settings → Signing → Certificates & Profiles`, and therefore await device validation with real identities and profiles.
 - **No packaging writer review (Low):** there is no writer to review; the
   risk is schedule and scope, not an examined defect. Mitigation:
   packaging stays explicitly unimplemented until its feasibility item
