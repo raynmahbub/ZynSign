@@ -43,13 +43,59 @@ enum CertificateDERParser {
         catch let error as DERError { throw error.asZynSignError }
     }
 
+    private struct CertificateEnvelope {
+        let bytes: [UInt8]
+        let body: Reader
+        let tbs: TLV
+        let signatureAlgorithm: TLV
+    }
+
+    private struct TBSCertificateFields {
+        let serialNumber: CertificateSerialNumber
+        let serialRange: Range<Int>
+        let signatureAlgorithm: String
+        let issuer: CertificateDistinguishedName
+        let issuerRange: Range<Int>
+        let subject: CertificateDistinguishedName
+        let validity: (notBefore: Date, notAfter: Date)
+        let publicKey: PublicKeyInfo
+    }
+
     private static func parseCertificate(_ input: CertificateInput) throws -> SigningFields {
-        if input.bytes.isEmpty {
-            throw DERError.empty
+        let envelope = try readEnvelope(input)
+        let fields = try readTBSCertificate(envelope)
+        let outerSignature = try readAlgorithmIdentifier(
+            envelope.signatureAlgorithm, in: envelope.bytes, enteredFrom: envelope.body
+        )
+        guard outerSignature == fields.signatureAlgorithm else {
+            throw DERError.invalid("Certificate signature algorithm identifiers do not match.")
         }
-        if input.bytes.count > CertificateInput.maximumByteCount {
-            throw DERError.tooLarge
+
+        let digest = CertificateDigest.sha256(envelope.bytes)
+        guard let fingerprint = CertificateFingerprint(digestBytes: digest) else {
+            throw DERError.unavailable("SHA-256 fingerprint could not be recorded.")
         }
+        let metadata = CertificateMetadata(
+            subject: fields.subject,
+            issuer: fields.issuer,
+            serialNumber: fields.serialNumber,
+            notValidBefore: fields.validity.notBefore,
+            notValidAfter: fields.validity.notAfter,
+            publicKeyInfo: fields.publicKey,
+            signatureAlgorithm: SignatureAlgorithm.from(objectIdentifier: outerSignature),
+            sha256Fingerprint: fingerprint
+        )
+        return SigningFields(
+            metadata: metadata,
+            issuerDER: Data(envelope.bytes[fields.issuerRange]),
+            serialDER: Data(envelope.bytes[fields.serialRange])
+        )
+    }
+
+    private static func readEnvelope(_ input: CertificateInput) throws -> CertificateEnvelope {
+        guard !input.bytes.isEmpty else { throw DERError.empty }
+        guard input.bytes.count <= CertificateInput.maximumByteCount else { throw DERError.tooLarge }
+
         let bytes = [UInt8](input.bytes)
         if bytes.starts(with: pemPrefix) {
             throw DERError.unsupported("PEM encoding is not a supported certificate format.")
@@ -64,13 +110,12 @@ enum CertificateDERParser {
             throw DERError.invalid("Certificate structure is not valid.")
         }
         var body = try reader.enter(certificate)
-
         let tbs = try body.readTLV()
         guard tbs.tag == 0x30 else {
             throw DERError.invalid("Certificate structure is not valid.")
         }
-        let signatureAlgorithmTLV = try body.readTLV()
-        guard signatureAlgorithmTLV.tag == 0x30 else {
+        let signatureAlgorithm = try body.readTLV()
+        guard signatureAlgorithm.tag == 0x30 else {
             throw DERError.invalid("Certificate structure is not valid.")
         }
         let signature = try body.readTLV()
@@ -78,65 +123,62 @@ enum CertificateDERParser {
             throw DERError.invalid("Certificate structure is not valid.")
         }
         try validateBitString(signature, in: bytes)
+        return CertificateEnvelope(bytes: bytes, body: body, tbs: tbs, signatureAlgorithm: signatureAlgorithm)
+    }
 
-        var tbsReader = try body.enter(tbs)
-        if !tbsReader.isExhausted, try tbsReader.peekTag() == 0xA0 {
-            let version = try tbsReader.readTLV()
-            var versionReader = try tbsReader.enter(version)
-            let versionInteger = try versionReader.readTLV()
-            guard versionInteger.tag == 0x02, versionReader.isExhausted else {
-                throw DERError.invalid("Certificate structure is not valid.")
-            }
-            guard versionInteger.length > 0, versionInteger.length <= 4 else {
-                throw DERError.invalid("Certificate structure is not valid.")
-            }
-        }
+    private static func readTBSCertificate(_ envelope: CertificateEnvelope) throws -> TBSCertificateFields {
+        var reader = try envelope.body.enter(envelope.tbs)
+        try skipVersionIfPresent(in: &reader)
 
-        let serialStart = tbsReader.index
-        let serialTLV = try tbsReader.readTLV()
+        let serialStart = reader.index
+        let serialTLV = try reader.readTLV()
         guard serialTLV.tag == 0x02 else {
             throw DERError.invalid("Certificate structure is not valid.")
         }
-        let serial = try serialNumber(from: bytes, range: serialTLV.content)
+        let serial = try serialNumber(from: envelope.bytes, range: serialTLV.content)
 
-        let tbsSignature = try readAlgorithmIdentifier(try tbsReader.readTLV(), in: bytes, enteredFrom: tbsReader)
-        let issuerStart = tbsReader.index
-        let issuerTLV = try tbsReader.readTLV()
-        let issuer = try readName(issuerTLV, enteredFrom: tbsReader)
-        let validity = try readValidity(try tbsReader.readTLV(), enteredFrom: tbsReader)
-        let subject = try readName(try tbsReader.readTLV(), enteredFrom: tbsReader)
-        let publicKey = try readPublicKey(try tbsReader.readTLV(), in: bytes, enteredFrom: tbsReader)
+        let signatureAlgorithm = try readAlgorithmIdentifier(
+            try reader.readTLV(), in: envelope.bytes, enteredFrom: reader
+        )
+        let issuerStart = reader.index
+        let issuerTLV = try reader.readTLV()
+        let issuer = try readName(issuerTLV, enteredFrom: reader)
+        let validity = try readValidity(try reader.readTLV(), enteredFrom: reader)
+        let subject = try readName(try reader.readTLV(), enteredFrom: reader)
+        let publicKey = try readPublicKey(try reader.readTLV(), in: envelope.bytes, enteredFrom: reader)
+        try readExtensions(from: &reader)
 
-        while !tbsReader.isExhausted {
-            let tag = try tbsReader.peekTag()
+        return TBSCertificateFields(
+            serialNumber: serial,
+            serialRange: serialStart..<serialTLV.content.upperBound,
+            signatureAlgorithm: signatureAlgorithm,
+            issuer: issuer,
+            issuerRange: issuerStart..<issuerTLV.content.upperBound,
+            subject: subject,
+            validity: validity,
+            publicKey: publicKey
+        )
+    }
+
+    private static func skipVersionIfPresent(in reader: inout Reader) throws {
+        guard !reader.isExhausted, try reader.peekTag() == 0xA0 else { return }
+        let version = try reader.readTLV()
+        var versionReader = try reader.enter(version)
+        let versionInteger = try versionReader.readTLV()
+        guard versionInteger.tag == 0x02, versionReader.isExhausted,
+              versionInteger.length > 0, versionInteger.length <= 4 else {
+            throw DERError.invalid("Certificate structure is not valid.")
+        }
+    }
+
+    private static func readExtensions(from reader: inout Reader) throws {
+        while !reader.isExhausted {
+            let tag = try reader.peekTag()
             guard tag == 0xA1 || tag == 0xA2 || tag == 0xA3 else {
                 throw DERError.invalid("Certificate structure is not valid.")
             }
-            _ = try tbsReader.readTLV()
+            _ = try reader.readTLV()
         }
-
-        let outerSignature = try readAlgorithmIdentifier(signatureAlgorithmTLV, in: bytes, enteredFrom: body)
-        guard outerSignature == tbsSignature else {
-            throw DERError.invalid("Certificate signature algorithm identifiers do not match.")
-        }
-
-        let digest = CertificateDigest.sha256(bytes)
-        guard let fingerprint = CertificateFingerprint(digestBytes: digest) else {
-            throw DERError.unavailable("SHA-256 fingerprint could not be recorded.")
-        }
-        let metadata = CertificateMetadata(
-            subject: subject,
-            issuer: issuer,
-            serialNumber: serial,
-            notValidBefore: validity.notBefore,
-            notValidAfter: validity.notAfter,
-            publicKeyInfo: publicKey,
-            signatureAlgorithm: SignatureAlgorithm.from(objectIdentifier: outerSignature),
-            sha256Fingerprint: fingerprint
-        )
-        return SigningFields(metadata: metadata,
-                             issuerDER: Data(bytes[issuerStart..<issuerTLV.content.upperBound]),
-                             serialDER: Data(bytes[serialStart..<serialTLV.content.upperBound]))
     }
 
     private static let pemPrefix: [UInt8] = Array("-----BEGIN".utf8)

@@ -88,115 +88,202 @@ struct ReadOnlyMachOLoadCommandDecoder: MachOLoadCommandDecoding {
         order: MachOByteOrder
     ) throws -> MachOLoadCommandPayload {
         typealias Code = MachOLoadCommandCode
-        func u32(_ offset: Int) throws -> UInt32 {
-            try command.uint32(at: offset, order: order, boundary: .loadCommands)
-        }
-        func u64(_ offset: Int) throws -> UInt64 {
-            try command.uint64(at: offset, order: order, boundary: .loadCommands)
-        }
-
         if let kind = MachODylibLoadKind(commandType: type) {
-            // struct dylib_command: cmd, cmdsize, { name offset, timestamp,
-            // current_version, compatibility_version }.
-            let nameOffset = try u32(8)
-            let reference = MachODylibReference(
-                kind: kind,
-                installName: try string(in: command, at: nameOffset, fixedSize: 24),
-                currentVersion: MachOPackedVersion(rawValue: try u32(16)),
-                compatibilityVersion: MachOPackedVersion(rawValue: try u32(20)),
-                timestamp: try u32(12)
-            )
-            return .dylib(reference)
+            return try decodeDylib(kind: kind, in: command, order: order)
         }
         if Code.linkEditDataReferences.contains(type) {
-            return .linkEditData(MachOLinkEditDataReference(dataOffset: try u32(8), dataSize: try u32(12)))
+            return try decodeLinkEditData(in: command, order: order)
         }
+        if let payload = try decodeStringCommand(type: type, in: command, order: order) {
+            return payload
+        }
+        if let payload = try decodeVersionCommand(type: type, in: command, order: order) {
+            return payload
+        }
+        return try decodeOtherCommand(type: type, in: command, order: order)
+    }
 
+    private static func decodeDylib(
+        kind: MachODylibLoadKind,
+        in command: BoundedBinaryReader,
+        order: MachOByteOrder
+    ) throws -> MachOLoadCommandPayload {
+        // struct dylib_command: cmd, cmdsize, { name offset, timestamp,
+        // current_version, compatibility_version }.
+        let nameOffset = try readUInt32(at: 8, from: command, order: order)
+        return .dylib(MachODylibReference(
+            kind: kind,
+            installName: try string(in: command, at: nameOffset, fixedSize: 24),
+            currentVersion: MachOPackedVersion(rawValue: try readUInt32(at: 16, from: command, order: order)),
+            compatibilityVersion: MachOPackedVersion(rawValue: try readUInt32(at: 20, from: command, order: order)),
+            timestamp: try readUInt32(at: 12, from: command, order: order)
+        ))
+    }
+
+    private static func decodeLinkEditData(
+        in command: BoundedBinaryReader,
+        order: MachOByteOrder
+    ) throws -> MachOLoadCommandPayload {
+        .linkEditData(MachOLinkEditDataReference(
+            dataOffset: try readUInt32(at: 8, from: command, order: order),
+            dataSize: try readUInt32(at: 12, from: command, order: order)
+        ))
+    }
+
+    private static func decodeStringCommand(
+        type: UInt32,
+        in command: BoundedBinaryReader,
+        order: MachOByteOrder
+    ) throws -> MachOLoadCommandPayload? {
+        typealias Code = MachOLoadCommandCode
         switch type {
         case Code.loadDylinker, Code.idDylinker:
-            return .dynamicLinker(try string(in: command, at: try u32(8), fixedSize: 12))
+            let value = try string(in: command, at: readUInt32(at: 8, from: command, order: order), fixedSize: 12)
+            return .dynamicLinker(value)
         case Code.runPath:
-            return .runPath(try string(in: command, at: try u32(8), fixedSize: 12))
+            let value = try string(in: command, at: readUInt32(at: 8, from: command, order: order), fixedSize: 12)
+            return .runPath(value)
         case Code.dyldEnvironment:
-            return .environment(try string(in: command, at: try u32(8), fixedSize: 12))
+            let value = try string(in: command, at: readUInt32(at: 8, from: command, order: order), fixedSize: 12)
+            return .environment(value)
+        default:
+            return nil
+        }
+    }
+
+    private static func decodeVersionCommand(
+        type: UInt32,
+        in command: BoundedBinaryReader,
+        order: MachOByteOrder
+    ) throws -> MachOLoadCommandPayload? {
+        typealias Code = MachOLoadCommandCode
+        switch type {
+        case Code.buildVersion:
+            return .buildVersion(try buildVersion(in: command, order: order))
+        case Code.versionMinIPhoneOS, Code.versionMinMacOS, Code.versionMinTVOS, Code.versionMinWatchOS:
+            return .minimumVersion(try minimumVersion(type: type, in: command, order: order))
+        default:
+            return nil
+        }
+    }
+
+    private static func buildVersion(
+        in command: BoundedBinaryReader,
+        order: MachOByteOrder
+    ) throws -> MachOBuildVersion {
+        let toolCount = try readUInt32(at: 20, from: command, order: order)
+        guard toolCount <= UInt32(maximumBuildTools) else {
+            throw DecodingIssue(issue: .tooManyEntries)
+        }
+        var tools: [MachOBuildTool] = []
+        tools.reserveCapacity(Int(toolCount))
+        for index in 0..<Int(toolCount) {
+            let base = 24 + index * 8
+            tools.append(MachOBuildTool(
+                tool: try readUInt32(at: base, from: command, order: order),
+                version: MachOPackedVersion(rawValue: try readUInt32(at: base + 4, from: command, order: order))
+            ))
+        }
+        return MachOBuildVersion(
+            platform: MachOPlatform(rawValue: try readUInt32(at: 8, from: command, order: order)),
+            minimumOS: MachOPackedVersion(rawValue: try readUInt32(at: 12, from: command, order: order)),
+            sdk: MachOPackedVersion(rawValue: try readUInt32(at: 16, from: command, order: order)),
+            tools: tools
+        )
+    }
+
+    private static func minimumVersion(
+        type: UInt32,
+        in command: BoundedBinaryReader,
+        order: MachOByteOrder
+    ) throws -> MachOMinimumVersion {
+        typealias Code = MachOLoadCommandCode
+        let platform: MachOPlatform
+        switch type {
+        case Code.versionMinMacOS: platform = .macOS
+        case Code.versionMinTVOS: platform = .tvOS
+        case Code.versionMinWatchOS: platform = .watchOS
+        default: platform = .iOS
+        }
+        return MachOMinimumVersion(
+            platform: platform,
+            version: MachOPackedVersion(rawValue: try readUInt32(at: 8, from: command, order: order)),
+            sdk: MachOPackedVersion(rawValue: try readUInt32(at: 12, from: command, order: order))
+        )
+    }
+
+    private static func decodeOtherCommand(
+        type: UInt32,
+        in command: BoundedBinaryReader,
+        order: MachOByteOrder
+    ) throws -> MachOLoadCommandPayload {
+        typealias Code = MachOLoadCommandCode
+        switch type {
         case Code.uuid:
             let bytes = try command.data(at: 8, length: 16, boundary: .loadCommands)
             return .uuid(uuidText(bytes))
-        case Code.buildVersion:
-            // struct build_version_command: cmd, cmdsize, platform, minos,
-            // sdk, ntools, then ntools × { tool, version }.
-            let toolCount = try u32(20)
-            guard toolCount <= UInt32(maximumBuildTools) else {
-                throw DecodingIssue(issue: .tooManyEntries)
-            }
-            var tools: [MachOBuildTool] = []
-            tools.reserveCapacity(Int(toolCount))
-            for index in 0..<Int(toolCount) {
-                let base = 24 + index * 8
-                tools.append(MachOBuildTool(
-                    tool: try u32(base),
-                    version: MachOPackedVersion(rawValue: try u32(base + 4))
-                ))
-            }
-            return .buildVersion(MachOBuildVersion(
-                platform: MachOPlatform(rawValue: try u32(8)),
-                minimumOS: MachOPackedVersion(rawValue: try u32(12)),
-                sdk: MachOPackedVersion(rawValue: try u32(16)),
-                tools: tools
-            ))
-        case Code.versionMinIPhoneOS, Code.versionMinMacOS, Code.versionMinTVOS, Code.versionMinWatchOS:
-            let platform: MachOPlatform
-            switch type {
-            case Code.versionMinMacOS: platform = .macOS
-            case Code.versionMinTVOS: platform = .tvOS
-            case Code.versionMinWatchOS: platform = .watchOS
-            default: platform = .iOS
-            }
-            return .minimumVersion(MachOMinimumVersion(
-                platform: platform,
-                version: MachOPackedVersion(rawValue: try u32(8)),
-                sdk: MachOPackedVersion(rawValue: try u32(12))
-            ))
         case Code.sourceVersion:
-            return .sourceVersion(MachOSourceVersion(rawValue: try u64(8)))
+            return .sourceVersion(MachOSourceVersion(rawValue: try readUInt64(at: 8, from: command, order: order)))
         case Code.main:
-            return .entryPoint(offset: try u64(8), stackSize: try u64(16))
+            return .entryPoint(
+                offset: try readUInt64(at: 8, from: command, order: order),
+                stackSize: try readUInt64(at: 16, from: command, order: order)
+            )
         case Code.encryptionInfo, Code.encryptionInfo64:
             return .encryption(MachOEncryptionInfo(
-                cryptOffset: try u32(8),
-                cryptSize: try u32(12),
-                cryptID: try u32(16)
+                cryptOffset: try readUInt32(at: 8, from: command, order: order),
+                cryptSize: try readUInt32(at: 12, from: command, order: order),
+                cryptID: try readUInt32(at: 16, from: command, order: order)
             ))
         case Code.dyldInfo, Code.dyldInfoOnly:
             // struct dyld_info_command: five (offset, size) pairs from byte 8.
             return .dyldInfo(MachODyldInfo(
-                rebaseSize: try u32(12),
-                bindSize: try u32(20),
-                weakBindSize: try u32(28),
-                lazyBindSize: try u32(36),
-                exportSize: try u32(44)
+                rebaseSize: try readUInt32(at: 12, from: command, order: order),
+                bindSize: try readUInt32(at: 20, from: command, order: order),
+                weakBindSize: try readUInt32(at: 28, from: command, order: order),
+                lazyBindSize: try readUInt32(at: 36, from: command, order: order),
+                exportSize: try readUInt32(at: 44, from: command, order: order)
             ))
         case Code.symbolTable:
-            return .symbolTable(MachOSymbolTableInfo(symbolCount: try u32(12), stringTableSize: try u32(20)))
+            return .symbolTable(MachOSymbolTableInfo(
+                symbolCount: try readUInt32(at: 12, from: command, order: order),
+                stringTableSize: try readUInt32(at: 20, from: command, order: order)
+            ))
         case Code.dynamicSymbolTable:
             return .dynamicSymbolTable(MachODynamicSymbolTableInfo(
-                localSymbolCount: try u32(12),
-                externalSymbolCount: try u32(20),
-                undefinedSymbolCount: try u32(28),
-                indirectSymbolCount: try u32(60)
+                localSymbolCount: try readUInt32(at: 12, from: command, order: order),
+                externalSymbolCount: try readUInt32(at: 20, from: command, order: order),
+                undefinedSymbolCount: try readUInt32(at: 28, from: command, order: order),
+                indirectSymbolCount: try readUInt32(at: 60, from: command, order: order)
             ))
         case Code.linkerOption:
-            return .linkerOptions(count: try u32(8))
+            return .linkerOptions(count: try readUInt32(at: 8, from: command, order: order))
         case Code.note:
             let owner = try command.data(at: 8, length: 16, boundary: .loadCommands)
             return .note(
                 owner: MachOText.fixedName([UInt8](owner)),
-                offset: try u64(24),
-                size: try u64(32)
+                offset: try readUInt64(at: 24, from: command, order: order),
+                size: try readUInt64(at: 32, from: command, order: order)
             )
         default:
             return .opaque
         }
+    }
+
+    private static func readUInt32(
+        at offset: Int,
+        from command: BoundedBinaryReader,
+        order: MachOByteOrder
+    ) throws -> UInt32 {
+        try command.uint32(at: offset, order: order, boundary: .loadCommands)
+    }
+
+    private static func readUInt64(
+        at offset: Int,
+        from command: BoundedBinaryReader,
+        order: MachOByteOrder
+    ) throws -> UInt64 {
+        try command.uint64(at: offset, order: order, boundary: .loadCommands)
     }
 
     // MARK: - Strings

@@ -86,7 +86,7 @@ jobs:
   # pull request always build.
   triage:
     name: Push triage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -126,7 +126,7 @@ jobs:
     name: Repository hygiene
     needs: triage
     if: needs.triage.outputs.run != 'false'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Check out the repository
@@ -290,7 +290,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install the tooling
-        run: HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install swiftlint swiftformat
+        run: HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install swiftlint swiftformat
 
       - name: SwiftLint
         run: Scripts/ci/lint.sh
@@ -375,7 +375,7 @@ jobs:
   pr-title:
     name: Conventional PR title
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Validate the PR title
@@ -402,7 +402,7 @@ jobs:
   commitlint:
     name: Conventional commit messages
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Check out the repository (full history for range linting)
@@ -424,7 +424,7 @@ jobs:
   label-pr:
     name: Label the pull request
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -457,8 +457,7 @@ jobs:
       # Danger is the reviewer who always shows up; it advises, it does not
       # block. Both steps tolerate failure and annotate what went wrong, so an
       # advisory outage never masks a healthy merge. The Homebrew download
-      # cache plus the no-dependents-check flags keep the tap install at a
-      # few seconds instead of a full formula solve.
+      # cache, disabled auto-update, and no cleanup keep the tap install quick.
       - name: Restore the Homebrew download cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -474,7 +473,7 @@ jobs:
           # tap is explicitly trusted.
           brew trust danger/tap </dev/null || true
           status=0
-          HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install danger/tap/danger-swift 2>&1 | tee /tmp/brew-install.log || status=$?
+          HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install danger/tap/danger-swift 2>&1 | tee /tmp/brew-install.log || status=$?
           if [[ "${status}" -ne 0 ]]; then
             grep -E 'Error|error' /tmp/brew-install.log | tail -5 | while IFS= read -r line; do
               printf '::error title=brew::%s\n' "${line//'%'/'%25'}"

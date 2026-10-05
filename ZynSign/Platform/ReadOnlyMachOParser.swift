@@ -282,11 +282,30 @@ struct ReadOnlyMachOParser: MachOParsing {
         )
     }
 
+    private struct SegmentFormat {
+        let is64Bit: Bool
+        let commandHeaderLength: Int
+        let sectionLength: Int
+        let sectionCountOffset: Int
+    }
+
+    private struct SegmentFields {
+        let virtualMemoryAddress: UInt64
+        let virtualMemorySize: UInt64
+        let fileOffset: UInt64
+        let fileSize: UInt64
+        let fileSizeFieldRange: Range<Int>
+    }
+
+    private struct SegmentSections {
+        let values: [MachOSection]
+        let firstFileBackedOffset: Int?
+    }
+
     /// Reads only the segment facts needed by the append-only mutation
-    /// boundary. This remains part of the one bounded Mach-O parser rather
-    /// than a second layout reader. Each file-backed section is proved to lie
-    /// inside both its segment's file range and the containing slice before it
-    /// can establish header-padding capacity.
+    /// boundary. Each file-backed section is proved to lie inside both its
+    /// segment's file range and the containing slice before it can establish
+    /// header-padding capacity.
     private static func segment(
         in command: BoundedBinaryReader,
         type: UInt32,
@@ -294,41 +313,91 @@ struct ReadOnlyMachOParser: MachOParsing {
         order: MachOByteOrder,
         sliceLength: Int
     ) throws -> MachOSegment {
-        let is64BitCommand = type == MachOLoadCommandType.segment64
-        guard (is64BitCommand && wordSize == .bits64) ||
-              (!is64BitCommand && wordSize == .bits32) else {
-            throw MachOParsingError(.invalidLoadCommand, at: .segment)
-        }
-
-        let commandHeaderLength = is64BitCommand ? 72 : 56
-        let sectionLength = is64BitCommand ? 80 : 68
-        guard command.count >= commandHeaderLength else {
-            throw MachOParsingError(.invalidLoadCommand, at: .segment)
-        }
+        let format = try segmentFormat(type: type, wordSize: wordSize, commandCount: command.count)
         let sectionCount = try command.uint32AsInt(
-            at: is64BitCommand ? 64 : 48,
+            at: format.sectionCountOffset,
             order: order,
             boundary: .segment,
             ifUnrepresentable: .invalidLength
         )
-        let (sectionBytes, sectionBytesOverflow) = sectionCount.multipliedReportingOverflow(by: sectionLength)
+        try validateSectionTable(in: command, format: format, count: sectionCount)
+        let fields = try segmentFields(in: command, format: format, order: order)
+        let segmentEnd = try validateSegmentFileRange(fields, sliceLength: sliceLength)
+        let sectionData = try readSections(
+            in: command,
+            format: format,
+            count: sectionCount,
+            fileOffset: fields.fileOffset,
+            segmentEnd: segmentEnd,
+            sliceLength: sliceLength,
+            order: order
+        )
+        return MachOSegment(
+            commandRange: command.fileRange,
+            wordSize: wordSize,
+            name: MachOSegmentName(rawBytes: Array(try command.data(at: 8, length: 16, boundary: .segment))),
+            fileOffset: fields.fileOffset,
+            fileSize: fields.fileSize,
+            virtualMemoryAddress: fields.virtualMemoryAddress,
+            virtualMemorySize: fields.virtualMemorySize,
+            maximumProtection: try command.uint32(at: format.is64Bit ? 56 : 40, order: order, boundary: .segment),
+            initialProtection: try command.uint32(at: format.is64Bit ? 60 : 44, order: order, boundary: .segment),
+            flags: try command.uint32(at: format.is64Bit ? 68 : 52, order: order, boundary: .segment),
+            sections: sectionData.values,
+            sectionCount: sectionCount,
+            firstFileBackedSectionOffset: sectionData.firstFileBackedOffset,
+            fileSizeFieldRange: fields.fileSizeFieldRange
+        )
+    }
+
+    private static func segmentFormat(
+        type: UInt32,
+        wordSize: MachOWordSize,
+        commandCount: Int
+    ) throws -> SegmentFormat {
+        let is64Bit = type == MachOLoadCommandType.segment64
+        guard (is64Bit && wordSize == .bits64) || (!is64Bit && wordSize == .bits32) else {
+            throw MachOParsingError(.invalidLoadCommand, at: .segment)
+        }
+        let headerLength = is64Bit ? 72 : 56
+        let sectionLength = is64Bit ? 80 : 68
+        guard commandCount >= headerLength else {
+            throw MachOParsingError(.invalidLoadCommand, at: .segment)
+        }
+        return SegmentFormat(
+            is64Bit: is64Bit,
+            commandHeaderLength: headerLength,
+            sectionLength: sectionLength,
+            sectionCountOffset: is64Bit ? 64 : 48
+        )
+    }
+
+    private static func validateSectionTable(
+        in command: BoundedBinaryReader,
+        format: SegmentFormat,
+        count: Int
+    ) throws {
+        let (sectionBytes, sectionBytesOverflow) = count.multipliedReportingOverflow(by: format.sectionLength)
         guard !sectionBytesOverflow else {
             throw MachOParsingError(.invalidLength, at: .segment)
         }
-        let (expectedLength, expectedLengthOverflow) = commandHeaderLength.addingReportingOverflow(sectionBytes)
+        let (expectedLength, expectedLengthOverflow) = format.commandHeaderLength.addingReportingOverflow(sectionBytes)
         guard !expectedLengthOverflow, expectedLength == command.count else {
             throw MachOParsingError(.invalidLoadCommand, at: .segment)
         }
+    }
 
-        let name = MachOSegmentName(rawBytes: Array(try command.data(
-            at: 8, length: 16, boundary: .segment
-        )))
+    private static func segmentFields(
+        in command: BoundedBinaryReader,
+        format: SegmentFormat,
+        order: MachOByteOrder
+    ) throws -> SegmentFields {
         let virtualMemoryAddress: UInt64
         let virtualMemorySize: UInt64
         let fileOffset: UInt64
         let fileSize: UInt64
         let fileSizeFieldRange: Range<Int>
-        if is64BitCommand {
+        if format.is64Bit {
             virtualMemoryAddress = try command.uint64(at: 24, order: order, boundary: .segment)
             virtualMemorySize = try command.uint64(at: 32, order: order, boundary: .segment)
             fileOffset = try command.uint64(at: 40, order: order, boundary: .segment)
@@ -341,91 +410,111 @@ struct ReadOnlyMachOParser: MachOParsing {
             fileSize = UInt64(try command.uint32(at: 36, order: order, boundary: .segment))
             fileSizeFieldRange = try command.checkedRange(at: 36, length: 4, boundary: .segment)
         }
-        let (segmentEnd, segmentEndOverflow) = fileOffset.addingReportingOverflow(fileSize)
-        guard !segmentEndOverflow else {
-            throw MachOParsingError(.invalidLength, at: .segment)
-        }
-        if fileSize > 0 {
-            guard let offset = Int(exactly: fileOffset), offset <= sliceLength else {
-                throw MachOParsingError(.invalidOffset, at: .segment)
-            }
-            guard let length = Int(exactly: fileSize), length <= sliceLength - offset else {
-                throw MachOParsingError(.invalidLength, at: .segment)
-            }
-        }
-
-        var firstFileBackedSectionOffset: Int?
-        var sections: [MachOSection] = []
-        // The complete section table was bounded by command size above.
-        sections.reserveCapacity(sectionCount)
-        for index in 0..<sectionCount {
-            let position = commandHeaderLength + index * sectionLength
-            let sectionSize: UInt64
-            let sectionOffset: UInt64
-            let flags: UInt32
-            if is64BitCommand {
-                sectionSize = try command.uint64(at: position + 40, order: order, boundary: .segment)
-                sectionOffset = UInt64(try command.uint32(at: position + 48, order: order, boundary: .segment))
-                flags = try command.uint32(at: position + 64, order: order, boundary: .segment)
-            } else {
-                sectionSize = UInt64(try command.uint32(at: position + 36, order: order, boundary: .segment))
-                sectionOffset = UInt64(try command.uint32(at: position + 40, order: order, boundary: .segment))
-                flags = try command.uint32(at: position + 56, order: order, boundary: .segment)
-            }
-            let virtualAddress = is64BitCommand
-                ? try command.uint64(at: position + 32, order: order, boundary: .segment)
-                : UInt64(try command.uint32(at: position + 32, order: order, boundary: .segment))
-            let sectionFields = position + (is64BitCommand ? 52 : 44)
-            sections.append(MachOSection(
-                name: Array(try command.data(at: position, length: 16, boundary: .segment)),
-                segmentName: Array(try command.data(at: position + 16, length: 16, boundary: .segment)),
-                virtualAddress: virtualAddress, size: sectionSize, fileOffset: sectionOffset,
-                alignmentExponent: try command.uint32(at: sectionFields, order: order, boundary: .segment),
-                relocationOffset: try command.uint32(at: sectionFields + 4, order: order, boundary: .segment),
-                relocationCount: try command.uint32(at: sectionFields + 8, order: order, boundary: .segment),
-                flags: flags,
-                reserved1: try command.uint32(at: sectionFields + 16, order: order, boundary: .segment),
-                reserved2: try command.uint32(at: sectionFields + 20, order: order, boundary: .segment),
-                reserved3: is64BitCommand
-                    ? try command.uint32(at: sectionFields + 24, order: order, boundary: .segment) : nil))
-            let sectionType = flags & MachOSectionType.mask
-            guard sectionSize == 0 ||
-                  (sectionType != MachOSectionType.zeroFill &&
-                   sectionType != MachOSectionType.threadLocalZeroFill) else {
-                continue
-            }
-            guard sectionSize > 0 else { continue }
-            let (sectionEnd, sectionEndOverflow) = sectionOffset.addingReportingOverflow(sectionSize)
-            guard !sectionEndOverflow else {
-                throw MachOParsingError(.invalidLength, at: .segment)
-            }
-            guard sectionOffset >= fileOffset, sectionEnd <= segmentEnd else {
-                throw MachOParsingError(.invalidOffset, at: .segment)
-            }
-            guard let offset = Int(exactly: sectionOffset), offset <= sliceLength else {
-                throw MachOParsingError(.invalidOffset, at: .segment)
-            }
-            guard let length = Int(exactly: sectionSize), length <= sliceLength - offset else {
-                throw MachOParsingError(.invalidLength, at: .segment)
-            }
-            if let current = firstFileBackedSectionOffset {
-                firstFileBackedSectionOffset = min(current, offset)
-            } else {
-                firstFileBackedSectionOffset = offset
-            }
-        }
-
-        return MachOSegment(
-            commandRange: command.fileRange, wordSize: wordSize, name: name,
-            fileOffset: fileOffset, fileSize: fileSize,
-            virtualMemoryAddress: virtualMemoryAddress, virtualMemorySize: virtualMemorySize,
-            maximumProtection: try command.uint32(at: is64BitCommand ? 56 : 40, order: order, boundary: .segment),
-            initialProtection: try command.uint32(at: is64BitCommand ? 60 : 44, order: order, boundary: .segment),
-            flags: try command.uint32(at: is64BitCommand ? 68 : 52, order: order, boundary: .segment),
-            sections: sections,
-            sectionCount: sectionCount, firstFileBackedSectionOffset: firstFileBackedSectionOffset,
+        return SegmentFields(
+            virtualMemoryAddress: virtualMemoryAddress,
+            virtualMemorySize: virtualMemorySize,
+            fileOffset: fileOffset,
+            fileSize: fileSize,
             fileSizeFieldRange: fileSizeFieldRange
         )
+    }
+
+    private static func validateSegmentFileRange(_ fields: SegmentFields, sliceLength: Int) throws -> UInt64 {
+        let (segmentEnd, overflow) = fields.fileOffset.addingReportingOverflow(fields.fileSize)
+        guard !overflow else {
+            throw MachOParsingError(.invalidLength, at: .segment)
+        }
+        if fields.fileSize > 0 {
+            guard let offset = Int(exactly: fields.fileOffset), offset <= sliceLength else {
+                throw MachOParsingError(.invalidOffset, at: .segment)
+            }
+            guard let length = Int(exactly: fields.fileSize), length <= sliceLength - offset else {
+                throw MachOParsingError(.invalidLength, at: .segment)
+            }
+        }
+        return segmentEnd
+    }
+
+    private static func readSections(
+        in command: BoundedBinaryReader,
+        format: SegmentFormat,
+        count: Int,
+        fileOffset: UInt64,
+        segmentEnd: UInt64,
+        sliceLength: Int,
+        order: MachOByteOrder
+    ) throws -> SegmentSections {
+        var firstFileBackedOffset: Int?
+        var sections: [MachOSection] = []
+        sections.reserveCapacity(count)
+        for index in 0..<count {
+            let position = format.commandHeaderLength + index * format.sectionLength
+            let decoded = try readSection(in: command, at: position, format: format, order: order)
+            sections.append(decoded.value)
+            guard decoded.size == 0 || !decoded.isZeroFill else { continue }
+            guard decoded.size > 0 else { continue }
+            let (sectionEnd, overflow) = decoded.fileOffset.addingReportingOverflow(decoded.size)
+            guard !overflow else {
+                throw MachOParsingError(.invalidLength, at: .segment)
+            }
+            guard decoded.fileOffset >= fileOffset, sectionEnd <= segmentEnd else {
+                throw MachOParsingError(.invalidOffset, at: .segment)
+            }
+            guard let offset = Int(exactly: decoded.fileOffset), offset <= sliceLength else {
+                throw MachOParsingError(.invalidOffset, at: .segment)
+            }
+            guard let length = Int(exactly: decoded.size), length <= sliceLength - offset else {
+                throw MachOParsingError(.invalidLength, at: .segment)
+            }
+            firstFileBackedOffset = min(firstFileBackedOffset ?? offset, offset)
+        }
+        return SegmentSections(values: sections, firstFileBackedOffset: firstFileBackedOffset)
+    }
+
+    private struct DecodedSection {
+        let value: MachOSection
+        let fileOffset: UInt64
+        let size: UInt64
+        let isZeroFill: Bool
+    }
+
+    private static func readSection(
+        in command: BoundedBinaryReader,
+        at position: Int,
+        format: SegmentFormat,
+        order: MachOByteOrder
+    ) throws -> DecodedSection {
+        let is64Bit = format.is64Bit
+        let size = is64Bit
+            ? try command.uint64(at: position + 40, order: order, boundary: .segment)
+            : UInt64(try command.uint32(at: position + 36, order: order, boundary: .segment))
+        let fileOffset = UInt64(try command.uint32(
+            at: position + (is64Bit ? 48 : 40), order: order, boundary: .segment
+        ))
+        let flags = try command.uint32(at: position + (is64Bit ? 64 : 56), order: order, boundary: .segment)
+        let virtualAddress = is64Bit
+            ? try command.uint64(at: position + 32, order: order, boundary: .segment)
+            : UInt64(try command.uint32(at: position + 32, order: order, boundary: .segment))
+        let sectionFields = position + (is64Bit ? 52 : 44)
+        let section = MachOSection(
+            name: Array(try command.data(at: position, length: 16, boundary: .segment)),
+            segmentName: Array(try command.data(at: position + 16, length: 16, boundary: .segment)),
+            virtualAddress: virtualAddress,
+            size: size,
+            fileOffset: fileOffset,
+            alignmentExponent: try command.uint32(at: sectionFields, order: order, boundary: .segment),
+            relocationOffset: try command.uint32(at: sectionFields + 4, order: order, boundary: .segment),
+            relocationCount: try command.uint32(at: sectionFields + 8, order: order, boundary: .segment),
+            flags: flags,
+            reserved1: try command.uint32(at: sectionFields + 16, order: order, boundary: .segment),
+            reserved2: try command.uint32(at: sectionFields + 20, order: order, boundary: .segment),
+            reserved3: is64Bit
+                ? try command.uint32(at: sectionFields + 24, order: order, boundary: .segment) : nil
+        )
+        let sectionType = flags & MachOSectionType.mask
+        let isZeroFill = sectionType == MachOSectionType.zeroFill ||
+            sectionType == MachOSectionType.threadLocalZeroFill
+        return DecodedSection(value: section, fileOffset: fileOffset, size: size, isZeroFill: isZeroFill)
     }
 
     private struct IndexedBlob {
@@ -517,303 +606,5 @@ struct ReadOnlyMachOParser: MachOParsing {
                                  fileRange: item.fileRange, codeDirectory: directory))
         }
         return MachOSuperBlob(magic: magic, fileRange: blob.fileRange, entries: entries)
-    }
-
-    private static func codeDirectory(
-        in blob: BoundedBinaryReader,
-        signatureOffset: Int?
-    ) throws -> MachOCodeDirectory {
-        let boundary: MachOParsingError.Boundary = .codeDirectory
-        _ = try blob.checkedRange(at: 0, length: 12, boundary: boundary)
-        let version = try blob.uint32(at: 8, order: .bigEndian, boundary: boundary)
-        guard version >= 0x20001, version <= 0x20600 else {
-            throw MachOParsingError(.unsupportedCodeDirectoryVersion, at: boundary, version: version)
-        }
-        let fixedSize: Int
-        switch version {
-        case ..<0x20100: fixedSize = 44
-        case ..<0x20200: fixedSize = 48
-        case ..<0x20300: fixedSize = 52
-        case ..<0x20400: fixedSize = 64
-        case ..<0x20500: fixedSize = 88
-        case ..<0x20600: fixedSize = 96
-        default: fixedSize = 108
-        }
-        _ = try blob.checkedRange(at: 0, length: fixedSize, boundary: boundary)
-        let flags = try blob.uint32(at: 12, order: .bigEndian, boundary: boundary)
-        let hashOffset = try blob.uint32AsInt(
-            at: 16, order: .bigEndian, boundary: .hashSlots, ifUnrepresentable: .invalidOffset
-        )
-        let identifierOffset = try blob.uint32AsInt(
-            at: 20, order: .bigEndian, boundary: .identifier, ifUnrepresentable: .invalidOffset
-        )
-        let specialCount = try blob.uint32AsInt(at: 24, order: .bigEndian, boundary: .hashSlots)
-        let codeCount = try blob.uint32AsInt(at: 28, order: .bigEndian, boundary: .hashSlots)
-        let codeLimit = try blob.uint32(at: 32, order: .bigEndian, boundary: boundary)
-        let hashSize = Int(try blob.uint8(at: 36, boundary: .hashSlots))
-        let hashType = MachOHashType(rawValue: try blob.uint8(at: 37, boundary: .hashSlots))
-        let platform = try blob.uint8(at: 38, boundary: boundary)
-        let pageSize = try blob.uint8(at: 39, boundary: .hashSlots)
-        let spare2 = try blob.uint32(at: 40, order: .bigEndian, boundary: boundary)
-        let spare3 = version >= 0x20300
-            ? try blob.uint32(at: 52, order: .bigEndian, boundary: boundary) : 0
-        guard spare2 == 0, spare3 == 0 else {
-            throw MachOParsingError(.malformedCodeDirectory, at: boundary)
-        }
-        guard hashSize > 0, hashSize <= 48,
-              hashType.expectedByteCount == nil || hashType.expectedByteCount == hashSize,
-              pageSize <= 30 else {
-            throw MachOParsingError(.malformedCodeDirectory, at: .hashSlots)
-        }
-        guard specialCount <= maximumSpecialSlots,
-              codeCount <= maximumCodeSlots else {
-            throw MachOParsingError(.resourceLimitExceeded, at: .hashSlots)
-        }
-        guard hashOffset >= fixedSize, hashOffset <= blob.count else {
-            throw MachOParsingError(.invalidOffset, at: .hashSlots)
-        }
-        let specialBytes = specialCount * hashSize  // bounded by 64 * 48
-        guard specialBytes <= hashOffset - fixedSize,
-              codeCount <= (blob.count - hashOffset) / hashSize else {
-            throw MachOParsingError(.invalidLength, at: .hashSlots)
-        }
-        let hashesStart = hashOffset - specialBytes
-        let hashesLength = specialBytes + codeCount * hashSize  // <= blob.count
-        let allHashes = try blob.checkedRange(at: hashesStart, length: hashesLength, boundary: .hashSlots)
-        let codeHashes = try blob.checkedRange(at: hashOffset, length: codeCount * hashSize, boundary: .hashSlots)
-
-        let (identifier, identifierRange) = try text(
-            in: blob, at: identifierOffset, before: hashesStart,
-            after: fixedSize, boundary: .identifier
-        )
-        var occupied = [identifierRange]
-        let teamOffset: Int? = version >= 0x20200
-            ? try blob.uint32AsInt(
-                at: 48, order: .bigEndian, boundary: .teamIdentifier, ifUnrepresentable: .invalidOffset
-            ) : nil
-        let team: String?
-        if let offset = teamOffset, offset != 0 {
-            let (value, range) = try text(
-                in: blob, at: offset, before: hashesStart,
-                after: fixedSize, boundary: .teamIdentifier
-            )
-            team = value
-            occupied.append(range)
-        } else {
-            team = nil
-        }
-        let extendedLimit: UInt64? = version >= 0x20300
-            ? try blob.uint64(at: 56, order: .bigEndian, boundary: boundary) : nil
-        let effectiveLimit = extendedLimit.flatMap { $0 == 0 ? nil : $0 } ?? UInt64(codeLimit)
-        if let signatureOffset, effectiveLimit > UInt64(signatureOffset) {
-            throw MachOParsingError(.malformedCodeDirectory, at: boundary)
-        }
-        let segment: MachOExecutableSegment?
-        if version >= 0x20400 {
-            segment = MachOExecutableSegment(
-                base: try blob.uint64(at: 64, order: .bigEndian, boundary: boundary),
-                limit: try blob.uint64(at: 72, order: .bigEndian, boundary: boundary),
-                flags: try blob.uint64(at: 80, order: .bigEndian, boundary: boundary)
-            )
-        } else {
-            segment = nil
-        }
-        let runtime: UInt32? = version >= 0x20500
-            ? try blob.uint32(at: 88, order: .bigEndian, boundary: boundary) : nil
-
-        let scatter: MachOScatterTable?
-        if version >= 0x20100 {
-            let offset = try blob.uint32AsInt(
-                at: 44, order: .bigEndian, boundary: .scatter, ifUnrepresentable: .invalidOffset
-            )
-            scatter = offset == 0 ? nil : try scatterTable(
-                in: blob, at: offset, after: fixedSize, before: hashesStart, codeCount: codeCount
-            )
-            if let scatter = scatter { occupied.append(scatter.fileRange) }
-        } else {
-            scatter = nil
-        }
-        // The page-coverage fields must agree even with scatter metadata.
-        // Zero is the unpaged form (one slot if there is covered data).
-        let expected: UInt64
-        if pageSize == 0 {
-            expected = effectiveLimit == 0 ? 0 : 1
-        } else {
-            guard effectiveLimit > 0 else {
-                throw MachOParsingError(.malformedCodeDirectory, at: .hashSlots)
-            }
-            let pageBytes = UInt64(1) << pageSize
-            expected = effectiveLimit / pageBytes + (effectiveLimit % pageBytes == 0 ? 0 : 1)
-        }
-        guard expected == UInt64(codeCount) else {
-            throw MachOParsingError(.malformedCodeDirectory, at: .hashSlots)
-        }
-
-        let preEncryptHashes: Range<Int>?
-        if version >= 0x20500 {
-            let offset = try blob.uint32AsInt(
-                at: 92, order: .bigEndian, boundary: .preEncryptHashes, ifUnrepresentable: .invalidOffset
-            )
-            if offset != 0 {
-                guard offset >= fixedSize, codeCount > 0 else {
-                    throw MachOParsingError(.invalidOffset, at: .preEncryptHashes)
-                }
-                preEncryptHashes = try blob.checkedRange(
-                    at: offset, length: codeCount * hashSize,
-                    boundary: .preEncryptHashes, ifTooLong: .invalidLength
-                )
-                if let range = preEncryptHashes { occupied.append(range) }
-            } else {
-                preEncryptHashes = nil
-            }
-        } else {
-            preEncryptHashes = nil
-        }
-
-        let linkage: MachOLinkage?
-        if version >= 0x20600 {
-            let hash = try blob.uint8(at: 96, boundary: .linkage)
-            let application = try blob.uint8(at: 97, boundary: .linkage)
-            let subtype = try blob.uint16(at: 98, order: .bigEndian, boundary: .linkage)
-            let offset = try blob.uint32AsInt(
-                at: 100, order: .bigEndian, boundary: .linkage, ifUnrepresentable: .invalidOffset
-            )
-            let length = try blob.uint32AsInt(
-                at: 104, order: .bigEndian, boundary: .linkage, ifUnrepresentable: .invalidLength
-            )
-            guard (offset == 0) == (length == 0) else {
-                throw MachOParsingError(.invalidLength, at: .linkage)
-            }
-            let dataRange: Range<Int>?
-            if length > 0 {
-                guard offset >= fixedSize else {
-                    throw MachOParsingError(.invalidOffset, at: .linkage)
-                }
-                dataRange = try blob.checkedRange(
-                    at: offset, length: length, boundary: .linkage, ifTooLong: .invalidLength
-                )
-                if let range = dataRange { occupied.append(range) }
-            } else {
-                dataRange = nil
-            }
-            linkage = MachOLinkage(hashType: hash, applicationType: application,
-                                   applicationSubtype: subtype, dataRange: dataRange)
-        } else {
-            linkage = nil
-        }
-        for (index, range) in occupied.enumerated() {
-            guard !range.overlaps(allHashes),
-                  !occupied[..<index].contains(where: { $0.overlaps(range) }) else {
-                throw MachOParsingError(.malformedCodeDirectory, at: boundary)
-            }
-        }
-
-        var specialSlots: [MachOSpecialHashSlot] = []
-        specialSlots.reserveCapacity(specialCount)
-        if specialCount > 0 {
-            for number in 1...specialCount {
-                let position = hashOffset - number * hashSize
-                let slot = try blob.view(at: position, length: hashSize, boundary: .hashSlots)
-                let hash = try blob.data(at: position, length: hashSize, boundary: .hashSlots)
-                var nonzero = false
-                for byte in 0..<hashSize {
-                    if try slot.uint8(at: byte, boundary: .hashSlots) != 0 { nonzero = true; break }
-                }
-                specialSlots.append(MachOSpecialHashSlot(
-                    slotNumber: -number, kind: MachOSpecialHashKind(slotNumber: number),
-                    hashRange: slot.fileRange, hash: hash, hasNonzeroBytes: nonzero
-                ))
-            }
-        }
-        var codeHashValues: [Data] = []
-        codeHashValues.reserveCapacity(codeCount)
-        for index in 0..<codeCount {
-            let position = hashOffset + index * hashSize
-            codeHashValues.append(try blob.data(at: position, length: hashSize, boundary: .hashSlots))
-        }
-        return MachOCodeDirectory(
-            version: version, flags: flags, identifier: identifier, teamIdentifier: team,
-            hashOffset: hashOffset, hashType: hashType, hashSize: hashSize, platform: platform,
-            pageSizeExponent: pageSize, codeSlotCount: codeCount, specialSlotCount: specialCount,
-            codeLimit: codeLimit, codeLimit64: extendedLimit, codeHashesRange: codeHashes,
-            codeHashes: codeHashValues, specialSlots: specialSlots, scatter: scatter, executableSegment: segment,
-            runtime: runtime, preEncryptHashesRange: preEncryptHashes, linkage: linkage
-        )
-    }
-
-    private static func text(
-        in blob: BoundedBinaryReader,
-        at offset: Int,
-        before end: Int,
-        after header: Int,
-        boundary: MachOParsingError.Boundary
-    ) throws -> (String, Range<Int>) {
-        guard offset >= header, offset < end else {
-            throw MachOParsingError(.invalidOffset, at: boundary)
-        }
-        let available = min(maximumIdentifierBytes + 1, end - offset)
-        var bytes: [UInt8] = []
-        bytes.reserveCapacity(min(available, maximumIdentifierBytes))
-        for index in 0..<available {
-            let byte = try blob.uint8(at: offset + index, boundary: boundary)
-            if byte == 0 {
-                guard !bytes.isEmpty, let decoded = String(bytes: bytes, encoding: .utf8) else {
-                    throw MachOParsingError(.malformedCodeDirectory, at: boundary)
-                }
-                let range = try blob.checkedRange(at: offset, length: index + 1, boundary: boundary)
-                return (decoded, range)
-            }
-            bytes.append(byte)
-        }
-        throw MachOParsingError(
-            available > maximumIdentifierBytes ? .resourceLimitExceeded : .malformedCodeDirectory,
-            at: boundary
-        )
-    }
-
-    private static func scatterTable(
-        in blob: BoundedBinaryReader,
-        at offset: Int,
-        after header: Int,
-        before hashes: Int,
-        codeCount: Int
-    ) throws -> MachOScatterTable {
-        guard offset >= header, offset < hashes else {
-            throw MachOParsingError(.invalidOffset, at: .scatter)
-        }
-        var records: [MachOScatterRecord] = []
-        var position = offset
-        var totalPages: UInt64 = 0
-        while true {
-            guard position <= hashes, 24 <= hashes - position else {
-                throw MachOParsingError(.malformedCodeDirectory, at: .scatter)
-            }
-            _ = try blob.checkedRange(at: position, length: 24, boundary: .scatter)
-            let count = try blob.uint32(at: position, order: .bigEndian, boundary: .scatter)
-            if count == 0 {
-                let range = try blob.checkedRange(
-                    at: offset, length: position + 24 - offset, boundary: .scatter
-                )
-                return MachOScatterTable(relativeOffset: offset, fileRange: range, records: records)
-            }
-            guard records.count < maximumScatterRecords else {
-                throw MachOParsingError(.resourceLimitExceeded, at: .scatter)
-            }
-            totalPages += UInt64(count) // at most 4,096 UInt32 counts
-            guard totalPages <= UInt64(codeCount) else {
-                throw MachOParsingError(.malformedCodeDirectory, at: .scatter)
-            }
-            let reserved = try blob.uint64(at: position + 16, order: .bigEndian, boundary: .scatter)
-            guard reserved == 0 else {
-                throw MachOParsingError(.malformedCodeDirectory, at: .scatter)
-            }
-            records.append(MachOScatterRecord(
-                pageCount: count,
-                firstPage: try blob.uint32(at: position + 4, order: .bigEndian, boundary: .scatter),
-                targetOffset: try blob.uint64(at: position + 8, order: .bigEndian, boundary: .scatter),
-                reserved: reserved
-            ))
-            position += 24 // always within hashes <= the bounded blob length
-        }
     }
 }

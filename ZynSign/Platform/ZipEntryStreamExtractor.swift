@@ -53,6 +53,12 @@ struct ZipEntryStreamExtractor {
         self.chunkSize = max(1, chunkSize)
     }
 
+    private struct EntrySource {
+        let reader: BoundedReader
+        let record: ZipCentralDirectoryRecord
+        let contentOffset: Int
+    }
+
     /// Extracts the entry at `path` into `destination`, reporting the bytes
     /// written as `.copying` progress.
     func extract(
@@ -60,23 +66,64 @@ struct ZipEntryStreamExtractor {
         to destination: URL,
         reporting progress: (any ImportProgressReporting)?
     ) throws {
-        let handle: FileHandle
+        let handle = try openArchive()
+        defer { try? handle.close() }
+
+        let source = try entrySource(for: path, handle: handle)
+        let writer = try outputHandle(at: destination)
+        defer { try? writer.close() }
+
+        var sink = OutputSink(
+            writer: writer,
+            expectedByteCount: source.record.entry.uncompressedSize,
+            path: path,
+            progress: progress
+        )
+        progress?.report(ImportProgress(
+            stage: .copying,
+            completedUnitCount: 0,
+            totalUnitCount: source.record.entry.uncompressedSize
+        ))
+        try streamEntry(source, path: path) { chunk in
+            try sink.consume(chunk)
+        }
+        try sink.finish(expectedChecksum: source.record.checksum)
+    }
+
+    private func openArchive() throws -> FileHandle {
         do {
-            handle = try FileHandle(forReadingFrom: archive)
+            return try FileHandle(forReadingFrom: archive)
         } catch {
             throw ZynSignError.unreadableArtifact(
                 diagnosticDetail: "The archive's working copy could not be opened.",
                 underlyingError: error
             )
         }
-        defer { try? handle.close() }
+    }
 
-        let fileSize: Int
+    private func entrySource(for path: ArchivePath, handle: FileHandle) throws -> EntrySource {
+        let fileSize = try archiveSize(of: handle)
+        let reader = BoundedReader(handle: handle, fileSize: fileSize)
+        let records = try ZipCentralDirectoryScanner.scan(fileSize: fileSize, limits: limits) { offset, count in
+            try reader.read(at: offset, count: count)
+        }
+        let record = try Self.uniqueRecord(for: path, in: records)
+        try Self.checkEntry(record, path: path, maximumOutputBytes: maximumOutputBytes, limits: limits)
+        let contentOffset = try Self.contentOffset(for: record, path: path, reader: reader)
+        guard contentOffset <= fileSize, record.entry.compressedSize <= fileSize - contentOffset else {
+            throw ZynSignError.archiveEntryUnreadable(
+                diagnosticDetail: "The content of '\(path.rawValue)' extends beyond the archive."
+            )
+        }
+        return EntrySource(reader: reader, record: record, contentOffset: contentOffset)
+    }
+
+    private func archiveSize(of handle: FileHandle) throws -> Int {
         do {
             guard let size = Int(exactly: try handle.seekToEnd()) else {
                 throw ZynSignError.unreadableArtifact(diagnosticDetail: "The archive's size cannot be addressed.")
             }
-            fileSize = size
+            return size
         } catch let error as ZynSignError {
             throw error
         } catch {
@@ -85,82 +132,65 @@ struct ZipEntryStreamExtractor {
                 underlyingError: error
             )
         }
+    }
 
-        let reader = BoundedReader(handle: handle, fileSize: fileSize)
-        let records = try ZipCentralDirectoryScanner.scan(fileSize: fileSize, limits: limits) { offset, count in
-            try reader.read(at: offset, count: count)
-        }
-        let record = try Self.uniqueRecord(for: path, in: records)
-        try Self.checkEntry(record, path: path, maximumOutputBytes: maximumOutputBytes, limits: limits)
-
-        let contentOffset = try Self.contentOffset(for: record, path: path, reader: reader)
-        guard contentOffset + record.entry.compressedSize <= fileSize else {
-            throw ZynSignError.archiveEntryUnreadable(
-                diagnosticDetail: "The content of '\(path.rawValue)' extends beyond the archive."
-            )
-        }
-
+    private func outputHandle(at destination: URL) throws -> FileHandle {
         guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
             throw ZynSignError.importTemporaryStorageFailure(
                 diagnosticDetail: "The extracted package's working copy could not be created."
             )
         }
-        let writer: FileHandle
         do {
-            writer = try FileHandle(forWritingTo: destination)
+            return try FileHandle(forWritingTo: destination)
         } catch {
             throw ZynSignError.importTemporaryStorageFailure(underlyingError: error)
         }
-        defer { try? writer.close() }
+    }
 
-        var sink = OutputSink(
-            writer: writer,
-            expectedByteCount: record.entry.uncompressedSize,
-            path: path,
-            progress: progress
-        )
-        progress?.report(ImportProgress(stage: .copying, completedUnitCount: 0, totalUnitCount: record.entry.uncompressedSize))
+    private func streamEntry(
+        _ source: EntrySource,
+        path: ArchivePath,
+        consume: @escaping (Data) throws -> Void
+    ) throws {
+        if source.record.compressionMethod == Self.storedMethod {
+            try stream(from: source.reader, at: source.contentOffset, count: source.record.entry.compressedSize, into: consume)
+            return
+        }
+        try streamDeflatedEntry(source, path: path, consume: consume)
+    }
 
-        switch record.compressionMethod {
-        case Self.storedMethod:
-            try stream(from: reader, at: contentOffset, count: record.entry.compressedSize) { chunk in
-                try sink.consume(chunk)
-            }
-        default:
-            // COMPRESSION_ZLIB is raw DEFLATE (RFC 1951) — exactly what a
-            // ZIP entry stores.
-            var sinkError: (any Error)?
-            let filter = try OutputFilter(.decompress, using: .zlib, bufferCapacity: 65_536) { output in
-                guard let output, sinkError == nil else { return }
-                do {
-                    try sink.consume(output)
-                } catch {
-                    sinkError = error
-                    throw error
-                }
-            }
+    private func streamDeflatedEntry(
+        _ source: EntrySource,
+        path: ArchivePath,
+        consume: @escaping (Data) throws -> Void
+    ) throws {
+        var sinkError: (any Error)?
+        let filter = try OutputFilter(.decompress, using: .zlib, bufferCapacity: 65_536) { output in
+            guard let output, sinkError == nil else { return }
             do {
-                try stream(from: reader, at: contentOffset, count: record.entry.compressedSize) { chunk in
-                    try filter.write(chunk)
-                }
-                try filter.finalize()
-            } catch let error as ZynSignError {
-                // Cancellation and read failures keep their own meaning.
-                throw sinkError ?? error
+                try consume(output)
             } catch {
-                throw sinkError ?? ZynSignError.archiveEntryUnreadable(
-                    diagnosticDetail: "The compressed content of '\(path.rawValue)' could not be decoded.",
-                    underlyingError: error
-                )
-            }
-            // A refusal raised while writing is authoritative even if the
-            // decoder chose not to pass it on.
-            if let sinkError {
-                throw sinkError
+                sinkError = error
+                throw error
             }
         }
-
-        try sink.finish(expectedChecksum: record.checksum)
+        do {
+            try stream(from: source.reader, at: source.contentOffset, count: source.record.entry.compressedSize) {
+                chunk in try filter.write(chunk)
+            }
+            try filter.finalize()
+        } catch let error as ZynSignError {
+            // Cancellation and read failures keep their own meaning.
+            throw sinkError ?? error
+        } catch {
+            throw sinkError ?? ZynSignError.archiveEntryUnreadable(
+                diagnosticDetail: "The compressed content of '\(path.rawValue)' could not be decoded.",
+                underlyingError: error
+            )
+        }
+        // A refusal raised while writing is authoritative even if the decoder
+        // chose not to pass it on.
+        if let sinkError { throw sinkError }
     }
 
     // MARK: - Checks

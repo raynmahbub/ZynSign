@@ -36,11 +36,56 @@ enum CompositionRoot {
         libraryRootDirectory.appendingPathComponent("Recovery/Backups/" + item.fileName)
     }
 
+    private struct FoundationServices {
+        let preferences: any PreferencesStore
+        let preferencesSnapshot: ZynSignPreferences
+        let biometricAuthenticator: any BiometricAuthenticating
+        let intake: SecurityScopedArtifactIntake
+        let diagnosticHistory: any SigningDiagnosticsHistoryStore
+        let library: ApplicationLibrary
+        let identityStore: any IdentityStore
+        let identityAnnotations: any IdentityAnnotationsStore
+        let pkcs12DocumentReader: any PKCS12DocumentReading
+        let appIcons: AppIconExtraction
+        let droppedFiles: any DroppedFileReceiving
+    }
+
+    private struct SigningServices {
+        let diagnostics: SigningDiagnosticsService
+        let packageImport: IPAPackageImport
+        let pkcs12Importer: any SigningIdentityImporter
+        let pipeline: SignApplicationPipeline
+        let engine: SigningEngineCoordinator
+        let presets: any SigningPresetStore
+        let history: any SigningHistoryStore
+        let profiles: ProvisioningProfileLibrary
+        let exports: ExportCenter
+        let storage: StorageManagement
+        let operations: SigningOperationCenter
+        let queueNotifier: (any SigningQueueNotifying)?
+        let presetWorkflow: SigningPresetWorkflow
+        let queue: SigningQueue
+    }
+
     static func makeApplicationEnvironment() -> ApplicationEnvironment {
         RecoveryStore.applyPending(at: libraryRootDirectory)
-        // The preferences are read before anything else is built, because the
-        // working-directory choice decides where staging happens and the
-        // storage screen measures what the choice covers.
+        let foundation = makeFoundationServices()
+        let signing = makeSigningServices(foundation: foundation)
+        var environment = makePrimaryEnvironment(foundation: foundation, signing: signing)
+        attachIdentityServices(to: &environment, foundation: foundation, signing: signing)
+        attachInspectionServices(to: &environment, foundation: foundation, signing: signing)
+        attachStoreServices(to: &environment)
+        attachDeliveryServices(to: &environment, foundation: foundation, signing: signing)
+        environment.performanceEngine = makePerformanceEngine(
+            appIcons: foundation.appIcons,
+            preferences: foundation.preferencesSnapshot
+        )
+        attachWorkspaceServices(to: &environment)
+        return environment
+    }
+
+    private static func makeFoundationServices() -> FoundationServices {
+        // Preferences come first: the working-directory choice decides the intake staging path.
         let preferences = makePreferencesStore()
         let preferencesSnapshot = MainActor.assumeIsolated { preferences.snapshot }
         let biometricAuthenticator = makeBiometricAuthenticator()
@@ -50,16 +95,40 @@ enum CompositionRoot {
         let diagnosticHistory = makeSigningDiagnosticsHistoryStore()
         let library = makeApplicationLibrary(intake: intake, diagnosticHistory: diagnosticHistory)
         let identityStore = makeIdentityStore()
-        let identityAnnotationsStore = makeIdentityAnnotationsStore()
+        let identityAnnotations = makeIdentityAnnotationsStore()
         let pkcs12DocumentReader = CoordinatedPKCS12DocumentReader()
-        let diagnostics = makeSigningDiagnostics(
-            library: library, intake: intake, identities: identityStore,
-            history: diagnosticHistory
+        let appIcons = makeAppIconExtraction()
+        let droppedFiles = DropInboxFileReceiver(directory: importDropInboxDirectory)
+        return FoundationServices(
+            preferences: preferences,
+            preferencesSnapshot: preferencesSnapshot,
+            biometricAuthenticator: biometricAuthenticator,
+            intake: intake,
+            diagnosticHistory: diagnosticHistory,
+            library: library,
+            identityStore: identityStore,
+            identityAnnotations: identityAnnotations,
+            pkcs12DocumentReader: pkcs12DocumentReader,
+            appIcons: appIcons,
+            droppedFiles: droppedFiles
         )
-        let packageImport = makePackageImport(intake: intake, library: library, diagnostics: diagnostics)
-        let pkcs12Importer = makePKCS12Importer(identityStore: identityStore)
-        let pipeline = makeSignApplicationPipeline(identityStore: identityStore)
-        let signingEngine = makeSigningEngine(identityStore: identityStore, pipeline: pipeline)
+    }
+
+    private static func makeSigningServices(foundation: FoundationServices) -> SigningServices {
+        let diagnostics = makeSigningDiagnostics(
+            library: foundation.library,
+            intake: foundation.intake,
+            identities: foundation.identityStore,
+            history: foundation.diagnosticHistory
+        )
+        let packageImport = makePackageImport(
+            intake: foundation.intake,
+            library: foundation.library,
+            diagnostics: diagnostics
+        )
+        let pkcs12Importer = makePKCS12Importer(identityStore: foundation.identityStore)
+        let pipeline = makeSignApplicationPipeline(identityStore: foundation.identityStore)
+        let signingEngine = makeSigningEngine(identityStore: foundation.identityStore, pipeline: pipeline)
         let presets = makeSigningPresetStore()
         let history = makeSigningHistoryStore()
         let profiles = makeProvisioningProfileLibrary()
@@ -67,107 +136,157 @@ enum CompositionRoot {
         let storage = makeStorageManagement(
             exports: exports,
             history: history,
-            preferences: preferencesSnapshot
+            preferences: foundation.preferencesSnapshot
         )
-        let appIcons = makeAppIconExtraction()
-        let droppedFiles = DropInboxFileReceiver(directory: importDropInboxDirectory)
-        let signingOperations = makeSigningOperationCenter(
+        let operations = makeSigningOperationCenter(
             pipeline: pipeline,
             exports: exports,
             history: history
         )
         let queueNotifier = makeSigningQueueNotifier()
-        let signingPresetWorkflow = makeSigningPresetWorkflow(
+        let presetWorkflow = makeSigningPresetWorkflow(
             presets: presets,
             profiles: profiles,
-            identities: identityStore
+            identities: foundation.identityStore
         )
-        let signingQueue = makeSigningQueue(
-            operations: signingOperations,
-            library: library,
+        let queue = makeSigningQueue(
+            operations: operations,
+            library: foundation.library,
             notifier: queueNotifier,
             presetUsageRecorder: { outcome in
-                Task { try? await signingPresetWorkflow.record(outcome) }
+                Task { try? await presetWorkflow.record(outcome) }
             }
         )
-        var environment = ApplicationEnvironment(
-            applicationInfo: ApplicationInfo.current(bundle: .main),
+        return SigningServices(
+            diagnostics: diagnostics,
             packageImport: packageImport,
-            importHub: makeImportHub(
-                intake: intake,
-                library: library,
-                appIcons: appIcons,
-                droppedFiles: droppedFiles,
-                diagnostics: diagnostics
-            ),
-            library: library,
-            bundleInspection: makeBundleContentsInspection(intake: intake, library: library),
-            applicationDetailsInspection: makeApplicationDetailsInspection(intake: intake, library: library),
-            bundleEntryInspection: makeBundleEntryInspection(intake: intake, library: library),
-            identityStore: identityStore,
             pkcs12Importer: pkcs12Importer,
-            pkcs12DocumentReader: pkcs12DocumentReader,
-            signingPipeline: pipeline,
-            signingEngine: signingEngine,
-            analyticsJournal: makeAnalyticsJournal(),
-            signingPresets: presets,
-            signingHistory: history,
-            provisioningProfiles: profiles,
-            exportCenter: exports,
-            signingOperations: signingOperations,
-            signingQueue: signingQueue,
-            storageManagement: storage,
-            preferencesStore: preferences,
-            biometricAuthenticator: biometricAuthenticator
-        )
-        environment.provisioningProfileImporter = makeProvisioningProfileImporter()
-        environment.profileCompatibility = ProfileCompatibilityUseCase(identityStore: identityStore)
-        environment.profileSelections = UserDefaultsProfileSelectionStore()
-        // The hub seeds icons it extracts during analysis into this same
-        // instance, so the cards show them without a second extraction.
-        environment.appIcons = appIcons
-        environment.signingPresetWorkflow = signingPresetWorkflow
-        environment.signingDiagnostics = diagnostics
-        environment.identityAnnotations = identityAnnotationsStore
-        // The Identity Center reads the same stores the tabs read — one
-        // identity store, one profile library, one library, one
-        // annotation store, one journal — so its snapshot can never
-        // disagree with what those tabs show.
-        environment.identityCenter = IdentityCenterService(
-            identityStore: identityStore,
+            pipeline: pipeline,
+            engine: signingEngine,
+            presets: presets,
+            history: history,
             profiles: profiles,
-            library: library,
-            annotations: identityAnnotationsStore,
-            history: history
+            exports: exports,
+            storage: storage,
+            operations: operations,
+            queueNotifier: queueNotifier,
+            presetWorkflow: presetWorkflow,
+            queue: queue
+        )
+    }
+
+    private static func makePrimaryEnvironment(
+        foundation: FoundationServices,
+        signing: SigningServices
+    ) -> ApplicationEnvironment {
+        ApplicationEnvironment(
+            applicationInfo: ApplicationInfo.current(bundle: .main),
+            packageImport: signing.packageImport,
+            importHub: makeImportHub(
+                intake: foundation.intake,
+                library: foundation.library,
+                appIcons: foundation.appIcons,
+                droppedFiles: foundation.droppedFiles,
+                diagnostics: signing.diagnostics
+            ),
+            library: foundation.library,
+            bundleInspection: makeBundleContentsInspection(intake: foundation.intake, library: foundation.library),
+            applicationDetailsInspection: makeApplicationDetailsInspection(
+                intake: foundation.intake,
+                library: foundation.library
+            ),
+            bundleEntryInspection: makeBundleEntryInspection(intake: foundation.intake, library: foundation.library),
+            identityStore: foundation.identityStore,
+            pkcs12Importer: signing.pkcs12Importer,
+            pkcs12DocumentReader: foundation.pkcs12DocumentReader,
+            signingPipeline: signing.pipeline,
+            signingEngine: signing.engine,
+            analyticsJournal: makeAnalyticsJournal(),
+            signingPresets: signing.presets,
+            signingHistory: signing.history,
+            provisioningProfiles: signing.profiles,
+            exportCenter: signing.exports,
+            signingOperations: signing.operations,
+            signingQueue: signing.queue,
+            storageManagement: signing.storage,
+            preferencesStore: foundation.preferences,
+            biometricAuthenticator: foundation.biometricAuthenticator
+        )
+    }
+
+    private static func attachIdentityServices(
+        to environment: inout ApplicationEnvironment,
+        foundation: FoundationServices,
+        signing: SigningServices
+    ) {
+        environment.provisioningProfileImporter = makeProvisioningProfileImporter()
+        environment.profileCompatibility = ProfileCompatibilityUseCase(identityStore: foundation.identityStore)
+        environment.profileSelections = UserDefaultsProfileSelectionStore()
+        environment.appIcons = foundation.appIcons
+        environment.signingPresetWorkflow = signing.presetWorkflow
+        environment.signingDiagnostics = signing.diagnostics
+        environment.identityAnnotations = foundation.identityAnnotations
+        // Identity Center and the tabs share the same stores, so their snapshots agree.
+        environment.identityCenter = IdentityCenterService(
+            identityStore: foundation.identityStore,
+            profiles: signing.profiles,
+            library: foundation.library,
+            annotations: foundation.identityAnnotations,
+            history: signing.history
         )
         environment.libraryOrganizer = makeLibraryOrganizer()
-        // Nova: the Smart Workspace reads the identity store, the profile
-        // library, the application library, and the signing history the
-        // tabs already read; only its own small state file is new.
-        //
-        // Gated on its own stage. The workspace is staged for rc2, so at
-        // every earlier stop the service must not be constructed at all:
-        // building it unconditionally made a Release build write
-        // `SmartWorkspace.json` on every signing session and every
-        // application detail view, from dev1 onward, on behalf of a screen
-        // nothing could reach. `nil` is a supported state — both call
-        // sites already read it through `?.`.
-        environment.smartWorkspace = ReleaseTrain.isAvailable(.smartWorkspace)
-            ? SmartWorkspaceService(
-                identityStore: identityStore,
-                profiles: profiles,
-                library: library,
-                signingHistory: history,
-                state: FileWorkspaceStateStore(
-                    documentLocation: libraryRootDirectory.appendingPathComponent("SmartWorkspace.json")
-                )
-            )
-            : nil
+        environment.smartWorkspace = makeSmartWorkspace(foundation: foundation, signing: signing)
         environment.applicationProvenance = makeApplicationProvenanceExtraction()
         environment.libraryExport = makeLibraryExportPreparation()
-        environment.droppedFiles = droppedFiles
-        environment.queueNotifier = queueNotifier
-        environment.binaryInspection = makeBinaryInspection(intake: intake, library: library)
+        environment.droppedFiles = foundation.droppedFiles
+        environment.queueNotifier = signing.queueNotifier
+    }
+
+    private static func makeSmartWorkspace(
+        foundation: FoundationServices,
+        signing: SigningServices
+    ) -> SmartWorkspaceService? {
+        // Do not create its state store before the feature's release-train stage.
+        guard ReleaseTrain.isAvailable(.smartWorkspace) else { return nil }
+        return SmartWorkspaceService(
+            identityStore: foundation.identityStore,
+            profiles: signing.profiles,
+            library: foundation.library,
+            signingHistory: signing.history,
+            state: FileWorkspaceStateStore(
+                documentLocation: libraryRootDirectory.appendingPathComponent("SmartWorkspace.json")
+            )
+        )
+    }
+
+    private static func attachInspectionServices(
+        to environment: inout ApplicationEnvironment,
+        foundation: FoundationServices,
+        signing: SigningServices
+    ) {
+        environment.binaryInspection = makeBinaryInspection(intake: foundation.intake, library: foundation.library)
+        environment.resourceInspection = makeResourceStudioInspection(
+            library: foundation.library,
+            readerProvider: cachingLibraryReaderProvider()
+        )
+        if let binary = environment.binaryInspection {
+            let bundleInspection = environment.bundleInspection
+            environment.releaseReadiness = ReleaseReadinessService(
+                diagnostics: signing.diagnostics,
+                exports: signing.exports,
+                operations: signing.operations,
+                binary: binary,
+                history: ReleaseReadinessHistory(
+                    location: libraryRootDirectory.appendingPathComponent("ReleaseReadiness.json")
+                ),
+                bundles: bundleInspection,
+                library: foundation.library,
+                identities: foundation.identityStore
+            )
+        }
+    }
+
+    private static func attachStoreServices(to environment: inout ApplicationEnvironment) {
         environment.storeBrowser = StoreBrowserModel(
             repository: StoreRepository(storage: FileStoreCache(directory: FileStoreCache.root)),
             downloads: StoreDownloadQueue(directory: FileStoreCache.root.appendingPathComponent("Quarantine"))
@@ -175,37 +294,30 @@ enum CompositionRoot {
         environment.ipswFirmwareCatalog = IPSWFirmwareCatalogService(
             transport: URLSessionIPSWCatalogTransport()
         )
-        let resourceReader = cachingLibraryReaderProvider()
-        environment.resourceInspection = makeResourceStudioInspection(library: library, readerProvider: resourceReader)
-        if let binary = environment.binaryInspection {
-            let historyURL = libraryRootDirectory.appendingPathComponent("ReleaseReadiness.json")
-            environment.releaseReadiness = ReleaseReadinessService(
-                diagnostics: diagnostics, exports: exports, operations: signingOperations,
-                binary: binary, history: ReleaseReadinessHistory(location: historyURL),
-                bundles: environment.bundleInspection, library: library, identities: identityStore)
-        }
+    }
+
+    private static func attachDeliveryServices(
+        to environment: inout ApplicationEnvironment,
+        foundation: FoundationServices,
+        signing: SigningServices
+    ) {
         let downloadNotifier = LocalDownloadNotifier()
         let repositoryDirectory = makeRepositoryDirectory()
+        let importHub = environment.importHub
         let downloadCenter = makeDownloadCenter(
-            library: library,
-            importHub: environment.importHub,
+            library: foundation.library,
+            importHub: importHub,
             notifier: downloadNotifier,
             catalogs: { @MainActor in repositoryDirectory.catalogs }
         )
+        environment.downloadCenter = downloadCenter
         environment.downloadNotifier = downloadNotifier
         environment.repositoryDirectory = repositoryDirectory
-        environment.downloadCenter = downloadCenter
         environment.installationWorkspace = makeInstallationWorkspace(
-            library: library,
-            history: history,
-            exports: exports
+            library: foundation.library,
+            history: signing.history,
+            exports: signing.exports
         )
-        environment.performanceEngine = makePerformanceEngine(
-            appIcons: appIcons,
-            preferences: preferencesSnapshot
-        )
-        attachWorkspaceServices(to: &environment)
-        return environment
     }
 
     // MARK: - Performance Engine
