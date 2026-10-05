@@ -208,7 +208,7 @@ struct SecurityCenterSection: View {
         } header: {
             Text("What this page cannot do")
         } footer: {
-            Text("Signing identities are managed in the Certificates tab. This page controls how ZynSign guards itself, never what it can reach.")
+            Text("Signing identities are managed in Certificates & Profiles → Certificates. This page controls how ZynSign guards itself, never what it can reach.")
         }
     }
 

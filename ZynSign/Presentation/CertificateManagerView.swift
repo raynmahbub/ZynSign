@@ -30,6 +30,11 @@ struct CertificateManagerView: View {
     @StateObject private var model: CertificateManagerModel
     @AppStorage("zynsign.certs.showsGrid") private var showsGrid = false
 
+    /// An identity handed to ZynSign through Open In, when present.
+    let initialImportURL: URL?
+    let onInitialImportConsumed: (() -> Void)?
+    @State private var handledIncomingURL: URL? = nil
+
     // Import flow
     @State private var showImporter = false
     @State private var isReadingSelectedFile = false
@@ -57,8 +62,12 @@ struct CertificateManagerView: View {
     init(
         store: any IdentityStore,
         annotations: (any IdentityAnnotationsStore)?,
-        importer: any SigningIdentityImporter
+        importer: any SigningIdentityImporter,
+        initialImportURL: URL? = nil,
+        onInitialImportConsumed: (() -> Void)? = nil
     ) {
+        self.initialImportURL = initialImportURL
+        self.onInitialImportConsumed = onInitialImportConsumed
         _model = StateObject(
             wrappedValue: CertificateManagerModel(
                 store: store,
@@ -114,7 +123,13 @@ struct CertificateManagerView: View {
                     .accessibilityIdentifier("busy-item")
                 }
             }
-            .task { await model.load() }
+            .task {
+                await model.load()
+                if let initialImportURL { handleIncomingImport(initialImportURL) }
+            }
+            .onChange(of: initialImportURL) { _, url in
+                if let url { handleIncomingImport(url) }
+            }
             .fileImporter(
                 isPresented: $showImporter,
                 allowedContentTypes: Self.importableContentTypes,
@@ -590,45 +605,64 @@ struct CertificateManagerView: View {
     private func handlePicker(_ result: Result<[URL], any Error>) {
         switch result {
         case .success(let urls):
-            guard let url = urls.first,
-                  !isReadingSelectedFile,
-                  !model.isImporting,
-                  pendingData == nil,
-                  !showPasswordSheet else { return }
-            let ext = url.pathExtension.lowercased()
-            guard ext == "p12" || ext == "pfx" else {
-                presentToast("That file is not a certificate. Choose a .p12 or .pfx file.", style: .warning)
-                return
-            }
-
-            // File providers may vend placeholder or coordinated URLs rather
-            // than a directly readable local path. Read off the main actor,
-            // acquire security-scoped access for the read, and keep the
-            // password sheet ready when read completes.
-            let accessing = url.startAccessingSecurityScopedResource()
-            let reader = env.pkcs12DocumentReader
-            isReadingSelectedFile = true
-            Task { @MainActor in
-                defer {
-                    isReadingSelectedFile = false
-                    if accessing { url.stopAccessingSecurityScopedResource() }
-                }
-                do {
-                    let data = try await Task.detached(priority: .userInitiated) {
-                        try reader.readPKCS12(at: url)
-                    }.value
-                    pendingData = data
-                    pendingFileName = url.lastPathComponent
-                    presentPasswordSheetAfterPickerSettles()
-                } catch {
-                    presentToast(readFailureMessage(for: error), style: .error)
-                }
-            }
+            guard let url = urls.first else { return }
+            beginReadingSelectedFile(at: url)
         case .failure(let error):
             let ns = error as NSError
             if ns.domain == NSCocoaErrorDomain && ns.code == NSUserCancelledError { return }
             presentToast("The file picker could not provide the selected file.", style: .error)
         }
+    }
+
+    /// Starts the same coordinated read for picker-selected and Open In files.
+    private func beginReadingSelectedFile(at url: URL) {
+        guard !isReadingSelectedFile,
+              !model.isImporting,
+              pendingData == nil,
+              !showPasswordSheet else { return }
+        let ext = url.pathExtension.lowercased()
+        guard ext == "p12" || ext == "pfx" else {
+            presentToast("That file is not a certificate. Choose a .p12 or .pfx file.", style: .warning)
+            return
+        }
+
+        // File providers may vend placeholder or coordinated URLs rather
+        // than a directly readable local path. Read off the main actor,
+        // acquire security-scoped access for the read, and keep the
+        // password sheet ready when read completes.
+        let accessing = url.startAccessingSecurityScopedResource()
+        let reader = env.pkcs12DocumentReader
+        isReadingSelectedFile = true
+        Task { @MainActor in
+            defer {
+                isReadingSelectedFile = false
+                if accessing { url.stopAccessingSecurityScopedResource() }
+            }
+            do {
+                let data = try await Task.detached(priority: .userInitiated) {
+                    try reader.readPKCS12(at: url)
+                }.value
+                pendingData = data
+                pendingFileName = url.lastPathComponent
+                presentPasswordSheetAfterPickerSettles()
+            } catch {
+                presentToast(readFailureMessage(for: error), style: .error)
+            }
+        }
+    }
+
+    private func handleIncomingImport(_ url: URL) {
+        guard handledIncomingURL != url else { return }
+        handledIncomingURL = url
+        onInitialImportConsumed?()
+        guard !isReadingSelectedFile,
+              !model.isImporting,
+              pendingData == nil,
+              !showPasswordSheet else {
+            presentToast("Finish the current certificate import before opening another file.", style: .warning)
+            return
+        }
+        beginReadingSelectedFile(at: url)
     }
 
     private func readFailureMessage(for error: any Error) -> String {

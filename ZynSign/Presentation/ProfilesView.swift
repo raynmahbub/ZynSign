@@ -23,6 +23,9 @@ struct ProfilesView: View {
     /// Nesting `NavigationStack` inside a pushed destination crashes at
     /// runtime, not with a warning.
     var embedsNavigationStack: Bool = true
+    let initialImportURL: URL?
+    let onInitialImportConsumed: (() -> Void)?
+    @State private var handledIncomingURL: URL? = nil
 
     @StateObject private var model: ProvisioningProfilesModel
 
@@ -40,9 +43,13 @@ struct ProfilesView: View {
         compatibility: ProfileCompatibilityUseCase? = nil,
         selections: (any ProfileSelectionStore)? = nil,
         recordEvent: ((String, Bool) -> Void)? = nil,
-        embedsNavigationStack: Bool = true
+        embedsNavigationStack: Bool = true,
+        initialImportURL: URL? = nil,
+        onInitialImportConsumed: (() -> Void)? = nil
     ) {
         self.embedsNavigationStack = embedsNavigationStack
+        self.initialImportURL = initialImportURL
+        self.onInitialImportConsumed = onInitialImportConsumed
         _model = StateObject(wrappedValue: ProvisioningProfilesModel(
             profiles: profiles,
             importer: importer,
@@ -67,7 +74,13 @@ struct ProfilesView: View {
                 contentChain
             }
         }
-        .task { await model.load() }
+        .task {
+            await model.load()
+            if let initialImportURL { handleIncomingImport(initialImportURL) }
+        }
+        .onChange(of: initialImportURL) { _, url in
+            if let url { handleIncomingImport(url) }
+        }
         .fileImporter(
             isPresented: Binding(
                 get: { model.isShowingImporter },
@@ -125,6 +138,13 @@ struct ProfilesView: View {
             message: model.toastMessage,
             style: model.toastStyle
         )
+    }
+
+    private func handleIncomingImport(_ url: URL) {
+        guard handledIncomingURL != url else { return }
+        handledIncomingURL = url
+        onInitialImportConsumed?()
+        model.handlePickerResult(.success([url]))
     }
 
     /// The profile library's content, with no navigation container of its own,

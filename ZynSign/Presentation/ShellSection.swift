@@ -2,12 +2,10 @@ import Foundation
 
 /// Sections understood by the application shell.
 ///
-/// Every destination a release exposes is a tab. The shell draws its own bar
-/// (`ShellTabBar`) instead of UIKit's, so nothing has to be folded into a
-/// *More* list and no destination is reached only by a detour — Store and
-/// Downloads are tabs again, which is what a tester reported missing.
-/// Certificates, Profiles, Presets, and the installation workspace are not
-/// areas: they are workflows opened from Settings, and they stay there.
+/// The root destinations that get permanent slots in the shell bar. The
+/// Features catalogue and signing materials are reachable workflows inside
+/// Settings; Store and Downloads remain direct destinations when their
+/// release gates are open.
 enum ShellSection: Hashable, CaseIterable, Identifiable {
     case home
     case library
@@ -25,7 +23,7 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
 
     /// Every candidate destination, in bar order.
     static let allTabs: [ShellSection] = [
-        .files, .library, .home, .appStore, .downloads, .features, .settings,
+        .files, .library, .home, .appStore, .downloads, .settings,
     ]
 
     /// What UIKit's own tab bar can draw before it folds the rest into a
@@ -83,10 +81,8 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
     }
 
     /// Resolves values saved by older builds to a real picker choice. Store
-    /// and Downloads are tabs of their own again, so a saved Store or
-    /// Downloads preference is honoured rather than migrated; retired
-    /// Certificates and Profiles still resolve to the Library, where imported
-    /// applications are.
+    /// and Downloads remain direct tabs; Features and the former signing
+    /// material destinations migrate into Settings.
     static func effectiveLandingTab(for stored: LandingTab) -> LandingTab {
         let migrated = stored.selectable
         return offerableLandingTabs.contains(migrated) ? migrated : .library
@@ -170,8 +166,8 @@ enum ShellSection: Hashable, CaseIterable, Identifiable {
 }
 
 extension LandingTab {
-    /// The shell section a landing preference names. Old Store and Downloads
-    /// values remain decodable and migrate through `selectable` to Features.
+    /// The shell section a landing preference names. Store and Downloads stay
+    /// direct tabs; the retired Features value migrates to Settings.
     var shellSection: ShellSection {
         switch self {
         case .files: return .files

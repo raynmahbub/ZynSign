@@ -161,7 +161,7 @@ extension ZEmptyState {
         )
     }
 
-    /// Empty state for Certificates tab.
+    /// Empty state for the Certificates segment in the combined area.
     static func noCertificates(action: @escaping () -> Void) -> ZEmptyState {
         ZEmptyState(
             title: "No Certificates Yet",
@@ -175,7 +175,7 @@ extension ZEmptyState {
         )
     }
 
-    /// Empty state for Provisioning Profiles tab.
+    /// Empty state for the Profiles segment in the combined area.
     static func noProfiles(action: @escaping () -> Void) -> ZEmptyState {
         ZEmptyState(
             title: "No Profiles Yet",

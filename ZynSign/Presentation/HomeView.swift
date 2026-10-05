@@ -6,8 +6,8 @@ import SwiftUI
 /// arrived most recently (recently imported applications), and what the
 /// user most likely wants to do next (quick actions). On a first launch it
 /// is an onboarding surface: the empty-state card walks through importing
-/// an application, adding a certificate, and importing a provisioning
-/// profile, with each step reflecting the library's real state.
+/// an application and adding signing materials in the combined Certificates &
+/// Profiles area, with each step reflecting the library's real state.
 ///
 /// Nothing here is decorative data: every count is read from the same use
 /// cases the tabs read, and the onboarding steps are complete only when the
@@ -42,12 +42,12 @@ struct HomeView: View {
     @State private var linkNotice: String?
     /// The application Quick Sign opens, when the user has one to open.
     @State private var quickSignEntry: LibraryEntry?
-    /// Profiles and Sources each supply their own navigation stack, so they
-    /// are presented rather than pushed onto Home's.
-    @State private var isShowingProfiles = false
+    /// Both signing-material workflows share one Home destination.
+    @State private var signingMaterialsSelection: SigningMaterialsSection = .certificates
+    @State private var isShowingSigningMaterials = false
+    @State private var isShowingIPSWBrowser = false
+    /// Repository management supplies its own navigation stack.
     @State private var isShowingSources = false
-    /// Certificates own no navigation stack, so they push onto Home's.
-    @State private var isShowingCertificates = false
     @AppStorage(LibraryPreferenceKeys.scope) private var libraryScope = LibraryScope.all.storageValue
     /// Whether first-launch onboarding has been completed.
     ///
@@ -137,20 +137,15 @@ struct HomeView: View {
             .navigationDestination(item: $quickSignEntry) { entry in
                 SigningView(entry: entry)
             }
-            .navigationDestination(isPresented: $isShowingCertificates) {
-                CertificateManagerView(
-                    store: environment.identityStore,
-                    annotations: environment.identityAnnotations,
-                    importer: environment.pkcs12Importer
+            .navigationDestination(isPresented: $isShowingSigningMaterials) {
+                SigningMaterialsView(
+                    initialSelection: signingMaterialsSelection,
+                    embedsNavigationStack: false
                 )
+                .id(signingMaterialsSelection)
             }
-            .sheet(isPresented: $isShowingProfiles) {
-                ProfilesView(
-                    profiles: environment.provisioningProfiles,
-                    importer: environment.provisioningProfileImporter,
-                    compatibility: environment.profileCompatibility,
-                    selections: environment.profileSelections
-                )
+            .sheet(isPresented: $isShowingIPSWBrowser) {
+                IPSWBrowserView()
             }
             .sheet(isPresented: $isShowingSources) {
                 if let store = environment.storeBrowser {
@@ -221,12 +216,12 @@ struct HomeView: View {
                 onOpenSection(.appStore)
             }
             ZHomeStatTile(
-                symbol: "checkmark.shield.fill",
-                title: "Certs",
-                value: certificateCount,
+                symbol: "person.text.rectangle.fill",
+                title: "Signing",
+                value: signingMaterialsCount,
                 tint: ZHomeTint.certificates
             ) {
-                onOpenSection(.settings)
+                openSigningMaterials(.certificates)
             }
             ZHomeStatTile(
                 symbol: "square.stack.fill",
@@ -244,6 +239,13 @@ struct HomeView: View {
     private var repositoryCount: Int? {
         guard let store = environment.storeBrowser else { return nil }
         return store.snapshot.sources.count
+    }
+
+    /// Total credentials in the combined Certificates & Profiles area.
+    /// Remains unknown until both stores have been read.
+    private var signingMaterialsCount: Int? {
+        guard let certificateCount, let profileCount else { return nil }
+        return certificateCount + profileCount
     }
 
     /// The updates the Download Center has ready, or `nil` when there are
@@ -269,12 +271,12 @@ struct HomeView: View {
                 openQuickSign()
             }
             ZHomeActionRow(
-                title: "Certificates",
-                subtitle: certificateSubtitle,
-                symbol: "checkmark.shield.fill",
+                title: "Certificates & Profiles",
+                subtitle: signingMaterialsSubtitle,
+                symbol: "person.text.rectangle.fill",
                 tint: ZHomeTint.certificates
             ) {
-                isShowingCertificates = true
+                openSigningMaterials(.certificates)
             }
             ZHomeActionRow(
                 title: "Add Repository",
@@ -285,12 +287,12 @@ struct HomeView: View {
                 isShowingSources = true
             }
             ZHomeActionRow(
-                title: "Profiles",
-                subtitle: "Provisioning profiles and compatibility",
-                symbol: "person.text.rectangle.fill",
-                tint: ZHomeTint.profiles
+                title: "IPSW Browser",
+                subtitle: "Browse firmware and current signing status",
+                symbol: "iphone.gen3",
+                tint: ZHomeTint.apps
             ) {
-                isShowingProfiles = true
+                isShowingIPSWBrowser = true
             }
         }
     }
@@ -303,12 +305,19 @@ struct HomeView: View {
             : "Pick an app in the library and sign it with your identity."
     }
 
-    private var certificateSubtitle: String {
-        switch certificateCount {
-        case .none: return "Manage your signing certificates"
-        case .some(0): return "No certificates yet — import a .p12 to sign"
-        case .some(let count): return count == 1 ? "1 certificate available" : "\(count) certificates available"
-        }
+    private var signingMaterialsSubtitle: String {
+        let certificates = certificateCount.map { count in
+            "\(count) \(count == 1 ? "certificate" : "certificates")"
+        } ?? "Certificates loading"
+        let profiles = profileCount.map { count in
+            "\(count) \(count == 1 ? "profile" : "profiles")"
+        } ?? "Profiles loading"
+        return "\(certificates) · \(profiles)"
+    }
+
+    private func openSigningMaterials(_ section: SigningMaterialsSection) {
+        signingMaterialsSelection = section
+        isShowingSigningMaterials = true
     }
 
     /// Signs the most recently imported application when there is one, and
@@ -479,7 +488,7 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Welcome to ZynSign")
                         .font(.title3.weight(.semibold))
-                    Text("Three steps to your first signed application. Everything stays on this device.")
+                    Text("Two steps to your first signed application. Everything stays on this device.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -506,21 +515,12 @@ struct HomeView: View {
                 )
                 OnboardingStepRow(
                     number: 2,
-                    title: "Add a certificate",
-                    detail: "Import a .p12 signing identity. The private key never leaves the Keychain.",
-                    icon: "signature",
+                    title: "Add Certificates & Profiles",
+                    detail: "Import a .p12 identity and the matching .mobileprovision profile in one place.",
+                    icon: "person.text.rectangle.fill",
                     color: .purple,
-                    isComplete: (certificateCount ?? 0) > 0,
-                    action: { onOpenSection(.certificates) }
-                )
-                OnboardingStepRow(
-                    number: 3,
-                    title: "Import a provisioning profile",
-                    detail: "Add the .mobileprovision that authorizes your application's bundle identifier.",
-                    icon: "person.text.rectangle",
-                    color: .orange,
-                    isComplete: (profileCount ?? 0) > 0,
-                    action: { onOpenSection(.profiles) }
+                    isComplete: (certificateCount ?? 0) > 0 && (profileCount ?? 0) > 0,
+                    action: { openSigningMaterials(.certificates) }
                 )
 
                 Button {

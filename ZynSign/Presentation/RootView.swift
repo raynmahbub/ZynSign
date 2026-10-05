@@ -3,10 +3,10 @@ import SwiftUI
 
 /// The root of the ZynSign interface: the tab shell the user navigates.
 ///
-/// Five native tabs: Files, Library, Home, Features, and Settings. The
-/// Features catalogue also hosts Store and Downloads, keeping every workflow
-/// reachable without UIKit's overflow navigation controller. Each tab owns
-/// its own navigation state; Home remains the default landing destination.
+/// The shell's six root destinations: Files, Library, Home, Store, Downloads,
+/// and Settings. The searchable Features catalogue and signing materials live
+/// inside Settings; Store and Downloads keep direct tabs when their release
+/// gates are open. Each root destination keeps its own navigation state.
 ///
 /// The shell is also the single owner of the Import Hub. Every way a
 /// package can arrive — a quick action, a toolbar button, a share-sheet
@@ -55,15 +55,14 @@ struct RootView: View {
     /// survives leaving a tab and coming back to it.
     @State private var visitedTabs: Set<ShellSection>
 
-    @State private var featurePath: [FeatureCatalogDestination] = []
     @State private var isShowingImport = false
     @State private var hubRequest: ImportHubRequest = .none
 
-    /// Certificates and Profiles are reached from Settings and from the
-    /// system handing ZynSign a `.p12` or a `.mobileprovision`, so the
-    /// shell presents them the way it presents every other area it owns.
-    @State private var isShowingCertificates = false
-    @State private var isShowingProfiles = false
+    /// The combined signing-material screen is presented for a system-opened
+    /// certificate/profile file; the selected segment follows the file type.
+    @State private var isShowingSigningMaterials = false
+    @State private var signingMaterialsSelection: SigningMaterialsSection = .certificates
+    @State private var signingMaterialsImportURL: URL?
 
     /// A shell surface the app owes the user once the scene is active again.
     ///
@@ -71,12 +70,12 @@ struct RootView: View {
     /// to the foreground; UIKit drops a presentation asked for in that frame
     /// and the state that asked for it stays set, so the surface never opens
     /// and the screen looks like it did nothing. The request is held as the
-    /// surface's name — three values, no stored closure — and honoured the
-    /// moment the scene is active.
+    /// surface's name and any incoming document URL — no stored closure —
+    /// and honoured the moment the scene is active.
     private enum ShellPresentation {
         case importHub
-        case profiles
-        case certificates
+        case profiles(URL)
+        case certificates(URL)
     }
 
     @State private var pendingShellPresentation: ShellPresentation?
@@ -213,31 +212,18 @@ struct RootView: View {
                 onDone: { isShowingImport = false }
             )
         }
-        .sheet(isPresented: $isShowingCertificates) {
+        .sheet(
+            isPresented: $isShowingSigningMaterials,
+            onDismiss: { signingMaterialsImportURL = nil }
+        ) {
             NavigationStack {
-                CertificateManagerView(
-                    store: environment.identityStore,
-                    annotations: environment.identityAnnotations,
-                    importer: environment.pkcs12Importer
+                SigningMaterialsView(
+                    initialSelection: signingMaterialsSelection,
+                    incomingURL: $signingMaterialsImportURL,
+                    embedsNavigationStack: false
                 )
             }
-        }
-        .sheet(isPresented: $isShowingProfiles) {
-            // `ProfilesView` supplies its own navigation stack, so the shell
-            // must not wrap it — nesting one inside another crashes.
-            ProfilesView(
-                profiles: environment.provisioningProfiles,
-                importer: environment.provisioningProfileImporter,
-                compatibility: environment.profileCompatibility,
-                selections: environment.profileSelections,
-                recordEvent: { name, succeeded in
-                    environment.recordAnalyticsEvent(
-                        category: .intake,
-                        name: name,
-                        succeeded: succeeded
-                    )
-                }
-            )
+            .id(signingMaterialsSelection)
         }
         .environment(
             \.signingQueuePresentation,
@@ -369,6 +355,7 @@ struct RootView: View {
                 if visitedTabs.contains(section) {
                     tabContent(section)
                         .opacity(section == selected ? 1 : 0)
+                        .zIndex(section == selected ? 1 : 0)
                         .allowsHitTesting(section == selected)
                         .accessibilityHidden(section != selected)
                 }
@@ -380,6 +367,7 @@ struct RootView: View {
         .onChange(of: selected) { _, section in
             visitedTabs.insert(section)
         }
+        .animation(motion.fast, value: selected)
     }
 
     // MARK: - Launch
@@ -465,10 +453,9 @@ struct RootView: View {
         ShellSection.primaryTabs
     }
 
-    /// The tab to actually select for a requested section. A destination that
-    /// is a tab is selected; one that is only reached from Settings — a
-    /// certificate, a profile, a preset — names Settings, and anything else
-    /// resolves to the Library or the first tab the build shows.
+    /// The root tab to select for a requested section. A destination that is
+    /// a tab is selected; the Features catalogue and signing tools name
+    /// Settings, and a gated destination resolves to Settings or the Library.
     static func visibleSelection(for section: ShellSection) -> ShellSection {
         visibleSelection(for: section, in: ShellSection.primaryTabs)
     }
@@ -478,17 +465,16 @@ struct RootView: View {
     /// only reaches in a Release build.
     static func visibleSelection(for section: ShellSection, in tabs: [ShellSection]) -> ShellSection {
         if tabs.contains(section) { return section }
-        if (section == .appStore || section == .downloads), tabs.contains(.features) {
-            return .features
-        }
-        if section == .presets || section == .install || section == .certificates || section == .profiles {
+        if section == .features || section == .presets || section == .install
+            || section == .certificates || section == .profiles
+            || section == .appStore || section == .downloads {
             return tabs.contains(.settings) ? .settings : (tabs.contains(.library) ? .library : (tabs.first ?? .settings))
         }
         return tabs.contains(.library) ? .library : (tabs.first ?? .settings)
     }
 
     /// Home can request any destination it links to; a destination that is a
-    /// tab is selected, and one that lives inside Settings opens Settings.
+    /// root tab is selected, and one that lives inside Settings opens there.
     private func openHomeSection(_ section: ShellSection) {
         selected = ShellSection.tab(toOpen: section)
     }
@@ -589,10 +575,14 @@ struct RootView: View {
         switch surface {
         case .importHub:
             isShowingImport = true
-        case .profiles:
-            isShowingProfiles = true
-        case .certificates:
-            isShowingCertificates = true
+        case .profiles(let url):
+            signingMaterialsSelection = .profiles
+            signingMaterialsImportURL = url
+            isShowingSigningMaterials = true
+        case .certificates(let url):
+            signingMaterialsSelection = .certificates
+            signingMaterialsImportURL = url
+            isShowingSigningMaterials = true
         }
     }
 
@@ -615,10 +605,10 @@ struct RootView: View {
             environment.importHub.receive([url], origin: origin)
             presentImportHub()
         } else if ext == "mobileprovision" || ext == "provisionprofile" {
-            presentWhenActive(.profiles)
+            presentWhenActive(.profiles(url))
             ZHaptics.tap()
         } else if ext == "p12" || ext == "pfx" {
-            presentWhenActive(.certificates)
+            presentWhenActive(.certificates(url))
             ZHaptics.tap()
         }
     }
@@ -681,29 +671,11 @@ struct RootView: View {
                 performanceEngine: environment.performanceEngine
             )
         case .features:
-            FeatureCatalogView(path: $featurePath)
+            FeatureCatalogView()
         case .certificates:
-            NavigationStack {
-                CertificateManagerView(
-                    store: environment.identityStore,
-                    annotations: environment.identityAnnotations,
-                    importer: environment.pkcs12Importer
-                )
-            }
+            SigningMaterialsView(initialSelection: .certificates)
         case .profiles:
-            ProfilesView(
-                profiles: environment.provisioningProfiles,
-                importer: environment.provisioningProfileImporter,
-                compatibility: environment.profileCompatibility,
-                selections: environment.profileSelections,
-                recordEvent: { name, succeeded in
-                    environment.recordAnalyticsEvent(
-                        category: .intake,
-                        name: name,
-                        succeeded: succeeded
-                    )
-                }
-            )
+            SigningMaterialsView(initialSelection: .profiles)
         case .settings:
             SettingsView()
         case .presets:

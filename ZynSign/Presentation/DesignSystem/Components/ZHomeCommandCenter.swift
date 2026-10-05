@@ -61,7 +61,7 @@ struct ZHomeStatTile: View {
             .padding(.vertical, ZSpacing.md)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ZCardPressStyle())
         .zComfortableHitTarget()
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityTitle)
@@ -125,7 +125,7 @@ struct ZHomeAttentionRow: View {
             .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ZCardPressStyle())
         .zComfortableHitTarget()
         .background(ZColors.cardBackground, in: RoundedRectangle(cornerRadius: ZRadius.lg, style: .continuous))
         .overlay {
@@ -173,7 +173,7 @@ struct ZHomeImportTarget: View {
             .padding(.vertical, ZSpacing.xl)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ZCardPressStyle())
         .zComfortableHitTarget()
         .background {
             RoundedRectangle(cornerRadius: ZRadius.lg, style: .continuous)
@@ -292,7 +292,7 @@ struct ZHomeActionRow: View {
             .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ZCardPressStyle())
         .zComfortableHitTarget()
         .zynCardBackground(cornerRadius: ZRadius.lg)
         .accessibilityElement(children: .combine)
@@ -319,6 +319,4 @@ enum ZHomeTint {
     static let apps = Color(red: 0.13, green: 0.78, blue: 0.51)
     /// Anything that is a problem or needs attention.
     static let attention = Color(red: 1.0, green: 0.23, blue: 0.45)
-    /// Provisioning profiles.
-    static let profiles = Color(red: 0.35, green: 0.56, blue: 0.98)
 }

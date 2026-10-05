@@ -87,7 +87,7 @@ extension CompositionRoot {
         )
     }
 
-    /// Builds the provisioning-profile importer the Profiles tab drives. It
+    /// Builds the provisioning-profile importer the Profiles section uses. It
     /// parses profiles through the same inspection use case the signing
     /// pipeline composes, and stores the original `.mobileprovision` files
     /// in the same directory the profile library's catalog lives in — the

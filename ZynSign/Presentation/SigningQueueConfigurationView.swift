@@ -191,13 +191,12 @@ struct SigningQueueConfigurationView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 NavigationLink {
-                    CertificateManagerView(
-                        store: env.identityStore,
-                        annotations: env.identityAnnotations,
-                        importer: env.pkcs12Importer
+                    SigningMaterialsView(
+                        initialSelection: .certificates,
+                        embedsNavigationStack: false
                     )
                 } label: {
-                    Label("Open Certificates", systemImage: "key.fill")
+                    Label("Open Certificates & Profiles", systemImage: "key.fill")
                 }
             } else {
                 Picker("Signing Identity", selection: $selectedIdentityID) {

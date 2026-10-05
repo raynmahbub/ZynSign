@@ -61,7 +61,7 @@ actor SigningHealthAssessment {
             findings.append(SigningHealthScore.Finding(
                 id: "missing.certificate",
                 title: "No certificate selected",
-                detail: "Choose a signing certificate from Settings → Certificates before signing.",
+                detail: "Choose a signing certificate from Settings → Signing → Certificates & Profiles before signing.",
                 weight: -30
             ))
             score -= 30

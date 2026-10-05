@@ -52,13 +52,9 @@ struct GeneralSettingsSection: View {
     /// The landing-tab binding the picker reads and writes.
     ///
     /// The write path is the preference's own; the read path is clamped to a
-    /// destination the tab bar actually renders. A preference saved while a
-    /// section still had a slot — Downloads, before the five-item ceiling
-    /// folded it into Settings — would otherwise name a tag the picker has no
-    /// row for, and a `Picker` whose selection matches no tag renders blank,
-    /// which reads as a broken control. Showing the clamped value keeps the
-    /// row and the next cold start in agreement, because both ask
-    /// `ShellSection.effectiveLandingTab` for the same answer launch uses.
+    /// root tab the shell actually renders. A saved preference for the retired
+    /// Features destination migrates to Settings; showing that value keeps the
+    /// picker and the next cold start in agreement.
     private var landingTabSelection: Binding<LandingTab> {
         Binding(
             get: { ShellSection.effectiveLandingTab(for: settings.preferences.general.landingTab) },

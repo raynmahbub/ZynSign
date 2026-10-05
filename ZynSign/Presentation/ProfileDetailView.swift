@@ -5,7 +5,7 @@ import UIKit
 /// the spec asks for, the Smart Compatibility Engine's pre-sign checks and
 /// Compatibility Summary, the Diagnostics Panel with severity badges, and
 /// the quick actions — all read through the environment so the same screen
-/// opens from the Profiles tab and from an app's detail suggestion.
+/// opens from the Profiles section and from an app's detail suggestion.
 ///
 /// Nothing here re-derives facts: the summary holds what import recorded,
 /// Refresh Validation re-reads the stored file, and the compatibility
