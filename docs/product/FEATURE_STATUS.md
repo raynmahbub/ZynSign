@@ -29,7 +29,7 @@ Features accumulate at later stops. Debug builds can expose staged code for deve
 
 `UnsupportedFeature` records the limits the UI must disclose: in-app installation of arbitrary IPAs, device pairing/JIT/mux, and cloud sync/telemetry. Delivery hand-off materials are not an installer.
 
-The shell gives the running stop direct root slots for Files, Library, Home, Store, Downloads, and Settings (gated destinations appear only when their release feature is open). The Features catalogue is a Settings workflow; Certificates and Profiles use one combined Home/Settings signing-material destination. `ShellTabBar` draws the custom bottom bar rather than using UIKit's five-item tab bar and its pushed *More* list. This does not replace the required runtime check on supported devices.
+The shell gives the running stop exactly five root slots — Home, Library, Store, Downloads, and Settings (gated destinations appear only when their release feature is open). Files, the Features catalogue, and signing materials are Settings workflows. The shell renders in liquid glass (Settings → Appearance turns it off). `ShellTabBar` draws the custom bottom bar rather than using UIKit's five-item tab bar and its pushed *More* list. This does not replace the required runtime check on supported devices.
 
 ## Reported import and Settings issues
 
