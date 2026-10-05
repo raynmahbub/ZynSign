@@ -87,8 +87,13 @@ New and updated unit tests: `CoordinatedPKCS12DocumentReaderTests`
 (content-not-name acceptance), `ShellSectionTabTests` (five-tab contract,
 Files migration to Settings and Library), `AppThemeCatalogTests`
 (six themes, Storefront default), `ReleaseTrainTests` (current stop pins
-`.alpha2`). **Their results belong to CI** — the `Build and test (Xcode)` job
-is the judge, and this note claims nothing about them until it has run.
+`.alpha2`). **Their results belong to CI** — and CI has ruled: on this
+branch's final state the `Build and test (Xcode)` job compiled every target
+and ran the full suite (2,848 tests) with all of them passing. An earlier
+attempt of the same train failed three pins — a theme-count expectation and
+two default-theme assertions, corrected alongside an intake fix that reads an
+empty document as observed rather than unread — and the corrected suite is
+what passed.
 
 Host audits, run on the machine that produced this note:
 
@@ -99,6 +104,6 @@ Host audits, run on the machine that produced this note:
 | `Scripts/audit_regression_coverage.py` | ✓ every named test type exists in `Tests/ZynSignTests` |
 | `Scripts/audit_navigation_stack.py` | ✓ no pushed view opens its own navigation container (split views included; the ungated-`PresetsView` regression was injected and caught) |
 | `Scripts/release_train.py check` | ✓ train consistent: v0.1.0-alpha.2 · MARKETING_VERSION 0.1.0 · build 8 |
-| `bash Scripts/ci/docs_check.sh` | ✓ 83 pages, 0 errors, 0 warnings |
+| `bash Scripts/ci/docs_check.sh` | ✓ 84 pages, 0 errors, 0 warnings |
 
 Device rows: none — no device ran this build when the note was written.
