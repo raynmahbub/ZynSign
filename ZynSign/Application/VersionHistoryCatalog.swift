@@ -28,6 +28,20 @@ enum VersionHistoryCatalog {
     /// Every entry, newest first.
     static let entries: [VersionHistoryEntry] = [
         VersionHistoryEntry(
+            tag: "v0.1.0-alpha.2",
+            marketingVersion: "0.1.0",
+            buildNumber: 8,
+            releasedAt: DateComponents(year: 2026, month: 10, day: 5),
+            headline: "Alpha 2 opens the signing workflow — Smart Sign, the Professional Signing Queue, and Intelligent Signing Presets — on a new Storefront shell dressed in liquid glass.",
+            highlights: [
+                "Sign applications from the Library, watch jobs move through the queue's stages, and plan bulk runs from reusable presets: the three surfaces this stage switches on.",
+                "Import reads a document's content, not its name: an iCloud file that has not finished downloading is awaited and staged instead of refused, and a renamed or extension-less .p12 imports while a foreign format is refused with the reason.",
+                "Settings → Updates now raises each workflow in its own navigation context, closing the last nested-container crash class in the tab; the audit that guards this behaviour covers split views too.",
+                "The main screen draws exactly five tabs — Home, Library, Store, Downloads, and Settings — with Files one Settings row away.",
+                "The interface renders in liquid glass end to end — cards, tab bar, toolbars, toasts — with a switch to turn it off under Settings → Appearance.",
+            ]
+        ),
+        VersionHistoryEntry(
             tag: "v0.1.0-alpha.1",
             marketingVersion: "0.1.0",
             buildNumber: 7,

@@ -19,8 +19,84 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+## [0.1.0-alpha.2] - 2026-10-05
+
+> The seven-tab bar the section below this one describes was this train's own
+> interim shape; the five-tab contract in **Changed** is the one this release
+> ships.
+
+### Added
+
+- **Storefront, the new default look.** `AppThemeCatalog` gains the Storefront
+  theme — a signature gradient (`#FF3D71 → #FF6A3D → #FFB13D`) over deep glass,
+  dark first, with the flame accent on every control — and it is what a fresh
+  install opens on. The five themes that shipped before stay selectable under
+  Settings → Appearance → Theme, so an update never takes an appearance away
+  from the user who chose it.
+- **Liquid glass, everywhere, with one switch.** `ZGlass` is the single layer
+  that decides what a glass surface is, and every glass surface in the app
+  asks it: cards (`ZCard`), the shell's tab bar, toolbars and bars, toasts,
+  and the Home command-centre card. On iOS 26 the surfaces render with the
+  platform's own `glassEffect` — real refraction, real specular edge — and
+  pre-26 systems get the ultra-thin material with a diagonal highlight, the
+  same recipe the card system shipped with. The preference
+  (`Settings → Appearance → Liquid Glass`) now defaults to **on**; turning it
+  off resolves every surface to its flat system material in one tap. Nothing
+  else moves: the toggle never changes what the app does.
+- **The signing workflow opens.** This release train's stage switches on its
+  three features — Smart Sign, the Professional Signing Queue, and Intelligent
+  Signing Presets — and they arrive with their surfaces: queue badges on the
+  Library tab, per-job controls, live stage progress, and preset planning.
+
+### Changed
+
+- **The main screen draws exactly five tabs.** Home, Library, Store,
+  Downloads, and Settings — the storefront order. Files was the sixth tab the
+  shell cut to keep every target comfortable; the browser itself moves nowhere,
+  it is a row in Settings → Browse and one from the Store's downloads, and a
+  saved Files landing preference migrates to the Library instead of pointing at
+  a tab that no longer exists. `ShellSection.tabCount` pins the number, and
+  `ShellSectionTabTests` pins the order, the gate behaviour, and the
+  migration. `ShellTabBar` became a floating glass island to match.
+
 ### Fixed
 
+- **IPA / TIPA import stops refusing files it can still read.** Three places
+  turned "I cannot see the bytes yet" into "this is not a package": an iCloud
+  placeholder — the usual shape of a freshly downloaded `.ipa` in the Files
+  *Downloads* folder — answered every read with nothing, so
+  `SecurityScopedArtifactIntake` observed a non-ZIP signature and
+  `ImportPreflight` refused the file. The intake now distinguishes observation
+  from ignorance: a short or failed read reports *unknown*, never *wrong
+  bytes*; a dataless item is asked to download and given a bounded wait
+  (20 seconds, off the main thread only) before anything is judged; and the
+  pre-import copy still runs through file coordination, which waits for the
+  provider itself. A genuinely empty or wrong-content file is still refused,
+  with the same honest reason.
+- **A certificate is judged by its content, not its name.** Importing a
+  `.p12` that Files, AirDrop, or the user renamed failed in two places that
+  only looked at the extension: the manager refused anything that was not
+  `.p12`/`.pfx`, and `CoordinatedPKCS12DocumentReader` threw
+  `unsupportedFileType` before it opened the file. Both now let content
+  decide — a matching name reads directly, an unknown or missing one is
+  accepted when it begins with the DER `SEQUENCE` a PKCS#12 container must
+  start with, and a format ZynSign knows is not a certificate is still refused
+  by name with the clearer message. Pinned by
+  `CoordinatedPKCS12DocumentReaderTests`.
+- **Settings → Updates no longer crashes.** The tab pushed the Store's Update
+  screens — each carrying their own `NavigationLink`s, `.searchable`, and
+  `navigationDestination` registrations — into the Settings stack, which owns
+  a search field of its own: nested navigation state, the same class that made
+  other Settings pages die. Every row now raises its workflow as a sheet over
+  a fresh stack of its own, with a Done control, so no store screen can nest a
+  controller, search bar, or destination into the host's — whatever those
+  views do internally. `PresetsView` had the mirror-image defect the audit
+  could not see: it took the `embedsNavigationStack` opt-out but opened its
+  iPad `NavigationSplitView` from a size-class branch the flag never gated, so
+  a pushed Presets page on iPad nested a second container. The flag now gates
+  both containers, and `audit_navigation_stack.py` enforces the class: it
+  treats `NavigationSplitView` as the crash-capable container it is, and a
+  self-managed view must gate *every* container it opens behind its flag.
 - **The App Store tab.** The shell showed five destinations and dropped Store
   and Downloads, because UIKit's own tab bar draws five items and folds the
   rest into a *More* list it **pushes** — and a pushed destination that owns a
@@ -87,7 +163,6 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   the full metrics report (Periphery dead-code scan included), the pinned
   SwiftFormat rules applied, a stale README repaired — all opened as one
   reviewable repair PR, never pushed directly.
-
 ## [0.1.0-alpha.1] - 2026-10-03 — Auto-generated
 
 ### Fixed

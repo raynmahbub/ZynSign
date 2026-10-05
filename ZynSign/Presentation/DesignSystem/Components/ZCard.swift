@@ -25,31 +25,43 @@ struct ZCard<Content: View>: View {
     }
 
     var body: some View {
-        content
-            .padding(ZSpacing.md)
-            .background(background)
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .zynSoftShadow(variant == .outlined ? ZShadow.ShadowToken(color: .clear, radius: 0, x: 0, y: 0) : ZShadow.soft)
-            .overlay {
-                if variant == .outlined {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(Color(.separator), lineWidth: 0.5)
-                } else if appTheme.liquidGlass {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(
-                            LinearGradient(
-                                colors: [Color.white.opacity(0.35), Color.white.opacity(0.08)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1
-                        )
-                } else {
-                    // Subtle border ensures cards maintain crisp contrast against pure OLED black
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
-                }
+        Group {
+            if #available(iOS 26.0, *), appTheme.liquidGlass {
+                // iOS 26: the card *is* the system glass — refraction and
+                // edge highlight included; no material fill, no extra stroke,
+                // and no shadow the glass would already cast.
+                content
+                    .padding(ZSpacing.md)
+                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                    .overlay {
+                        // Outlined cards still ask for their own stroke, and
+                        // glass must not swallow it.
+                        if variant == .outlined {
+                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                .stroke(Color(.separator), lineWidth: 0.5)
+                        }
+                    }
+            } else {
+                content
+                    .padding(ZSpacing.md)
+                    .background(background)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                    .zynSoftShadow(variant == .outlined ? ZShadow.ShadowToken(color: .clear, radius: 0, x: 0, y: 0) : ZShadow.soft)
+                    .overlay {
+                        if variant == .outlined {
+                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                .stroke(Color(.separator), lineWidth: 0.5)
+                        } else if appTheme.liquidGlass {
+                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                .stroke(ZGlass.highlight, lineWidth: 1)
+                        } else {
+                            // Subtle border ensures cards maintain crisp contrast against pure OLED black
+                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
+                        }
+                    }
             }
+        }
     }
 
     @ViewBuilder

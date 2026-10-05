@@ -3,38 +3,41 @@ import XCTest
 
 /// Pins the shell's tab contract.
 ///
-/// The shell draws its own bar (`ShellTabBar`) instead of using UIKit's, whose
-/// five-item ceiling folds the rest of the product into a *More* list it
-/// *pushes* — and a pushed destination that owns a `NavigationStack`, which
-/// every ZynSign area does, crashes at runtime. The previous way out of that
-/// was to stop showing destinations: Store and Downloads lost their slots, and
-/// a tester opened a build whose App Store tab was simply missing. These tests
-/// pin the root-tab contract: every ungated or release-enabled root destination
-/// gets a slot, while Settings-owned workflows remain reachable there.
+/// The main screen draws **exactly five tabs** — Home, Library, Store,
+/// Downloads, and Settings — in the Storefront shell order. Two facts are
+/// worth a gate rather than a convention:
+///
+/// - The shell draws its own bar (`ShellTabBar`), not UIKit's, whose
+///   five-item ceiling folds the rest of the product into a *More* list it
+///   *pushes* — and a pushed destination that owns a `NavigationStack`, which
+///   every ZynSign area does, crashes at runtime. The five-tab product choice
+///   fits UIKit's ceiling; it is never *chosen* by it. A sixth destination is
+///   only ever cut for the product's own reason.
+/// - Files, Features, presets, and the signing materials are Settings
+///   workflows, and a request for one still resolves to a tab that exists.
+///   Removing a tab must never orphan the destination: Settings is the
+///   fallback, and the Library is the fallback for the fallback.
 final class ShellSectionTabTests: XCTestCase {
 
     /// The destinations no gate can remove.
     private let alwaysAvailableTabs: [ShellSection] = [
-        .files, .library, .home, .settings,
+        .home, .library, .settings,
     ]
 
-    func testCandidateTabsAreUniqueAndInProductOrder() {
+    func testTheBarDrawsExactlyFiveTabsInProductOrder() {
         XCTAssertEqual(ShellSection.allTabs, [
-            .files, .library, .home, .appStore, .downloads, .settings,
+            .home, .library, .appStore, .downloads, .settings,
         ])
+        XCTAssertEqual(ShellSection.allTabs.count, ShellSection.tabCount)
         XCTAssertEqual(Set(ShellSection.allTabs).count, ShellSection.allTabs.count)
     }
 
-    func testEveryAvailableDestinationIsATab() {
-        // The reported defect: the App Store tab was missing from a build whose
-        // release stage exposes the Store. Both gated destinations are visible
-        // at every stop that switches them on, and the shell shows more
-        // destinations than UIKit's own bar can draw — which is the reason it
-        // draws its own.
+    func testFiveIsTheWholeBarAndNeverOverflowedByTheGate() {
+        // The maximum the bar can ever carry is five: the contract is not
+        // "≤ what UIKit could fold" but "exactly the roots the product keeps".
         XCTAssertEqual(ShellSection.primaryTabs { _ in true }, ShellSection.allTabs)
-        XCTAssertTrue(ShellSection.primaryTabs.contains(.appStore))
-        XCTAssertTrue(ShellSection.primaryTabs.contains(.downloads))
-        XCTAssertGreaterThan(ShellSection.primaryTabs.count, ShellSection.nativeTabBarItemLimit)
+        XCTAssertEqual(ShellSection.primaryTabs { _ in true }.count, ShellSection.nativeTabBarItemLimit)
+        XCTAssertLessThanOrEqual(ShellSection.primaryTabs.count, ShellSection.tabCount)
     }
 
     func testAStageThatHidesAGatedDestinationHidesExactlyThatTab() {
@@ -46,13 +49,21 @@ final class ShellSectionTabTests: XCTestCase {
         // A gate that opens one feature opens that feature's tab and no other.
         XCTAssertEqual(
             ShellSection.primaryTabs { $0 == .appStore },
-            [.files, .library, .home, .appStore, .settings]
+            [.home, .library, .appStore, .settings]
         )
         for feature in ReleaseFeature.allCases {
             let tabs = ShellSection.primaryTabs { $0 == feature }
             XCTAssertEqual(tabs.contains(.appStore), feature == .appStore)
             XCTAssertEqual(tabs.contains(.downloads), feature == .downloads)
         }
+    }
+
+    func testFilesIsNoLongerATabAndResolvesIntoSettings() {
+        // The tab the five-tab contract removed must stay reachable, not be
+        // deleted from the product: Settings carries the Files browser.
+        XCTAssertFalse(ShellSection.allTabs.contains(.files))
+        XCTAssertEqual(ShellSection.tab(toOpen: .files), .settings)
+        XCTAssertEqual(RootView.visibleSelection(for: .files), .settings)
     }
 
     func testEveryCandidateHasCompleteNavigationMetadata() {
@@ -73,13 +84,14 @@ final class ShellSectionTabTests: XCTestCase {
     }
 
     func testSettingsOwnsNonTabWorkflows() {
-        for section in [ShellSection.certificates, .profiles, .presets, .install, .features] {
+        for section in [ShellSection.files, .certificates, .profiles, .presets, .install, .features] {
             XCTAssertEqual(ShellSection.tab(toOpen: section), .settings)
         }
         XCTAssertFalse(ShellSection.allTabs.contains(.certificates))
         XCTAssertFalse(ShellSection.allTabs.contains(.profiles))
         XCTAssertFalse(ShellSection.allTabs.contains(.presets))
         XCTAssertFalse(ShellSection.allTabs.contains(.install))
+        XCTAssertFalse(ShellSection.allTabs.contains(.features))
     }
 
     func testCandidateSectionsDeclareTheirReleaseGate() {
@@ -92,6 +104,7 @@ final class ShellSectionTabTests: XCTestCase {
         for section in alwaysAvailableTabs {
             XCTAssertNil(section.requiredFeature)
         }
+        XCTAssertNil(ShellSection.files.requiredFeature)
     }
 
     func testStoreAndDownloadsAreAvailableFromTheFirstPublishedSurface() {
@@ -101,9 +114,9 @@ final class ShellSectionTabTests: XCTestCase {
         XCTAssertEqual(ShellSection.tab(toOpen: .downloads), .downloads)
     }
 
-    func testLandingPickerOffersEveryTabInBarOrder() {
+    func testLandingPickerOffersFiveInBarOrder() {
         XCTAssertEqual(LandingTab.tabCases, [
-            .files, .library, .home, .appStore, .downloads, .settings,
+            .library, .home, .appStore, .downloads, .settings,
         ])
         XCTAssertEqual(ShellSection.offerableLandingTabs, LandingTab.tabCases)
         for tab in LandingTab.tabCases {
@@ -122,6 +135,16 @@ final class ShellSectionTabTests: XCTestCase {
         XCTAssertEqual(ShellSection.effectiveLandingTab(for: .downloads), .downloads)
     }
 
+    func testSavedFilesLandingMigratesToTheLibrary() {
+        // Files left the bar; a launch preference that named it lands on the
+        // browse root instead of an unreachable tab. The browser itself is
+        // one Settings row away.
+        XCTAssertEqual(LandingTab.files.isSelectableTab, false)
+        XCTAssertEqual(LandingTab.files.selectable, .library)
+        XCTAssertEqual(ShellSection.effectiveLandingTab(for: .files), .library)
+        XCTAssertEqual(RootView.visibleSelection(for: .files), .settings)
+    }
+
     func testSavedFeaturesLandingMigratesIntoSettings() {
         XCTAssertEqual(LandingTab.features.isSelectableTab, false)
         XCTAssertEqual(LandingTab.features.selectable, .settings)
@@ -138,16 +161,17 @@ final class ShellSectionTabTests: XCTestCase {
 
     func testAllRetiredLandingIdentifiersStillDecode() throws {
         let decoder = JSONDecoder()
-        for raw in ["appStore", "downloads", "features", "certificates", "profiles"] {
+        for raw in ["files", "appStore", "downloads", "features", "certificates", "profiles"] {
             let data = Data("\"\(raw)\"".utf8)
             XCTAssertEqual(try decoder.decode(LandingTab.self, from: data).rawValue, raw)
         }
     }
 
     func testSavedPreferencesCannotSelectATabABuildDoesNotRender() {
-        let core: [ShellSection] = [.files, .library, .home, .settings]
+        let core: [ShellSection] = [.home, .library, .settings]
         XCTAssertEqual(RootView.visibleSelection(for: .appStore, in: core), .settings)
         XCTAssertEqual(RootView.visibleSelection(for: .downloads, in: core), .settings)
+        XCTAssertEqual(RootView.visibleSelection(for: .files, in: core), .settings)
         XCTAssertEqual(RootView.visibleSelection(for: .certificates, in: core), .settings)
         XCTAssertEqual(RootView.visibleSelection(for: .profiles, in: core), .settings)
         for tab in core {

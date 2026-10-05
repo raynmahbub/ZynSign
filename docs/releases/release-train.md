@@ -8,7 +8,7 @@ The release train in [`ZynSign/Application/ReleaseTrain.swift`](../../ZynSign/Ap
 python3 Scripts/release_train.py status
 ```
 
-At this checkout the current stop is **`v0.1.0-alpha.1`** (stage `.alpha1`, alpha channel; marketing version `0.1.0`, build `7`). The command is authoritative if this page and the source ever disagree. The current stop is not evidence that a release has been published or device-verified.
+At this checkout the current stop is **`v0.1.0-alpha.2`** (stage `.alpha2`, alpha channel; marketing version `0.1.0`, build `8`). The command is authoritative if this page and the source ever disagree. The current stop is not evidence that a release has been published or device-verified.
 
 ## Ordered stops
 
@@ -38,7 +38,7 @@ Each stop accumulates features from earlier stops. The stage definitions, prereq
 
 ## What the app exposes
 
-- **Root navigation:** Files, Library, Home, Store, Downloads, and Settings have direct slots in the shell bar. The searchable Features catalogue is under `Settings → Features`; Certificates and Profiles share one `Home → Certificates & Profiles` entry and one `Settings → Signing` screen. Store and Downloads remain direct tabs when their release gates are open. The shell draws its own bar (`ShellTabBar`) instead of UIKit's five-item bar, which would fold destinations into a pushed *More* list.
+- **Root navigation:** the bar draws exactly five tabs — Home, Library, Store, Downloads, and Settings (`ShellSection.allTabs`, pinned by `ShellSectionTabTests`). The Files browser is one `Settings → Browse` row away, the searchable Features catalogue is under `Settings → Features`, and Certificates and Profiles share one `Home → Certificates & Profiles` entry and one `Settings → Signing` screen. Store and Downloads remain direct tabs when their release gates are open and are the only two of the five that a stage can hide. The shell draws its own glass bar (`ShellTabBar`) instead of UIKit's five-item bar, whose *More* list would push destinations into nested stacks; five is the product's count, never the ceiling's.
 - **Features index:** available, staged, and unsupported capabilities are searchable and filterable from Settings. `CoreFeature.allCases`, `ReleaseFeature.allCases`, and `UnsupportedFeature.allCases` feed the catalogue. Adding a case includes it automatically; exhaustive metadata switches require its title, category, and explanation.
 - **IPSW Browser:** Home and `Settings → Updates` provide device search, per-device firmware lists, signing status, and Apple-hosted download links. Status is reported by the public IPSW.me API and is not a restore guarantee.
 - **Release vs. Debug:** Release builds use the current train gate. Debug builds expose all release-gated features for development. The complete catalogue still labels the Release availability honestly.

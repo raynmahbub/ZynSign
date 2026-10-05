@@ -288,7 +288,7 @@ enum ReleaseTrain {
     /// compiled into the binary, a Debug build shows all of them
     /// (`exposesEverything`), and a Release build shows the core until
     /// `promote` switches the next stop's features on.
-    static let current: ReleaseStage = .alpha1
+    static let current: ReleaseStage = .alpha2
 
     /// `UserDefaults` / launch-argument key for the Debug-only preview override.
     static let previewDefaultsKey = "ZynSignReleaseStage"

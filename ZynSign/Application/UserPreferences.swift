@@ -236,7 +236,10 @@ extension AppearancePreferences {
         themeIdentifier = try container.decodeIfPresent(String.self, forKey: .themeIdentifier) ?? ZynSignTheme.defaultIdentifier
         accentOverrideHex = try container.decodeIfPresent(String.self, forKey: .accentOverrideHex)
         minimalInterface = try container.decodeIfPresent(Bool.self, forKey: .minimalInterface) ?? false
-        liquidGlass = try container.decodeIfPresent(Bool.self, forKey: .liquidGlass) ?? false
+        // Liquid Glass is the shipped look from v0.1.0-alpha.2: a file that
+        // never recorded the preference gets the glass interface; a recorded
+        // `false` — the user chose it — is honoured forever.
+        liquidGlass = try container.decodeIfPresent(Bool.self, forKey: .liquidGlass) ?? true
     }
 }
 
@@ -252,11 +255,12 @@ extension AdvancedPreferences {
 
 /// The tab ZynSign opens on launch.
 ///
-/// The values name the shell's current primary tabs plus older destinations
-/// kept for decoding and migration. The mapping to a presentation section
-/// lives in the presentation layer, so the stored preference is not a view.
+/// The values name the shell's current primary tabs — exactly five — plus
+/// older destinations kept for decoding and migration. The mapping to a
+/// presentation section lives in the presentation layer, so the stored
+/// preference is not a view.
 enum LandingTab: String, CaseIterable, Hashable, Sendable, Codable {
-    // Current root-tab choices; Features remains below as a retired value.
+    // Current root-tab choices; Files and Features remain below as retired values.
     case files
     case library
     case home
@@ -277,19 +281,21 @@ enum LandingTab: String, CaseIterable, Hashable, Sendable, Codable {
 
     var isSelectableTab: Bool {
         switch self {
-        case .files, .library, .home, .appStore, .downloads, .settings:
+        case .library, .home, .appStore, .downloads, .settings:
             return true
-        case .features, .certificates, .profiles:
+        case .files, .features, .certificates, .profiles:
             return false
         }
     }
 
     /// Migrates saved destinations that are no longer root tabs. Store and
-    /// Downloads remain tabs; Features and signing-material destinations move
-    /// into Settings.
+    /// Downloads remain tabs; Files — the browser now reached from Settings —
+    /// and the Features and signing-material destinations move to a root that
+    /// still exists.
     var selectable: LandingTab {
         switch self {
         case .features, .certificates, .profiles: return .settings
+        case .files: return .library
         default: return self
         }
     }
@@ -512,7 +518,10 @@ struct AppearancePreferences: Equatable, Sendable, Codable {
 
     /// Whether the Liquid Glass visual effect is enabled: translucent
     /// materials, ambient refraction, and specular highlights.
-    var liquidGlass: Bool = false
+    ///
+    /// On by default — the glass is the interface, and Settings → Appearance
+    /// turns it off for anyone who prefers flat system materials.
+    var liquidGlass: Bool = true
 
     private enum CodingKeys: String, CodingKey {
         case appearanceMode
@@ -533,7 +542,7 @@ struct AppearancePreferences: Equatable, Sendable, Codable {
         themeIdentifier: String,
         accentOverrideHex: String? = nil,
         minimalInterface: Bool = false,
-        liquidGlass: Bool = false
+        liquidGlass: Bool = true
     ) {
         self.appearanceMode = appearanceMode
         self.increaseContrast = increaseContrast
@@ -567,16 +576,21 @@ enum AppearanceMode: String, CaseIterable, Hashable, Sendable, Codable {
 /// resolve to the default, so adding or removing a theme is never a
 /// migration.
 enum ZynSignTheme: String, CaseIterable, Hashable, Sendable, Codable {
+    case storefront = "zynsign.storefront"
     case zynSign = "zynsign.default"
     case liquidGlass = "zynsign.liquidglass"
     case ember = "zynsign.ember"
     case midnight = "zynsign.midnight"
     case graphite = "zynsign.graphite"
 
-    static let defaultIdentifier = ZynSignTheme.zynSign.rawValue
+    /// The storefront look ships as the default: signature gradients over deep
+    /// glass, dark-first. The original indigo stays selectable, so an update
+    /// never takes an appearance away from the user who chose it.
+    static let defaultIdentifier = ZynSignTheme.storefront.rawValue
 
     var displayName: String {
         switch self {
+        case .storefront: return "Storefront"
         case .zynSign: return "ZynSign"
         case .liquidGlass: return "Liquid Glass"
         case .ember: return "Ember"

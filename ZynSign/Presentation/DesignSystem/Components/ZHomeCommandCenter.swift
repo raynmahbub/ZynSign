@@ -127,7 +127,9 @@ struct ZHomeAttentionRow: View {
         }
         .buttonStyle(ZCardPressStyle())
         .zComfortableHitTarget()
-        .background(ZColors.cardBackground, in: RoundedRectangle(cornerRadius: ZRadius.lg, style: .continuous))
+        // The card follows the app-wide glass decision; the tint ring stays
+        // either way, so the store entry keeps its identity with glass off.
+        .zGlassSurface(cornerRadius: ZRadius.lg, elevation: false)
         .overlay {
             RoundedRectangle(cornerRadius: ZRadius.lg, style: .continuous)
                 .stroke(tint.opacity(0.55), lineWidth: 1.5)

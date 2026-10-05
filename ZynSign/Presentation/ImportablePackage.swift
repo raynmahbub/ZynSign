@@ -56,6 +56,12 @@ enum ImportablePackage {
         if let itunesIPAPackage = UTType("com.apple.itunes.ipa-package") {
             types.insert(itunesIPAPackage)
         }
+        // ZynSign's own declared TIPA type (Info.plist → UTExportedTypeDeclarations):
+        // where the app's declaration has registered, Files tags `.tipa`
+        // documents with it, and offering it keeps them selectable.
+        if let zynSignTIPA = UTType("io.zynsign.tipa") {
+            types.insert(zynSignTIPA)
+        }
         return Array(types)
     }
 }

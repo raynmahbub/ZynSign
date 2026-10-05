@@ -76,4 +76,29 @@ final class CoordinatedPKCS12DocumentReaderTests: XCTestCase {
             XCTAssertEqual(error as? PKCS12DocumentReadError, .unreadable)
         }
     }
+
+    /// The reported defect: Files and AirDrop rename. A certificate whose
+    /// bytes are intact must still be readable when its name says nothing —
+    /// content, not the extension, is the authority.
+    func testAcceptsADatalessNamedFileWhoseContentBeginsLikePKCS12() throws {
+        var payload = Data([0x30, 0x82])          // a DER SEQUENCE header
+        payload.append(Data("synthetic PKCS#12 body".utf8))
+        let renamed = directory.appendingPathComponent("Identity (1)")      // no extension
+        let typedAsBin = directory.appendingPathComponent("Identity.bin")   // unknown extension
+        try payload.write(to: renamed)
+        try payload.write(to: typedAsBin)
+
+        let reader = CoordinatedPKCS12DocumentReader()
+        XCTAssertEqual(try reader.readPKCS12(at: renamed), payload)
+        XCTAssertEqual(try reader.readPKCS12(at: typedAsBin), payload)
+    }
+
+    func testRefusesAnUnknownExtensionWhoseContentCannotBeAPKCS12Container() throws {
+        let zipNamedData = directory.appendingPathComponent("Identity.bin")
+        try Data("PK\u{03}\u{04} not a certificate".utf8).write(to: zipNamedData)
+
+        XCTAssertThrowsError(try CoordinatedPKCS12DocumentReader().readPKCS12(at: zipNamedData)) { error in
+            XCTAssertEqual(error as? PKCS12DocumentReadError, .unsupportedFileType)
+        }
+    }
 }

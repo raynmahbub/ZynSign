@@ -107,7 +107,7 @@ struct AppearanceSettingsSection: View {
             accentSection
             ZSettingsToggleRow(
                 title: "Liquid Glass",
-                subtitle: "Render translucent materials, ambient refraction, and specular accents.",
+                subtitle: "Render the whole interface — cards, tab bar, toolbars, and toasts — in translucent glass. Turn off for flat system materials.",
                 symbol: "drop.degreesign.fill",
                 isOn: settings.binding(\.appearance.liquidGlass)
             )

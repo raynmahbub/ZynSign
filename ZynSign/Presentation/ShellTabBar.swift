@@ -1,17 +1,21 @@
 import SwiftUI
 
-/// ZynSign's own bottom tab bar.
+/// ZynSign's own bottom tab bar — the Storefront shell, drawn in liquid glass.
 ///
 /// The shell does not use UIKit's tab bar, and this view is the reason: that
 /// bar draws five items and folds everything after the fifth into a *More*
 /// list it **pushes**. A pushed destination that owns a `NavigationStack` —
-/// which every ZynSign area does — crashes at runtime. Store and Downloads
-/// remain direct destinations when their release gates are open; the Features
-/// catalogue and signing materials are workflows inside Settings.
+/// which every ZynSign area does — crashes at runtime.
 ///
-/// The shell draws its own bar so UIKit's five-item ceiling cannot decide
-/// which root destinations the product shows. Every root tab the release
-/// exposes gets a real slot here. The bar owns no navigation and no state: the selection belongs to
+/// The bar draws exactly the five root tabs the product keeps (see
+/// `ShellSection.allTabs`: Home, Library, Store, Downloads, Settings) and no
+/// more. It is a floating glass island rather than a full-width chrome strip:
+/// on iOS 26 it renders as a system glass capsule, on earlier systems as the
+/// material + specular recipe, and with Liquid Glass turned off in Settings →
+/// Appearance it falls back to the classic solid `.bar` background flush to the
+/// home-indicator edge — one switch, decided by `ZGlass`, never per-surface.
+///
+/// The bar owns no navigation and no state: the selection belongs to
 /// the shell, the content lives in `RootView`, and a tap is reported through
 /// the binding.
 struct ShellTabBar: View {
@@ -25,18 +29,22 @@ struct ShellTabBar: View {
     /// The badge a destination should show. Zero shows none.
     let badgeCount: (ShellSection) -> Int
 
+    /// The selection capsule is tinted with the resolved theme accent, so
+    /// the bar follows the theme — and the Storefront look — with no
+    /// per-screen styling.
+    @Environment(\.appTheme) private var appTheme
+
     var body: some View {
-        HStack(alignment: .center, spacing: 0) {
+        HStack(alignment: .center, spacing: ZSpacing.xxs) {
             ForEach(tabs) { section in
                 item(for: section)
             }
         }
-        .padding(.top, ZSpacing.xs)
+        .padding(.horizontal, ZSpacing.xs)
+        .padding(.vertical, ZSpacing.xs)
+        .modifier(ShellBarBackground())
+        .padding(.horizontal, ZSpacing.sm)
         .padding(.bottom, ZSpacing.xxs)
-        .background(.bar, ignoresSafeAreaEdges: .bottom)
-        .overlay(alignment: .top) {
-            Divider()
-        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Sections")
     }
@@ -53,7 +61,7 @@ struct ShellTabBar: View {
         return Button {
             guard !isSelected else { return }
             ZHaptics.tap()
-            selection = section
+            withAnimation(ZMotion.fast, { selection = section })
         } label: {
             VStack(spacing: ZSpacing.xxs) {
                 ZStack(alignment: .topTrailing) {
@@ -78,12 +86,45 @@ struct ShellTabBar: View {
             }
             .frame(maxWidth: .infinity)
             .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-            .contentShape(Rectangle())
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(section.title)
         .accessibilityValue(badge > 0 ? "\(badge) active" : "")
         .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
+    }
+}
+
+/// The bar's own background, one decision for three states: system glass on
+/// iOS 26, material glass before it, and the solid classic bar otherwise.
+private struct ShellBarBackground: ViewModifier {
+    @Environment(\.appTheme) private var appTheme
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *), appTheme.liquidGlass {
+            content.glassEffect(.regular, in: Capsule())
+        } else if appTheme.liquidGlass {
+            content
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay {
+                    Capsule()
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.35), Color.white.opacity(0.08)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
+                }
+                .zynSoftShadow()
+        } else {
+            content
+                .background(.bar, in: Rectangle())
+                .overlay(alignment: .top) {
+                    Divider()
+                }
+        }
     }
 }
 

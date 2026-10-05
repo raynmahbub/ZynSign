@@ -172,30 +172,38 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
+    /// The Update surfaces Settings can raise.
+    ///
+    /// Each is presented **as a sheet that owns a fresh `NavigationStack`**,
+    /// never pushed into the Settings stack. These screens arrive from the
+    /// Store area already carrying their own `NavigationLink`s, a `.searchable`
+    /// of their own, and `navigationDestination` targets; a second search bar
+    /// or a second destination registered in the host's stack is a runtime
+    /// crash in the making, and a nested container is the crash this shell has
+    /// chased for three releases. A sheet is a new presentation context, so
+    /// whatever a destination does inside it — stack, split view, search —
+    /// belongs to its own context and cannot nest into the host's.
+    private enum UpdatesDestination: String, Identifiable {
+        case review, saved, sources, downloads, feeds, firmware
+        var id: String { rawValue }
+    }
+
+    @State private var updatesDestination: UpdatesDestination?
+
     private var updatesCategory: some View {
         List {
             Section {
                 Text("Updates are reviewed before download. ZynSign does not silently switch repositories, import packages, sign them, or install them.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
-            if let store = environment.storeBrowser {
+            if environment.storeBrowser != nil {
                 Section("Repositories & Updates") {
-                    NavigationLink { StoreUpdatesView(model: store) } label: {
-                        ZSettingsLabel(title: "Updates", subtitle: "Compare repository releases with your library.", symbol: "arrow.triangle.2.circlepath")
-                    }
-                    NavigationLink { StoreSavedAppsView(model: store) } label: {
-                        ZSettingsLabel(title: "Saved Apps", subtitle: "Review apps saved for later; saving never downloads.", symbol: "bookmark")
-                    }
-                    NavigationLink { StoreSourcesView(model: store) } label: {
-                        ZSettingsLabel(title: "Repositories", subtitle: "Add, validate, refresh, and remove source URLs.", symbol: "globe")
-                    }
-                    NavigationLink { DownloadsView(embedsNavigationStack: false) } label: {
-                        ZSettingsLabel(title: "Downloads", subtitle: "Manage transfer jobs and review downloaded packages.", symbol: "arrow.down.circle")
-                    }
-                    if let feeds = environment.releaseFeeds {
-                        NavigationLink { ReleaseFeedsView(provider: feeds, library: environment.library) } label: {
-                            ZSettingsLabel(title: "Release Feeds", subtitle: "Follow repository releases and track app updates.", symbol: "shippingbox")
-                        }
+                    updatesRow(id: .review, title: "Updates", subtitle: "Compare repository releases with your library.", symbol: "arrow.triangle.2.circlepath")
+                    updatesRow(id: .saved, title: "Saved Apps", subtitle: "Review apps saved for later; saving never downloads.", symbol: "bookmark")
+                    updatesRow(id: .sources, title: "Repositories", subtitle: "Add, validate, refresh, and remove source URLs.", symbol: "globe")
+                    updatesRow(id: .downloads, title: "Downloads", subtitle: "Manage transfer jobs and review downloaded packages.", symbol: "arrow.down.circle")
+                    if environment.releaseFeeds != nil {
+                        updatesRow(id: .feeds, title: "Release Feeds", subtitle: "Follow repository releases and track app updates.", symbol: "shippingbox")
                     }
                 }
             } else {
@@ -204,19 +212,54 @@ struct SettingsView: View {
                 }
             }
             Section("Apple Firmware") {
-                NavigationLink {
-                    IPSWBrowserView(embedsNavigationStack: false)
-                } label: {
-                    ZSettingsLabel(
-                        title: "IPSW Browser",
-                        subtitle: "Browse device firmware and current signing status.",
-                        symbol: "iphone.gen3"
-                    )
-                }
+                updatesRow(id: .firmware, title: "IPSW Browser", subtitle: "Browse device firmware and current signing status.", symbol: "iphone.gen3")
             }
         }
         .navigationTitle("Updates")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $updatesDestination) { destination in
+            NavigationStack {
+                updatesScreen(destination)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { updatesDestination = nil }
+                        }
+                    }
+            }
+        }
+    }
+
+    /// One Updates row: tapping raises the sheet; the screen itself is built
+    /// by `updatesScreen` inside that sheet's own stack. The chevron is drawn
+    /// because a Button, unlike the `NavigationLink` it replaces, shows none.
+    private func updatesRow(id: UpdatesDestination, title: String, subtitle: String, symbol: String) -> some View {
+        Button { updatesDestination = id } label: {
+            HStack(spacing: ZSpacing.xs) {
+                ZSettingsLabel(title: title, subtitle: subtitle, symbol: symbol)
+                Spacer(minLength: ZSpacing.xs)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The screen behind an Updates row, rendered inside its sheet's own
+    /// stack. The switch is exhaustive by construction: adding a row and
+    /// forgetting its screen cannot compile.
+    @ViewBuilder
+    private func updatesScreen(_ destination: UpdatesDestination) -> some View {
+        switch destination {
+        case .review: if let store = environment.storeBrowser { StoreUpdatesView(model: store) } else { Text("Repositories are not configured in this build.") }
+        case .saved: if let store = environment.storeBrowser { StoreSavedAppsView(model: store) } else { Text("Repositories are not configured in this build.") }
+        case .sources: if let store = environment.storeBrowser { StoreSourcesView(model: store) } else { Text("Repositories are not configured in this build.") }
+        case .downloads: DownloadsView(embedsNavigationStack: false)
+        case .feeds: if let feeds = environment.releaseFeeds { ReleaseFeedsView(provider: feeds, library: environment.library) } else { Text("Release feeds are not configured in this build.") }
+        case .firmware: IPSWBrowserView(embedsNavigationStack: false)
+        }
     }
 
     private var generalCategory: some View {

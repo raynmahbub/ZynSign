@@ -98,7 +98,7 @@ struct GreetingCard: View {
     }
 }
 
-/// A prominent single action — an indigo symbol well, a title, a hint.
+/// A prominent single action — a theme-gradient symbol well, a title, a hint.
 /// The card is a label; wrap it in the `Button` or `NavigationLink` that
 /// owns the navigation so the hit target is the whole row.
 struct QuickActionCard: View {
@@ -106,13 +106,17 @@ struct QuickActionCard: View {
     let subtitle: String
     let symbol: String
 
+    /// The well paints with the resolved theme's gradient, so the storefront
+    /// gradient carries quick actions too; every older theme keeps its own.
+    @Environment(\.appTheme) private var appTheme
+
     var body: some View {
         HStack(spacing: ZSpacing.md) {
             Image(systemName: symbol)
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(.white)
                 .frame(width: 44, height: 44)
-                .background(LinearGradient(colors: [ZynBrand.indigoTop, ZynBrand.indigoBottom], startPoint: .top, endPoint: .bottom))
+                .background(appTheme.heroGradient)
                 .clipShape(RoundedRectangle(cornerRadius: ZRadius.card, style: .continuous))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {

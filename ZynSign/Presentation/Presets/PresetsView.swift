@@ -14,7 +14,11 @@ struct PresetsView: View {
 
     var body: some View {
         Group {
-            if sizeClass == .regular {
+            if embedsNavigationStack, sizeClass == .regular {
+                // The split container is a navigation container exactly like
+                // a stack: legal at a tab root, a runtime crash inside a view
+                // the host has pushed. The flag gates both containers, or the
+                // opt-out the host passes is a lie on the wide size class.
                 NavigationSplitView {
                     library
                 } detail: {
