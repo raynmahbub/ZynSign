@@ -287,17 +287,17 @@ human() {
 
 if [[ "${IPA_SIGNED}" == "true" ]]; then
     STATUS_LINE="Signed ad-hoc (TEAM_ID) — installable on provisioned devices"
-    NEXT_LINE="Run the device matrix in \\`docs/releases/private-testing.md\\`, then tag \\`${TAG}\\`"
+    NEXT_LINE="Run the device matrix in \`docs/releases/private-testing.md\`, then tag \`${TAG}\`"
 else
     STATUS_LINE="Unsigned by design — recipients sign with their own Apple certificate"
-    NEXT_LINE="Share the artifact; \\`SIGNING.md\\` inside it says exactly how to sign and install"
+    NEXT_LINE="Share the artifact; \`SIGNING.md\` inside it says exactly how to sign and install"
 fi
 crystal_card_begin "${CRYSTAL_BUILD}" "Private Test Build" "Never a tag, never a release" "Success"
-crystal_card_row "Candidate" "\\`${TAG}\\` (${SHORT_SHA})"
+crystal_card_row "Candidate" "\`${TAG}\` (${SHORT_SHA})"
 crystal_card_row "Configuration" "${CONFIGURATION}"
-crystal_card_row "Artifact" "\\`${IPA_NAME}\\`"
+crystal_card_row "Artifact" "\`${IPA_NAME}\`"
 crystal_card_row "Size" "$(human "$(bytes "${IPA}")")"
-crystal_card_row "SHA-256" "\\`${CHECKSUM:0:32}…\\`"
+crystal_card_row "SHA-256" "\`${CHECKSUM:0:32}…\`"
 crystal_card_row "Signing" "${STATUS_LINE}"
 crystal_card_row "Next" "${NEXT_LINE}"
 crystal_card_end
