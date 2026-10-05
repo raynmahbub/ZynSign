@@ -200,7 +200,7 @@ struct IPABundleMetadataInspection {
 
     private func resolvedExecutablePath(
         _ executableName: String?,
-        within bundlePath: BundlePath,
+        within bundlePath: ArchivePath,
         kindsByPath: [ArchivePath: ArchiveEntryKind],
         findings: inout [ValidationFinding]
     ) -> ArchivePath? {
