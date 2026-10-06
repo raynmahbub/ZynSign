@@ -12,7 +12,7 @@ there by design, as it does everywhere without
 
 | Job | Runner | Steps |
 | --- | --- | --- |
-| Repository hygiene | `ubuntu-24.04` | Refuse private-key material anywhere; refuse certificate text outside `Tests/`; refuse generated artifacts and machine state (`DerivedData/`, `xcuserdata/`, `*.xcresult`, `*.xcuserstate`, `.DS_Store`); check the release train is consistent; check the release metadata derivation (`release_meta.sh --self-test`); run the host vector scripts and the external validation harness self-test; **refuse a crash surface that disagrees with its baseline; refuse an accessibility finding in the sources; refuse a regression catalogue that names a test which does not exist; build and upload the hardening report** |
+| Repository hygiene | `ubuntu-24.04` | Refuse private-key material anywhere; refuse certificate text outside `Tests/`; refuse generated artifacts and machine state (`DerivedData/`, `xcuserdata/`, `*.xcresult`, `*.xcuserstate`, `.DS_Store`); check the release train is consistent; check the release metadata derivation (`release_meta.sh --self-test`) and the release verdict (`release_verdict.sh --self-test`); run the host vector scripts and the external validation harness self-test; **refuse a crash surface that disagrees with its baseline; refuse an accessibility finding in the sources; refuse a regression catalogue that names a test which does not exist; build and upload the hardening report** |
 | Build and test (Xcode) | `macos-15` | Select the newest stable Xcode, record the toolchain versions, restore the Swift Package cache, then run `Scripts/ci/build.sh`: resolve packages, clean Derived Data, build every target, build the test targets, run the unit tests on a resolved iPhone simulator, annotate each failing case from the result bundle, and upload `build/logs/` on failure. The manual `run_unit_tests: false` switch turns the run into a compile-only gate |
 | Lint and format | `macos-15` | One Homebrew install of SwiftLint and SwiftFormat, then `Scripts/ci/lint.sh` (error-severity findings block) and `Scripts/ci/format.sh check` (the pinned `.swiftformat` rule set, repaired with `Scripts/ci/format.sh apply`) |
 | External validation (Apple tooling) | `macos-15` | Run `ExternalValidationExportTests` with `TEST_RUNNER_ZYNSIGN_EXPORT_DIR` set, judge the exported artifacts with `Tests/Host/external_validation.py run` (`codesign`, `otool`, `ditto`, `unzip`, OpenSSL, ad hoc reference signing), publish the report to the job summary, upload the report and the exports as the `external-validation` artifact, and emit one notice per artifact |
@@ -105,6 +105,7 @@ python3 Tests/Host/external_validation.py self-test
 
 python3 Scripts/release_train.py check
 Scripts/ci/release_meta.sh --self-test
+Scripts/ci/release_verdict.sh --self-test
 python3 Scripts/audit_crash_surface.py
 python3 Scripts/audit_accessibility.py --strict
 python3 Scripts/audit_navigation_stack.py
@@ -158,6 +159,7 @@ Scripts behind the gates:
 | `private_ipa.sh` | the device archive and its IPA: signed ad-hoc export with `TEAM_ID`, unsigned Payload package without — always an IPA |
 | `release_meta.sh` | version derivation; fails a non-current train stop in the first job |
 | `release_validate.sh` | train stage, `MARKETING_VERSION`, build number, changelog, notes |
+| `release_verdict.sh` | the final release card: names the job that stopped a run and tells a gate failure from a runner GitHub never acquired (re-run), never calls a failed dry run a rehearsal |
 
 The architecture guard protects the layered contract documented in
 [../architecture/architecture.md](../architecture/architecture.md);

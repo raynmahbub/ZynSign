@@ -176,6 +176,12 @@ jobs:
       - name: Check the release metadata derivation
         run: Scripts/ci/release_meta.sh --self-test
 
+      # The release verdict is decided by this script too; the self-test
+      # replays every ending — including a gate cancelled because GitHub
+      # never acquired a runner — so the card cannot blame the wrong job.
+      - name: Check the release verdict
+        run: Scripts/ci/release_verdict.sh --self-test
+
       - name: Test release changelog tooling
         run: python3 -m unittest discover -s Tests/Host -p 'test_*.py' -v
 
