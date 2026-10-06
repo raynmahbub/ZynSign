@@ -32,7 +32,9 @@
 #                   branch and open/update a reviewable PR; when the
 #                   repository does not let Actions open PRs the branch
 #                   stays staged and the job warns instead of failing
-#   6. verdict    — one summary card: published, rehearsed, or stopped and why
+#   6. verdict    — one summary card: published, rehearsed, or stopped —
+#                   naming the job that stopped it, and whether that was a
+#                   real gate failure or a runner GitHub never acquired
 #
 # If any gate fails, the release stops automatically. The workflow is
 # idempotent: re-running a tag repairs missing pieces without duplicating.
@@ -435,11 +437,18 @@ jobs:
   # A dry run stops here with a rehearsal card; a real run reports the
   # published release. Either way the last thing in the log is a summary, not
   # a wall of xcodebuild output.
+  #
+  # Every job feeds its result in, not just the last three: when GitHub
+  # cannot acquire a runner for one of the ubuntu gates, that gate ends
+  # `cancelled` and everything after it is `skipped` — the verdict has to
+  # name the gate that actually stopped the run, say that the commit is not
+  # at fault, and point at "Re-run failed jobs". Scripts/ci/release_verdict.sh
+  # decides all of that; its --self-test runs in 01-build.yml.
   verdict:
     name: Release verdict
     if: always()
     runs-on: ubuntu-24.04
-    needs: [meta, assets, publish, sync-changelog]
+    needs: [meta, quality-gate, secret-history, build-and-test, assets, publish, sync-changelog]
     timeout-minutes: 5
     steps:
       - name: Check out the repository
@@ -451,57 +460,13 @@ jobs:
           VERSION: ${{ needs.meta.outputs.version }}
           CHANNEL: ${{ needs.meta.outputs.channel }}
           DRY_RUN: ${{ inputs.dry_run }}
+          META_RESULT: ${{ needs.meta.result }}
+          QUALITY_GATE_RESULT: ${{ needs.quality-gate.result }}
+          SECRET_HISTORY_RESULT: ${{ needs.secret-history.result }}
+          BUILD_AND_TEST_RESULT: ${{ needs.build-and-test.result }}
           ASSETS_RESULT: ${{ needs.assets.result }}
           PUBLISH_RESULT: ${{ needs.publish.result }}
           CHANGELOG_RESULT: ${{ needs.sync-changelog.result }}
           CHANGELOG_URL: ${{ needs.sync-changelog.outputs.pull-request-url }}
           CHANGELOG_OPERATION: ${{ needs.sync-changelog.outputs.pull-request-operation }}
-        run: |
-          set -eu
-          source Scripts/ci/crystal.sh
-          if [ "${DRY_RUN}" = "true" ]; then
-            crystal_card_begin "${CRYSTAL_RELEASE}" "Rehearsal Complete" "Every gate ran; nothing was published" "Success"
-            crystal_card_row "Candidate" "\`${TAG}\`"
-            crystal_card_row "Channel" "${CHANNEL}"
-            crystal_card_row "Assets" "${ASSETS_RESULT} — see the \`release-assets\` artifact"
-            crystal_card_row "Published" "No — dry run"
-            crystal_card_row "Next" "Tag when ready: \`git tag -a ${TAG} -m \"ZynSign ${VERSION}\" && git push origin ${TAG}\`"
-            crystal_card_end
-            exit 0
-          fi
-          if [ "${PUBLISH_RESULT}" = "success" ] && [ "${CHANGELOG_RESULT}" = "success" ]; then
-            if [ "${CHANGELOG_OPERATION}" = "branch-staged" ]; then
-              crystal_card_begin "${CRYSTAL_RELEASE}" "Release Published · Changelog Staged" "Release is live; the changelog is staged but this repository does not let GitHub Actions open PRs" "Success"
-              crystal_card_row "Release" "\`${TAG}\`"
-              crystal_card_row "Channel" "${CHANNEL}"
-              crystal_card_row "Assets" "${ASSETS_RESULT}"
-              crystal_card_row "Changelog" "staged on \`automation/release-changelog-${VERSION}\`"
-              crystal_card_row "Next" "Allow Actions to create pull requests (or add \`RELEASE_CHANGELOG_TOKEN\`), then re-run the sync job — or open the PR from the staged branch"
-              crystal_card_end
-              exit 0
-            fi
-            crystal_card_begin "${CRYSTAL_RELEASE}" "Release Published" "Release assets and changelog sync completed" "Success"
-            crystal_card_row "Release" "\`${TAG}\`"
-            crystal_card_row "Channel" "${CHANNEL}"
-            crystal_card_row "Assets" "${ASSETS_RESULT}"
-            if [ -n "${CHANGELOG_URL}" ]; then
-              crystal_card_row "Changelog PR" "${CHANGELOG_OPERATION} — ${CHANGELOG_URL}"
-            else
-              crystal_card_row "Changelog" "No documentation changes were needed"
-            fi
-            crystal_card_end
-            exit 0
-          fi
-          if [ "${PUBLISH_RESULT}" = "success" ]; then
-            crystal_card_begin "${CRYSTAL_RELEASE}" "Release Published · Changelog Sync Needs Attention" "Release is live; its changelog PR was not created successfully" "Failure"
-            crystal_card_row "Release" "\`${TAG}\` — published"
-            crystal_card_row "Changelog PR" "${CHANGELOG_RESULT} — inspect the sync-changelog job"
-            crystal_card_end
-            exit 1
-          fi
-          crystal_failure_card "${CRYSTAL_RELEASE}" "Release Stopped" \
-            "$([ "${ASSETS_RESULT}" != "success" ] && echo Assets || echo Publish)" \
-            "A gate failed — nothing was published, or the release is incomplete" \
-            "${GITHUB_SHA:0:7}" \
-            "the failing job's log and the \`release-assets\` / \`release-build-logs\` artifacts"
-          exit 1
+        run: Scripts/ci/release_verdict.sh

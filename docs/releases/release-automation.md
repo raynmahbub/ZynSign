@@ -19,6 +19,8 @@ meta → quality gate → build/archive → release assets + changelog artifact
 
 If publication succeeds but the follow-up changelog PR job fails, the GitHub Release is already live; the final verdict reports that partial outcome and the sync job must be rerun or repaired. A rerun does not overwrite curated release notes or discard newer `[Unreleased]` entries.
 
+The verdict itself is decided by `Scripts/ci/release_verdict.sh`, which reads every job's result in pipeline order and names the first one that did not succeed. A gate that ends `cancelled` — GitHub's conclusion when a hosted runner was never acquired ("The job was not acquired by Runner of type hosted even after multiple attempts") or when the run was cancelled by hand — is reported as an infrastructure stop with a *Re-run failed jobs* hint, not as a fault in the commit; a gate that ends `failure` points at that job's log and artifacts. A dry run is only a complete rehearsal when every gate passed.
+
 ## Gates
 
 Before publish, the workflow runs:
