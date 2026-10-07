@@ -275,17 +275,24 @@ extension ImportFailure {
     /// The archive holds something recognisable that ZynSign does not
     /// import, with what to do instead.
     static func unsupportedLayout(_ layout: PackageContainerClassification.UnsupportedLayout) -> ImportFailure {
+        let title: String
         let message: String
         switch layout {
         case .xcodeArchive:
+            title = "Unsupported Layout"
             message = "This is an Xcode archive. Export it from Xcode as an .ipa, then import the .ipa."
         case .bareApplicationBundle:
+            title = "Unsupported Layout"
             message = "This archive holds an .app bundle rather than an .ipa package. Package the app as an .ipa, then import it."
         case .nestedArchives:
+            title = "Unsupported Layout"
             message = "This archive only contains other archives. ZynSign doesn't open archives inside archives — extract the inner archive first."
+        case .certificateMaterial:
+            title = "Certificates, Not Packages"
+            message = "This archive holds signing certificates (.p12 / .mobileprovision), not packages. Extract it in Files, then import each file from Certificates & Profiles."
         }
         return ImportFailure(
-            title: "Unsupported Layout",
+            title: title,
             message: message,
             recovery: .chooseAnotherFile,
             isRetryable: false,

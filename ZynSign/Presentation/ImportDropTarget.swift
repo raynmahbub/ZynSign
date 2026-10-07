@@ -20,11 +20,14 @@ enum ImportDropTargetStyle {
 extension View {
 
     /// Makes the view accept files dropped from other apps (on iPad) and
-    /// hand them to the Import Hub, which it then opens.
+    /// hand them to the flow that owns them: packages and anything else to
+    /// the Import Hub, which then opens, and signing material — a `.p12`
+    /// identity or a `.mobileprovision` profile — to Certificates &
+    /// Profiles through the shell.
     ///
     /// While files are dragged over the view it highlights and previews how
     /// many would be imported. Dropped files are copied into ZynSign's own
-    /// inbox — the originals are only read — and received by the hub like
+    /// inbox — the originals are only read — and received by each flow like
     /// files from any other entry point.
     func importDropTarget(
         _ style: ImportDropTargetStyle = .overlay,
@@ -44,6 +47,7 @@ private struct ImportDropTargetModifier: ViewModifier {
 
     @Environment(\.applicationEnvironment) private var environment
     @Environment(\.importPresentation) private var importPresentation
+    @Environment(\.signingMaterialsPresentation) private var signingMaterialsPresentation
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isTargeted = false
     @State private var incomingCount = 0
@@ -100,14 +104,89 @@ private struct ImportDropTargetModifier: ViewModifier {
             return
         }
         hub.beginReceivingDrop(count: providers.count)
-        importPresentation.present()
+        // When every provider names signing material, the drop belongs to
+        // Certificates & Profiles and the hub must not rise first — an empty
+        // Import Hub over a certificate drop would have to be dismissed
+        // before the sheet it waits behind could appear. Any other drop asks
+        // for the hub immediately, so a large package shows "Receiving…"
+        // while its inbox copy is still being written.
+        if !Self.isSigningMaterialDrop(providers) {
+            importPresentation.present()
+        }
         Task { @MainActor in
             let reception = await receiver.receive(providers)
             hub.endReceivingDrop(count: providers.count)
-            hub.receive(reception.urls, origin: .dragAndDrop)
-            hub.recordUnreceivedDrops(reception.failedCount)
+            route(reception)
         }
     }
+
+    /// Hands each received file to the flow that owns its kind.
+    ///
+    /// Packages and anything the policy does not name stay the Import Hub's
+    /// business exactly as before. Signing material — decided by
+    /// `SigningMaterialFileFormat`, the same policy Open In routes with —
+    /// goes to Certificates & Profiles: the first identity and the first
+    /// profile of a drop open their own import flows, and a second file of
+    /// the same kind falls back to the hub, whose refusal says where
+    /// certificates are added. Where no shell installed a signing-material
+    /// presentation (a preview, a test), every file stays the hub's, so a
+    /// drop is always answered rather than dropped in silence.
+    private func route(_ reception: DroppedFileReception) {
+        let hub = environment.importHub
+        var identity: URL?
+        var profile: URL?
+        var hubBound: [URL] = []
+        for url in reception.urls {
+            guard signingMaterialsPresentation.isAvailable,
+                  let kind = SigningMaterialFileFormat.kind(for: url) else {
+                hubBound.append(url)
+                continue
+            }
+            switch kind {
+            case .identity where identity == nil:
+                identity = url
+            case .profile where profile == nil:
+                profile = url
+            default:
+                hubBound.append(url)
+            }
+        }
+        if !hubBound.isEmpty || reception.failedCount > 0 {
+            importPresentation.present()
+            hub.receive(hubBound, origin: .dragAndDrop)
+            hub.recordUnreceivedDrops(reception.failedCount)
+        }
+        if let identity {
+            signingMaterialsPresentation.importIdentity(identity)
+        }
+        if let profile {
+            signingMaterialsPresentation.importProfile(profile)
+        }
+    }
+
+    /// Whether every provider in the drop names signing-material types —
+    /// the common shape of a `.p12` or `.mobileprovision` dragged straight
+    /// from Files. The identifiers mirror ZynSign's own type declarations
+    /// in `Info.plist`; a provider that names nothing but `public.file-url`
+    /// simply fails the check, and the drop opens the hub as it always did.
+    private static func isSigningMaterialDrop(_ providers: [NSItemProvider]) -> Bool {
+        let materialIdentifiers = signingMaterialTypeIdentifiers
+        return providers.allSatisfy { provider in
+            provider.registeredTypeIdentifiers.contains { materialIdentifiers.contains($0) }
+        }
+    }
+
+    private static let signingMaterialTypeIdentifiers: Set<String> = {
+        var identifiers = Set(
+            SigningMaterialFileFormat.acceptedPathExtensions.compactMap { ext in
+                UTType(filenameExtension: ext)?.identifier
+            }
+        )
+        identifiers.insert("com.rsa.pkcs-12")
+        identifiers.insert("com.microsoft.pkcs12")
+        identifiers.insert("com.apple.mobileprovision")
+        return identifiers
+    }()
 }
 
 /// The drop delegate behind every import target: accepts file data, counts
@@ -247,12 +326,12 @@ struct ImportDropZone: View {
         .importDropTarget(.none, isTargeted: $isTargeted, incomingCount: $incomingCount)
         .animation(ZMotion.fast, value: isTargeted)
         .accessibilityLabel("Choose files to import")
-        .accessibilityHint("Opens the file picker. On iPad you can also drop .ipa and .zip files here.")
+        .accessibilityHint("Opens the file picker. On iPad you can also drop .ipa, .tipa, and .zip files here.")
     }
 
     private var caption: String {
         horizontalSizeClass == .regular
-            ? "Drop .ipa or .zip files here, or choose them from Files. Select as many as you like."
-            : "Pick one or more .ipa or .zip files. You can also share or open them in ZynSign from other apps."
+            ? "Drop .ipa, .tipa, or .zip files here, or choose them from Files. Select as many as you like."
+            : "Pick one or more .ipa or .tipa files. You can also share or open them in ZynSign from other apps."
     }
 }

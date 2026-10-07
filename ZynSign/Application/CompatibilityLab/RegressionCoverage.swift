@@ -83,7 +83,7 @@ enum RegressionCoverageCatalog {
             testSuites: [
                 "CertificateManagerModelTests", "SecureIdentityStoreTests", "SigningIdentityStorageBoundaryTests",
                 "IdentityKeychainErrorTests", "CertificateInspectionTests", "KeychainIdentityIntegrationTests",
-                "SigningKeyProtectionRuleTests", "ApplePKCS12ImporterTests"
+                "SigningKeyProtectionRuleTests", "ApplePKCS12ImporterTests", "SigningMaterialFileFormatTests"
             ],
             probe: .identityErrorTaxonomy
         ),
@@ -261,20 +261,31 @@ struct RegressionSuite: CompatibilitySuite {
 
     // MARK: Probes
 
-    /// Which files import accepts, and which it refuses.
+    /// Which files import accepts, and which it refuses — plus where
+    /// signing material is routed: Certificates & Profiles, never the hub.
     private static func importRules() -> (CompatibilityStatus, [String]) {
         let accepted = ["App.ipa", "App.tipa", "Apps.zip"]
         let refused = ["App.dmg", "App.txt", "App.ipa.bak", "profile.mobileprovision", "cert.p12"]
         func url(_ name: String) -> URL { URL(fileURLWithPath: "/lab/\(name)") }
         let wrongAccepted = accepted.filter { !IPAFileFormat.acceptsForImport(url($0)) }
         let wrongRefused = refused.filter { IPAFileFormat.acceptsForImport(url($0)) }
+        let identities = ["cert.p12", "cert.pfx"].filter { SigningMaterialFileFormat.kind(for: url($0)) != .identity }
+        let profiles = ["profile.mobileprovision", "profile.provisionprofile"].filter {
+            SigningMaterialFileFormat.kind(for: url($0)) != .profile
+        }
+        let wronglyRouted = accepted.filter { SigningMaterialFileFormat.kind(for: url($0)) != nil }
+        let passed = wrongAccepted.isEmpty && wrongRefused.isEmpty
+            && identities.isEmpty && profiles.isEmpty && wronglyRouted.isEmpty
         return (
-            wrongAccepted.isEmpty && wrongRefused.isEmpty ? .passed : .failed,
+            passed ? .passed : .failed,
             [
                 "accepted: \(accepted.joined(separator: ", "))",
                 "refused: \(refused.joined(separator: ", "))",
                 "wrongly accepted: \(wrongAccepted.joined(separator: ", ").isEmpty ? "none" : wrongAccepted.joined(separator: ", "))",
-                "wrongly refused: \(wrongRefused.isEmpty ? "none" : wrongRefused.joined(separator: ", "))"
+                "wrongly refused: \(wrongRefused.isEmpty ? "none" : wrongRefused.joined(separator: ", "))",
+                "identities to Certificates: \(identities.isEmpty ? "cert.p12, cert.pfx" : "misrouted: " + identities.joined(separator: ", "))",
+                "profiles to Profiles: \(profiles.isEmpty ? "profile.mobileprovision, profile.provisionprofile" : "misrouted: " + profiles.joined(separator: ", "))",
+                "packages to the hub: \(wronglyRouted.isEmpty ? accepted.joined(separator: ", ") : "misrouted: " + wronglyRouted.joined(separator: ", "))"
             ]
         )
     }

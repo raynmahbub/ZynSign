@@ -256,6 +256,21 @@ final class ImportWorkflowTests: XCTestCase {
         XCTAssertEqual(failure, ImportFailure.unsupportedLayout(.xcodeArchive))
     }
 
+    func testAnArchiveOfCertificateMaterialExplainsWhereCertificatesGo() async throws {
+        // The certificate bundle people actually receive: a .p12 and a
+        // .mobileprovision zipped together. The hub refuses it — it imports
+        // packages — but the refusal names Certificates & Profiles instead
+        // of claiming the archive holds nothing.
+        let source = writeSource("Certs.zip", Data(ZipFixtureBuilder.archive([
+            ZipFixtureBuilder.Entry(name: "Signer.p12", content: [0x30]),
+            ZipFixtureBuilder.Entry(name: "Profile.mobileprovision", content: [0x30]),
+        ])))
+        let failure = try await examineFailure(source)
+        XCTAssertEqual(failure, ImportFailure.unsupportedLayout(.certificateMaterial))
+        XCTAssertEqual(failure?.title, "Certificates, Not Packages")
+        XCTAssertEqual(failure?.recovery, .chooseAnotherFile)
+    }
+
     func testAnArchiveEntryAboveTheCeilingIsRefusedBeforeExtraction() async throws {
         let oversized = NestedPackageCandidate(
             path: makePath("Huge.ipa"),

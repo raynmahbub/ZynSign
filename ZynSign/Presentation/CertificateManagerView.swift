@@ -672,6 +672,15 @@ struct CertificateManagerView: View {
             defer {
                 isReadingSelectedFile = false
                 if accessing { url.stopAccessingSecurityScopedResource() }
+                // Once this read has settled, the bytes are in memory or
+                // refused with a message — never needed again. A copy
+                // ZynSign parked for a drop or an Open In hand-off is
+                // therefore released now, while a path the user chose in
+                // Files is left alone: `release` deletes only what ZynSign
+                // itself parked, so nothing a person owns can be removed
+                // here. This is also what stops hand-off copies from
+                // accumulating in `Documents/Inbox`.
+                env.droppedFiles?.release(url)
             }
             do {
                 let data = try await Task.detached(priority: .userInitiated) {

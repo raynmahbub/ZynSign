@@ -69,6 +69,12 @@ enum PackageContainerClassification: Equatable, Sendable {
         /// ZIP archives nested inside the archive, which ZynSign does not
         /// open recursively.
         case nestedArchives
+        /// A bundle of certificate material — `.p12` / `.pfx` identities
+        /// and `.mobileprovision` profiles — the way certificates are
+        /// commonly distributed. Certificates & Profiles imports those
+        /// files directly, so the archive is explained rather than
+        /// reported as simply holding nothing importable.
+        case certificateMaterial
     }
 
     /// Why a container was refused outright.
@@ -158,6 +164,9 @@ enum PackageContainerClassification: Equatable, Sendable {
         if named.contains(where: { $0.path.components.contains(where: IPALayout.namesApplicationBundle) }) {
             return .unsupportedLayout(.bareApplicationBundle)
         }
+        if named.contains(where: { namesSigningMaterial($0.path) }) {
+            return .unsupportedLayout(.certificateMaterial)
+        }
         if named.contains(where: { !isMetadataNoise($0.path) && $0.path.lastComponent.lowercased().hasSuffix(".zip") }) {
             return .unsupportedLayout(.nestedArchives)
         }
@@ -175,6 +184,18 @@ enum PackageContainerClassification: Equatable, Sendable {
         guard let dot = name.lastIndex(of: "."), dot != name.startIndex else { return false }
         let pathExtension = name[name.index(after: dot)...].lowercased()
         return packagePathExtensions.contains(pathExtension)
+    }
+
+    /// Whether a path names certificate material — a `.p12` / `.pfx`
+    /// identity or a `.mobileprovision` profile — that Certificates &
+    /// Profiles imports directly. Resource-fork shadows and hidden files
+    /// are never it: `__MACOSX/._Signer.p12` is noise, not a certificate.
+    static func namesSigningMaterial(_ path: ArchivePath) -> Bool {
+        guard !isMetadataNoise(path) else { return false }
+        let name = path.lastComponent
+        guard let dot = name.lastIndex(of: "."), dot != name.startIndex else { return false }
+        let pathExtension = name[name.index(after: dot)...].lowercased()
+        return SigningMaterialFileFormat.kind(forPathExtension: pathExtension) != nil
     }
 
     private static func isMetadataNoise(_ path: ArchivePath) -> Bool {

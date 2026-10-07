@@ -111,6 +111,47 @@ final class PackageContainerClassificationTests: XCTestCase {
         )
     }
 
+    func testAnArchiveOfCertificateMaterialPointsAtCertificates() {
+        // The common certificate bundle: a .p12 and its profile, zipped
+        // together by whoever issued them. It is not "nothing importable" —
+        // Certificates & Profiles takes those files directly.
+        XCTAssertEqual(
+            PackageContainerClassification.classify([
+                makeEntry("certs/Signer.p12", uncompressedSize: 10),
+                makeEntry("certs/Distribution.mobileprovision", uncompressedSize: 20),
+            ]),
+            .unsupportedLayout(.certificateMaterial)
+        )
+        XCTAssertEqual(
+            PackageContainerClassification.classify([makeEntry("Credentials.pfx", uncompressedSize: 10)]),
+            .unsupportedLayout(.certificateMaterial)
+        )
+    }
+
+    func testCertificateFilesNeverMaskAPackageInTheSameArchive() {
+        // Packages win: an archive holding an .ipa is still importable, and
+        // the certificate file inside it is simply not offered.
+        let classification = PackageContainerClassification.classify([
+            makeEntry("Signer.p12", uncompressedSize: 10),
+            makeEntry("App.ipa", uncompressedSize: 20),
+        ])
+        guard case .packageCollection(let candidates) = classification else {
+            return XCTFail("Expected the package to be offered, got \(classification).")
+        }
+        XCTAssertEqual(candidates.map(\.path.rawValue), ["App.ipa"])
+    }
+
+    func testResourceForkCertificateShadowsAreNotSigningMaterial() {
+        XCTAssertEqual(
+            PackageContainerClassification.classify([makeEntry("__MACOSX/Signer.p12", uncompressedSize: 10)]),
+            .noPackages
+        )
+        XCTAssertEqual(
+            PackageContainerClassification.classify([makeEntry("._Signer.p12", uncompressedSize: 10)]),
+            .noPackages
+        )
+    }
+
     // MARK: - Analysis
 
     private let root = makePath("Payload/Example.app")
