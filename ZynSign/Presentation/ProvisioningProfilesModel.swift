@@ -183,20 +183,24 @@ final class ProvisioningProfilesModel: ObservableObject {
     private let selections: (any ProfileSelectionStore)?
     private let recordEvent: ((String, Bool) -> Void)?
 
-    /// The content types the profile picker offers: the `.mobileprovision`
-    /// extension type when the system can form it, with `.data` as the
-    /// supertype that keeps the file selectable regardless of how the
-    /// provider reports it. The importer re-checks the file either way.
+    /// The content types the profile picker offers: both provisioning-profile
+    /// filename extensions, their dynamic types, Apple's registered type when
+    /// available, and broad data/item supertypes for file providers that
+    /// report a generic type. The importer re-checks the file either way.
     static var importableTypes: [UTType] {
-        var types: [UTType] = []
-        if let mobileprovision = UTType(filenameExtension: "mobileprovision", conformingTo: .data) {
-            types.append(mobileprovision)
+        var types: Set<UTType> = [.data, .item]
+        for pathExtension in ["mobileprovision", "provisionprofile"] {
+            if let typed = UTType(filenameExtension: pathExtension, conformingTo: .data) {
+                types.insert(typed)
+            }
+            if let plain = UTType(filenameExtension: pathExtension) {
+                types.insert(plain)
+            }
         }
-        if let plain = UTType(filenameExtension: "mobileprovision") {
-            types.append(plain)
+        if let appleType = UTType("com.apple.mobileprovision") {
+            types.insert(appleType)
         }
-        types.append(.data)
-        return types
+        return Array(types)
     }
 
     init(

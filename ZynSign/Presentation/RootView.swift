@@ -202,7 +202,7 @@ struct RootView: View {
                 isAvailable: true
             )
         )
-        .sheet(isPresented: $isShowingImport) {
+        .sheet(isPresented: $isShowingImport, onDismiss: { presentPendingShellPresentation() }) {
             ImportHubView(
                 hub: environment.importHub,
                 request: $hubRequest,
@@ -215,7 +215,10 @@ struct RootView: View {
         }
         .sheet(
             isPresented: $isShowingSigningMaterials,
-            onDismiss: { signingMaterialsImportURL = nil }
+            onDismiss: {
+                signingMaterialsImportURL = nil
+                presentPendingShellPresentation()
+            }
         ) {
             NavigationStack {
                 SigningMaterialsView(
@@ -233,7 +236,7 @@ struct RootView: View {
                 isAvailable: SigningQueueAvailability.isAvailable
             )
         )
-        .sheet(isPresented: $isShowingSigningQueue) {
+        .sheet(isPresented: $isShowingSigningQueue, onDismiss: { presentPendingShellPresentation() }) {
             SigningQueueView(
                 queue: environment.signingQueue,
                 onOpenLibrary: {
@@ -243,7 +246,7 @@ struct RootView: View {
                 onDone: { isShowingSigningQueue = false }
             )
         }
-        .fullScreenCover(isPresented: $isShowingOnboarding) {
+        .fullScreenCover(isPresented: $isShowingOnboarding, onDismiss: { presentPendingShellPresentation() }) {
             ZOnboardingView(
                 isPresented: $isShowingOnboarding,
                 onComplete: {
@@ -324,12 +327,9 @@ struct RootView: View {
                 // Work the system paused while ZynSign was in the background
                 // continues now that the scene is active again.
                 environment.importHub.resume()
-                // A surface asked for while ZynSign was away opens now: the
-                // scene is active, so the presentation is no longer dropped.
-                if let pending = pendingShellPresentation {
-                    pendingShellPresentation = nil
-                    present(pending)
-                }
+                // A surface asked for while ZynSign was away opens only when
+                // its shell sheet is also free to present it.
+                presentPendingShellPresentation()
             case .inactive:
                 break
             @unknown default:
@@ -562,12 +562,10 @@ struct RootView: View {
         presentWhenActive(.importHub)
     }
 
-    /// Presents a shell surface now, or as soon as the scene is active.
-    ///
-    /// A presentation requested while another application's controller is
-    /// still on screen — the share sheet, the Files app handing ZynSign a
-    /// document — is dropped by UIKit with no error. Holding the request and
-    /// presenting on activation is what makes an Open In actually open.
+    /// Presents a shell surface now, or queues it until the scene and any
+    /// already-presented ZynSign sheet are ready. A presentation requested
+    /// while another application's controller is dismissing (the share sheet
+    /// or Files hand-off) is also held until UIKit reports the whole chain idle.
     private func presentWhenActive(_ surface: ShellPresentation) {
         guard scenePhase == .active else {
             // First request wins: it is the one the user acted on, and the
@@ -575,7 +573,60 @@ struct RootView: View {
             if pendingShellPresentation == nil { pendingShellPresentation = surface }
             return
         }
-        present(surface)
+
+        if isShowingSameSurface(as: surface) {
+            // A second Open In can update the URL/selection of the already
+            // visible signing-material screen without stacking another sheet.
+            present(surface)
+            return
+        }
+        guard !hasPresentedShellSurface else {
+            if pendingShellPresentation == nil { pendingShellPresentation = surface }
+            return
+        }
+
+        Task { @MainActor in
+            guard await PresentationSettle.waitForIdle(cap: .seconds(8)) else {
+                if pendingShellPresentation == nil { pendingShellPresentation = surface }
+                return
+            }
+            guard scenePhase == .active else {
+                if pendingShellPresentation == nil { pendingShellPresentation = surface }
+                return
+            }
+            if isShowingSameSurface(as: surface) {
+                present(surface)
+            } else if hasPresentedShellSurface {
+                if pendingShellPresentation == nil { pendingShellPresentation = surface }
+            } else {
+                present(surface)
+            }
+        }
+    }
+
+    /// A pending import is retried as soon as the shell sheet or onboarding
+    /// cover that was in the way reports dismissal.
+    private func presentPendingShellPresentation() {
+        guard scenePhase == .active,
+              !hasPresentedShellSurface,
+              let pending = pendingShellPresentation else { return }
+        pendingShellPresentation = nil
+        presentWhenActive(pending)
+    }
+
+    private var hasPresentedShellSurface: Bool {
+        isShowingImport || isShowingSigningMaterials || isShowingSigningQueue || isShowingOnboarding
+    }
+
+    private func isShowingSameSurface(as surface: ShellPresentation) -> Bool {
+        switch surface {
+        case .importHub:
+            return isShowingImport
+        case .profiles(_):
+            return isShowingSigningMaterials && signingMaterialsSelection == .profiles
+        case .certificates(_):
+            return isShowingSigningMaterials && signingMaterialsSelection == .certificates
+        }
     }
 
     /// Raises the sheet a held or immediate request names.

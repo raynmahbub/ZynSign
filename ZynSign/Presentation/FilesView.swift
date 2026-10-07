@@ -136,18 +136,10 @@ struct FilesView: View {
         let others = urls.filter { !packages.contains($0) }
         if !packages.isEmpty {
             environment.importHub.receive(packages, origin: .documentPicker)
-            // The hub is a sheet raised from the picker's own completion
-            // frame, where UIKit drops a presentation while the picker is
-            // still dismissing — the same drop the certificate import's
-            // password sheet waits out. Asking for it once the hierarchy is
-            // idle, and confirming something appeared, makes the hand-off land
-            // instead of leaving the hub closed with the picked package
-            // already queued behind it.
-            let present = importPresentation.present
-            Task { @MainActor in
-                await PresentationSettle.waitForIdle()
-                present()
-            }
+            // The hub is a shell-owned sheet raised from the picker callback.
+            // The shell waits for the full UIKit presentation chain (including
+            // the dismissing picker) before it asks to show the hub.
+            importPresentation.present()
         }
         if !others.isEmpty {
             model.importFiles(urls: others)

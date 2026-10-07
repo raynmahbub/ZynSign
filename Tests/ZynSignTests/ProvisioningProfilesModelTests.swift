@@ -1,4 +1,5 @@
 import XCTest
+import UniformTypeIdentifiers
 @testable import ZynSign
 
 /// The Profiles section model's pure projections: search matching, sort
@@ -186,7 +187,19 @@ final class ProvisioningProfilesModelTests: XCTestCase {
         XCTAssertEqual(expiringOnly.map(\.name), ["Gamma"])
     }
 
-    // MARK: - Import failure notices
+    // MARK: - Import picker and failure notices
+
+    func testPickerOffersBothProvisioningProfileExtensions() {
+        let types = ProvisioningProfilesModel.importableTypes
+        if let mobileprovision = UTType(filenameExtension: "mobileprovision") {
+            XCTAssertTrue(types.contains(mobileprovision))
+        }
+        if let provisionprofile = UTType(filenameExtension: "provisionprofile") {
+            XCTAssertTrue(types.contains(provisionprofile))
+        }
+        XCTAssertTrue(types.contains(.data))
+        XCTAssertTrue(types.contains(.item))
+    }
 
     func testPickerFailureIsSurfacedButCancellationStaysQuiet() {
         let model = ProvisioningProfilesModel(profiles: nil, importer: nil)

@@ -26,6 +26,7 @@ struct ProfilesView: View {
     let initialImportURL: URL?
     let onInitialImportConsumed: (() -> Void)?
     @State private var handledIncomingURL: URL? = nil
+    @State private var isOpeningProfilePicker = false
 
     @StateObject private var model: ProvisioningProfilesModel
 
@@ -89,7 +90,8 @@ struct ProfilesView: View {
             allowedContentTypes: ProvisioningProfilesModel.importableTypes,
             allowsMultipleSelection: false
         ) { result in
-            model.handlePickerResult(result)
+            model.isShowingImporter = false
+            handlePickerResultAfterDismissal(result)
         }
         .sheet(item: $model.importedProfile) { summary in
             ProfileImportSummaryView(
@@ -144,7 +146,50 @@ struct ProfilesView: View {
         guard handledIncomingURL != url else { return }
         handledIncomingURL = url
         onInitialImportConsumed?()
-        model.handlePickerResult(.success([url]))
+        handlePickerResultAfterDismissal(.success([url]))
+    }
+
+    /// Imports only after the system picker (or the shell sheet that delivered
+    /// an Open In URL) has finished its transition. A quick profile parse can
+    /// otherwise ask for the result sheet in the same frame the picker closes.
+    private func handlePickerResultAfterDismissal(_ result: Result<[URL], any Error>) {
+        switch result {
+        case .success(let urls):
+            Task { @MainActor in
+                guard await PresentationSettle.waitForIdle() else {
+                    model.toast("The document picker is still closing. Wait a moment, then try again.", style: .warning)
+                    return
+                }
+                model.handlePickerResult(.success(urls))
+            }
+        case .failure(let error):
+            let cocoaError = error as NSError
+            guard !(cocoaError.domain == NSCocoaErrorDomain && cocoaError.code == NSUserCancelledError),
+                  !(error is CancellationError) else { return }
+            let message = (error as? ZynSignError)?.userMessage
+                ?? "The selected profile could not be opened. Save it to Files and try again."
+            Task { @MainActor in
+                _ = await PresentationSettle.waitForIdle()
+                model.toast(message, style: .error)
+            }
+        }
+    }
+
+    private func requestProfilePicker() {
+        guard model.canImport, !model.isImporting, !isOpeningProfilePicker else { return }
+        isOpeningProfilePicker = true
+        Task { @MainActor in
+            defer { isOpeningProfilePicker = false }
+            for _ in 0..<2 {
+                let appeared = await PresentationSettle.presentAndConfirm {
+                    model.showImporter()
+                }
+                if appeared { return }
+                model.isShowingImporter = false
+                await Task.yield()
+            }
+            model.toast("The system file picker could not be opened. Tap Import Profile to try again.", style: .warning)
+        }
     }
 
     /// The profile library's content, with no navigation container of its own,
@@ -207,7 +252,7 @@ struct ProfilesView: View {
     private var emptyContent: some View {
         ZEmptyState.noProfiles {
             if model.canImport {
-                model.showImporter()
+                requestProfilePicker()
             }
         }
     }
@@ -389,11 +434,11 @@ struct ProfilesView: View {
             filterMenu
             layoutToggle
             Button {
-                model.showImporter()
+                requestProfilePicker()
             } label: {
                 Label("Import Profile…", systemImage: "plus")
             }
-            .disabled(!model.canImport || model.isImporting)
+            .disabled(!model.canImport || model.isImporting || isOpeningProfilePicker)
             .accessibilityHint("Imports a .mobileprovision file into the profile library.")
         }
     }
