@@ -175,20 +175,19 @@ struct ProfilesView: View {
         }
     }
 
+    /// Presents the profile picker through the SwiftUI file-importer binding.
+    ///
+    /// Unlike a sheet, a document picker is owned by `.fileImporter`; querying
+    /// UIKit for a presented-controller identity and resetting the binding when
+    /// that query does not change can suppress a valid system presentation.
     private func requestProfilePicker() {
         guard model.canImport, !model.isImporting, !isOpeningProfilePicker else { return }
         isOpeningProfilePicker = true
         Task { @MainActor in
             defer { isOpeningProfilePicker = false }
-            for _ in 0..<2 {
-                let appeared = await PresentationSettle.presentAndConfirm {
-                    model.showImporter()
-                }
-                if appeared { return }
-                model.isShowingImporter = false
-                await Task.yield()
-            }
-            model.toast("The system file picker could not be opened. Tap Import Profile to try again.", style: .warning)
+            _ = await PresentationSettle.waitForIdle()
+            guard !Task.isCancelled else { return }
+            model.showImporter()
         }
     }
 

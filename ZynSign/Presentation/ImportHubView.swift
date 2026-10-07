@@ -675,14 +675,14 @@ struct ImportHubView: View {
     ///
     /// `.task` and `handle(_:)` may both notice the same request, and a user
     /// control may ask while the sheet is still settling. The in-flight flag
-    /// serializes those callers. The pending request is consumed only after
-    /// UIKit confirms the document picker appeared; if the presentation was
-    /// silently dropped, the binding is reset and the request is tried once
-    /// more rather than leaving a permanently-true, unusable state.
+    /// serializes those callers. `.fileImporter` owns the document picker through
+    /// its Boolean binding, so this keeps the request armed instead of cancelling
+    /// it based on an unrelated UIKit controller-identity check.
     ///
     /// - Parameter waitingForSheet: Whether the hub's own sheet may still be
     ///   animating in. When it may, the sheet's appearance reporter is awaited;
-    ///   the full presented-controller chain is then checked for transitions.
+    ///   the presented-controller chain is allowed to settle before the binding
+    ///   is armed.
     private func presentPendingFilePick(waitingForSheet: Bool) async {
         guard wantsFilePickerOnAppear else { return }
         if isShowingPicker {
@@ -696,26 +696,11 @@ struct ImportHubView: View {
         if waitingForSheet {
             _ = await PresentationSettle.waitUntil { hasSettled }
         }
+        _ = await PresentationSettle.waitForIdle()
+        guard wantsFilePickerOnAppear, !Task.isCancelled else { return }
 
-        for _ in 0..<2 {
-            guard wantsFilePickerOnAppear, !Task.isCancelled else { return }
-            let appeared = await PresentationSettle.presentAndConfirm {
-                isShowingPicker = true
-            }
-            if appeared {
-                wantsFilePickerOnAppear = false
-                return
-            }
-
-            // A failed confirmation means SwiftUI's importer may still have
-            // its presentation binding armed. Reset it before the retry so
-            // the next assignment is a new presentation request.
-            isShowingPicker = false
-            await Task.yield()
-        }
-
+        isShowingPicker = true
         wantsFilePickerOnAppear = false
-        pickerFailure = "The system file picker could not be opened. Tap Add Files to try again."
     }
 
     private func openRecord(_ record: ApplicationRecord) {
