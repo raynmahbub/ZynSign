@@ -79,7 +79,19 @@ struct RootView: View {
         case certificates(URL)
     }
 
-    @State private var pendingShellPresentation: ShellPresentation?
+    /// Shell surfaces waiting for the current presentation to finish.
+    ///
+    /// This is a FIFO rather than a single optional request. One drag can
+    /// legitimately carry both a certificate and a provisioning profile; a
+    /// single slot silently discarded the second file whenever the scene was
+    /// inactive or the first sheet was already being prepared.
+    @State private var pendingShellPresentations: [ShellPresentation] = []
+
+    /// True while `presentWhenActive` is waiting for UIKit's presentation
+    /// chain to settle. State changes to the sheet bindings are not visible
+    /// until the next render pass, so this closes the small window in which
+    /// two same-frame requests could both try to present.
+    @State private var isPreparingShellPresentation = false
 
     /// The items whose outcome has already been recorded, so an import is
     /// reported exactly once however many times the item list changes.
@@ -576,9 +588,7 @@ struct RootView: View {
     /// or Files hand-off) is also held until UIKit reports the whole chain idle.
     private func presentWhenActive(_ surface: ShellPresentation) {
         guard scenePhase == .active else {
-            // First request wins: it is the one the user acted on, and the
-            // surface it names is the one whose data is already arriving.
-            if pendingShellPresentation == nil { pendingShellPresentation = surface }
+            enqueueShellPresentation(surface)
             return
         }
 
@@ -588,37 +598,55 @@ struct RootView: View {
             present(surface)
             return
         }
-        guard !hasPresentedShellSurface else {
-            if pendingShellPresentation == nil { pendingShellPresentation = surface }
+        guard !hasPresentedShellSurface, !isPreparingShellPresentation else {
+            enqueueShellPresentation(surface)
             return
         }
 
+        // Claim the presentation synchronously, before the task first yields.
+        // A certificate and profile routed from one drop arrive in the same
+        // frame; without this claim both tasks can observe an empty sheet slot.
+        isPreparingShellPresentation = true
         Task { @MainActor in
+            defer { isPreparingShellPresentation = false }
             guard await PresentationSettle.waitForIdle(cap: .seconds(8)) else {
-                if pendingShellPresentation == nil { pendingShellPresentation = surface }
+                enqueueShellPresentation(surface, atFront: true)
                 return
             }
             guard scenePhase == .active else {
-                if pendingShellPresentation == nil { pendingShellPresentation = surface }
+                enqueueShellPresentation(surface, atFront: true)
                 return
             }
             if isShowingSameSurface(as: surface) {
                 present(surface)
             } else if hasPresentedShellSurface {
-                if pendingShellPresentation == nil { pendingShellPresentation = surface }
+                enqueueShellPresentation(surface, atFront: true)
             } else {
                 present(surface)
             }
         }
     }
 
+    /// Adds a request to the serial shell-presentation queue. Retried work is
+    /// inserted at the front so it keeps its place ahead of requests that
+    /// arrived while UIKit was settling.
+    private func enqueueShellPresentation(_ surface: ShellPresentation, atFront: Bool = false) {
+        if atFront {
+            pendingShellPresentations.insert(surface, at: 0)
+        } else {
+            pendingShellPresentations.append(surface)
+        }
+    }
+
     /// A pending import is retried as soon as the shell sheet or onboarding
-    /// cover that was in the way reports dismissal.
+    /// cover that was in the way reports dismissal. One request is removed at
+    /// a time; presenting its sheet serialises the remainder behind it.
     private func presentPendingShellPresentation() {
         guard scenePhase == .active,
               !hasPresentedShellSurface,
-              let pending = pendingShellPresentation else { return }
-        pendingShellPresentation = nil
+              !isPreparingShellPresentation,
+              !pendingShellPresentations.isEmpty else { return }
+        let pending = pendingShellPresentations.removeFirst()
         presentWhenActive(pending)
     }
 
