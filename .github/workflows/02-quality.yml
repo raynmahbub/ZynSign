@@ -13,7 +13,7 @@
 #                           markdown quality warn
 #   secret-policy         — the repository's own secret rules on this tree
 #   gitleaks              — the same rules over the full history
-#   release-train         — validates the current release-train stage
+#   release-train         — validates the current train and release metadata
 #   complexity-check      — thresholds (function 80 / file 800 / nesting 4),
 #                           advisory: it measures and reports, never blocks
 #   engineering-summary   — the Engineering Command Center dashboard and
@@ -133,8 +133,8 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Validate the release train
-        run: python3 Scripts/release_train.py check
+      - name: Validate release-train metadata and stop
+        run: Scripts/ci/release_meta.sh --self-test
 
   gitleaks:
     name: Gitleaks (full history)

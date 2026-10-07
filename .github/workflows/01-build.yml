@@ -1,11 +1,11 @@
 # 🔨 Build — one Xcode verdict for each pull request, plus manual runs.
 #
 # Xcode builds run on the pull-request event, which tests the proposed merge
-# commit. Branch pushes do not start a second build of the same work; the
-# lightweight Quality workflow still runs on main/develop pushes.
+# commit. Branch pushes do not start an Xcode build; the lightweight Quality
+# workflow still runs on main/develop pushes.
 #
-#   hygiene              — generated state, release metadata self-test, host
-#                          vectors, RC audits, hardening report       (ubuntu)
+#   hygiene              — generated state, manual release-metadata self-test,
+#                          host vectors, RC audits, hardening report   (ubuntu)
 #   build-and-test       — Scripts/ci/build.sh: resolve, clean, build every
 #                          target, build the test targets, run unit tests,
 #                          annotate failures                           (macOS)
@@ -118,11 +118,11 @@ jobs:
           done
           exit $failed
 
-      # The release workflows derive their version through this script; the
-      # self-test proves the derivation and the refusals against the real
-      # train, so a broken release pipeline is caught during pull-request
-      # validation rather than at the moment somebody tries to ship.
+      # The Quality workflow runs this self-test for pull requests and
+      # integration pushes; retain it here for manual Build dispatches, which
+      # do not start the Quality workflow.
       - name: Check the release metadata derivation
+        if: github.event_name == 'workflow_dispatch'
         run: Scripts/ci/release_meta.sh --self-test
 
       # The release verdict is decided by this script too; the self-test
