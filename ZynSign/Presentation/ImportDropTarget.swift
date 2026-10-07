@@ -88,8 +88,17 @@ private struct ImportDropTargetModifier: ViewModifier {
 
     private func receive(_ providers: [NSItemProvider]) {
         let hub = environment.importHub
-        guard let receiver = environment.droppedFiles, !providers.isEmpty else { return }
+        guard !providers.isEmpty else { return }
         ZHaptics.tap()
+        guard let receiver = environment.droppedFiles else {
+            // A drop has to be answered whatever the build can do with it.
+            // Without a receiver ZynSign cannot hold the file past the moment
+            // of the drop, so the hub lists the items as unreceived and says
+            // so — rather than the gesture lighting up and doing nothing.
+            hub.recordUnreceivedDrops(providers.count)
+            importPresentation.present()
+            return
+        }
         hub.beginReceivingDrop(count: providers.count)
         importPresentation.present()
         Task { @MainActor in
@@ -105,8 +114,16 @@ private struct ImportDropTargetModifier: ViewModifier {
 /// what is being dragged, and hands the providers over on drop.
 struct ImportDropDelegate: DropDelegate {
 
-    /// Anything that is file data.
-    static let acceptedTypes: [UTType] = [.data]
+    /// Anything the drop can carry as a file.
+    ///
+    /// The set is deliberately wider than `public.data`. What a drag registers
+    /// depends on the app it came from — a file out of Files may offer a
+    /// reference and the file's own type, and a provider from another app names
+    /// neither the way the picker does — and a drag this target declines is
+    /// dropped by the system *without a word*, the one outcome no part of ZynSign
+    /// can recover from. Anything that lands is then read by the receiver's own
+    /// rules, and the hub still refuses what is not a package, with a reason.
+    static let acceptedTypes: [UTType] = [.data, .fileURL, .archive, .zip]
 
     @Binding var isTargeted: Bool
     @Binding var incomingCount: Int

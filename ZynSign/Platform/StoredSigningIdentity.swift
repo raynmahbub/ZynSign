@@ -64,9 +64,14 @@ struct StoredSigningIdentity: Codable, CustomStringConvertible, CustomDebugStrin
 
 /// Owns registration records only; deleting a record must not delete a key.
 protocol SigningIdentityRegistry {
+    /// Every record, refusing to omit one that cannot be verified — a list
+    /// with a silently skipped entry would understate what may sign.
     func records() throws -> [StoredSigningIdentity]
     /// Must atomically reject duplicate certificate fingerprints.
     func insert(_ record: StoredSigningIdentity) throws
+    /// Deletes the record answering to `id`, or nothing. A registration that
+    /// is merely *unreadable* must not block deleting a healthy one — but an
+    /// id that cannot be identified must fail rather than report success.
     func remove(_ id: SigningIdentityIdentifier) throws
 }
 

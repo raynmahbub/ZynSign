@@ -124,6 +124,24 @@ final class ImportHubTests: XCTestCase {
         XCTAssertLessThanOrEqual(processing.maximumConcurrentStages, 2)
     }
 
+    /// The hub's promise to the interface: an item's file work never runs on
+    /// the main actor, from the copy through the library's admission. A copy,
+    /// an archive read, or a hash on the main thread stops the screen
+    /// mid-frame, and the platform ends an app whose main thread stalls long
+    /// enough — so the schedule, not only the progress rate, is what keeps an
+    /// import of a large package fluid.
+    func testAnItemsWorkNeverRunsOnTheMainThread() async {
+        _ = receive("A.ipa")
+        await waitUntilReady("A.ipa")
+
+        hub.importSelected()
+        await waitUntilSettled("A.ipa")
+
+        XCTAssertEqual(processing.stagesOnMainThread, [false], "staging ran on the main thread")
+        XCTAssertEqual(processing.examinationsOnMainThread, [false], "analysis ran on the main thread")
+        XCTAssertEqual(processing.admissionsOnMainThread, [false], "admission ran on the main thread")
+    }
+
     func testAFailureDoesNotStopTheOtherItems() async {
         processing.scriptStage("Broken.ipa", .fails(ZynSignError.selectedFileUnavailable()))
         _ = receive("Broken.ipa", "Good.ipa")

@@ -368,20 +368,33 @@ struct ImportIdentityPasswordSheet: View {
     let onCancel: () -> Void
 
     @State private var password = ""
+    /// Whether the password is shown as typed. A mistyped password is the
+    /// commonest reason an import refuses a perfectly good `.p12`, and a
+    /// masked field gives no way to see the difference.
+    @State private var revealsPassword = false
+    @FocusState private var passwordFocused: Bool
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     LabeledContent("File", value: fileName)
-                    SecureField("Password (leave empty if none)", text: $password)
-                        .textContentType(.password)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
+                    HStack(spacing: ZSpacing.sm) {
+                        passwordField
+                        Button {
+                            revealsPassword.toggle()
+                        } label: {
+                            Image(systemName: revealsPassword ? "eye.slash.fill" : "eye.fill")
+                                .foregroundStyle(.secondary)
+                                .accessibilityLabel(revealsPassword ? "Hide the password" : "Show the password")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(isImporting)
+                    }
                 } header: {
                     Text("Certificate Password")
                 } footer: {
-                    Text("The password is used only to unlock the selected file. It is never stored, shown again, or logged.")
+                    Text("The password is used only to unlock the selected file. It is never stored, shown again, or logged. Leave it empty when the file was exported without one.")
                 }
                 if let importError {
                     Section {
@@ -393,6 +406,15 @@ struct ImportIdentityPasswordSheet: View {
             }
             .navigationTitle("Import Certificate")
             .navigationBarTitleDisplayMode(.inline)
+            // The sheet exists to type one thing: the field has the keyboard
+            // from the first frame, and the keyboard's own button finishes the
+            // job the toolbar button does.
+            .defaultFocus($passwordFocused, true)
+            .onSubmit { submit() }
+            // Revealing replaces one field with the other; without this the
+            // keyboard drops and typing the rest of the password means another
+            // tap.
+            .onChange(of: revealsPassword) { _, _ in passwordFocused = true }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { onCancel() }
@@ -400,7 +422,7 @@ struct ImportIdentityPasswordSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Import") {
-                        onImport(password)
+                        submit()
                     }
                     .disabled(isImporting)
                 }
@@ -413,6 +435,38 @@ struct ImportIdentityPasswordSheet: View {
                 }
             }
         }
+    }
+
+    /// The field the password is typed into — masked by default, plain while
+    /// it is being revealed. Both forms keep the same behaviour: no
+    /// capitalisation, no correction, no autofill beyond the password hint.
+    @ViewBuilder
+    private var passwordField: some View {
+        if revealsPassword {
+            TextField("Password (leave empty if none)", text: $password)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .focused($passwordFocused)
+        } else {
+            SecureField("Password (leave empty if none)", text: $password)
+                .textContentType(.password)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .focused($passwordFocused)
+        }
+    }
+
+    /// Hands the password to the import, once.
+    ///
+    /// The keyboard's return key reaches this too, so a second press while an
+    /// import is in flight is turned away here rather than starting a second
+    /// one.
+    /// Hands the typed password to the importer and puts the keyboard away, so
+    /// the in-flight progress is visible while the work runs.
+    private func submit() {
+        guard !isImporting else { return }
+        passwordFocused = false
+        onImport(password)
     }
 }
 

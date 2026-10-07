@@ -26,15 +26,29 @@ struct ApplePKCS12Importer: SigningIdentityImporter {
     /// unbounded buffer.
     private static let maximumByteCount = 10 * 1024 * 1024
 
+    /// The `Security` statuses that name a container the passphrase did not
+    /// open.
+    ///
+    /// Which of them `SecPKCS12Import` reports depends on where the container
+    /// stopped opening — the encrypted bag, or the verification of what came
+    /// out of it — so both are read together with `errSecAuthFailed` as "this
+    /// password did not open this file". The reading is advice about what to
+    /// try next, not a claim about the bytes: the message each one produces
+    /// names the other live remedy (re-export the identity) as well.
+    ///
+    /// The two PKCS#12 codes are written as numbers because their names are
+    /// not exported to Swift on every SDK; they are the platform's documented
+    /// `errSecPkcs12VerifyFailure` and `errSecInvalidPassphrase`.
+    private static let statusPkcs12VerifyFailure: OSStatus = -25294
+    private static let statusInvalidPassphrase: OSStatus = -25295
+
     init(store: SecureIdentityStore) {
         self.store = store
     }
 
     @discardableResult
     func importPKCS12(data: Data, password: String) throws -> SigningIdentityIdentifier {
-        guard !data.isEmpty, data.count <= Self.maximumByteCount else {
-            throw ZynSignError.identity(.malformedStoredIdentity)
-        }
+        try Self.validate(data)
 
         var items: CFArray?
         let options: [String: Any] = [
@@ -42,14 +56,7 @@ struct ApplePKCS12Importer: SigningIdentityImporter {
         ]
         let status = SecPKCS12Import(data as CFData, options as CFDictionary, &items)
         guard status == errSecSuccess else {
-            switch status {
-            case errSecAuthFailed:
-                throw ZynSignError.identity(.authorizationFailure)
-            case errSecDecode, errSecParam:
-                throw ZynSignError.identity(.malformedStoredIdentity)
-            default:
-                throw ZynSignError.identity(.unexpectedSecurityFailure)
-            }
+            throw Self.importFailure(for: status)
         }
 
         guard let array = items as? [[String: Any]], let first = array.first else {
@@ -122,6 +129,53 @@ struct ApplePKCS12Importer: SigningIdentityImporter {
         } catch {
             throw ZynSignError.sanitizedIdentityFailure(error)
         }
+    }
+
+    /// The three ways bytes can fail to be a PKCS#12 container at all.
+    ///
+    /// Each says so in its own words. One vague failure shared by an empty
+    /// file, an oversized one, and a text export is what left a user checking
+    /// the password of a file that never was a `.p12`.
+    private static func validate(_ data: Data) throws {
+        guard !data.isEmpty else {
+            throw ZynSignError.emptyCertificateInput(
+                diagnosticDetail: "The PKCS#12 container handed to the importer held no bytes."
+            )
+        }
+        guard data.count <= maximumByteCount else {
+            throw ZynSignError.certificateInputTooLarge(
+                diagnosticDetail: "The PKCS#12 container is \(data.count) bytes, above the accepted ceiling."
+            )
+        }
+        // A PKCS#12 file is a DER `SEQUENCE`, so it begins with 0x30. Nothing
+        // else can be one, and the platform's importer says no in a way that
+        // does not distinguish "not a container" from "could not open".
+        guard data.first == 0x30 else {
+            throw ZynSignError.identity(.unsupportedContainerFormat)
+        }
+    }
+
+    /// What to tell the user about a rejected `SecPKCS12Import`.
+    ///
+    /// The status is read as a *cause* only where the platform's own code is
+    /// specific about one. Everything else becomes the container-reading
+    /// failure, whose message names both remedies that can still work — check
+    /// the password, re-export the identity — because a status the importer
+    /// does not explain is as much use to a person as to this type. The number
+    /// itself goes into the diagnostic, where a report can quote it.
+    private static func importFailure(for status: OSStatus) -> ZynSignError {
+        if status == errSecAuthFailed
+            || status == statusInvalidPassphrase
+            || status == statusPkcs12VerifyFailure {
+            return .identity(.invalidPassphrase)
+        }
+        if status == errSecDecode || status == errSecParam {
+            return .identity(.unsupportedContainerFormat)
+        }
+        return .identity(
+            .containerImportFailed,
+            diagnosticDetail: "SecPKCS12Import reported status \(status)."
+        )
     }
 
     /// Asks the Keychain to move an imported private key to the device-only

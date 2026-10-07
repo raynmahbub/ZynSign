@@ -133,9 +133,18 @@ protocol DroppedFileReceiving: AnyObject, Sendable {
     /// Copies the files behind `providers` into the inbox.
     func receive(_ providers: [NSItemProvider]) async -> DroppedFileReception
 
-    /// Removes an inbox copy. URLs outside the inbox are never touched.
+    /// Removes a copy ZynSign itself is holding of `url`: one the receiver
+    /// parked in its own inbox, or one the system parked for a share-sheet or
+    /// Open In hand-off. Anything else — the user's own file, a path chosen in
+    /// Files — is left alone, so this can never delete what the user has.
     func release(_ url: URL)
 
-    /// Removes every inbox copy.
+    /// Removes every copy left in the receiver's own drop inbox.
+    ///
+    /// Called at launch, when an interrupted import resumes from ZynSign's
+    /// working copy and never goes back to a source file. It does not clear
+    /// the system's `Documents/Inbox`: the file ZynSign was just launched to
+    /// read may still be sitting there, and those copies are released through
+    /// `release(_:)` when their item settles.
     func sweep()
 }

@@ -11,6 +11,9 @@ enum SigningIdentityFailure: String, CaseIterable, Hashable {
     case authorizationFailure
     case duplicateIdentity
     case malformedStoredIdentity
+    case invalidPassphrase
+    case unsupportedContainerFormat
+    case containerImportFailed
     case capabilityUnavailable
     case platformRestriction
     case signingFailure
@@ -19,8 +22,9 @@ enum SigningIdentityFailure: String, CaseIterable, Hashable {
     var category: DiagnosticCategory {
         switch self {
         case .identityNotFound, .certificateUnavailable, .certificateKeyMismatch,
-             .invalidSigningInput, .malformedStoredIdentity: return .invalidInput
-        case .unsupportedKeyType, .unsupportedSigningAlgorithm: return .unsupportedInput
+             .invalidSigningInput, .malformedStoredIdentity, .invalidPassphrase,
+             .containerImportFailed: return .invalidInput
+        case .unsupportedKeyType, .unsupportedSigningAlgorithm, .unsupportedContainerFormat: return .unsupportedInput
         case .privateKeyUnavailable, .authorizationFailure, .capabilityUnavailable,
              .platformRestriction: return .capabilityUnavailable
         case .duplicateIdentity: return .ambiguousInput
@@ -42,6 +46,9 @@ enum SigningIdentityFailure: String, CaseIterable, Hashable {
         case .authorizationFailure: return "Access to the signing identity is not authorized right now."
         case .duplicateIdentity: return "This certificate already has a registered identity."
         case .malformedStoredIdentity: return "Stored identity information could not be read safely."
+        case .invalidPassphrase: return "The password does not open this certificate file. Enter it again, or re-export the .p12 with the password you set for it."
+        case .unsupportedContainerFormat: return "This file is not a PKCS#12 identity ZynSign can open. Export the certificate and its key as a .p12 or .pfx from the Mac or PC that holds them."
+        case .containerImportFailed: return "ZynSign could not read that certificate file. Check the password, and if it keeps failing re-export the certificate and its key as a .p12 or .pfx."
         case .capabilityUnavailable: return "The signing capability is unavailable."
         case .platformRestriction: return "The required identity protection is not available."
         case .signingFailure: return "The requested signature could not be produced."

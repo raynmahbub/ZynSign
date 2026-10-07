@@ -171,6 +171,16 @@ final class SyntheticImportProcessing: ImportProcessing, @unchecked Sendable {
     private var sweptKeepingStorage: Set<ArtifactIdentifier>?
     private var peakConcurrentStages = 0
 
+    /// Whether the main thread ran each stage, examination, and admission.
+    ///
+    /// The hub promises its per-item file work stays off the interface, and
+    /// this is how that promise is measured: a `true` means a copy, an
+    /// archive read, or a hash ran on the main actor — where a large package
+    /// stops the screen mid-frame and can outlast the platform watchdog.
+    private var stagesOnMainThreadStorage: [Bool] = []
+    private var examinationsOnMainThreadStorage: [Bool] = []
+    private var admissionsOnMainThreadStorage: [Bool] = []
+
     /// Unscripted packages each get their own content fingerprint, so two
     /// of them are never mistaken for identical copies.
     private var nextFingerprintSeed: UInt8 = 0x80
@@ -217,6 +227,9 @@ final class SyntheticImportProcessing: ImportProcessing, @unchecked Sendable {
     var discarded: [ArtifactIdentifier] { lock.withLock { discardedStorage } }
     var sweptKeeping: Set<ArtifactIdentifier>? { lock.withLock { sweptKeepingStorage } }
     var maximumConcurrentStages: Int { lock.withLock { peakConcurrentStages } }
+    var stagesOnMainThread: [Bool] { lock.withLock { stagesOnMainThreadStorage } }
+    var examinationsOnMainThread: [Bool] { lock.withLock { examinationsOnMainThreadStorage } }
+    var admissionsOnMainThread: [Bool] { lock.withLock { admissionsOnMainThreadStorage } }
 
     // MARK: ImportProcessing
 
@@ -229,6 +242,7 @@ final class SyntheticImportProcessing: ImportProcessing, @unchecked Sendable {
         let script: StageScript = lock.withLock {
             stagedNamesStorage.append(fileName)
             stagedSourcesStorage.append(source)
+            stagesOnMainThreadStorage.append(Thread.isMainThread)
             runningStages += 1
             peakConcurrentStages = max(peakConcurrentStages, runningStages)
             return stageScripts[fileName] ?? .succeeds(progress: [])
@@ -256,6 +270,7 @@ final class SyntheticImportProcessing: ImportProcessing, @unchecked Sendable {
     ) async throws -> ImportExamination {
         let script: ExamineScript? = lock.withLock {
             examinedNamesStorage.append(staged.fileName)
+            examinationsOnMainThreadStorage.append(Thread.isMainThread)
             return examineScripts[staged.fileName]
         }
         progress?.report(ImportProgress(stage: .examiningStructure))
@@ -284,6 +299,7 @@ final class SyntheticImportProcessing: ImportProcessing, @unchecked Sendable {
         let fileName = prepared.artifact.sourceFileName ?? ""
         let failure: (any Error)? = lock.withLock {
             admittedStorage.append((fileName, resolution))
+            admissionsOnMainThreadStorage.append(Thread.isMainThread)
             workingCopies[prepared.artifactID] = nil
             return admissionFailures[fileName]
         }

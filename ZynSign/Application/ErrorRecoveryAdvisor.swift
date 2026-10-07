@@ -195,6 +195,39 @@ enum ErrorRecoveryAdvisor {
                 nextSteps: ["Approve the authentication prompt, then try again."],
                 canRetry: true
             )
+        case .invalidPassphrase:
+            return ErrorRecoveryAdvice(
+                whatHappened: "The password did not open the certificate file.",
+                whatWasVerified: "ZynSign read the container and handed the password to the platform; the platform reported that the passphrase does not unlock it. Nothing was changed in the file.",
+                nextSteps: [
+                    "Enter the password again — it is the one set when the .p12 was exported, not the Apple ID password.",
+                    "If the password was typed on another keyboard layout, re-export the .p12 with a simple ASCII password and import that.",
+                    "An unprotected export is also accepted: leave the password field empty when the file has no password."
+                ],
+                canRetry: true
+            )
+        case .unsupportedContainerFormat:
+            return ErrorRecoveryAdvice(
+                whatHappened: "The selected file is not a PKCS#12 identity ZynSign can open.",
+                whatWasVerified: "The container was read and is not a .p12/.pfx the platform's identity importer accepts. A .cer or .mobileprovision holds no private key, so it cannot be used in its place.",
+                nextSteps: [
+                    "Export the certificate with its private key as a .p12 from the Mac or PC that holds them.",
+                    "A .p12 exported by a non-Apple tool with AES-256 protection may not be readable on iOS — re-export it with the Apple tools.",
+                    "Save the file in Files (not in a chat app's preview) and choose it again."
+                ],
+                canRetry: false
+            )
+        case .containerImportFailed:
+            return ErrorRecoveryAdvice(
+                whatHappened: "The certificate container could not be opened.",
+                whatWasVerified: "The file was read and handed to the platform's identity importer, which reported a failure it did not explain; nothing was written to the file and no identity was registered.",
+                nextSteps: [
+                    "Enter the password again — a wrong password is reported this way when the container is protected.",
+                    "Copy the .p12 into Files and choose it from there, in case the provider could not hand the bytes over.",
+                    "If it keeps failing, re-export the identity from the Mac or PC that holds the certificate and key."
+                ],
+                canRetry: true
+            )
         case .certificateUnavailable, .malformedStoredIdentity:
             return ErrorRecoveryAdvice(
                 whatHappened: "The stored identity could not be read.",

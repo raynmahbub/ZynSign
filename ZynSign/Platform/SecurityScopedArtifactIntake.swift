@@ -231,13 +231,6 @@ final class SecurityScopedArtifactIntake: ArtifactIntake, ImportStagingArea {
 
     // MARK: - iCloud placeholders
 
-    /// How long staging will wait for iCloud to materialise a selected
-    /// document, and how often it asks. Bounded so a provider that never
-    /// answers produces the honest "could not be read" refusal — and a retry
-    /// button — rather than a hung import.
-    private static let ubiquitousWaitBudget: TimeInterval = 20
-    private static let ubiquitousPollInterval: TimeInterval = 0.25
-
     /// Whether `source` is an iCloud item whose bytes are not on the device.
     ///
     /// A dataless placeholder is not an empty file; it is a file whose bytes
@@ -245,30 +238,18 @@ final class SecurityScopedArtifactIntake: ArtifactIntake, ImportStagingArea {
     /// refuses an observation of *missing* content only after asking the
     /// provider for it.
     private func isDatalessUbiquitousItem(_ source: URL) -> Bool {
-        guard let values = try? source.resourceValues(forKeys: [
-            .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey,
-        ]), values.isUbiquitousItem == true else {
-            return false
-        }
-        return values.ubiquitousItemDownloadingStatus != .current
+        UbiquitousContentWait.isAwaitingContent(source)
     }
 
     /// Asks iCloud for a dataless document's bytes and waits, bounded, for
     /// the provider to deliver them.
     ///
-    /// The wait never runs on the main thread — the import hub stages off the
-    /// interface, and a placeholder that outlasts the budget is answered with
-    /// an unknown observation, not a wrong one. The trigger is idempotent; an
-    /// already-downloading item simply needs the download to finish.
+    /// The policy — including why the wait is skipped on the main thread and
+    /// how the user's cancellation ends it — belongs to `UbiquitousContentWait`
+    /// so the package read and the certificate read answer the same question
+    /// the same way.
     private func awaitUbiquitousContent(at source: URL) {
-        guard !Thread.isMainThread, isDatalessUbiquitousItem(source) else { return }
-        try? FileManager.default.startDownloadingUbiquitousItem(at: source)
-        let deadline = Date().addingTimeInterval(Self.ubiquitousWaitBudget)
-        while Date() < deadline {
-            if Task.isCancelled { return }
-            Thread.sleep(forTimeInterval: Self.ubiquitousPollInterval)
-            if !isDatalessUbiquitousItem(source) { return }
-        }
+        UbiquitousContentWait.materialize(source) { Task.isCancelled }
     }
 
     // MARK: - Staging

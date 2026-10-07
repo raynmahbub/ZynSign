@@ -33,13 +33,18 @@ extension ZynSignError {
     /// The selected file is not of the accepted package type. Decided by the
     /// file-type policy before any content is read; the archive layer remains
     /// the authority on whether the content is a valid package.
+    ///
+    /// The message names every extension the policy accepts, because a person
+    /// holding a `.tipa` or a folder of packages in a `.zip` needs to know
+    /// those are wanted too — and needs to hear that a profile or a
+    /// certificate is imported somewhere else, not that ZynSign is broken.
     static func unsupportedImportFile(
         diagnosticDetail: String? = nil,
         underlyingError: (any Error)? = nil
     ) -> ZynSignError {
         ZynSignError(
             category: .unsupportedInput,
-            userMessage: "ZynSign can import only .ipa application packages.",
+            userMessage: "ZynSign imports .ipa and .tipa packages, and .zip archives that hold them. A .p12 or a .mobileprovision is added under Certificates & Profiles instead.",
             diagnosticDetail: diagnosticDetail,
             underlyingError: underlyingError
         )

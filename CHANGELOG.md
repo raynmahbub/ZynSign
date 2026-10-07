@@ -19,6 +19,47 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Fixed
+
+- **Importing no longer freezes the interface.** `ImportHub` runs each item's
+  staging, examination, and the serialized admit in detached tasks, so the copy
+  loop, the archive reads, and the staged artifact's SHA-256 pass stop running on
+  the main thread — the stall the platform watchdog measures, and the reason a
+  long import looked hung.
+- **A file still downloading in Files is not "empty".** The new
+  `UbiquitousContentWait` asks iCloud for a placeholder's bytes and waits,
+  bounded, before anything reads them; package staging and the `.p12` read share
+  one policy. A dataless certificate reported "empty file" and a dataless package
+  reported "not an archive", and neither was the file's fault.
+- **A `.p12` says why it was refused.** The importer separates an empty,
+  oversized, or non-container input and reads `SecPKCS12Import`'s status as a
+  cause, so a wrong passphrase, a foreign format, and an unexplained failure each
+  get their own message and their own recovery advice
+  (`SigningIdentityFailure.invalidPassphrase`, `.unsupportedContainerFormat`,
+  `.containerImportFailed`). An imported identity is also no longer refused for a
+  key class only the Keychain item's dictionary was asked to report — the
+  resolver reads it from the key handle.
+- **Dropping a file from Files works.** `public.file-url` joins the drop
+  target's accepted types (a file URL conforms to `public.item`, not
+  `public.data`), the receiver reads a provider through whichever route it
+  actually offers, and a drop nothing can be read from is recorded as a refusal
+  instead of vanishing without a word.
+- **One damaged registration no longer locks the identity store.**
+  `KeychainIdentityRegistry.remove` judges every item on its own, so an identity
+  can still be forgotten — and re-imported — while an unreadable record stays
+  fail-closed for the reads that must not guess.
+
+### Changed
+
+- **The certificate sheet types itself, and nothing is ignored silently.** The
+  password field holds focus from the first frame, Return submits, an eye toggles
+  reveal; a multi-file selection and a file chosen mid-import are both answered
+  with what to do next. `Info.plist` now declares the types its document entries
+  already referenced (`com.apple.itunes.ipa`, `com.apple.mobileprovision`,
+  `com.rsa.pkcs-12`, `com.microsoft.pkcs12`) and owns `io.zynsign.tipa`, and a
+  file handed to ZynSign that is none of the accepted kinds lands in the Import
+  Hub as a refusal that names what ZynSign does take.
+
 ## [0.1.0-alpha.2] - 2026-10-05
 
 > The seven-tab bar the section below this one describes was this train's own

@@ -68,15 +68,34 @@ struct AppleSigningKeyResolver: SigningIdentityKeyResolver {
               CFGetTypeID(value as CFTypeRef) == SecKeyGetTypeID() else {
             throw ZynSignError.identity(.unexpectedSecurityFailure)
         }
+        // The Core Foundation type check above proves the value is a key.
+        // The compiler rejects a conditional downcast to a Core Foundation
+        // type as always succeeding, so the forced form is the one it accepts;
+        // this is the pattern Security.framework's own samples use.
+        // swiftlint:disable:next force_cast
+        let key = value as! SecKey
+
         // Exactly the protection `SigningKeyProtectionRule` describes, read
         // from the key itself rather than assumed from how it was made. What
         // the Keychain reported is also what the refusal records, in policy
         // vocabulary: without it a device that refuses an imported key says
         // only "unsupported", and which attribute refused it stays a guess.
-        let reportedClass = attributes[kSecAttrKeyClass as String] as? String
+        //
+        // Which attribute the class is read from is not cosmetic. A query's
+        // dictionary carries what the *item* was stored with, and it is not
+        // required to say which class of key that is; `SecKeyCopyAttributes`
+        // describes the handle the platform actually handed over, which is the
+        // fact the rule is about. Asking only the item is how an imported key
+        // can be refused for an attribute it never carried, and no re-export
+        // fixes that. The item's own answer stays as the fallback, so a key
+        // with no handle-level report is judged exactly as it was before.
+        let keyAttributes = (SecKeyCopyAttributes(key) as? [String: Any]) ?? [:]
+        let reportedClass = keyAttributes[kSecAttrKeyClass as String] as? String
+            ?? attributes[kSecAttrKeyClass as String] as? String
         let reportedAccessibility = attributes[kSecAttrAccessible as String] as? String
         let reportedSynchronizable = attributes[kSecAttrSynchronizable as String] as? Bool
         let reportedExtractable = attributes[kSecAttrIsExtractable as String] as? Bool
+            ?? keyAttributes[kSecAttrIsExtractable as String] as? Bool
         guard SigningKeyProtectionRule.permits(
             keyClass: reportedClass,
             accessibility: reportedAccessibility,
@@ -93,23 +112,17 @@ struct AppleSigningKeyResolver: SigningIdentityKeyResolver {
                 )
             )
         }
-        // The Core Foundation type check above proves the value is a key.
-        // The compiler rejects a conditional downcast to a Core Foundation
-        // type as always succeeding, so the forced form is the one it accepts;
-        // this is the pattern Security.framework's own samples use.
-        // swiftlint:disable:next force_cast
-        let key = value as! SecKey
         return key
     }
 }
 
 /// The protection a stored signing key must carry for ZynSign to sign with it.
 ///
-/// The rule is a pure decision over the attributes the Keychain reports, split
-/// out of the resolver so the test suite can exercise it directly: the
-/// resolver's other work needs a real Keychain, but this is the part that
-/// decides whether an imported key is acceptable — and the part that made
-/// `.p12` import impossible when it demanded one exact class.
+/// The rule is a pure decision over the attributes the Keychain and the key
+/// handle report, split out of the resolver so the test suite can exercise it
+/// directly: the resolver's other work needs a real Keychain, but this is the
+/// part that decides whether an imported key is acceptable — and the part that
+/// made `.p12` import impossible when it demanded one exact class.
 ///
 /// What is required is the property signed identities depend on: a private
 /// key, never one that can sync to iCloud Keychain, unreadable while the

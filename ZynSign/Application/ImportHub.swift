@@ -29,9 +29,12 @@ import Combine
 ///   serialized admission is never raced.
 ///
 /// Up to `maximumConcurrentPreparations` items prepare at once and each
-/// fails, retries, or is cancelled independently. Progress is delivered to
-/// the main actor at a bounded rate so a large batch never floods the
-/// interface.
+/// fails, retries, or is cancelled independently. An item's work — the copy,
+/// the archive reads, the fingerprint — runs off the main actor, which is what
+/// `ImportProcessing` promises and what keeps the interface drawing while a
+/// package is imported; only the state the interface reads is touched here.
+/// Progress is delivered to the main actor at a bounded rate so a large batch
+/// never floods the interface.
 ///
 /// Work continues while ZynSign is open. When ZynSign leaves the
 /// foreground the hub asks the system for a finite amount of extra time;
@@ -876,7 +879,19 @@ final class ImportHub: ObservableObject {
         let relay = ProgressRelay(hub: self, id: id, attempt: attempt, interval: progressInterval)
         let fileName = item.fileName
 
-        tasks[id] = Task { [weak self] in
+        // The item's work runs off the main actor, on purpose. A plain
+        // `Task { }` here inherits this class's `@MainActor` isolation, and
+        // nothing in the pipeline below hops: the copy loop, the archive
+        // reads, and the staged artifact's SHA-256 pass are synchronous
+        // calls, so all of it ran on the main thread — a large package froze
+        // the interface for seconds at a time, and a stalled main thread is
+        // what the platform watchdogs. The wait for an iCloud placeholder is
+        // skipped on the main thread for the same reason, which is why a
+        // package still downloading in Files came back "empty".
+        //
+        // Only what the interface reads stays on the main actor: every hop
+        // below is `await`ed before `items` is touched.
+        tasks[id] = Task.detached(priority: .userInitiated) { [weak self] in
             do {
                 let staged: StagedImport
                 if let existing {
@@ -892,11 +907,11 @@ final class ImportHub: ObservableObject {
                     processing.discardWorkingCopy(staged.artifactID)
                     return
                 }
-                guard hub.didStage(id, staged, attempt: attempt) else { return }
+                guard await hub.didStage(id, staged, attempt: attempt) else { return }
                 let examination = try await processing.examine(staged, reporting: relay)
-                self?.didExamine(id, examination, attempt: attempt)
+                await self?.didExamine(id, examination, attempt: attempt)
             } catch {
-                self?.didFailPreparation(id, error: error, attempt: attempt)
+                await self?.didFailPreparation(id, error: error, attempt: attempt)
             }
         }
         return true
@@ -1005,14 +1020,18 @@ final class ImportHub: ObservableObject {
         items[index].estimate = Self.estimate(for: .importing)
         let relay = ProgressRelay(hub: self, id: id, attempt: attempt, interval: progressInterval)
 
-        commitTask = Task { [weak self] in
+        // Admitting moves the working copy into the library and, for a
+        // duplicate check the policy has to re-measure, reads all of it. That
+        // is file work, not interface work, so it runs off the main actor and
+        // hops back only to record the outcome — see `startPreparation`.
+        commitTask = Task.detached(priority: .userInitiated) { [weak self] in
             let settlement: ImportSettlement
             do {
                 settlement = try await processing.admit(prepared, resolution: resolution, reporting: relay)
             } catch {
                 settlement = ImportSettlement.from(error: error)
             }
-            self?.didCommit(id, settlement, attempt: attempt)
+            await self?.didCommit(id, settlement, attempt: attempt)
         }
     }
 
