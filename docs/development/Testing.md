@@ -26,23 +26,28 @@ python3 Scripts/generate_hardening_report.py --output build/hardening/index.html
 ```
 
 The hardening report is the browsable form of the audits; CI builds and
-uploads it on every push.
+uploads it on every pull request and manual Build run.
 
 ## What CI enforces
 
 The workflow (`.github/workflows/01-build.yml`, described in
-[continuous-integration.md](continuous-integration.md)) runs, on every push:
+[continuous-integration.md](continuous-integration.md)) runs for pull
+requests and manual runs, not branch pushes. The pull-request run tests the
+proposed merge commit; the Quality workflow separately runs static checks on
+`main`/`develop` pushes. Its checks are:
 
-1. **Hygiene** — no private key or certificate material outside test
-   fixtures; no generated artifacts or machine state; the release train is
-   consistent; the host vectors pass; the three audits pass; the hardening
-   report builds.
+1. **Hygiene** — no generated artifacts or machine state; the release
+   metadata and verdict self-tests pass; the host vectors pass; the three
+   audits pass; the hardening report builds. The full source-tree secret
+   scan and release-train consistency check run in `02-quality.yml`; manual
+   Build runs retain the secret scan and the release-metadata self-test also
+   exercises the current-stop validation.
 2. **Build and test** — the application target builds and the unit-test
    target passes on an iPhone simulator.
-3. **External validation** — non-gating. ZynSign-signed artifacts are judged
-   by Apple tooling; a `codesign` rejection is a *finding recorded in the
-   report*, not a failed build. The job fails only when the harness cannot do
-   its job.
+3. **External validation** — the job reports Apple's verdicts on
+   ZynSign-signed artifacts; a `codesign` rejection is a *finding recorded
+   in the report*, not a failed build. The job fails only when the harness
+   cannot do its job.
 
 ## Expectations for new work
 

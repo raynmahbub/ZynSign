@@ -38,6 +38,7 @@ when the suite was consolidated, only the file they live in.
 | `Links, images, orphans, markdown quality` | `02-quality.yml` | `docs-check` |
 | `Repository secret policy` | `02-quality.yml` | `secret-policy` |
 | `Gitleaks (full history)` | `02-quality.yml` | `gitleaks` |
+| `Release train consistency` | `02-quality.yml` | `release-train` |
 | `README freshness` | `02-quality.yml` | `readme-check` |
 | `Conventional PR title` | `01-build.yml` | `pr-title` |
 | `Conventional commit messages` | `01-build.yml` | `commitlint` |

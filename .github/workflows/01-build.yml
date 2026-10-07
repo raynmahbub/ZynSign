@@ -1,21 +1,18 @@
-# 🔨 Build — everything that happens on a commit.
+# 🔨 Build — one Xcode verdict for each pull request, plus manual runs.
 #
-# One workflow owns the commit lifecycle, so the Actions page shows a single
-# verdict per push and per pull request:
+# Xcode builds run on the pull-request event, which tests the proposed merge
+# commit. Branch pushes do not start a second build of the same work; the
+# lightweight Quality workflow still runs on main/develop pushes.
 #
-#   triage               — one verdict per commit: a push already covered by
-#                          an open pull request skips the duplicate build
-#   hygiene              — keys, certificates, generated state, release train,
-#                          release metadata self-test, host vectors, RC audits,
-#                          hardening report                     (ubuntu)
+#   hygiene              — generated state, release metadata self-test, host
+#                          vectors, RC audits, hardening report       (ubuntu)
 #   build-and-test       — Scripts/ci/build.sh: resolve, clean, build every
-#                          target, build the test targets, run the unit tests,
-#                          annotate failures                     (macOS)
-#   lint-and-format      — SwiftLint errors block; the SwiftFormat check
-#                          blocks too, and Scripts/ci/format.sh apply
-#                          repairs any drift                     (macOS)
+#                          target, build the test targets, run unit tests,
+#                          annotate failures                           (macOS)
+#   lint-and-format      — SwiftLint errors block; SwiftFormat checks and
+#                          Scripts/ci/format.sh apply repairs drift    (macOS)
 #   external-validation  — ZynSign-signed artifacts judged by Apple's own
-#                          codesign/otool/ditto; findings are reported (macOS)
+#                          codesign/otool/ditto; findings are reported  (macOS)
 #
 # On a pull request the same run also carries the PR gates — conventional
 # title, commitlint over every commit, path labels, and the Danger Swift
@@ -33,14 +30,12 @@
 #   run_unit_tests off turns the test run into a faster compile-only gate
 #   note          private-ipa: a label folded into the artifact name
 #
-# The static gates that need no Xcode live in 02-quality.yml; publishing lives in 03-release.yml.
+# Static gates live in 02-quality.yml; publishing lives in 03-release.yml.
 # See docs/development/continuous-integration.md for what each job
 # establishes and what it explicitly does not claim.
 name: 🔨 Build
 
 on:
-  push:
-    branches: ["**"]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -64,75 +59,32 @@ on:
         default: ""
 
 # Every job reads; the hardening report, the external-validation artifacts and
-# the private IPA are the workflow's only outputs. Superseded pushes and
-# pull-request updates to the same ref are cancelled — the newest commit is
-# the one whose verdict matters. Manual runs are never cancelled and never
-# cancel anything: a dispatch is a deliberate act, and a 45-minute archive
-# should not die because someone clicked a button or pushed a commit.
+# the private IPA are the workflow's only outputs. Superseded pull-request
+# updates to the same ref are cancelled — the newest commit is the one whose
+# verdict matters. Manual runs are never cancelled and never cancel anything:
+# a dispatch is deliberate, and a 45-minute archive should not die because
+# someone clicked a button or updated a pull request.
 # Jobs that comment on a pull request widen their own permissions.
 permissions:
   contents: read
 
 concurrency:
   group: build-${{ github.event_name }}-${{ github.ref }}-${{ inputs.mode || 'checks' }}
-  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Every push gets exactly one verdict: its own run, or the pull-request
-  # run that already covers the same commit. A push to a branch with an
-  # open pull request is that duplicate — the PR run carries the required
-  # checks, so the push run skips its heavy jobs and the macOS bill is cut
-  # in half for every PR update. Pushes to main and to branches without a
-  # pull request always build.
-  triage:
-    name: Push triage
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      run: ${{ steps.decide.outputs.run }}
-    steps:
-      - name: Decide whether this push is already covered by a pull request
-        id: decide
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BRANCH: ${{ github.ref_name }}
-          EVENT: ${{ github.event_name }}
-        run: |
-          set -eu
-          if [ "${EVENT}" != "push" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # Match by head ref client-side: robust across gh versions and
-          # branch-name characters, unlike the head=OWNER:BRANCH filter.
-          # On any lookup failure run anyway — never skip on uncertainty.
-          if ! open="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/pulls" \
-              -f state=open -f per_page=100 \
-              --jq "[.[] | select(.head.ref == \"${BRANCH}\")] | length")"; then
-            open=1
-          fi
-          if [ "${open}" -gt 0 ] 2>/dev/null; then
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Push triage::${BRANCH} is covered by an open pull request — that run is this commit's verdict; skipping the duplicate build."
-          else
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Push triage::No open pull request covers ${BRANCH} — building."
-          fi
-
   hygiene:
     name: Repository hygiene
-    needs: triage
-    if: needs.triage.outputs.run != 'false'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Pull-request builds run the full secret-policy gate in 02-quality.yml;
+      # retain this local-tree check for manual Build runs.
       - name: Refuse private keys and misplaced certificates
+        if: github.event_name == 'workflow_dispatch'
         run: |
           set -eu
           # The Compatibility Lab's security suite embeds the PEM headers
@@ -166,13 +118,10 @@ jobs:
           done
           exit $failed
 
-      - name: Check the release train is consistent
-        run: python3 Scripts/release_train.py check
-
       # The release workflows derive their version through this script; the
       # self-test proves the derivation and the refusals against the real
-      # train, so a broken release pipeline is caught on an ordinary push
-      # rather than at the moment somebody tries to ship.
+      # train, so a broken release pipeline is caught during pull-request
+      # validation rather than at the moment somebody tries to ship.
       - name: Check the release metadata derivation
         run: Scripts/ci/release_meta.sh --self-test
 
@@ -227,8 +176,6 @@ jobs:
 
   build-and-test:
     name: Build and test (Xcode)
-    needs: triage
-    if: needs.triage.outputs.run != 'false'
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -264,7 +211,7 @@ jobs:
       # annotates each failing case from the result bundle — the whole gate
       # lives in the script, so the workflow cannot drift from it. The
       # manual `run_unit_tests: false` switch turns the run into a
-      # compile-only check; every push and pull request keeps the tests.
+      # compile-only check; every pull request keeps the tests.
       - name: Build every target and run the unit tests
         env:
           RUN_TESTS: ${{ (github.event_name != 'workflow_dispatch' || inputs.run_unit_tests) && '1' || '0' }}
@@ -287,8 +234,6 @@ jobs:
   # one clean, reviewable diff.
   lint-and-format:
     name: Lint and format
-    needs: triage
-    if: needs.triage.outputs.run != 'false'
     runs-on: macos-15
     timeout-minutes: 20
     steps:
@@ -311,8 +256,6 @@ jobs:
   # See docs/architecture/external-validation.md.
   external-validation:
     name: External validation (Apple tooling)
-    needs: triage
-    if: needs.triage.outputs.run != 'false'
     runs-on: macos-15
     timeout-minutes: 45
     steps:

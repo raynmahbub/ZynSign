@@ -142,8 +142,8 @@ emit() {
 # --- self-test --------------------------------------------------------------
 
 # self_test — prove the derivation and the refusals on the real train, so
-# 01-build.yml catches a broken release pipeline on an ordinary push instead of
-# at the moment somebody tries to ship.
+# 01-build.yml catches a broken release pipeline during pull-request validation
+# instead of at the moment somebody tries to ship.
 self_test() {
     local failures=0 current actual
     current="$("${TRAIN[@]}" current)"
