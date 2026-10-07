@@ -16,13 +16,13 @@ import UniformTypeIdentifiers
 /// refuses anything ZynSign did not park itself, so it can never touch a
 /// user's file.
 ///
-/// A provider is read through whichever route it actually offers. Some vended
-/// drop types name file data and can be copied straight out of the provider;
-/// a file dragged from another app frequently offers only `public.file-url`,
-/// which conforms to `public.item` and **not** to `public.data`, so the URL it
-/// carries is the only way to the bytes. Refusing such a drop because its type
-/// is not a data subtype is what made a drag from Files look like a dead
-/// control.
+/// A provider is read through whichever route it actually offers. A registered
+/// type that names the file's own data can be copied straight out of the
+/// provider; a file dragged from another app frequently offers nothing but
+/// `public.file-url`, and asking *that* for a file representation returns the
+/// reference rather than the bytes it names, so the URL has to be resolved and
+/// copied. Taking only the first route is what made a drag from Files look like
+/// a dead control.
 final class DropInboxFileReceiver: DroppedFileReceiving, @unchecked Sendable {
 
     /// How one dropped provider's bytes reach the inbox.
@@ -121,14 +121,17 @@ final class DropInboxFileReceiver: DroppedFileReceiving, @unchecked Sendable {
     /// The route to take for a provider, from what it offers.
     ///
     /// The most specific registered type that names file data wins, because
-    /// asking for it gets the file itself in one step. Where nothing
-    /// data-shaped is registered, a provider that carries a file URL is read
-    /// through that URL — the common case for a file dragged from Files, and
-    /// the case a data-only filter silently drops. Only when neither route is
-    /// available is the item reported as unreceivable.
+    /// asking for it gets the file itself in one step — except for
+    /// `public.file-url` itself. A file URL does conform to `public.data`, but
+    /// a *representation* of it is the reference, not the package: the provider
+    /// that offers only that has to be read through the URL and copied, which
+    /// is the common case for a drag from Files and the case a representation-
+    /// only reader loses. Only when neither route exists is the item reported as
+    /// unreceivable, which the hub can state instead of dropping silently.
     static func loadPlan(registeredTypes: [String], hasFileURL: Bool, hasData: Bool) -> LoadPlan? {
+        let fileURLIdentifier = UTType.fileURL.identifier
         if let specific = registeredTypes.first(where: { identifier in
-            UTType(identifier)?.conforms(to: .data) == true
+            identifier != fileURLIdentifier && UTType(identifier)?.conforms(to: .data) == true
         }) {
             return .representation(typeIdentifier: specific)
         }

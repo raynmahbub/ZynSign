@@ -116,15 +116,13 @@ struct ImportDropDelegate: DropDelegate {
 
     /// Anything the drop can carry as a file.
     ///
-    /// `public.file-url` is in the set deliberately: a file dragged out of
-    /// Files very often offers a *reference* to the file and the file's own
-    /// type, and `public.file-url` conforms to `public.item` — not to
-    /// `public.data`. Filtering on `public.data` alone therefore reports the
-    /// drag as something the target cannot accept and drops it without a
-    /// word, which is what made the drop zone look broken for exactly the
-    /// files it exists for. The receiver still reads only what it can copy,
-    /// and the hub still refuses anything that is not a package, with a
-    /// reason.
+    /// The set is deliberately wider than `public.data`. What a drag registers
+    /// depends on the app it came from — a file out of Files may offer a
+    /// reference and the file's own type, and a provider from another app names
+    /// neither the way the picker does — and a drag this target declines is
+    /// dropped by the system *without a word*, the one outcome no part of ZynSign
+    /// can recover from. Anything that lands is then read by the receiver's own
+    /// rules, and the hub still refuses what is not a package, with a reason.
     static let acceptedTypes: [UTType] = [.data, .fileURL, .archive, .zip]
 
     @Binding var isTargeted: Bool

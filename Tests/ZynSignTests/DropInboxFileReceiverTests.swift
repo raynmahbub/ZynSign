@@ -128,8 +128,10 @@ final class DropInboxFileReceiverTests: XCTestCase {
             directory: root.appendingPathComponent("DropInbox", isDirectory: true),
             sharedInboxDirectory: shared
         )
+        try FileManager.default.createDirectory(at: shared, withIntermediateDirectories: true)
         let handedOver = shared.appendingPathComponent("App.ipa")
         try Data("ipa".utf8).write(to: handedOver)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: handedOver.path))
 
         receiver.release(handedOver)
 
