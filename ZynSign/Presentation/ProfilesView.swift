@@ -46,7 +46,8 @@ struct ProfilesView: View {
         recordEvent: ((String, Bool) -> Void)? = nil,
         embedsNavigationStack: Bool = true,
         initialImportURL: URL? = nil,
-        onInitialImportConsumed: (() -> Void)? = nil
+        onInitialImportConsumed: (() -> Void)? = nil,
+        releaseImportedFile: ((URL) -> Void)? = nil
     ) {
         self.embedsNavigationStack = embedsNavigationStack
         self.initialImportURL = initialImportURL
@@ -56,7 +57,8 @@ struct ProfilesView: View {
             importer: importer,
             compatibility: compatibility,
             selections: selections,
-            recordEvent: recordEvent
+            recordEvent: recordEvent,
+            releaseImportedFile: releaseImportedFile
         ))
     }
 

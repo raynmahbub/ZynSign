@@ -326,7 +326,7 @@ struct ImportHubView: View {
 
     private var howItWorks: some View {
         VStack(alignment: .leading, spacing: ZSpacing.xs) {
-            Label("Add as many .ipa or .zip files as you like, from Files, the share sheet, Open In, or by dropping them here.", systemImage: "1.circle")
+            Label("Add as many .ipa, .tipa, or .zip files as you like, from Files, the share sheet, Open In, or by dropping them here.", systemImage: "1.circle")
             Label("Each one is checked on ZynSign's own copy — its icon, identity, signing state, and contents are read.", systemImage: "2.circle")
             Label("Review what's inside, settle any conflicts with your library, then import. Your original files are never changed.", systemImage: "3.circle")
         }

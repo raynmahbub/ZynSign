@@ -202,6 +202,14 @@ struct RootView: View {
                 isAvailable: true
             )
         )
+        .environment(
+            \.signingMaterialsPresentation,
+            SigningMaterialsPresentation(
+                importIdentity: { url in presentWhenActive(.certificates(url)) },
+                importProfile: { url in presentWhenActive(.profiles(url)) },
+                isAvailable: true
+            )
+        )
         .sheet(isPresented: $isShowingImport, onDismiss: { presentPendingShellPresentation() }) {
             ImportHubView(
                 hub: environment.importHub,
@@ -648,35 +656,39 @@ struct RootView: View {
     /// Accepts a URL the system opened ZynSign for.
     ///
     /// ZynSign declares itself a viewer for packages, archives, provisioning
-    /// profiles, and identities, so this is reached for all of them. Only
-    /// packages and archives are the hub's business: a URL that is not a
-    /// file, or whose name is neither, is left alone rather than pushed at
-    /// the hub — a profile or an identity arriving here keeps its own flow,
-    /// and anything else is ignored rather than reported as a failed import.
+    /// profiles, and identities, so this is reached for all of them.
+    /// `SigningMaterialFileFormat` decides what the name claims: an identity
+    /// or a profile keeps its own flow — the same one a drop of the same
+    /// file takes — and packages and archives go to the hub. A URL that is
+    /// not a file, or whose name is neither, is answered by the hub's
+    /// preflight, which refuses it with the reason rather than dropping it
+    /// in silence.
     ///
     /// A copy the system placed in ZynSign's own inbox came through the
     /// share sheet; anything else was opened in place.
     private func acceptIncoming(_ url: URL) {
         guard url.isFileURL else { return }
-        let ext = url.pathExtension.lowercased()
-        if IPAFileFormat.acceptsForImport(url) {
-            let origin: ImportOrigin = Self.isShareSheetCopy(url) ? .shareSheet : .openIn
-            environment.importHub.receive([url], origin: origin)
-            presentImportHub()
-        } else if ext == "mobileprovision" || ext == "provisionprofile" {
-            presentWhenActive(.profiles(url))
-            ZHaptics.tap()
-        } else if ext == "p12" || ext == "pfx" {
+        switch SigningMaterialFileFormat.kind(for: url) {
+        case .identity?:
             presentWhenActive(.certificates(url))
             ZHaptics.tap()
-        } else {
-            // A handed-over file ZynSign has no dedicated route for still has
-            // to be answered. The hub's preflight refuses it with the reason
-            // and the sheet shows that refusal; dropping the file in silence
-            // is what made Open In look broken for anything that was not a
-            // package.
-            environment.importHub.receive([url], origin: .openIn)
-            presentImportHub()
+        case .profile?:
+            presentWhenActive(.profiles(url))
+            ZHaptics.tap()
+        case nil:
+            if IPAFileFormat.acceptsForImport(url) {
+                let origin: ImportOrigin = Self.isShareSheetCopy(url) ? .shareSheet : .openIn
+                environment.importHub.receive([url], origin: origin)
+                presentImportHub()
+            } else {
+                // A handed-over file ZynSign has no dedicated route for still has
+                // to be answered. The hub's preflight refuses it with the reason
+                // and the sheet shows that refusal; dropping the file in silence
+                // is what made Open In look broken for anything that was not a
+                // package.
+                environment.importHub.receive([url], origin: .openIn)
+                presentImportHub()
+            }
         }
     }
 

@@ -182,6 +182,11 @@ final class ProvisioningProfilesModel: ObservableObject {
     private let compatibility: ProfileCompatibilityUseCase?
     private let selections: (any ProfileSelectionStore)?
     private let recordEvent: ((String, Bool) -> Void)?
+    /// Called with a source file once its import attempt has settled, so
+    /// the shell can release a copy ZynSign parked for a drop or hand-off.
+    /// `release` deletes only what ZynSign parked; a path the user chose in
+    /// Files is never touched.
+    private let releaseImportedFile: ((URL) -> Void)?
 
     /// The content types the profile picker offers: both provisioning-profile
     /// filename extensions, their dynamic types, Apple's registered type when
@@ -208,13 +213,15 @@ final class ProvisioningProfilesModel: ObservableObject {
         importer: ProvisioningProfileImporter?,
         compatibility: ProfileCompatibilityUseCase? = nil,
         selections: (any ProfileSelectionStore)? = nil,
-        recordEvent: ((String, Bool) -> Void)? = nil
+        recordEvent: ((String, Bool) -> Void)? = nil,
+        releaseImportedFile: ((URL) -> Void)? = nil
     ) {
         self.profiles = profiles
         self.importer = importer
         self.compatibility = compatibility
         self.selections = selections
         self.recordEvent = recordEvent
+        self.releaseImportedFile = releaseImportedFile
         self.preferredProfileID = selections?.preferredProfileID()
     }
 
@@ -383,7 +390,15 @@ final class ProvisioningProfilesModel: ObservableObject {
         guard let importer, let profiles else { return }
         isImporting = true
         Task {
-            defer { isImporting = false }
+            defer {
+                isImporting = false
+                // The attempt has settled — the bytes are in the profile
+                // library or refused with a message — so a copy ZynSign
+                // parked for a drop or an Open In hand-off is released now,
+                // before it could accumulate in `Documents/Inbox`. A path
+                // the user chose in Files is never parked, never released.
+                releaseImportedFile?(url)
+            }
             do {
                 let summary = try await importer.importProfile(at: url)
                 try await profiles.upsert(summary)

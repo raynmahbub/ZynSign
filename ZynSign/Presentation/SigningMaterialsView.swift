@@ -84,7 +84,8 @@ struct SigningMaterialsView: View {
                         },
                         embedsNavigationStack: false,
                         initialImportURL: incomingURL,
-                        onInitialImportConsumed: { incomingURL = nil }
+                        onInitialImportConsumed: { incomingURL = nil },
+                        releaseImportedFile: { environment.droppedFiles?.release($0) }
                     )
                 }
             }
