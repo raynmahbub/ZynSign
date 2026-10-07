@@ -27,7 +27,8 @@ iOS/iPadOS application target (`ZynSign`) and a unit-test target
 - **Build and test:** open the project in Xcode and use Product ▸ Run /
   Product ▸ Test, or the equivalent `xcodebuild` invocation against the
   shared `ZynSign` scheme. Hosted CI runs the same build and unit-test
-  target on every push; it first passed on 2026-09-24 (see
+  target for every pull request (branch pushes run the static Quality checks
+  only); it first passed on 2026-09-24 (see
   [continuous-integration.md](continuous-integration.md)).
 - **External validation:** the opt-in export test and the Apple-tooling
   harness, run locally or by the `external-validation` CI job, are

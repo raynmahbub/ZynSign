@@ -1,9 +1,8 @@
 # Quality gates — every static check that does not need Xcode.
 #
-# One workflow, eight parallel ubuntu jobs. Each job keeps the name it had
-# when it was its own workflow, so a required-status-check list written
-# against the old suite (docs/development/branch-protection.md) resolves
-# unchanged, and a failure still says exactly which gate failed.
+# One workflow, nine ubuntu jobs. Each gate runs once; the dependent
+# engineering summary aggregates metrics artifacts and gate results instead
+# of re-running the guard scripts.
 #
 #   architecture-guard    — the layered contract: Domain purity, the
 #                           Presentation security boundary, the Platform
@@ -14,10 +13,11 @@
 #                           markdown quality warn
 #   secret-policy         — the repository's own secret rules on this tree
 #   gitleaks              — the same rules over the full history
+#   release-train         — validates the current train and release metadata
 #   complexity-check      — thresholds (function 80 / file 800 / nesting 4),
 #                           advisory: it measures and reports, never blocks
-#   engineering-summary   — the Engineering Command Center: dashboards in the
-#                           step summary and one maintained PR comment
+#   engineering-summary   — the Engineering Command Center dashboard and
+#                           artifact; consumes, never repeats, the gates
 #   readme-check          — README must not drift from MARKETING_VERSION and
 #                           WHAT_DOES_NOT_EXIST.md
 #
@@ -54,9 +54,10 @@ jobs:
 
       - name: Upload the architecture metrics
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: architecture-metrics
+          name: quality-metrics-architecture
           path: build/metrics/architecture.txt
           if-no-files-found: warn
           retention-days: 14
@@ -72,6 +73,16 @@ jobs:
       - name: Check declared packages against the allowlist
         run: Scripts/ci/dependency_check.sh
 
+      - name: Upload dependency metrics
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quality-metrics-dependencies
+          path: build/metrics/dependencies.txt
+          if-no-files-found: warn
+          retention-days: 14
+
   docs-check:
     name: Links, images, orphans, markdown quality
     runs-on: ubuntu-24.04
@@ -83,6 +94,16 @@ jobs:
       - name: Validate the documentation
         run: Scripts/ci/docs_check.sh
 
+      - name: Upload documentation metrics
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quality-metrics-documentation
+          path: build/metrics/docs.txt
+          if-no-files-found: warn
+          retention-days: 14
+
   secret-policy:
     name: Repository secret policy
     runs-on: ubuntu-24.04
@@ -93,6 +114,27 @@ jobs:
 
       - name: Run the secret policy scan
         run: Scripts/ci/security_scan.sh
+
+      - name: Upload security metrics
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quality-metrics-security
+          path: build/metrics/security.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+  release-train:
+    name: Release train consistency
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate release-train metadata and stop
+        run: Scripts/ci/release_meta.sh --self-test
 
   gitleaks:
     name: Gitleaks (full history)
@@ -139,8 +181,28 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Upload complexity metrics
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quality-metrics-complexity
+          path: build/metrics/complexity.txt
+          if-no-files-found: warn
+          retention-days: 14
+
   engineering-summary:
     name: Engineering Command Center
+    needs:
+      - architecture-guard
+      - dependency-validation
+      - docs-check
+      - secret-policy
+      - gitleaks
+      - release-train
+      - complexity-check
+      - readme-check
+    if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     # This job executes scripts from the pull-request revision, so it is
@@ -153,11 +215,30 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # QUICK=1 runs the fast guards itself and skips Periphery, so this job
-      # is self-contained; the full dashboards (Periphery included) are
-      # refreshed by the weekly sweep in 04-maintenance.yml.
+      - name: Download metrics from the completed quality gates
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: quality-metrics-*
+          path: build/metrics
+          merge-multiple: true
+
+      # Consume the gates' own results and metrics rather than executing
+      # them again. The weekly sweep still runs the full dashboard, including
+      # Periphery, in 04-maintenance.yml.
       - name: Run the quick metrics report
-        run: QUICK=1 Scripts/ci/metrics_report.sh
+        env:
+          REPORT_ONLY: "1"
+          QUICK: "1"
+          ARCHITECTURE_JOB_RESULT: ${{ needs.architecture-guard.result }}
+          DEPENDENCY_JOB_RESULT: ${{ needs.dependency-validation.result }}
+          DOCUMENTATION_JOB_RESULT: ${{ needs.docs-check.result }}
+          SECRET_POLICY_JOB_RESULT: ${{ needs.secret-policy.result }}
+          GITLEAKS_JOB_RESULT: ${{ needs.gitleaks.result }}
+          COMPLEXITY_JOB_RESULT: ${{ needs.complexity-check.result }}
+          RELEASE_TRAIN_JOB_RESULT: ${{ needs.release-train.result }}
+        run: Scripts/ci/metrics_report.sh
 
       - name: Publish the step summary
         if: always()

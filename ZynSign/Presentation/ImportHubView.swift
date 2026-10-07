@@ -43,9 +43,11 @@ struct ImportHubView: View {
     @State private var queueConfiguration: SigningQueueConfigurationRequest?
     @State private var queueFailure: String?
     @State private var isShowingPicker = false
-    /// A `chooseFiles` request that arrived before the sheet finished
-    /// presenting, waiting for the hub to be on screen.
+    /// A request queued until the picker has actually appeared.
     @State private var wantsFilePickerOnAppear = false
+    /// Keeps the `.task`, shell request, and button action from presenting the
+    /// same picker concurrently.
+    @State private var isPresentingFilePicker = false
     /// Whether the hub's own sheet has finished appearing, reported by the
     /// sheet's controller rather than assumed after a delay.
     /// `presentPendingFilePick` is driven by `.task` before this turns true,
@@ -208,7 +210,7 @@ struct ImportHubView: View {
         List {
             Section {
                 ImportDropZone(receivingCount: hub.receivingDropCount) {
-                    isShowingPicker = true
+                    requestFilePicker()
                 }
                 .listRowInsets(EdgeInsets(top: ZSpacing.xs, leading: 0, bottom: ZSpacing.xs, trailing: 0))
                 .listRowBackground(Color.clear)
@@ -530,7 +532,7 @@ struct ImportHubView: View {
         }
         ToolbarItemGroup(placement: .primaryAction) {
             Button {
-                isShowingPicker = true
+                requestFilePicker()
             } label: {
                 Label("Add Files", systemImage: "plus")
             }
@@ -611,16 +613,28 @@ struct ImportHubView: View {
     }
 
     private func handlePickerResult(_ result: Result<[URL], any Error>) {
+        isShowingPicker = false
+        wantsFilePickerOnAppear = false
         switch result {
         case .success(let urls):
             guard !urls.isEmpty else { return }
-            withAnimation(ZMotion.fast) {
-                _ = hub.receive(urls, origin: .documentPicker)
+            Task { @MainActor in
+                guard await PresentationSettle.waitForIdle(cap: .seconds(8)) else {
+                    pickerFailure = "The system file picker is still closing. Wait a moment, then choose the files again."
+                    return
+                }
+                withAnimation(ZMotion.fast) {
+                    _ = hub.receive(urls, origin: .documentPicker)
+                }
+                availableCapacity = hub.availableCapacity()
             }
-            availableCapacity = hub.availableCapacity()
         case .failure(let error):
             guard !ImportQueueRendering.isCancellation(error) else { return }
-            pickerFailure = ImportQueueRendering.pickerFailureMessage(for: error)
+            let failureMessage = ImportQueueRendering.pickerFailureMessage(for: error)
+            Task { @MainActor in
+                _ = await PresentationSettle.waitForIdle(cap: .seconds(8))
+                pickerFailure = failureMessage
+            }
         }
     }
 
@@ -629,6 +643,7 @@ struct ImportHubView: View {
         case .none:
             return
         case .chooseFiles:
+            pickerFailure = nil
             // The picker cannot be presented until this sheet is itself on
             // screen — asking earlier fails silently, with no picker and no
             // error. Record the request, then try: `.task` below covers a
@@ -646,37 +661,61 @@ struct ImportHubView: View {
         request = .none
     }
 
+    /// Queues a picker request from a control the user can already see.
+    private func requestFilePicker() {
+        pickerFailure = nil
+        wantsFilePickerOnAppear = true
+        Task { @MainActor in
+            await presentPendingFilePick(waitingForSheet: !hasSettled)
+        }
+    }
+
     /// Presents the picker once the hub is on screen and its own transition
     /// has settled.
     ///
-    /// Called twice by design and taking effect once: from the hub's `.task`,
-    /// for a request that arrived before the view existed, and from
-    /// `handle(_:)`, for one that arrives while it is up. The pending flag is
-    /// cleared before the picker is raised, so neither path can present twice.
+    /// `.task` and `handle(_:)` may both notice the same request, and a user
+    /// control may ask while the sheet is still settling. The in-flight flag
+    /// serializes those callers. The pending request is consumed only after
+    /// UIKit confirms the document picker appeared; if the presentation was
+    /// silently dropped, the binding is reset and the request is tried once
+    /// more rather than leaving a permanently-true, unusable state.
     ///
     /// - Parameter waitingForSheet: Whether the hub's own sheet may still be
-    ///   animating in. When it may, the sheet's own appearance report is
-    ///   awaited (`SheetPresentationReporter`) — the platform's answer to "the
-    ///   hub is up", not a duration that is usually long enough. When the sheet
-    ///   has already settled — the user tapped *Choose Files* in a hub that is
-    ///   fully up — the picker is raised straight away.
-    ///
-    /// The raise is confirmed and, if the platform accepted nothing, asked once
-    /// more: a picker dropped inside the sheet's transition is the reported
-    /// "Import does nothing", and a silent second drop would leave the tap
-    /// unanswered again.
+    ///   animating in. When it may, the sheet's appearance reporter is awaited;
+    ///   the full presented-controller chain is then checked for transitions.
     private func presentPendingFilePick(waitingForSheet: Bool) async {
-        guard wantsFilePickerOnAppear, !isShowingPicker else {
+        guard wantsFilePickerOnAppear else { return }
+        if isShowingPicker {
             wantsFilePickerOnAppear = false
             return
         }
+        guard !isPresentingFilePicker else { return }
+        isPresentingFilePicker = true
+        defer { isPresentingFilePicker = false }
+
         if waitingForSheet {
-            await PresentationSettle.waitUntil { hasSettled }
+            _ = await PresentationSettle.waitUntil { hasSettled }
         }
-        await PresentationSettle.waitForIdle()
-        guard wantsFilePickerOnAppear, !isShowingPicker else { return }
+
+        for _ in 0..<2 {
+            guard wantsFilePickerOnAppear, !Task.isCancelled else { return }
+            let appeared = await PresentationSettle.presentAndConfirm {
+                isShowingPicker = true
+            }
+            if appeared {
+                wantsFilePickerOnAppear = false
+                return
+            }
+
+            // A failed confirmation means SwiftUI's importer may still have
+            // its presentation binding armed. Reset it before the retry so
+            // the next assignment is a new presentation request.
+            isShowingPicker = false
+            await Task.yield()
+        }
+
         wantsFilePickerOnAppear = false
-        isShowingPicker = true
+        pickerFailure = "The system file picker could not be opened. Tap Add Files to try again."
     }
 
     private func openRecord(_ record: ApplicationRecord) {

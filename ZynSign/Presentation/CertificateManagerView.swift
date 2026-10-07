@@ -37,11 +37,15 @@ struct CertificateManagerView: View {
 
     // Import flow
     @State private var showImporter = false
+    @State private var isOpeningCertificatePicker = false
     @State private var isReadingSelectedFile = false
     @State private var pendingData: Data?
     @State private var pendingFileName: String?
     @State private var showPasswordSheet = false
+    @State private var isPresentingPasswordSheet = false
     @State private var showImportSummary = false
+    @State private var isPresentingImportSummary = false
+    @State private var wantsImportSummaryAfterPasswordDismissal = false
 
     // Quick actions
     @State private var itemPendingRemoval: CertificateManagerModel.CertificateItem?
@@ -135,7 +139,7 @@ struct CertificateManagerView: View {
                 allowedContentTypes: Self.importableContentTypes,
                 allowsMultipleSelection: false
             ) { result in handlePicker(result) }
-            .sheet(isPresented: $showPasswordSheet) {
+            .sheet(isPresented: $showPasswordSheet, onDismiss: { passwordSheetDidDismiss() }) {
                 if let data = pendingData, let fileName = pendingFileName {
                     ImportIdentityPasswordSheet(
                         fileName: fileName,
@@ -218,13 +222,6 @@ struct CertificateManagerView: View {
                 Text(notice.message)
             }
             .zToast(isPresented: $showToast, message: toastMessage, style: toastStyle)
-            .onChange(of: model.importSummary) { _, new in
-                if new != nil {
-                    withAnimation(ZMotion.interactive) {
-                        showImportSummary = true
-                    }
-                }
-            }
             .onChange(of: model.phase) { _, new in
                 reconcileTeamFilter(with: new)
             }
@@ -273,7 +270,7 @@ struct CertificateManagerView: View {
     /// The empty state: friendly, short, and free of technical wording.
     private var emptyState: some View {
         ZEmptyState.noCertificates {
-            showImporter = true
+            requestCertificatePicker()
         }
     }
 
@@ -511,11 +508,14 @@ struct CertificateManagerView: View {
             filterMenu
             layoutToggle
             Button {
-                showImporter = true
+                requestCertificatePicker()
             } label: {
                 Label("Import Certificate…", systemImage: "plus")
             }
-            .disabled(model.isImporting || isReadingSelectedFile || pendingData != nil || showPasswordSheet)
+            .disabled(
+                model.isImporting || isOpeningCertificatePicker || isReadingSelectedFile
+                    || pendingData != nil || showPasswordSheet
+            )
         }
     }
 
@@ -602,7 +602,32 @@ struct CertificateManagerView: View {
         return Array(types)
     }
 
+    /// Presents the system picker from the stable Certificates screen and
+    /// confirms that UIKit actually put it on screen. A silently dropped
+    /// presentation is reset before one retry.
+    private func requestCertificatePicker() {
+        guard !isOpeningCertificatePicker,
+              !model.isImporting,
+              !isReadingSelectedFile,
+              pendingData == nil,
+              !showPasswordSheet else { return }
+        isOpeningCertificatePicker = true
+        Task { @MainActor in
+            defer { isOpeningCertificatePicker = false }
+            for _ in 0..<2 {
+                let appeared = await PresentationSettle.presentAndConfirm {
+                    showImporter = true
+                }
+                if appeared { return }
+                showImporter = false
+                await Task.yield()
+            }
+            presentToast("The system file picker could not be opened. Tap Import Certificate to try again.", style: .error)
+        }
+    }
+
     private func handlePicker(_ result: Result<[URL], any Error>) {
+        showImporter = false
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
@@ -678,15 +703,74 @@ struct CertificateManagerView: View {
         }
     }
 
-    /// Presents the password sheet once the picker's own dismissal has landed.
+    /// Presents the password sheet only after the picker has fully left the
+    /// presented-controller chain. The picker callback may arrive while its
+    /// child controller is still dismissing; the shared helper waits for that
+    /// child and confirms that the password form appeared.
     private func presentPasswordSheetAfterPickerSettles() {
+        guard !isPresentingPasswordSheet, !showPasswordSheet else { return }
+        isPresentingPasswordSheet = true
         Task { @MainActor in
-            await PresentationSettle.waitForIdle()
+            defer { isPresentingPasswordSheet = false }
             guard pendingData != nil, pendingFileName != nil else { return }
-            withAnimation(ZMotion.interactive) {
-                showPasswordSheet = true
+            for _ in 0..<2 {
+                let appeared = await PresentationSettle.presentAndConfirm {
+                    withAnimation(ZMotion.interactive) {
+                        showPasswordSheet = true
+                    }
+                }
+                if appeared { return }
+                showPasswordSheet = false
+                await Task.yield()
+            }
+
+            // Do not leave the import controls disabled if UIKit rejected both
+            // presentations. The user can choose the file again after seeing
+            // this explicit recovery instruction.
+            pendingData = nil
+            pendingFileName = nil
+            presentToast("The certificate was read, but its password form could not be opened. Choose the file again to retry.", style: .error)
+        }
+    }
+
+    /// Handles a password-sheet dismissal after UIKit has completed it. A
+    /// swipe-to-dismiss clears unconfirmed bytes so Import is not stranded;
+    /// successful imports use this platform callback to sequence the summary
+    /// after the password sheet is actually gone.
+    private func passwordSheetDidDismiss() {
+        let shouldPresentSummary = wantsImportSummaryAfterPasswordDismissal
+        wantsImportSummaryAfterPasswordDismissal = false
+        if !model.isImporting, model.importSummary == nil {
+            pendingData = nil
+            pendingFileName = nil
+        }
+        guard shouldPresentSummary else { return }
+        Task { @MainActor in
+            let summaryAppeared = await presentImportSummaryAfterPasswordSheet()
+            if !summaryAppeared {
+                presentToast("Certificate imported successfully. It is now in your certificate list.", style: .success)
             }
         }
+    }
+
+    /// Opens the success summary after the password sheet's dismissal has
+    /// completed. Requesting two sheets in the same update was another silent
+    /// UIKit drop: the success state is now sequenced and confirmed.
+    private func presentImportSummaryAfterPasswordSheet() async -> Bool {
+        guard model.importSummary != nil, !isPresentingImportSummary else { return false }
+        isPresentingImportSummary = true
+        defer { isPresentingImportSummary = false }
+        for _ in 0..<2 {
+            let appeared = await PresentationSettle.presentAndConfirm {
+                withAnimation(ZMotion.interactive) {
+                    showImportSummary = true
+                }
+            }
+            if appeared { return true }
+            showImportSummary = false
+            await Task.yield()
+        }
+        return false
     }
 
     /// Runs the import the password sheet confirmed.
@@ -699,11 +783,16 @@ struct CertificateManagerView: View {
     private func runImport(data: Data, password: String) async {
         let imported = await model.performImport(data: data, password: password)
         if imported != nil {
-            await env.signingDiagnostics?.identitiesDidChange()
-            NotificationCenter.default.post(name: .zynsignSigningIdentityChanged, object: nil)
+            // Arm the dismissal hand-off before the first suspension. The
+            // user can dismiss interactively as soon as the importer clears
+            // `isImporting`, so the summary must already be waiting for the
+            // platform's onDismiss callback.
             pendingData = nil
             pendingFileName = nil
+            wantsImportSummaryAfterPasswordDismissal = true
             showPasswordSheet = false
+            NotificationCenter.default.post(name: .zynsignSigningIdentityChanged, object: nil)
+            await env.signingDiagnostics?.identitiesDidChange()
             env.recordAnalyticsEvent(
                 category: .certificate,
                 name: "certificate.imported",

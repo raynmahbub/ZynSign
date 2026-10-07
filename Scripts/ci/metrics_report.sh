@@ -8,9 +8,11 @@
 #   docs/internal/EngineeringCommandCenter.md — the live command center
 #   docs/internal/metrics-history.csv        — the trend line both read
 #
-# Every check runs in report mode: a failing guard is recorded as red in
-# the dashboards, it does not fail this script (the dedicated workflows
-# are the gates). QUICK=1 skips the slower scans for per-PR summaries.
+# Outside REPORT_ONLY mode, every check runs in report mode: a failing guard
+# is recorded as red in the dashboards, while dedicated workflow jobs are the
+# gates. Per-PR summaries use REPORT_ONLY=1 to consume their gate results and
+# metric artifacts without running those checks a second time. QUICK=1 skips
+# the slower scans (including Periphery) for per-PR summaries.
 #
 # Workflows call this script; CI logic lives here, never in YAML.
 #
@@ -24,6 +26,7 @@ source "${CRYSTAL_DIR}/crystal.sh"
 crystal_phase "${CRYSTAL_COMMAND}" "Command Center" "Engineering metrics"
 
 QUICK="${QUICK:-0}"
+REPORT_ONLY="${REPORT_ONLY:-0}"
 METRICS_DIR="build/metrics"
 HEALTH="docs/internal/RepositoryHealth.md"
 COMMAND="docs/internal/EngineeringCommandCenter.md"
@@ -40,11 +43,35 @@ run_guard() { # name, script...
     fi
 }
 
-ARCH_STATUS=$(run_guard architecture Scripts/ci/architecture_guard.sh)
-DEP_STATUS=$(run_guard dependencies Scripts/ci/dependency_check.sh)
-DOCS_STATUS=$(run_guard documentation Scripts/ci/docs_check.sh)
-SEC_STATUS=$(run_guard security Scripts/ci/security_scan.sh)
-COMPLEXITY_STATUS=$(run_guard complexity Scripts/ci/complexity_check.sh)
+job_status() { # GitHub Actions job result -> dashboard status
+    case "$1" in
+        success) echo "pass" ;;
+        skipped) echo "skipped" ;;
+        *) echo "fail" ;;
+    esac
+}
+
+if [[ "${REPORT_ONLY}" == "1" ]]; then
+    # The Quality workflow uploads these files from the gate jobs and passes
+    # their results through the environment. Do not re-run those gates here.
+    ARCH_STATUS=$(job_status "${ARCHITECTURE_JOB_RESULT:-}")
+    DEP_STATUS=$(job_status "${DEPENDENCY_JOB_RESULT:-}")
+    DOCS_STATUS=$(job_status "${DOCUMENTATION_JOB_RESULT:-}")
+    COMPLEXITY_STATUS=$(job_status "${COMPLEXITY_JOB_RESULT:-}")
+    TRAIN_CHECK=$(job_status "${RELEASE_TRAIN_JOB_RESULT:-}")
+    SEC_STATUS="pass"
+    if [[ "${SECRET_POLICY_JOB_RESULT:-}" != "success" \
+        || "${GITLEAKS_JOB_RESULT:-}" != "success" ]]; then
+        SEC_STATUS="fail"
+    fi
+else
+    ARCH_STATUS=$(run_guard architecture Scripts/ci/architecture_guard.sh)
+    DEP_STATUS=$(run_guard dependencies Scripts/ci/dependency_check.sh)
+    DOCS_STATUS=$(run_guard documentation Scripts/ci/docs_check.sh)
+    SEC_STATUS=$(run_guard security Scripts/ci/security_scan.sh)
+    COMPLEXITY_STATUS=$(run_guard complexity Scripts/ci/complexity_check.sh)
+    TRAIN_CHECK=$(run_guard release-train python3 Scripts/release_train.py check)
+fi
 
 if [[ "${QUICK}" != "1" ]]; then
     DEAD_STATUS=$(run_guard dead-code Scripts/ci/dead_code_scan.sh)
@@ -67,7 +94,6 @@ LARGEST_FILES=$(find ZynSign Tests -name '*.swift' -exec wc -l {} + 2>/dev/null 
     | awk '{printf "| %s | %d |\n", $2, $1}')
 
 TRAIN_STATUS=$(python3 Scripts/release_train.py status 2>/dev/null | head -2 | tr '\n' ' · ' | sed 's/·  ·/·/')
-TRAIN_CHECK=$(run_guard release-train python3 Scripts/release_train.py check)
 
 CHANGELOG_STATUS="fail"
 grep -q "^## \[Unreleased\]" CHANGELOG.md 2>/dev/null && CHANGELOG_STATUS="pass"
@@ -195,7 +221,7 @@ _Live internal engineering dashboard — generated ${TODAY} at commit \`${COMMIT
 
 | Area | Status | Detail |
 | --- | --- | --- |
-| Build & tests | see CI checks | \`01-build.yml\` on every PR and push |
+| Build & tests | see CI checks | pull requests and manual dispatches; no branch-push Xcode build |
 | Architecture health | $(status_icon "${ARCH_STATUS}") | ${ARCH_VIOLATIONS} violation(s) across 8 rules |
 | Test coverage surface | ✅ | ${TEST_COUNT} tests in ${TEST_FILES} files |
 | Largest Swift files | 📏 | ${WORST_FILE} |
@@ -223,7 +249,7 @@ $(tail -n +2 "${HISTORY}" 2>/dev/null | tail -10 | awk -F, '{print "| "$1" | "$2
 - \`Scripts/ci/dependency_check.sh\` → \`build/metrics/dependencies.txt\`
 - \`Scripts/ci/docs_check.sh\` → \`build/metrics/docs.txt\`
 - \`Scripts/ci/security_scan.sh\` → \`build/metrics/security.txt\`
-- \`02-quality.yml\` posts it on every pull request; \`04-maintenance.yml\` refreshes it weekly.
+- The PR summary aggregates the Quality gates and their metrics; 04-maintenance.yml refreshes it weekly.
 EOF
 
 echo "Dashboards written: ${HEALTH}, ${COMMAND}"

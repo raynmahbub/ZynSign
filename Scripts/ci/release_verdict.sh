@@ -264,7 +264,7 @@ verdict() {
 
 # self_test — replay the endings against recorded job results, including the
 # run that motivated this script (two ubuntu gates cancelled for want of a
-# runner), so 01-build.yml catches a verdict that lies on an ordinary push.
+# runner), so 01-build.yml catches a verdict that lies during pull-request validation.
 self_test() {
     local failures=0
 

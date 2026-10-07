@@ -8,7 +8,7 @@ _Live internal engineering dashboard — generated 2026-10-01 at commit `02f629d
 
 | Area | Status | Detail |
 | --- | --- | --- |
-| Build & tests | see CI checks | `01-build.yml` on every PR and push |
+| Build & tests | see CI checks | pull requests and manual dispatches; no branch-push Xcode build |
 | Architecture health | ✅ | 0 violation(s) across 8 rules |
 | Test coverage surface | ✅ | 2836 tests in 221 files |
 | Largest Swift files | 📏 | 1993 lines at ZynSign/Presentation/ApplicationDetailView.swift |
@@ -38,4 +38,4 @@ Current release : v0.0.1  (stage .horizon) Xcode project   : MARKETING_VERSION 0
 - `Scripts/ci/dependency_check.sh` → `build/metrics/dependencies.txt`
 - `Scripts/ci/docs_check.sh` → `build/metrics/docs.txt`
 - `Scripts/ci/security_scan.sh` → `build/metrics/security.txt`
-- `02-quality.yml` posts it on every pull request; `04-maintenance.yml` refreshes it weekly.
+- The PR summary aggregates the Quality gates and their metrics; `04-maintenance.yml` refreshes it weekly.

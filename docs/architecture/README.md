@@ -164,8 +164,9 @@ tooling for the first time. An opt-in export test signs synthetic inputs
 through the production use cases with a throwaway in-process key, a host
 harness judges the exports with `codesign`, `otool`, `ditto`, `unzip`, and
 OpenSSL on a macOS runner, compares them with `codesign`'s own ad hoc signing
-of the same inputs, and records every verdict; a non-gating CI job runs it on
-every push. The first hosted runs found Apple's desktop verifier accepting
+of the same inputs, and records every verdict. A CI job runs it on every
+pull request; branch pushes run the static Quality checks only. The first
+hosted runs found Apple's desktop verifier accepting
 ZynSign's single-image signatures and rejecting the application pipeline's
 bundles, and the signature format failing Apple's documented iOS 15+
 requirements. The method and the known-divergence register are recorded in

@@ -9,28 +9,24 @@ import UIKit
 ///
 /// UIKit drops a presentation requested while another controller is still
 /// transitioning — no error, no presentation, and the state that asked for it
-/// stays set, so the screen looks like it ignored the tap. That is what a
-/// chosen package and a chosen `.p12` both ran into: the Import Hub's picker
-/// was requested while the hub's own sheet was still animating in, and the
-/// certificate import's password sheet was requested in the frame the document
-/// picker was dismissing.
+/// stays set, so the screen looks like it ignored the tap. This is especially
+/// easy to hit when a document picker calls back while its own dismissal is
+/// still in flight.
 ///
-/// The earlier answer was a fixed settle beat: sleep 400 ms, then present, and
-/// hope the animation was shorter. On a device that is slower than the guess —
-/// a Release build, a cold first render, a long list on screen — the beat
-/// elapses first and the request is dropped again. Guessing is the bug, so
-/// nothing here measures time any more:
+/// Every wait checks the complete presented-controller chain, including a
+/// child that is *being dismissed*. Checking only the controller that remains
+/// visible after skipping a dismissing child reports the hierarchy idle too
+/// early — the exact frame in which the next sheet or picker is dropped.
 ///
-/// - `waitForIdle()` waits until the platform reports no in-flight transition
-///   (`transitionCoordinator`, `isBeingPresented`, `isBeingDismissed`);
-/// - `waitUntil(_:)` waits for a report the app itself receives, such as a
-///   sheet's own appearance (`SheetPresentationReporter`);
-/// - `presentAndConfirm(_:)` presents and then *checks* that something
-///   appeared, so the caller can ask once more instead of leaving the user
-///   with a tap that did nothing.
+/// - `waitForIdle()` waits for the platform to report that the presented
+///   hierarchy has stopped transitioning;
+/// - `waitUntil(_:)` waits for a signal the app receives, such as a sheet's own
+///   appearance (`SheetPresentationReporter`);
+/// - `presentAndConfirm(_:)` presents, checks that the hierarchy changed, and
+///   reports failure so the caller can reset its binding and retry.
 ///
-/// Every wait has a cap only so that a report that never arrives cannot hang a
-/// screen; the cap is never the thing being waited for.
+/// The cap bounds waits whose platform report never arrives. It is a failure
+/// result, never permission to present into a hierarchy still in transition.
 enum PresentationSettle {
 
     /// How often a wait re-checks whatever it is waiting for.
@@ -39,25 +35,50 @@ enum PresentationSettle {
     /// The longest any wait will keep checking before giving up.
     static let cap: Duration = .seconds(3)
 
+    /// A snapshot of one controller's transition state, separated from UIKit
+    /// so the hierarchy rule can be regression-tested without a live window.
+    struct TransitionStatus: Equatable {
+        let hasTransitionCoordinator: Bool
+        let isBeingPresented: Bool
+        let isBeingDismissed: Bool
+
+        var isIdle: Bool {
+            !hasTransitionCoordinator && !isBeingPresented && !isBeingDismissed
+        }
+    }
+
+    /// Every controller in the presented chain must be idle. In particular,
+    /// a dismissing child keeps the chain busy even when its presenter is not
+    /// itself transitioning.
+    static func hierarchyIsIdle(_ statuses: [TransitionStatus]) -> Bool {
+        statuses.allSatisfy(\.isIdle)
+    }
+
     /// Waits until nothing in ZynSign's presented hierarchy is transitioning.
     ///
-    /// Called before a presentation that follows a dismissal — the picker
-    /// closing, a sheet going away — so the request lands on a settled
-    /// hierarchy instead of inside the animation.
+    /// - Returns: `true` when the hierarchy is idle (or no UIKit window is
+    ///   available to inspect), `false` on cancellation or timeout.
     @MainActor
-    static func waitForIdle() async {
+    @discardableResult
+    static func waitForIdle(cap: Duration = PresentationSettle.cap) async -> Bool {
         let deadline = Date().addingTimeInterval(seconds(from: cap))
         while Date() < deadline {
+            if Task.isCancelled { return false }
             #if canImport(UIKit)
-            guard let top = topMostViewController() else { return }
-            if top.transitionCoordinator == nil, !top.isBeingPresented, !top.isBeingDismissed {
-                return
-            }
+            guard let controllers = presentedControllers() else { return true }
+            let statuses = controllers.map { transitionStatus(of: $0) }
+            if hierarchyIsIdle(statuses) { return true }
             #else
-            return
+            return true
             #endif
             try? await Task.sleep(for: pollInterval)
         }
+        #if canImport(UIKit)
+        guard let controllers = presentedControllers() else { return true }
+        return hierarchyIsIdle(controllers.map { transitionStatus(of: $0) })
+        #else
+        return true
+        #endif
     }
 
     /// Waits until `condition` is true, checking every poll interval.
@@ -66,15 +87,18 @@ enum PresentationSettle {
     /// Import Hub waits for its sheet to report that it has appeared, not for
     /// a number of milliseconds that is usually long enough.
     @MainActor
+    @discardableResult
     static func waitUntil(
         _ condition: @MainActor () -> Bool,
         cap: Duration = PresentationSettle.cap
-    ) async {
+    ) async -> Bool {
         let deadline = Date().addingTimeInterval(seconds(from: cap))
         while Date() < deadline {
-            if condition() { return }
+            if Task.isCancelled { return false }
+            if condition() { return true }
             try? await Task.sleep(for: pollInterval)
         }
+        return condition()
     }
 
     /// Presents, and reports whether the presented hierarchy changed.
@@ -83,8 +107,8 @@ enum PresentationSettle {
     /// another controller's transition. `present` is then called once, and the
     /// hierarchy is polled: a presentation the platform accepted puts a new
     /// controller at the top of the chain, and one it dropped leaves the chain
-    /// exactly as it was. The result is what lets a caller re-arm and ask
-    /// again instead of the user being left with a tap that did nothing.
+    /// exactly as it was. The result lets the caller re-arm and ask again
+    /// instead of leaving the user with a tap that did nothing.
     ///
     /// - Returns: `true` when something appeared, `false` when nothing did.
     @MainActor
@@ -93,12 +117,14 @@ enum PresentationSettle {
         cap: Duration = .milliseconds(1500),
         _ present: @MainActor () -> Void
     ) async -> Bool {
-        await waitForIdle()
+        guard await waitForIdle() else { return false }
         #if canImport(UIKit)
         let before = topMostViewController()
+        guard before != nil else { return false }
         present()
         let deadline = Date().addingTimeInterval(seconds(from: cap))
         while Date() < deadline {
+            if Task.isCancelled { return false }
             try? await Task.sleep(for: pollInterval)
             if topMostViewController() !== before { return true }
         }
@@ -115,22 +141,36 @@ enum PresentationSettle {
     }
 
     #if canImport(UIKit)
-    /// The controller at the top of the active window's presented chain — the
-    /// one the next presentation would come from.
-    ///
-    /// Only presentation is asked about, never a screen's contents: the
-    /// returned controller is compared by identity before and after a
-    /// presentation, and never retained by the caller.
+    /// Every presented controller from the key window's root through its
+    /// presented chain. Dismissing controllers are intentionally retained in
+    /// the result until UIKit removes them after the transition.
     @MainActor
-    private static func topMostViewController() -> UIViewController? {
+    private static func presentedControllers() -> [UIViewController]? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let activeScene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
         let window = activeScene?.windows.first { $0.isKeyWindow } ?? activeScene?.windows.first
         guard var controller = window?.rootViewController else { return nil }
-        while let presented = controller.presentedViewController, !presented.isBeingDismissed {
+        var controllers = [controller]
+        while let presented = controller.presentedViewController {
+            controllers.append(presented)
             controller = presented
         }
-        return controller
+        return controllers
+    }
+
+    /// The controller at the end of the active presented chain.
+    @MainActor
+    private static func topMostViewController() -> UIViewController? {
+        presentedControllers()?.last
+    }
+
+    @MainActor
+    private static func transitionStatus(of controller: UIViewController) -> TransitionStatus {
+        TransitionStatus(
+            hasTransitionCoordinator: controller.transitionCoordinator != nil,
+            isBeingPresented: controller.isBeingPresented,
+            isBeingDismissed: controller.isBeingDismissed
+        )
     }
     #endif
 }
@@ -139,11 +179,9 @@ enum PresentationSettle {
 /// Reports when the controller hosting it has finished appearing.
 ///
 /// A sheet's `.task` starts while the sheet is still animating in, and a
-/// presentation requested inside that window is dropped with no error, so the
-/// Import Hub needs the platform's own answer to "the sheet is up". UIKit
-/// forwards appearance transitions to child controllers, so this controller's
-/// `viewDidAppear` is that answer: it fires when the presentation transition
-/// ends, or immediately when it is added to a controller already on screen.
+/// presentation requested inside that window is dropped without an error. The
+/// Import Hub therefore waits for UIKit's own appearance callback instead of
+/// guessing how long its sheet takes to come up.
 ///
 /// It draws nothing and takes no touches. It exists only to produce the
 /// callback, which replaces the settle beat the hub used to sleep through.
