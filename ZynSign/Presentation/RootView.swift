@@ -669,6 +669,14 @@ struct RootView: View {
         } else if ext == "p12" || ext == "pfx" {
             presentWhenActive(.certificates(url))
             ZHaptics.tap()
+        } else {
+            // A handed-over file ZynSign has no dedicated route for still has
+            // to be answered. The hub's preflight refuses it with the reason
+            // and the sheet shows that refusal; dropping the file in silence
+            // is what made Open In look broken for anything that was not a
+            // package.
+            environment.importHub.receive([url], origin: .openIn)
+            presentImportHub()
         }
     }
 

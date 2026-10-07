@@ -631,6 +631,12 @@ struct CertificateManagerView: View {
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
+            if urls.count > 1 {
+                // One identity at a time is the model's rule, and a picker that
+                // let the person tick three files has to say what happened to
+                // the other two instead of quietly dropping them.
+                presentToast("ZynSign imports one certificate file at a time. The other selected files were not read — choose one again when this import is finished.", style: .warning)
+            }
             beginReadingSelectedFile(at: url)
         case .failure(let error):
             let ns = error as NSError
@@ -644,7 +650,13 @@ struct CertificateManagerView: View {
         guard !isReadingSelectedFile,
               !model.isImporting,
               pendingData == nil,
-              !showPasswordSheet else { return }
+              !showPasswordSheet else {
+            // Swallowing the file the person just chose is how this screen
+            // starts to feel stuck. Saying what is busy, and what to do about
+            // it, is the same answer Open In already gives.
+            presentToast("Finish the current certificate import before opening another file.", style: .warning)
+            return
+        }
         // The name is not the verdict. The reader — which accepts a matching
         // `.p12`/`.pfx`, sniffs content for a name Files rewrote, and refuses
         // a foreign format by type — decides, and its typed failure becomes
@@ -676,28 +688,33 @@ struct CertificateManagerView: View {
         }
     }
 
+    /// Handles a URL handed over by another app ("Open In ZynSign").
+    ///
+    /// The read itself is `beginReadingSelectedFile`'s, guard and all: an
+    /// Open In file and a picked file must be answered identically, and the
+    /// only thing that differs is that a handed-over URL must not be read
+    /// twice.
     private func handleIncomingImport(_ url: URL) {
         guard handledIncomingURL != url else { return }
         handledIncomingURL = url
         onInitialImportConsumed?()
-        guard !isReadingSelectedFile,
-              !model.isImporting,
-              pendingData == nil,
-              !showPasswordSheet else {
-            presentToast("Finish the current certificate import before opening another file.", style: .warning)
-            return
-        }
         beginReadingSelectedFile(at: url)
     }
 
+    /// What to say when the chosen file never reached the importer.
+    ///
+    /// Each reason names the fix a person can actually try: an "empty"
+    /// certificate is usually an iCloud placeholder whose bytes have not
+    /// arrived, and a format refusal has to say why a `.cer` or a `.pem`
+    /// cannot stand in for a `.p12` — it carries no private key.
     private func readFailureMessage(for error: any Error) -> String {
         switch error as? PKCS12DocumentReadError {
         case .unsupportedFileType:
-            return "That file is not a PKCS#12 certificate container. Choose the .p12 or .pfx your Apple developer tools exported."
+            return "That file is not a PKCS#12 certificate container. Choose the .p12 or .pfx your Apple developer tools exported — a .cer, .pem, or .der holds no private key, so it cannot be imported here."
         case .emptyFile:
-            return "The selected certificate file is empty."
+            return "The selected certificate file has no content on this device yet. If it lives in iCloud Drive, open it once in Files so it downloads, then choose it again."
         case .fileTooLarge:
-            return "The selected certificate file is larger than the 10 MiB limit."
+            return "The selected certificate file is larger than the 10 MiB limit. A signing identity is a few kilobytes; this file is something else."
         case .unreadable, .none:
             return "The selected certificate file could not be read from its file provider. Try saving it to Files and choosing it again."
         }

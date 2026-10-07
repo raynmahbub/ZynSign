@@ -37,6 +37,15 @@ struct CoordinatedPKCS12DocumentReader: PKCS12DocumentReading {
             }
         }
 
+        // A `.p12` kept in iCloud Drive is often a placeholder: its name and
+        // size are on the device and its bytes are not, so every read answers
+        // "empty" and the user is told their certificate file is empty. Ask
+        // the provider for the content and wait, bounded, before coordinating
+        // the read. The caller runs this off the interface thread, which is
+        // what makes the wait available; `UbiquitousContentWait` says what
+        // happens when it is not.
+        UbiquitousContentWait.materialize(source)
+
         let coordinator = NSFileCoordinator(filePresenter: nil)
         var coordinationError: NSError?
         var result: Result<Data, PKCS12DocumentReadError>?

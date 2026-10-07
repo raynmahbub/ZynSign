@@ -3,7 +3,10 @@ import Foundation
 import Security
 import LocalAuthentication
 
-/// Experimental composition only. Not installed in ApplicationEnvironment.
+/// The iOS composition `CompositionRoot.makeIdentityStore()` installs. The
+/// adapter is still provisional in what it *grants* — a registration and a key
+/// handle, never certificate trust — which is the sense its "experimental"
+/// label carries in docs/architecture/architecture.md.
 extension SecureIdentityStore {
     static func experimentalKeychainStore() -> SecureIdentityStore {
         SecureIdentityStore(registry: KeychainIdentityRegistry(), resolver: AppleSigningKeyResolver())
@@ -19,31 +22,7 @@ final class KeychainIdentityRegistry: SigningIdentityRegistry, CustomStringConve
     }
 
     func records() throws -> [StoredSigningIdentity] {
-        var query = baseQuery()
-        query[kSecMatchLimit as String] = kSecMatchLimitAll
-        query[kSecReturnData as String] = true
-        query[kSecReturnAttributes as String] = true
-        query[kSecUseAuthenticationContext as String] = IdentityKeychainAccess.noninteractiveContext()
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound { return [] }
-        try IdentityKeychainAccess.check(status)
-        guard let items = result as? [[String: Any]] else {
-            throw ZynSignError.identity(.malformedStoredIdentity)
-        }
-        return try items.map { attributes in
-            guard let data = attributes[kSecValueData as String] as? Data,
-                  let account = attributes[kSecAttrAccount as String] as? String,
-                  attributes[kSecAttrAccessible as String] as? String
-                    == kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String else {
-                throw ZynSignError.identity(.malformedStoredIdentity)
-            }
-            let record = try StoredSigningIdentity.decode(data)
-            guard record.certificateFingerprint == account else {
-                throw ZynSignError.identity(.malformedStoredIdentity)
-            }
-            return record
-        }
+        try itemAttributes().map { try Self.record(in: $0) }
     }
 
     func insert(_ record: StoredSigningIdentity) throws {
@@ -58,14 +37,72 @@ final class KeychainIdentityRegistry: SigningIdentityRegistry, CustomStringConve
     }
 
     func remove(_ id: SigningIdentityIdentifier) throws {
-        let matches = try records().filter { try $0.id == id }
-        guard matches.count <= 1 else { throw ZynSignError.identity(.malformedStoredIdentity) }
-        guard let record = matches.first else { return }
+        // Forgetting an identity must not be gated on every *other*
+        // registration decoding cleanly. `records()` is deliberately
+        // fail-closed — a damaged record must not be quietly skipped while the
+        // app decides what it may sign with — but reusing it here meant one
+        // unreadable registration blocked deleting every identity, including
+        // itself, and the re-import that followed failed as a duplicate: a
+        // dead end the user cannot clear. Each item is therefore judged on its
+        // own for the purpose of finding this id, and an unreadable item is
+        // only ever a reason to refuse, never a reason to report success.
+        var match: StoredSigningIdentity?
+        var sawUnreadableItem = false
+        let items = try itemAttributes()
+        for attributes in items {
+            guard let record = try? Self.record(in: attributes) else {
+                sawUnreadableItem = true
+                continue
+            }
+            guard (try? record.id) == id else { continue }
+            // Two registrations answering to one id is the duplicate case the
+            // list read already refuses; deleting one of them would hide it.
+            guard match == nil else { throw ZynSignError.identity(.malformedStoredIdentity) }
+            match = record
+        }
+        guard let record = match else {
+            if sawUnreadableItem { throw ZynSignError.identity(.malformedStoredIdentity) }
+            return
+        }
         var query = baseQuery()
         query[kSecAttrAccount as String] = record.certificateFingerprint
         query[kSecUseAuthenticationContext as String] = IdentityKeychainAccess.noninteractiveContext()
         let status = SecItemDelete(query as CFDictionary)
         if status != errSecItemNotFound { try IdentityKeychainAccess.check(status) }
+    }
+
+    /// The raw attribute dictionaries of every registration in this service.
+    private func itemAttributes() throws -> [[String: Any]] {
+        var query = baseQuery()
+        query[kSecMatchLimit as String] = kSecMatchLimitAll
+        query[kSecReturnData as String] = true
+        query[kSecReturnAttributes as String] = true
+        query[kSecUseAuthenticationContext as String] = IdentityKeychainAccess.noninteractiveContext()
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return [] }
+        try IdentityKeychainAccess.check(status)
+        guard let items = result as? [[String: Any]] else {
+            throw ZynSignError.identity(.malformedStoredIdentity)
+        }
+        return items
+    }
+
+    /// One registration's record, refusing anything that is not exactly the
+    /// shape this registry writes: the payload, its account, and the
+    /// device-only accessibility a signing key must carry.
+    private static func record(in attributes: [String: Any]) throws -> StoredSigningIdentity {
+        guard let data = attributes[kSecValueData as String] as? Data,
+              let account = attributes[kSecAttrAccount as String] as? String,
+              attributes[kSecAttrAccessible as String] as? String
+                == kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String else {
+            throw ZynSignError.identity(.malformedStoredIdentity)
+        }
+        let record = try StoredSigningIdentity.decode(data)
+        guard record.certificateFingerprint == account else {
+            throw ZynSignError.identity(.malformedStoredIdentity)
+        }
+        return record
     }
 
     private func baseQuery() -> [String: Any] {
