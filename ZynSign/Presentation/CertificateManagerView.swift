@@ -602,9 +602,13 @@ struct CertificateManagerView: View {
         return Array(types)
     }
 
-    /// Presents the system picker from the stable Certificates screen and
-    /// confirms that UIKit actually put it on screen. A silently dropped
-    /// presentation is reset before one retry.
+    /// Presents the system picker from the stable Certificates screen.
+    ///
+    /// A document picker is owned by SwiftUI's `.fileImporter` presentation
+    /// binding. Requiring an unrelated UIKit view-controller identity change
+    /// before keeping that binding true can reset a valid request before the
+    /// system picker appears, so this path only waits for the current transition
+    /// to settle and then lets SwiftUI present it.
     private func requestCertificatePicker() {
         guard !isOpeningCertificatePicker,
               !model.isImporting,
@@ -614,15 +618,9 @@ struct CertificateManagerView: View {
         isOpeningCertificatePicker = true
         Task { @MainActor in
             defer { isOpeningCertificatePicker = false }
-            for _ in 0..<2 {
-                let appeared = await PresentationSettle.presentAndConfirm {
-                    showImporter = true
-                }
-                if appeared { return }
-                showImporter = false
-                await Task.yield()
-            }
-            presentToast("The system file picker could not be opened. Tap Import Certificate to try again.", style: .error)
+            _ = await PresentationSettle.waitForIdle()
+            guard !Task.isCancelled else { return }
+            showImporter = true
         }
     }
 

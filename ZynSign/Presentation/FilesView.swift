@@ -125,14 +125,14 @@ struct FilesView: View {
 
     /// Brings a selection into ZynSign.
     ///
-    /// Application packages are not files like any other: they are what the
-    /// library is for, so they take the import path — the package is
-    /// validated, inspected, and admitted by the same pipeline every other
-    /// entry point uses, and the import area reports what happened. Everything
-    /// else is copied into the folder the user is browsing, which is what this
-    /// screen has always done.
+    /// Application packages and ZIP containers are not files like any other:
+    /// they are what the library import flow is for, so they take the Import
+    /// Hub path — the contents are validated, inspected, and admitted by the
+    /// same pipeline every other entry point uses, and the import area reports
+    /// what happened. Everything else is copied into the folder the user is
+    /// browsing, which is what this screen has always done.
     private func importFiles(_ urls: [URL]) {
-        let packages = urls.filter { $0.isFileURL && IPAFileFormat.accepts($0) }
+        let packages = urls.filter { $0.isFileURL && IPAFileFormat.acceptsForImport($0) }
         let others = urls.filter { !packages.contains($0) }
         if !packages.isEmpty {
             environment.importHub.receive(packages, origin: .documentPicker)

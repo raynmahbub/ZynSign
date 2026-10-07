@@ -83,7 +83,7 @@ enum RegressionCoverageCatalog {
             testSuites: [
                 "CertificateManagerModelTests", "SecureIdentityStoreTests", "SigningIdentityStorageBoundaryTests",
                 "IdentityKeychainErrorTests", "CertificateInspectionTests", "KeychainIdentityIntegrationTests",
-                "SigningKeyProtectionRuleTests"
+                "SigningKeyProtectionRuleTests", "ApplePKCS12ImporterTests"
             ],
             probe: .identityErrorTaxonomy
         ),

@@ -26,21 +26,14 @@ struct ApplePKCS12Importer: SigningIdentityImporter {
     /// unbounded buffer.
     private static let maximumByteCount = 10 * 1024 * 1024
 
-    /// The `Security` statuses that name a container the passphrase did not
-    /// open.
+    /// The Security statuses that mean a passphrase did not open the container.
     ///
-    /// Which of them `SecPKCS12Import` reports depends on where the container
-    /// stopped opening — the encrypted bag, or the verification of what came
-    /// out of it — so both are read together with `errSecAuthFailed` as "this
-    /// password did not open this file". The reading is advice about what to
-    /// try next, not a claim about the bytes: the message each one produces
-    /// names the other live remedy (re-export the identity) as well.
-    ///
-    /// The two PKCS#12 codes are written as numbers because their names are
-    /// not exported to Swift on every SDK; they are the platform's documented
-    /// `errSecPkcs12VerifyFailure` and `errSecInvalidPassphrase`.
-    private static let statusPkcs12VerifyFailure: OSStatus = -25294
-    private static let statusInvalidPassphrase: OSStatus = -25295
+    /// `errSecPkcs12VerifyFailure` is `-25264`; its name is not exported to
+    /// Swift by every SDK. `-25260` is `errSecPassphraseRequired`. The nearby
+    /// values `-25294` and `-25295` are keychain errors, not PKCS#12
+    /// passphrase errors, so they must remain generic import failures.
+    private static let statusPassphraseRequired: OSStatus = -25260
+    private static let statusPkcs12VerifyFailure: OSStatus = -25264
 
     init(store: SecureIdentityStore) {
         self.store = store
@@ -163,9 +156,9 @@ struct ApplePKCS12Importer: SigningIdentityImporter {
     /// the password, re-export the identity — because a status the importer
     /// does not explain is as much use to a person as to this type. The number
     /// itself goes into the diagnostic, where a report can quote it.
-    private static func importFailure(for status: OSStatus) -> ZynSignError {
+    static func importFailure(for status: OSStatus) -> ZynSignError {
         if status == errSecAuthFailed
-            || status == statusInvalidPassphrase
+            || status == statusPassphraseRequired
             || status == statusPkcs12VerifyFailure {
             return .identity(.invalidPassphrase)
         }
