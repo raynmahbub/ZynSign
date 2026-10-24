@@ -99,6 +99,23 @@ class BundleSigningTests(unittest.TestCase):
         self.assertEqual(legacy.verification[-1].special_slots, 5)
         self.assertTrue(legacy.verified)
 
+    def test_injection_targets_the_main_executable(self) -> None:
+        outcome = self.signed(bundle.Overrides(
+            injected_libraries=[("@executable_path/Frameworks/ZynTweak.dylib", False)]))
+        injected = {binary.path: binary.injected for binary in outcome.binaries}
+        self.assertEqual(injected["Payload/Demo.app/Demo"],
+                         ["@executable_path/Frameworks/ZynTweak.dylib"])
+        self.assertEqual(injected["Payload/Demo.app/Frameworks/libdemo.dylib"], [])
+        self.assertEqual(injected["Payload/Demo.app/PlugIns/DemoWidget.appex/DemoWidget"], [])
+
+    def test_injecting_into_nested_code_is_opt_in(self) -> None:
+        outcome = self.signed(bundle.Overrides(
+            injected_libraries=[("@executable_path/Frameworks/ZynTweak.dylib", False)],
+            inject_into_nested=True))
+        injected = {binary.path: binary.injected for binary in outcome.binaries}
+        self.assertTrue(all(injected.values()), injected)
+        self.assertTrue(outcome.verified)
+
     def test_an_unsigned_package_is_signed_ad_hoc_without_a_certificate(self) -> None:
         outcome = bundle.sign_ipa(self.ipa)
         self.assertTrue(outcome.verified)

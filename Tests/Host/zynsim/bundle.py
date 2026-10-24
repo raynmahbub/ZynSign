@@ -349,7 +349,10 @@ class IPABundle:
                 continue
             if path in entitlements_by_path:
                 continue
-            self._sign_image_entry(path, identifier, identity, entitlements, injection,
+            # A library inside a bundle is signed, but the tweak is not linked
+            # into it: the loader belongs on the image whose entry point runs.
+            self._sign_image_entry(path, identifier, identity, entitlements,
+                                   injection if directory != self.main_app() else [],
                                    version, binaries, entitlements_by_path)
 
     def _is_nested_code(self, path: str) -> bool:
