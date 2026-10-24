@@ -20,7 +20,7 @@ final class MachOCodeSignatureStripperTests: XCTestCase {
     }
 
     func testTheSignatureCommandIsRemoved() throws {
-        let payload = Array(repeating: 0x43, count: 96)
+        let payload: [UInt8] = Array(repeating: 0x43, count: 96)
         let signed = data(MachOFixtures.signedThin(payload))
         XCTAssertTrue(MachOCodeSignatureStripper.carriesSignature(signed))
 
@@ -33,7 +33,7 @@ final class MachOCodeSignatureStripperTests: XCTestCase {
     }
 
     func testTheFileEndsWhereTheSignatureBegan() throws {
-        let payload = Array(repeating: 0x43, count: 96)
+        let payload: [UInt8] = Array(repeating: 0x43, count: 96)
         let signed = data(MachOFixtures.signedThin(payload))
         let stripped = try MachOCodeSignatureStripper.stripSignature(from: signed)
         XCTAssertLessThan(stripped.count, signed.count)
@@ -52,7 +52,7 @@ final class MachOCodeSignatureStripperTests: XCTestCase {
         MachOFixtures.put(64, at: 12, in: &signatureCommand)
         let image = MachOFixtures.thin(
             commands: [segment, signatureCommand],
-            payload: Array(repeating: 0x7E, count: 32) + Array(repeating: 0x11, count: 64)
+            payload: [UInt8](repeating: 0x7E, count: 32) + [UInt8](repeating: 0x11, count: 64)
         )
         let signed = data(image)
 
@@ -75,7 +75,7 @@ final class MachOCodeSignatureStripperTests: XCTestCase {
         MachOFixtures.put(64, at: 12, in: &signatureCommand)
         let image = MachOFixtures.thin(
             commands: [segment, signatureCommand],
-            payload: Array(repeating: 0x7E, count: 32) + Array(repeating: 0x11, count: 64)
+            payload: [UInt8](repeating: 0x7E, count: 32) + [UInt8](repeating: 0x11, count: 64)
         )
         let stripped = try MachOCodeSignatureStripper.stripSignature(from: data(image))
 
@@ -88,7 +88,7 @@ final class MachOCodeSignatureStripperTests: XCTestCase {
     }
 
     func testStrippingTwiceIsTheSameAsOnce() throws {
-        let signed = data(MachOFixtures.signedThin(Array(repeating: 0x43, count: 96)))
+        let signed = data(MachOFixtures.signedThin([UInt8](repeating: 0x43, count: 96)))
         let once = try MachOCodeSignatureStripper.stripSignature(from: signed)
         XCTAssertEqual(try MachOCodeSignatureStripper.stripSignature(from: once), once)
     }
@@ -127,7 +127,7 @@ final class MachOCodeSignatureStripperTests: XCTestCase {
     }
 
     func testA32BitImageRemovesItsCommand() throws {
-        let payload = Array(repeating: 0x22, count: 64)
+        let payload: [UInt8] = Array(repeating: 0x22, count: 64)
         let signed = data(MachOFixtures.signedThin(payload, wordSize: .bits32))
         let stripped = try MachOCodeSignatureStripper.stripSignature(from: signed)
         XCTAssertEqual(readUInt32(stripped, at: 16), 0)
