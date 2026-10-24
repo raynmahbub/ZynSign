@@ -58,6 +58,30 @@ final class FeatureCatalogTests: XCTestCase {
         XCTAssertEqual(entries["limit.in-app-installation"]?.status(in: gate), .notSupported)
     }
 
+    /// Sideloading is the one surface whose whole content is the reason a
+    /// capability is unavailable: every row names the requirement this build
+    /// is missing. Hiding it behind a release gate would hide the explanation,
+    /// so it is registered as an always-on core area — the same rule the
+    /// honest Settings screens follow — and this asserts it stays that way.
+    func testSideloadingIsReportedAsCoreInEveryRelease() {
+        guard let entry = FeatureCatalog.allEntries.first(where: { $0.id == "core.sideloading" }) else {
+            return XCTFail("core.sideloading is missing from the catalogue")
+        }
+        XCTAssertEqual(entry.availability, .alwaysAvailable)
+        XCTAssertEqual(entry.category, .delivery)
+        for stage in ReleaseStage.allCases {
+            XCTAssertEqual(
+                entry.status(in: ReleaseGate(stage: stage, exposesEverything: false)),
+                .available,
+                "\(stage) hides the sideloading report"
+            )
+        }
+        XCTAssertNil(
+            FeatureCatalog.allEntries.compactMap(\.availability.releaseFeature).first { $0.rawValue == "sideloading" },
+            "sideloading is a report, not a staged release feature"
+        )
+    }
+
     func testDebugGateMarksStagedFeaturesAvailableWithoutChangingTheCatalogue() {
         let debugGate = ReleaseGate(stage: .patch1, exposesEverything: true)
         let releaseGate = ReleaseGate(stage: .patch1, exposesEverything: false)

@@ -115,6 +115,11 @@ enum CoreFeature: String, CaseIterable, Sendable {
     case onDevicePrivacy = "privacy"
     case appearanceAndPreferences = "themes-storage"
     case versionHistory = "version-history"
+    /// Settings → Devices → Sideloading. Always reachable because the screen
+    /// is the explanation, not the capability: every row names the
+    /// requirement this build is missing, and a Release build that hid it
+    /// would be hiding the reason installation is unavailable.
+    case sideloading = "sideloading"
 
     var catalogEntry: FeatureCatalogEntry {
         FeatureCatalogEntry(
@@ -145,6 +150,7 @@ enum CoreFeature: String, CaseIterable, Sendable {
         case .onDevicePrivacy: return "On-device Privacy"
         case .appearanceAndPreferences: return "Appearance & Preferences"
         case .versionHistory: return "Version History"
+        case .sideloading: return "Sideloading & Installation Limits"
         }
     }
 
@@ -184,6 +190,8 @@ enum CoreFeature: String, CaseIterable, Sendable {
             return "Configure appearance, contrast, motion, haptics, landing tab, and local storage behavior."
         case .versionHistory:
             return "Review the app's release history and the changes recorded for each version."
+        case .sideloading:
+            return "See what each sideloading capability is missing — a pairing record, a local-tunnel entitlement, a bundled loader — and preview the package edits a signing run can apply."
         }
     }
 
@@ -203,6 +211,8 @@ enum CoreFeature: String, CaseIterable, Sendable {
             return .security
         case .appearanceAndPreferences:
             return .customization
+        case .sideloading:
+            return .delivery
         }
     }
 }

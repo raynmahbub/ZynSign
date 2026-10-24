@@ -25,7 +25,7 @@ Features accumulate at later stops. Debug builds can expose staged code for deve
 
 ## Always-on and unsupported entries
 
-`CoreFeature` registers always-on areas including package import, Library, Files and storage, bundle/binary/resource inspection, Compatibility Lab, Home, the feature index, tweak library, release feeds, revocation checks, app protection, encrypted backups, local privacy, preferences, and version history.
+`CoreFeature` registers always-on areas including package import, Library, Files and storage, bundle/binary/resource inspection, Compatibility Lab, Home, the feature index, tweak library, release feeds, revocation checks, app protection, encrypted backups, local privacy, preferences, version history, and the sideloading report. Sideloading is core rather than release-gated because the screen *is* the explanation — each row names the requirement this build is missing (a pairing record, the local-tunnel entitlement, a bundled loader) — so a build that cannot install is exactly the build that has to show why. The package edits it previews are applied by the signing run, which is gated by `ReleaseFeature.smartSign`.
 
 `UnsupportedFeature` records the limits the UI must disclose: in-app installation of arbitrary IPAs, device pairing/JIT/mux, and cloud sync/telemetry. Delivery hand-off materials are not an installer.
 

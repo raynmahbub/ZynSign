@@ -40,6 +40,15 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ### Fixed
 
+- **Sideloading is in the capability catalogue.** The `Settings → Devices →
+  Sideloading` screen was reachable in every build — Debug and Release alike —
+  while no registry named it: it was not a `CoreFeature`, not a
+  `ReleaseFeature`, and not an `UnsupportedFeature`, so **Settings → Features**
+  could not show it and the honest-limitations accounting could not count it.
+  It is registered as `CoreFeature.sideloading`, which is the right registry:
+  the screen *is* the explanation, so the build that cannot install is exactly
+  the build that must show why. The comment at the call site says so, and
+  `FeatureCatalogTests` now fails if anyone gates it behind a release stop.
 - **The repository no longer names a release it never cut.** `v0.1.0-alpha.3`
   was declared, drafted and then rewound before it shipped, but the draft
   outlived the rewind: a dated `[0.1.0-alpha.3]` changelog section, a release

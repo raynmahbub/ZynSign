@@ -16,6 +16,14 @@ and running a guest application inside the host instead of installing it. All
 three are implemented here, each with the requirements it actually has — stated
 per capability rather than as a single disclaimer.
 
+**Availability.** The area is `CoreFeature.sideloading` — always reachable, in
+every release — and not a `ReleaseFeature`. A release gate controls what a
+build *can do*; this screen exists to say what a build *cannot* do and why, so
+gating it would hide the explanation from exactly the build that needs it. The
+package edits it previews are applied by the signing run, which is gated by
+`ReleaseFeature.smartSign`; nothing on this screen installs, launches, or
+persists a change on its own.
+
 ## 1. Package editing
 
 The signing engine already produced signatures. What it could not do was change
