@@ -6,8 +6,8 @@ import Foundation
 /// gone first: the signature occupies the end of `__LINKEDIT`, its load command
 /// is inside the hashed region, and a signer that appends on top of it produces
 /// a file with two signature regions and a CodeDirectory that hashes the first.
-/// Every re-signing tool (zsign, ldid, Apple's own `codesign --force`) therefore
-/// strips before it signs.
+/// Re-signing therefore starts by stripping, never by overwriting: the old
+/// region has to be gone before the new one is planned.
 ///
 /// What the strip does, and why each part matters:
 ///

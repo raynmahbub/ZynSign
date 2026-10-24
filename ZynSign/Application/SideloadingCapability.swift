@@ -9,9 +9,9 @@ import Foundation
 /// there. It is *not* the whole truth for this product: ZynSign is a
 /// sideloading tool, its builds are self-signed, and a build whose signing
 /// identity carries a Network Extension entitlement can carry a local tunnel
-/// to the device's own lockdownd — which is how SideStore installs apps. The
-/// difference matters, so the assessment now names the requirement instead of
-/// denying the capability.
+/// to the device's own lockdownd, which is how an on-device install reaches
+/// the installer. The difference matters, so the assessment names the
+/// requirement instead of denying the capability.
 ///
 /// Nothing here claims a device has accepted anything. Each capability
 /// reports the requirements it has, the ones it is missing, and the evidence

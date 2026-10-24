@@ -1033,9 +1033,8 @@ struct SignApplicationPipeline {
     /// must be signed before its container is sealed; and a bundle's own
     /// executable binds its seal through special slot 3, so the container must
     /// be sealed before its executable is signed. Each target is therefore
-    /// sealed and signed as one step, from the inside out — which is the order
-    /// zsign and Apple's own signer use, and the only order in which every
-    /// binding refers to bytes that already exist.
+    /// sealed and signed as one step, from the inside out — the only order in
+    /// which every binding refers to bytes that already exist.
     private func runNestedSigning(
         request: SignApplicationRequest,
         plan: NestedSigningPlan,
@@ -1212,7 +1211,7 @@ struct SignApplicationPipeline {
             document = try CodeResourcesGenerator(messageDigest: digest).generate(
                 from: store,
                 configuration: ResourceSealingConfiguration(symlinkPolicy: .exclude, excludedPaths: excluded),
-                nestedCode: seals
+                nestedCode: nestedSeals
             )
             let bytes = try CodeResourcesSerializer().serialize(document)
             let signatureDirectory = containerDirectory.appendingPathComponent("_CodeSignature", isDirectory: true)

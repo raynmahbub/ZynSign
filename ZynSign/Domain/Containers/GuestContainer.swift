@@ -3,8 +3,8 @@ import Foundation
 /// A guest application the host runs itself, instead of handing it to the
 /// device's installer.
 ///
-/// This is the LiveContainer model: the package never reaches
-/// `installation_proxy`. It is unpacked into a container the host owns, its
+/// The package never reaches `installation_proxy`: it is unpacked into a
+/// container the host owns, its
 /// main executable is turned into something `dlopen` will map, the loader is
 /// linked into it, and it is signed ad-hoc because no provisioning profile
 /// takes part. What the host must then do at launch — and what each step

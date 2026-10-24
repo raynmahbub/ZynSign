@@ -2,13 +2,12 @@ import Foundation
 
 /// The signing options every sideloading tool exposes, in one value.
 ///
-/// ZynSign signed packages before this type existed; what it could not do was
-/// change the package while signing it. Feather, ksign and zsign all offer the
-/// same handful of edits — rename the app, drop refused nested code, inject a
-/// library — and every one of them is a decision about *bytes*, not about the
-/// pipeline. Keeping them in one validated value means the pipeline does not
-/// grow a second code path: the options are resolved into a plan, and the plan
-/// is what the engine applies.
+/// Signing a package and editing it are one act, not two. The edits a
+/// signing workflow offers — rename the app, drop refused nested code, inject
+/// a library — are decisions about *bytes*, not about the pipeline. Keeping
+/// them in one validated value means the pipeline does not grow a second code
+/// path: the options are resolved into a plan, and the plan is what the engine
+/// applies.
 ///
 /// Nothing here reads a file, touches a key, or formats a screen. Validation
 /// is about the options themselves, so a refusal names the option and its

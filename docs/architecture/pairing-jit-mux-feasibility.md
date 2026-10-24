@@ -13,7 +13,8 @@ The original decision below answered three questions with one word. It was
 right about the App Store build and about the private surface, and it was
 incomplete about this product: ZynSign's builds are self-signed, and a build
 whose provisioning profile carries a Network Extension entitlement can open a
-local tunnel to the device's own lockdownd, which is how SideStore installs.
+local tunnel to the device's own lockdownd, which is how an on-device install
+reaches the installer without a host computer.
 ZynSign now implements that conversation at the protocol level — usbmux
 framing, lockdownd, AFC and installation_proxy — and reports the entitlement as
 the requirement it is instead of denying the capability.

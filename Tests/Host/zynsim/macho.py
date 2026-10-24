@@ -12,7 +12,8 @@ enough to answer the only questions signing asks —
 Two mutations are supported, both of which keep every existing file offset
 where it was: inserting a load command into header padding, and rewriting the
 ``__LINKEDIT`` segment's file size. Moving content would invalidate every
-offset in the file, and neither zsign nor ``codesign`` needs to.
+offset in the file, and no signature needs it: a signature describes bytes
+that are already where they are.
 """
 
 from __future__ import annotations

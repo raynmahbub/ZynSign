@@ -1,4 +1,4 @@
-# Sideloading: installation, containers and package parity
+# Sideloading: installation, guest containers and package editing
 
 > Scope: the device bridge, the guest container, and the package edits that
 > sign-time rewriting needs. Code: `ZynSign/Domain/Sideloading`,
@@ -10,20 +10,19 @@
 > Executable specification and suite: `Tests/Host/zynsim`,
 > `Scripts/sim/run_unified_suite.py`.
 
-This record covers three capabilities that used to be answered with one word.
-Feather, ksign and zsign rewrite a package while signing it; SideStore installs
-a signed package on a device through `lockdownd`; LiveContainer runs a guest
-application inside the host instead of installing it. ZynSign now implements
-all three — with the requirements each one actually has, stated per capability
-rather than as a single disclaimer.
+This record covers three capabilities: rewriting a package while it is signed,
+delivering a signed package to a device's own installer through `lockdownd`,
+and running a guest application inside the host instead of installing it. All
+three are implemented here, each with the requirements it actually has — stated
+per capability rather than as a single disclaimer.
 
-## 1. Package parity (zsign / Feather / ksign)
+## 1. Package editing
 
 The signing engine already produced signatures. What it could not do was change
-the package while signing it. `SideloadSigningOptions` adds the edits those
-tools expose, and `SideloadPackageEditor` applies them **inside the signing
-working copy, after extraction and before the first binary is signed**, because
-the CodeDirectory hashes the header the editor rewrites.
+the package while signing it. `SideloadSigningOptions` carries those edits, and
+`SideloadPackageEditor` applies them **inside the signing working copy, after
+extraction and before the first binary is signed**, because the CodeDirectory
+hashes the header the editor rewrites.
 
 | Option | Effect | Where |
 | --- | --- | --- |
@@ -52,7 +51,7 @@ version outright because the header length and the bytes written disagreed.
 Both sides now agree: 44 (`0x20001`), 52 (`0x20200`), 88 (`0x20400`), with the
 trailing fields written in `cs_blobs.h` order.
 
-## 2. Device bridge (SideStore)
+## 2. Device bridge
 
 `DeviceBridgeService` speaks the four layers between the app and a device's
 installer. Every frame is a codec in `DeviceBridgeProtocols`; the socket lives
@@ -97,7 +96,7 @@ A self-signed build whose provisioning profile carries it can compose
 `DeviceTransport` and the whole bridge above starts working. This record does
 not claim any build currently does.
 
-## 3. Guest container (LiveContainer)
+## 3. Guest container
 
 A container runs a guest inside ZynSign's process instead of installing it.
 Two transformations make the guest loadable, and both happen before signing so

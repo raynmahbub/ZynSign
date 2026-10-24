@@ -1,9 +1,9 @@
 """Guest-container tests: what makes a signed app runnable inside the host.
 
-The container transformation is the LiveContainer half of the product: the
-guest is patched from an executable into a loadable dylib, the loader is
-linked into its header, and the whole thing is ad-hoc signed because nothing
-is being installed.
+The container transformation is what makes a guest runnable: the guest is
+patched from an executable into a loadable dylib, the loader is linked into
+its header, and the whole thing is ad-hoc signed because nothing is being
+installed.
 """
 
 from __future__ import annotations

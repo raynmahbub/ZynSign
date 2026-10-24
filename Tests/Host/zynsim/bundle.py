@@ -335,7 +335,8 @@ class IPABundle:
             nested = directory != app
             entitlements = self._entitlements(profile_object, identifier, nested)
             # A library is injected into the main executable unless the caller
-            # asked for nested images too — the same default zsign uses.
+            # asked for nested images too: the entry point that runs is the one
+            # the loader has to reach first.
             wants_injection = not nested or overrides.inject_into_nested
             injection = overrides.injected_libraries if wants_injection else []
             seal = self._write_resource_seal(directory)
