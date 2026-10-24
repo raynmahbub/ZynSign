@@ -312,7 +312,8 @@ class IPABundle:
             wants_injection = not nested or overrides.inject_into_nested
             injection = overrides.injected_libraries if wants_injection else []
             self._sign_directory(directory, identifier, identity, entitlements,
-                                 injection, version, binaries, entitlements_by_path)
+                                 injection, version, binaries, entitlements_by_path,
+                                 inject_into_libraries=overrides.inject_into_nested)
             seen.add(self.executable_path(directory) or "")
         # Frameworks and loose dylibs are not bundles; they are still code.
         for path, content in list(self.macho_files().items()):
@@ -337,7 +338,8 @@ class IPABundle:
 
     def _sign_directory(self, directory: str, identifier: str, identity,
                         entitlements: dict, injection: list[tuple[str, bool]], version: int,
-                        binaries: list[SignedBinary], entitlements_by_path: dict) -> None:
+                        binaries: list[SignedBinary], entitlements_by_path: dict,
+                        *, inject_into_libraries: bool) -> None:
         executable = self.executable_path(directory)
         if executable is not None:
             self._sign_image_entry(executable, identifier, identity, entitlements, injection,
@@ -352,7 +354,7 @@ class IPABundle:
             # A library inside a bundle is signed, but the tweak is not linked
             # into it: the loader belongs on the image whose entry point runs.
             self._sign_image_entry(path, identifier, identity, entitlements,
-                                   injection if directory != self.main_app() else [],
+                                   injection if inject_into_libraries else [],
                                    version, binaries, entitlements_by_path)
 
     def _is_nested_code(self, path: str) -> bool:

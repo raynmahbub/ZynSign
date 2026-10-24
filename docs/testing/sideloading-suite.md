@@ -39,8 +39,8 @@ Those stay open in the architecture record; this page does not upgrade them.
 
 | Fact | Result |
 | --- | --- |
-| Host tests | 83 run, 0 failures, 0 errors (`python3 -m unittest discover -s Tests/Host`) |
-| Signed package | 3 images, all valid, CMS accepted by `openssl cms -verify` for each |
+| Host tests | 85 run, 0 failures, 0 errors (`python3 -m unittest discover -s Tests/Host`) |
+| Signed package | 3 images, all valid, CMS accepted by `openssl cms -verify` for each; the loader is linked into the main executable only |
 | Tampering | a flipped byte inside the hashed region rejected |
 | Injection | `@executable_path/Frameworks/ZynTweak.dylib` present in the main executable, header padding consumed, signature valid afterwards |
 | Pairing | HostID = SHA-1(HostCertificate); host certificate chains to the device root |
