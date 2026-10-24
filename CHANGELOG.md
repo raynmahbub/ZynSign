@@ -19,8 +19,47 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added
+
+- **Sideloading: package edits, a device bridge, and guest containers.**
+  `SideloadPackageEditor` rewrites a package inside the signing working copy —
+  Info.plist overrides, nested-code and URL-scheme removal, dylib injection
+  into header padding — before the first binary is signed, because the
+  CodeDirectory hashes what it rewrites; an image with too little padding, a
+  universal binary, or an existing signature is refused with the arithmetic.
+  `DeviceBridgeService` speaks the pairing, mutual-TLS, AFC, and
+  `installation_proxy` layers to a connected device and reports the one
+  entitlement it still needs instead of failing anonymously. `GuestContainer`
+  prepares an app to run inside ZynSign's process instead of being installed:
+  its own `Applications/<BundleID>/` container with `Tweaks/` and `Data/`, a
+  Mach-O file type `dlopen` will map, and a launch plan whose every step names
+  its prerequisite. Blocks are facts (FairPlay encryption, universal binary,
+  extensions, a watchOS bundle, a missing loader), warnings are preferences
+  (JIT, Metal, a newer minimum OS). The launch itself needs a device and is
+  not claimed. See `docs/architecture/sideloading.md`.
+
 ### Fixed
 
+- **A nested framework no longer stops the seal.** The resource walk reported a
+  nested framework — or a bundled dynamic library — and the application's seal
+  also named that same path as nested code, and a seal told about one path
+  twice refuses it: signing such a package stopped at resource sealing. The
+  walk now leaves every path the caller states as nested code to its own seal,
+  while still listing the directory that holds it, so each target is sealed
+  exactly once.
+- **An injection plan counts its own signature command.**
+  `DylibInjectionPlanner.plan` reserved the sixteen bytes `LC_CODE_SIGNATURE`
+  needs when it checked for room, then reported a command table without them,
+  so `resultingSizeOfCommands` and the remaining padding disagreed with the
+  bytes an injection writes.
+- **An injected load command is stamped the way the linker stamps it.**
+  `LC_LOAD_DYLIB` and `LC_LOAD_WEAK_DYLIB` carried a zero timestamp; the
+  platform's own linker writes `2`, and an image that disagrees with every
+  other one on the device is a difference with no purpose.
+- **A guest with no tweaks is no longer warned about.** `GuestContainer`'s
+  warnings describe the guest. Whether a tweak was staged is a fact about the
+  staging plan, so a guest with nothing staged is the ordinary guest and says
+  so by saying nothing.
 - **Importing no longer freezes the interface.** `ImportHub` runs each item's
   staging, examination, and the serialized admit in detached tasks, so the copy
   loop, the archive reads, and the staged artifact's SHA-256 pass stop running on

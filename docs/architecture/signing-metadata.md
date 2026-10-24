@@ -147,6 +147,17 @@ link. `CodeResourcesGenerator` seals one set:
   values carrying the final signed state's cdhash — the generator neither signs
   nor re-derives nested code.
 
+A path is sealed once, and the two forms are not interchangeable. Nested code
+is stated by the caller-supplied nested-code seal; everything else the walk
+finds is stated as a file entry. The directory store therefore takes the set of
+paths the caller has already stated as nested code and neither lists nor
+descends into them — a nested framework by its directory, a bundled dynamic
+library by its file. Without that rule the same path arrives twice, once as a
+listed resource and once as a nested-code seal, and the generator refuses it as
+a duplicate rather than choosing an interpretation. The bundle-level and
+container-level callers derive that set from the seals they are about to hand
+over, so what the walk skips and what the document names cannot drift apart.
+
 `CodeResourcesDocument` is the typed form of the subset ZynSign uses:
 `files2` (file `hash2` entries and nested-code `cdhash` entries) and optional
 caller-supplied `rules2`. Rules are represented and round-tripped but never
@@ -238,7 +249,10 @@ nothing and verifies nothing.
 ## Testing
 
 The suites are `EntitlementsTests`, `CodeSignatureRequirementsTests`,
-`CodeResourcesTests`, and `SigningMetadataIntegrationTests`. Digest and byte
+`CodeResourcesTests`, `SigningMetadataIntegrationTests`, and
+`NestedSigningArtifactStoreTests`, whose filesystem cases pin the walk's
+seal-once rule (a path the caller states as nested code is skipped, the
+directory holding it is still listed). Digest and byte
 expectations are literals computed independently of the Swift implementation
 (host-side script over the documented framing and canonical form), so a
 regression in the serializer cannot silently redefine a digest boundary. The
@@ -249,9 +263,9 @@ nested per-target flow, using the always-valid verifier pattern for
 metadata-bearing signatures (the golden-digest verifier pins a
 metadata-free CodeDirectory by construction).
 
-As stated under Status, no Swift toolchain was available in this environment;
-the suites are authored but were not executed locally, and running them is a
-prerequisite to any release claim.
+No Swift toolchain exists in the environment these documents are written in;
+the suites are executed by the hosted Xcode job on every pull request, and its
+result is the one recorded evidence that they compile and pass.
 
 ## Non-goals
 
