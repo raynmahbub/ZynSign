@@ -13,7 +13,8 @@
 - **Import & library:** bounded `.ipa`, `.tipa`, and archive intake; persistent app library, files, collections, search, and storage controls.
 - **Identity & signing:** Keychain-backed `.p12`/`.pfx` identities, provisioning profiles, compatibility checks, signing pipeline, queue, and presets as each release-train stage exposes them.
 - **Inspection:** read-only bundle, binary, signature, resource, entitlement, and compatibility views.
-- **Discovery & delivery:** repository feeds, validated downloads, update review, a searchable IPSW firmware browser with reported signing status, and OTA hand-off materials for an IPA you host. ZynSign does not install apps or host packages.
+- **Discovery & delivery:** repository feeds, validated downloads, update review, a searchable IPSW firmware browser with reported signing status, and OTA hand-off materials for an IPA you host. ZynSign does not host packages.
+- **Sideloading:** the package edits Feather, ksign and zsign expose (identity overrides, plugin and extension removal, dylib injection, ad-hoc signing), a device bridge that speaks usbmuxd, lockdownd, AFC and installation_proxy like SideStore, and guest containers that run an app inside ZynSign the way LiveContainer does. Each capability reports the requirement it is missing — a pairing record, a local-tunnel entitlement, a bundled loader — rather than a single "unsupported" badge; [the record](docs/architecture/sideloading.md) states what is proven and what needs a device.
 - **Workspace & care:** Home, accessibility-aware preferences, local diagnostics, backups, and privacy controls.
 
 The main screen draws exactly five tabs — Home, Library, Store, Downloads, and Settings — in the **Storefront** shell: the storefront look that ships as the default theme, rendered in liquid glass across cards, bars, chrome, and toasts (iOS 26 uses the platform's own glass effect; earlier systems get ZynSign's material treatment). **Settings → Appearance → Liquid Glass** turns the glass off without touching anything else, and the previous themes stay selectable. Files, the Features catalogue, and signing materials live inside Settings.
@@ -25,7 +26,7 @@ The **Features** catalogue lives at **Settings → Features** and shows what is 
 - iOS 17 or later; iPhone and iPad.
 - Xcode 16+ to build. The app uses Swift and SwiftUI and has no third-party runtime dependency.
 - Signing and inspection run locally. Private keys stay in Keychain; no cloud sync or analytics service is composed.
-- ZynSign prepares a signed package and delivery instructions; it does **not** install arbitrary IPAs on stock iOS. See [unsupported capabilities](docs/product/WHAT_DOES_NOT_EXIST.md).
+- ZynSign prepares a signed package and delivery instructions. The device bridge installs through the device's own `installation_proxy` when the build carries a local-tunnel entitlement; without it, nothing installs and the app says which requirement is missing. See [sideloading](docs/architecture/sideloading.md) and [unsupported capabilities](docs/product/WHAT_DOES_NOT_EXIST.md).
 
 ## Build and run
 
@@ -45,6 +46,7 @@ The app is organized into **Presentation → Application → Domain ← Platform
 ```sh
 python3 Scripts/release_train.py status
 python3 -m unittest discover -s Tests/Host -p 'test_*.py' -v
+python3 Scripts/sim/run_unified_suite.py   # signing, device bridge and container suite + report
 Scripts/ci/docs_check.sh
 ```
 

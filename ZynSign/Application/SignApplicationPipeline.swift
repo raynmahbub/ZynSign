@@ -281,6 +281,11 @@ struct SignApplicationOptions {
     /// XML-only signature with a misleading v0x20400 CodeDirectory.
     let emitDEREntitlements: Bool
 
+    /// Package edits applied inside the working copy before anything is
+    /// signed: identity overrides, refused nested code, injected libraries.
+    /// The default changes nothing, so an existing caller's run is identical.
+    let sideload: SideloadSigningOptions
+
     init(
         existingSignaturePolicy: MachOExistingCodeSignaturePolicy = .rejectExistingSignature,
         teamIdentifier: CodeDirectoryTeamIdentifier? = nil,
@@ -288,7 +293,8 @@ struct SignApplicationOptions {
         intendedPlatforms: [ProvisioningProfilePlatform]? = nil,
         getTaskAllow: SigningGetTaskAllowPreference = .unspecified,
         intendedProfileClass: ProvisioningProfileClassification? = nil,
-        emitDEREntitlements: Bool = false
+        emitDEREntitlements: Bool = false,
+        sideload: SideloadSigningOptions = .none
     ) {
         self.existingSignaturePolicy = existingSignaturePolicy
         self.teamIdentifier = teamIdentifier
@@ -297,6 +303,7 @@ struct SignApplicationOptions {
         self.getTaskAllow = getTaskAllow
         self.intendedProfileClass = intendedProfileClass
         self.emitDEREntitlements = emitDEREntitlements
+        self.sideload = sideload
     }
 }
 
@@ -856,6 +863,9 @@ struct SignApplicationPipeline {
     private struct ExtractionContext {
         let report: ArchiveExtractionReport
         let bundleDirectory: URL
+        /// The package edits applied before signing, when the request asked
+        /// for any. `nil` means the run signed the package as it was.
+        let sideloadReport: SideloadEditReport?
     }
 
     private func runExtraction(
@@ -892,7 +902,22 @@ struct SignApplicationPipeline {
         } catch {
             throw map(error, stage: .extraction, detail: "The replacement profile could not be embedded.")
         }
-        return ExtractionContext(report: report, bundleDirectory: bundleDirectory)
+        // Sideloading edits land here, after extraction and before the first
+        // signature: the CodeDirectory hashes the header this step rewrites.
+        var sideloadReport: SideloadEditReport?
+        if !request.options.sideload.isEmpty {
+            do {
+                sideloadReport = try SideloadPackageEditor(options: request.options.sideload)
+                    .apply(in: bundleDirectory)
+            } catch let error as SideloadEditError {
+                throw map(error, stage: .extraction, detail: error.message)
+            } catch {
+                throw map(error, stage: .extraction,
+                          detail: "The package edits could not be applied.")
+            }
+        }
+        return ExtractionContext(report: report, bundleDirectory: bundleDirectory,
+                                 sideloadReport: sideloadReport)
     }
 
     // MARK: - Nested signing

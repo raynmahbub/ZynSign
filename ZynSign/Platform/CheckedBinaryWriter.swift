@@ -26,6 +26,15 @@ struct CheckedBinaryWriter {
         data.append(UInt8(truncatingIfNeeded: value))
     }
 
+    /// A 64-bit big-endian field: `codeLimit64` and the executable-segment
+    /// fields of a `0x20400` CodeDirectory are `uint64_t`.
+    mutating func appendUInt64BigEndian(_ value: UInt64) throws {
+        try ensureAdditionalCapacity(8)
+        for shift in stride(from: 56, through: 0, by: -8) {
+            data.append(UInt8(truncatingIfNeeded: value >> UInt64(shift)))
+        }
+    }
+
     mutating func appendData(_ value: Data) throws {
         try ensureAdditionalCapacity(value.count)
         data.append(contentsOf: value)

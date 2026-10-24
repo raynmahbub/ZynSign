@@ -1,8 +1,41 @@
 # Pairing / JIT / Mux / OpenSSL Linkage — Feasibility Record
 
-> **Status: Rejected — never composed** · Scope: every release on the train ·
-> Code boundary: `ZynSign/Application/PairingCapability.swift` ·
-> Product statement: [`docs/product/WHAT_DOES_NOT_EXIST.md`](../product/WHAT_DOES_NOT_EXIST.md)
+> **Status: Revised — pairing composed behind an entitled transport; JIT still
+> refused; OpenSSL still host-only** · Scope: every release on the train ·
+> Code boundary: `ZynSign/Application/SideloadingCapability.swift`,
+> `ZynSign/Domain/DeviceBridge` ·
+> Product statement: [`docs/product/WHAT_DOES_NOT_EXIST.md`](../product/WHAT_DOES_NOT_EXIST.md) ·
+> Full record: [sideloading.md](sideloading.md)
+
+## Revision (2026-10)
+
+The original decision below answered three questions with one word. It was
+right about the App Store build and about the private surface, and it was
+incomplete about this product: ZynSign's builds are self-signed, and a build
+whose provisioning profile carries a Network Extension entitlement can open a
+local tunnel to the device's own lockdownd, which is how SideStore installs.
+ZynSign now implements that conversation at the protocol level — usbmux
+framing, lockdownd, AFC and installation_proxy — and reports the entitlement as
+the requirement it is instead of denying the capability.
+
+What did not change, and governs:
+
+- **No private framework and no Apple daemon socket.** The bridge speaks the
+  published wire format over its own transport. It does not link
+  `MobileDevice`, does not open `/var/run/usbmuxd`, and does not claim a
+  lockdown-class entitlement.
+- **JIT stays refused.** Nothing in the bridge, the container or the signing
+  pipeline asks for `get-task-allow`, a debugger relationship or executable
+  memory. The container's JIT warning reports the guest's own requirement; it
+  does not satisfy it.
+- **OpenSSL stays host-only.** It verifies signatures in `Tests/Host`; it is
+  still not linked into the application binary.
+- **No claim without evidence.** A capability is "supported" only when every
+  requirement is met, and an installation is "installed" only when the device
+  reports `Complete`.
+
+The sections below keep their original reasoning about *why the private surface
+is out of reach*, which remains true.
 
 This record is the architecture-decision companion to
 `PairingCapabilityAssessment`: for each capability it states what the
