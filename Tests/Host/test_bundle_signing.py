@@ -82,8 +82,13 @@ class BundleSigningTests(unittest.TestCase):
         rebuilt = bundle.IPABundle.from_bytes(self.signed().data)
         seal = plistlib.loads(rebuilt.entries["Payload/Demo.app/_CodeSignature/CodeResources"])
         self.assertIn("Assets.car", seal["files"])
-        self.assertNotIn("Info.plist", seal["files"])
         self.assertEqual(len(seal["files"]["Assets.car"]["hash"]), 20)
+        # Version 1 lists the bundle's Info.plist under its own key, even
+        # though version 2's rules omit it from the per-file entries.
+        self.assertIn("Info.plist", seal["files"])
+        # A nested bundle is one cdhash entry, not a list of its files.
+        self.assertIn("PlugIns/DemoWidget.appex", seal["files2"])
+        self.assertNotIn("PlugIns/DemoWidget.appex/DemoWidget", seal["files2"])
 
     def test_entitlements_are_repointed_at_the_signed_identifier(self) -> None:
         outcome = self.signed(bundle.Overrides(bundle_id="com.example.renamed"),

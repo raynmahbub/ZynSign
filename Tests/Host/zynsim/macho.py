@@ -304,3 +304,49 @@ def reject_signed(data: bytes) -> None:
     image = MachO(data)
     if image.code_signature_command() is not None:
         raise MachOError("the image already carries a signature")
+
+
+def strip_signature(data: bytes) -> bytes:
+    """Remove an embedded signature and return the image as it was before it.
+
+    The operation is the inverse of signing, and it has to be exact: the page
+    hashes a device recomputes cover every byte up to the signature, so a
+    stripped image must be byte-identical to the one that was signed, not
+    merely "close enough".
+
+    1. the ``LC_CODE_SIGNATURE`` command is removed, and the commands after it
+       shift down by its size — the header's command count and total shrink
+       with them;
+    2. the file is truncated at the signature's start;
+    3. ``__LINKEDIT`` is shrunk to what is left.
+
+    A byte of the vacated command area is zeroed, which is what makes the
+    result re-signable: the writer requires zeroed header padding.
+    """
+    image = MachO(bytes(data))
+    command = image.command(LC_CODE_SIGNATURE)
+    if command is None:
+        return bytes(data)
+    data_offset, data_size = image.code_signature_command() or (0, 0)
+    if data_size == 0 or data_offset == 0:
+        # A signature command with no region is not a signature; drop it.
+        data_offset = len(image.data)
+    if data_offset > len(image.data):
+        raise MachOError("LC_CODE_SIGNATURE points past the end of the image")
+
+    bytes_out = bytearray(image.data[:data_offset])
+    # Remove the command itself and close the gap.
+    start = command.offset
+    end = start + command.size
+    remaining = bytes_out[end:image.load_commands_end]
+    bytes_out[start:image.load_commands_end] = remaining + b"\x00" * command.size
+    new_count = image.command_count - 1
+    new_bytes = image.command_bytes - command.size
+    struct.pack_into("<I", bytes_out, 16, new_count)
+    struct.pack_into("<I", bytes_out, 20, new_bytes)
+
+    stripped = MachO(bytes(bytes_out))
+    linkedit = stripped.segment("__LINKEDIT")
+    if linkedit is not None and linkedit.file_offset < len(bytes_out):
+        stripped.grow_linkedit(len(bytes_out))
+    return stripped.bytes()

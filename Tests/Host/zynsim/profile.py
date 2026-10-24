@@ -200,6 +200,12 @@ class ImportedIdentity:
     certificate_der: bytes
     key_path: object
     passphrase: str = ""
+    intermediates: tuple[bytes, ...] = ()
+
+    def signer(self):
+        """A CMS identity carrying the chain the archive shipped with."""
+        from . import cms
+        return cms.CertificateIdentity(self.certificate_der, self.key_path, self.intermediates)
 
 
 def identity_from_p12(path, passphrase: str = "") -> ImportedIdentity:
@@ -233,4 +239,14 @@ def identity_from_p12(path, passphrase: str = "") -> ImportedIdentity:
     certificate_der = subprocess.run(
         ["openssl", "x509", "-in", str(cert_path), "-outform", "DER"],
         capture_output=True, check=True).stdout
-    return ImportedIdentity(certificate_der, key_path, passphrase)
+    # Everything after the leaf is the chain: a p12 exported from Keychain
+    # carries the intermediate, and dropping it is why signatures verify
+    # locally and fail on a device.
+    intermediates = []
+    for index, block in enumerate(cert_blocks[1:]):
+        path = directory / f"intermediate-{index}.pem"
+        path.write_text(block + "\n")
+        intermediates.append(subprocess.run(
+            ["openssl", "x509", "-in", str(path), "-outform", "DER"],
+            capture_output=True, check=True).stdout)
+    return ImportedIdentity(certificate_der, key_path, passphrase, tuple(intermediates))

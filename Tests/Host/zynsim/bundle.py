@@ -19,7 +19,7 @@ import plistlib
 import zipfile
 from dataclasses import dataclass, field
 
-from . import codesign, fixtures, macho, profile
+from . import codesign, fixtures, macho, profile, resourceseal
 
 MAXIMUM_ENTRIES = 20000
 MAXIMUM_TOTAL_BYTES = 512 * 1024 * 1024
@@ -82,10 +82,12 @@ class SigningOutcome:
     verification: list[codesign.VerificationReport]
     removed: list[str]
     entitlements: dict[str, dict]
+    seal_problems: list[str] = field(default_factory=list)
 
     @property
     def verified(self) -> bool:
-        return all(report.valid for report in self.verification)
+        return (all(report.valid for report in self.verification)
+                and not self.seal_problems)
 
 
 class IPABundle:
@@ -280,8 +282,11 @@ class IPABundle:
         return profile_object.entitlements_for(bundle_identifier, nested=nested)
 
     def sign(self, identity, profile_object: profile.ProvisioningProfile | None = None,
-             overrides: Overrides | None = None, version: int = 0x20400) -> SigningOutcome:
+             overrides: Overrides | None = None, version: int = 0x20400,
+             resign: bool = False) -> SigningOutcome:
         overrides = overrides or Overrides()
+        if resign:
+            self.strip_existing_signatures()
         changes = self.apply_overrides(overrides)
         # A profile is an authorisation, not a suggestion: signing an
         # identifier it does not cover produces a package no device accepts,
@@ -331,10 +336,16 @@ class IPABundle:
         data = self.to_bytes()
         verification = []
         for binary in binaries:
-            verification.append(self._verify_entry(binary.path))
+            info_plist = None
+            for directory, _ in self.app_containers():
+                if self.executable_path(directory) == binary.path:
+                    info_plist = self.entries.get(f"{directory}/Info.plist")
+            verification.append(codesign.verify_image(self.entries[binary.path],
+                                                      info_plist=info_plist))
         return SigningOutcome(data=data, bundle_id=main_identifier, binaries=binaries,
                               verification=verification, removed=removed,
-                              entitlements=entitlements_by_path)
+                              entitlements=entitlements_by_path,
+                              seal_problems=self.verify_seals())
 
     def _sign_directory(self, directory: str, identifier: str, identity,
                         entitlements: dict, injection: list[tuple[str, bool]], version: int,
@@ -342,8 +353,12 @@ class IPABundle:
                         *, inject_into_libraries: bool) -> None:
         executable = self.executable_path(directory)
         if executable is not None:
+            # Slot 1 carries *this* bundle's Info.plist — for an extension that
+            # is the extension's own, not the main app's.
+            info_plist = self.entries.get(f"{directory}/Info.plist")
             self._sign_image_entry(executable, identifier, identity, entitlements, injection,
-                                   version, binaries, entitlements_by_path)
+                                   version, binaries, entitlements_by_path,
+                                   info_plist=info_plist)
         for path in sorted(self.entries):
             if not path.startswith(directory + "/"):
                 continue
@@ -365,14 +380,15 @@ class IPABundle:
 
     def _sign_image_entry(self, path: str, identifier: str, identity, entitlements: dict,
                           injection: list[tuple[str, bool]], version: int,
-                          binaries: list[SignedBinary], entitlements_by_path: dict) -> None:
+                          binaries: list[SignedBinary], entitlements_by_path: dict,
+                          info_plist: bytes | None = None) -> None:
         content = self.entries[path]
         try:
             image = macho.MachO(content)
         except macho.MachOError as error:
             raise BundleError(f"{path}: {error}") from error
         if image.code_signature_command() is not None:
-            raise BundleError(f"{path} already carries a signature")
+            raise BundleError(f"{path} already carries a signature; pass resign=True to replace it")
         injected = []
         for install_name, weak in injection:
             try:
@@ -390,10 +406,12 @@ class IPABundle:
                 identity=identity,
                 adhoc=identity is None,
                 version=version,
+                info_plist=info_plist,
             )
         else:
             options = codesign.SigningOptions(
-                identifier=identifier, identity=identity, adhoc=identity is None, version=version)
+                identifier=identifier, identity=identity, adhoc=identity is None,
+                version=version, info_plist=info_plist)
         signed, _ = codesign.sign_image(image.bytes(), options)
         self.entries[path] = signed
         binaries.append(SignedBinary(path=path, identifier=identifier, adhoc=identity is None,
@@ -402,24 +420,72 @@ class IPABundle:
 
     def _write_resource_seals(self) -> None:
         for directory, _ in self.app_containers():
-            seal = self._resource_seal(directory)
-            self.entries[f"{directory}/_CodeSignature/CodeResources"] = plistlib.dumps(seal)
+            seal = resourceseal.build(
+                self.entries,
+                bundle_prefix=directory,
+                executable=self.executable_path(directory),
+                cdhashes=self._nested_cdhashes(directory),
+            )
+            self.entries[f"{directory}/_CodeSignature/CodeResources"] = resourceseal.serialize(seal)
 
-    def _resource_seal(self, directory: str) -> dict:
-        files: dict[str, dict] = {}
-        files2: dict[str, dict] = {}
-        executable = self.executable_path(directory)
+    def code_directories(self) -> dict[str, bytes]:
+        """The embedded CodeDirectory of every signed binary, by entry path."""
+        directories: dict[str, bytes] = {}
+        for path, content in self.entries.items():
+            if content[:4] not in (b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe"):
+                continue
+            try:
+                image = macho.MachO(content)
+            except macho.MachOError:
+                continue
+            command = image.code_signature_command()
+            if command is None or command[1] == 0:
+                continue
+            blobs = codesign.read_superblob(content[command[0]:command[0] + command[1]])
+            if codesign.CSSLOT_CODEDIRECTORY in blobs:
+                directories[path] = blobs[codesign.CSSLOT_CODEDIRECTORY]
+        return directories
+
+    def _nested_cdhashes(self, directory: str) -> dict[str, bytes]:
+        """One code directory hash per nested bundle inside ``directory``.
+
+        A framework or an extension is sealed as a bundle: one ``cdhash``, and
+        nothing about its contents, because its own seal covers them. The hash
+        is taken from the bundle's executable — the CodeDirectory of the code
+        a verifier will actually check.
+        """
         prefix = directory + "/"
-        for path in sorted(self.entries):
-            if not path.startswith(prefix) or path == executable:
+        roots = resourceseal.nested_bundle_roots(self.entries, prefix=prefix)
+        directories = self.code_directories()
+        hashes: dict[str, bytes] = {}
+        for root in roots:
+            executable = self.executable_path(prefix + root)
+            if executable is None or executable not in directories:
                 continue
-            relative = path[len(prefix):]
-            if relative.startswith("_CodeSignature/") or relative == "Info.plist":
+            hashes[root] = resourceseal.cdhash(directories[executable])
+        return hashes
+
+    def strip_existing_signatures(self) -> int:
+        """Remove every embedded signature so the package can be signed again."""
+        stripped = 0
+        for path, content in list(self.entries.items()):
+            if content[:4] not in (b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe"):
                 continue
-            content = self.entries[path]
-            files[relative] = {"hash": hashlib.sha1(content).digest()}
-            files2[relative] = {"hash2": hashlib.sha256(content).digest()}
-        return {"files": files, "files2": files2, "rules": {}, "rules2": {}}
+            try:
+                image = macho.MachO(content)
+            except macho.MachOError:
+                continue
+            if image.code_signature_command() is None:
+                continue
+            self.entries[path] = macho.strip_signature(content)
+            stripped += 1
+        for path in list(self.entries):
+            if "/_CodeSignature/" in path or path.endswith("/CodeResources"):
+                del self.entries[path]
+        for path in list(self.entries):
+            if path.endswith("embedded.mobileprovision"):
+                del self.entries[path]
+        return stripped
 
     def bundle_identifier_of(self, directory: str) -> str:
         info_path = f"{directory}/Info.plist"
@@ -430,10 +496,28 @@ class IPABundle:
             raise BundleError(f"{directory} declares no identifier")
         return identifier
 
+    def verify_seals(self) -> list[str]:
+        """Check every written seal against the bundle it covers."""
+        problems: list[str] = []
+        for directory, _ in self.app_containers():
+            seal = self.entries.get(f"{directory}/_CodeSignature/CodeResources")
+            if seal is None:
+                problems.append(f"{directory} has no resource seal")
+                continue
+            for finding in resourceseal.verify(
+                seal, self.entries, bundle_prefix=directory,
+                executable=self.executable_path(directory),
+                cdhashes=self._nested_cdhashes(directory),
+            ):
+                problems.append(f"{directory}: {finding}")
+        return problems
+
     def _verify_entry(self, path: str) -> codesign.VerificationReport:
         return codesign.verify_image(self.entries[path])
 
 
 def sign_ipa(data: bytes, identity=None, profile_object=None, overrides=None,
-             version: int = 0x20400) -> SigningOutcome:
-    return IPABundle.from_bytes(data).sign(identity, profile_object, overrides, version)
+             version: int = 0x20400, resign: bool = False) -> SigningOutcome:
+    """Sign, or with ``resign=True`` strip-and-sign, one package."""
+    return IPABundle.from_bytes(data).sign(identity, profile_object, overrides, version,
+                                           resign=resign)

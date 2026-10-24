@@ -452,9 +452,14 @@ struct CodeResourcesGenerator {
             entries.append(.nestedCode(seal))
         }
 
+        // The rules are what tell a verifier which entries are nested code and
+        // which are omitted. Apple writes them for every application seal, and
+        // a seal that leaves them out is judged against the verifier's own
+        // defaults — which is how a framework ends up sealed file by file
+        // instead of by one cdhash.
         return try CodeResourcesDocument(
             files2: entries,
-            rules2: nil,
+            rules2: CodeResourcesRules.typed(),
             omitted: omitted
         )
     }

@@ -48,10 +48,18 @@ def _rsa_algorithm() -> bytes:
 
 @dataclass(frozen=True)
 class CertificateIdentity:
-    """The public half of a signing identity plus where its key lives."""
+    """The public half of a signing identity plus where its key lives.
+
+    ``intermediates`` are the CA certificates between the leaf and the trust
+    anchor. A device has the Apple root; it does not have your developer
+    intermediate, so a CMS blob that omits it fails verification on a phone
+    while passing against a capture of the leaf alone. They travel with the
+    identity, not with each call site.
+    """
 
     der_bytes: bytes
     key_path: Path | None = None
+    intermediates: tuple[bytes, ...] = ()
 
     def _tbs_name_and_serial(self) -> tuple[bytes, bytes]:
         """The issuer ``Name`` and the serial number, both DER encoded.
@@ -141,11 +149,12 @@ def _signed_data(
     signer_info: bytes,
     intermediates: list[bytes] | None,
 ) -> bytes:
+    chain = b"".join(intermediates or ()) + b"".join(identity.intermediates)
     return der.sequence(
         der.integer(1),
         der.set_of(_sha256_algorithm()),
         der.sequence(der.oid(OID_DATA)),
-        der.tlv(der.CONTEXT_0, identity.der_bytes + b"".join(intermediates or [])),
+        der.tlv(der.CONTEXT_0, identity.der_bytes + chain),
         der.set_of(signer_info),
     )
 
@@ -174,20 +183,37 @@ def planned_length(identity: CertificateIdentity, intermediates: list[bytes] | N
     return len(_content_info(_signed_data(identity, _signer_info(identity, implicit, signature), intermediates)))
 
 
-def verify(cms_der: bytes, content: bytes) -> bool:
-    """Verify a detached CMS blob against its content with the host OpenSSL."""
+def verify(cms_der: bytes, content: bytes, *, trust_anchor: bytes | None = None,
+           purpose: str = "any") -> bool:
+    """Verify a detached CMS blob against its content with the host OpenSSL.
+
+    Without ``trust_anchor`` OpenSSL is told not to evaluate the chain
+    (``-noverify``): that answers "is the signature the signer's?" and nothing
+    more. With a trust anchor — the root a device would hold — it also answers
+    "does the blob carry the chain from the leaf to that root?", which is the
+    check a phone performs and the reason a missing intermediate installs
+    nowhere.
+
+    ``purpose`` defaults to ``any`` because a code-signing certificate carries
+    the ``codeSigning`` extended key usage, which OpenSSL's default
+    ``smimesign`` purpose rejects — a distinction that has nothing to do with
+    whether the signature is genuine.
+    """
     with tempfile.TemporaryDirectory() as directory:
         signature_path = Path(directory) / "signature.der"
         content_path = Path(directory) / "content.bin"
         signature_path.write_bytes(cms_der)
         content_path.write_bytes(content)
-        result = subprocess.run(
-            ["openssl", "cms", "-verify", "-binary", "-inform", "DER",
-             "-in", str(signature_path), "-content", str(content_path),
-             "-noverify", "-out", "/dev/null"],
-            capture_output=True, check=False,
-        )
-        return result.returncode == 0
+        command = ["openssl", "cms", "-verify", "-binary", "-inform", "DER",
+                   "-in", str(signature_path), "-content", str(content_path),
+                   "-out", "/dev/null"]
+        if trust_anchor is None:
+            command.append("-noverify")
+        else:
+            anchor_path = Path(directory) / "anchor.pem"
+            anchor_path.write_bytes(_pem(trust_anchor))
+            command += ["-CAfile", str(anchor_path), "-purpose", purpose]
+        return subprocess.run(command, capture_output=True, check=False).returncode == 0
 
 
 def sign_attached(content: bytes, identity: CertificateIdentity) -> bytes:

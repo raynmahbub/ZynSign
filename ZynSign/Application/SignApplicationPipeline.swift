@@ -1149,6 +1149,24 @@ struct SignApplicationPipeline {
             bundleDirectory: bundleDirectory,
             maximumBinaryBytes: limits.maximumEntryBytes
         )
+        // Special slot 1 carries the bundle's Info.plist digest. A device
+        // refuses an installation whose app executable lacks it, so it is read
+        // here — after the overrides, so the digest covers the plist that will
+        // actually ship.
+        guard let infoPlistRelative = BundlePath(rawValue: "Info.plist") else {
+            throw ApplicationSigningFailure(
+                stage: .mainExecutable,
+                detail: "The bundle's Info.plist path is not a safe bundle path.",
+                category: .internalFailure
+            )
+        }
+        let bundleInfoPlist: Data
+        do {
+            bundleInfoPlist = try store.readBinary(at: infoPlistRelative)
+        } catch {
+            throw map(error, stage: .mainExecutable,
+                      detail: "The bundle's Info.plist could not be read for special slot 1.")
+        }
         let originalBytes: Data
         do {
             originalBytes = try store.readBinary(at: executableRelative)
@@ -1199,7 +1217,8 @@ struct SignApplicationPipeline {
                 policy: .singleImageCryptographicExperiment,
                 metadata: MachOSigningMetadata(
                     entitlements: request.entitlements,
-                    resourceSeal: sealed
+                    resourceSeal: sealed,
+                    bundleInfoPlist: bundleInfoPlist
                 )
             ))
         } catch let signingError as MachOSigningError {

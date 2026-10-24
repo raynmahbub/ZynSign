@@ -146,17 +146,33 @@ struct OmittedResource: Equatable, Hashable {
 
 /// One resource rule from the rules2 dictionary.
 ///
-/// Rules are represented, preserved, and round-tripped, but **never
-/// generated**: which exclusion and optionality rules the platform expects is
-/// outside ZynSign's established knowledge (**Requires experiment** against
-/// authoritative samples). A caller that holds authoritative rules may supply
-/// them; the generator itself emits a document without a rules2 dictionary.
+/// The four flags are the ones Apple's own seal writes:
+///
+/// - `nested` — entries matched by this pattern are nested code, sealed by a
+///   `cdhash` rather than a per-file digest;
+/// - `omit` — entries matched by this pattern are not listed;
+/// - `optional` — a missing match is not a failure;
+/// - `weight` — precedence when several rules match; the highest wins.
+///
+/// The generator emits `CodeResourcesRules.standard`, which is the set Apple's
+/// signer writes for an application bundle. Without it a verifier applies its
+/// own defaults, and a seal that lists a framework's files individually instead
+/// of one `cdhash` for the framework is rejected by
+/// `codesign --verify --deep --strict`.
 struct CodeResourcesRule: Equatable, Hashable {
     let pattern: String
     let optional: Bool?
     let weight: Int?
+    let nested: Bool?
+    let omit: Bool?
 
-    init(pattern: String, optional: Bool? = nil, weight: Int? = nil) throws {
+    init(
+        pattern: String,
+        optional: Bool? = nil,
+        weight: Int? = nil,
+        nested: Bool? = nil,
+        omit: Bool? = nil
+    ) throws {
         guard !pattern.isEmpty, pattern.utf8.count <= 1_024,
               !pattern.contains(where: { $0.isControl }) else {
             throw CodeResourcesError.invalidRuleStructure(pattern: pattern)
@@ -164,6 +180,51 @@ struct CodeResourcesRule: Equatable, Hashable {
         self.pattern = pattern
         self.optional = optional
         self.weight = weight
+        self.nested = nested
+        self.omit = omit
+    }
+}
+
+/// The rules2 set Apple's signer writes for an application bundle.
+///
+/// Recorded here once, so the seal's rules are a property of the product
+/// rather than of whichever call site happened to build a document. The
+/// patterns are ASCII and are written verbatim — a rule is a regular
+/// expression the *verifier* compiles, not one this code interprets.
+enum CodeResourcesRules {
+
+    /// Every rule, in the order Apple writes them, as (pattern, value).
+    static let standard: [(pattern: String, optional: Bool?, weight: Int?, nested: Bool?, omit: Bool?)] = [
+        ("^.*", nil, nil, nil, nil),
+        ("^[^/]+$", nil, 10, true, nil),
+        ("^(Frameworks|SharedFrameworks|PlugIns|Plug-ins|XPCServices|Helpers|MacOS|Library/(Automator|Spotlight|LoginItems))/",
+         nil, 10, true, nil),
+        ("^.*\\.dSYM($|/)", nil, 11, nil, nil),
+        ("^(.*/)?\\.DS_Store$", nil, 2000, nil, true),
+        ("^(.*/)?\\.lproj/", true, 1000, nil, nil),
+        ("^Info\\.plist$", nil, 20, nil, true),
+        ("^PkgInfo$", nil, 20, nil, true),
+        ("^embedded\\.provisionprofile$", nil, 20, nil, nil),
+        ("^version\\.plist$", nil, 20, nil, nil),
+        ("^_MASReceipt/", nil, 90, nil, true),
+    ]
+
+    /// The typed rules, or `nil` when a pattern failed validation (which would
+    /// be a programming error in this file, not a runtime condition).
+    static func typed() -> [CodeResourcesRule]? {
+        var rules: [CodeResourcesRule] = []
+        rules.reserveCapacity(standard.count)
+        for rule in standard {
+            guard let value = try? CodeResourcesRule(
+                pattern: rule.pattern,
+                optional: rule.optional,
+                weight: rule.weight,
+                nested: rule.nested,
+                omit: rule.omit
+            ) else { return nil }
+            rules.append(value)
+        }
+        return rules
     }
 }
 
@@ -278,6 +339,12 @@ struct CodeResourcesSerializer {
                 if let weight = rule.weight {
                     entry["weight"] = .integer(Int64(weight))
                 }
+                if let nested = rule.nested {
+                    entry["nested"] = .boolean(nested)
+                }
+                if let omit = rule.omit {
+                    entry["omit"] = .boolean(omit)
+                }
                 rulesValues[rule.pattern] = .dictionary(entry)
             }
             root["rules2"] = .dictionary(rulesValues)
@@ -382,19 +449,38 @@ enum CodeResourcesParser {
             var parsedRules: [CodeResourcesRule] = []
             parsedRules.reserveCapacity(rulesDictionary.count)
             for (pattern, value) in rulesDictionary {
+                // Apple writes the catch-all as a bare `true`, not a dictionary.
+                if let flag = value as? Bool, flag {
+                    parsedRules.append(try CodeResourcesRule(pattern: pattern))
+                    continue
+                }
                 guard let ruleDictionary = value as? [String: Any],
-                      ruleDictionary.count <= 2 else {
+                      ruleDictionary.count <= 4 else {
                     throw CodeResourcesError.invalidRuleStructure(pattern: pattern)
                 }
-                var optional: Bool?
+                // `optional` is a contextual keyword in Swift and reads badly
+                // as a local, so the flags are named for what they are.
+                var isOptional: Bool?
                 var weight: Int?
+                var isNested: Bool?
+                var isOmitted: Bool?
                 for (ruleKey, ruleValue) in ruleDictionary {
                     switch ruleKey {
                     case "optional":
                         guard let flag = ruleValue as? Bool else {
                             throw CodeResourcesError.invalidRuleStructure(pattern: pattern)
                         }
-                        optional = flag
+                        isOptional = flag
+                    case "nested":
+                        guard let flag = ruleValue as? Bool else {
+                            throw CodeResourcesError.invalidRuleStructure(pattern: pattern)
+                        }
+                        isNested = flag
+                    case "omit":
+                        guard let flag = ruleValue as? Bool else {
+                            throw CodeResourcesError.invalidRuleStructure(pattern: pattern)
+                        }
+                        isOmitted = flag
                     case "weight":
                         guard let number = ruleValue as? NSNumber,
                               CFGetTypeID(number as CFTypeRef) != CFBooleanGetTypeID(),
@@ -406,7 +492,13 @@ enum CodeResourcesParser {
                         throw CodeResourcesError.invalidRuleStructure(pattern: pattern)
                     }
                 }
-                parsedRules.append(try CodeResourcesRule(pattern: pattern, optional: optional, weight: weight))
+                parsedRules.append(try CodeResourcesRule(
+                    pattern: pattern,
+                    optional: isOptional,
+                    weight: weight,
+                    nested: isNested,
+                    omit: isOmitted
+                ))
             }
             rules = parsedRules
         }

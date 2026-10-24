@@ -169,7 +169,9 @@ struct SideloadingView: View {
         } footer: {
             Text("These edits are applied inside the signing working copy, before any binary "
                  + "is signed, so the CodeDirectory covers them. An image without header "
-                 + "padding is refused rather than half-edited.")
+                 + "padding is refused rather than half-edited. To apply them, open an app in "
+                 + "the library and use Signing → Package Edits; that screen carries the same "
+                 + "form into the run that signs.")
         }
     }
 

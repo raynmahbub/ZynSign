@@ -363,7 +363,9 @@ final class CodeResourcesTests: XCTestCase {
         let parsed = try CodeResourcesParser.parse(bytes)
 
         XCTAssertEqual(parsed.files2, document.files2)
-        XCTAssertNil(parsed.rules2)
+        // The generator writes Apple's standard rules2 set: they are what tell
+        // a verifier which entries are nested code and which are omitted.
+        XCTAssertEqual(parsed.rules2, CodeResourcesRules.typed())
         // Re-serializing the parsed document reproduces the exact bytes:
         // the representation is faithful, not merely similar.
         XCTAssertEqual(try parsed.serialized(), bytes)
