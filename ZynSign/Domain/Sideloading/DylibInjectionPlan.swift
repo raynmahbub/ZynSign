@@ -122,7 +122,12 @@ enum DylibInjectionPlanner {
             throw DylibInjectionError.insufficientHeaderSpace(
                 required: required, available: available)
         }
+        // The room check counts the signature command this plan will add, so
+        // the resulting table has to count it too: reporting a table 16 bytes
+        // shorter than the one the writer will produce under-reports the space
+        // the injection consumes.
         var running = layout.sizeOfCommands
+            + (layout.hasCodeSignatureCommand ? 0 : codeSignatureCommandSize)
         return commands.map { bytes, name, weak in
             running += bytes.count
             return DylibInjectionPlan(

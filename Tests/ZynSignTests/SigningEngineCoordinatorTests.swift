@@ -47,7 +47,7 @@ final class SigningEngineCoordinatorTests: XCTestCase {
 
         let result = try await engine.sign(try makeRequest(source: source, output: output, identity: identities))
 
-        XCTAssertEqual(result.status, .signed)
+        XCTAssertEqual(result.status, .signed, result.failure?.detail ?? "no failure recorded")
         XCTAssertEqual(result.outputURL, output)
         XCTAssertNil(result.failure)
         XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
@@ -118,7 +118,7 @@ final class SigningEngineCoordinatorTests: XCTestCase {
 
         let result = try await engine.sign(try makeRequest(source: source, output: output, identity: identities))
 
-        XCTAssertEqual(result.status, .signed)
+        XCTAssertEqual(result.status, .signed, result.failure?.detail ?? "no failure recorded")
         XCTAssertEqual(result.outcome(for: .signingFrameworks)?.status, .succeeded)
         XCTAssertEqual(result.outcome(for: .signingFrameworks)?.metrics.nestedTargetCount, 1)
         XCTAssertEqual(result.outcome(for: .signingExtensions)?.status, .skipped)
@@ -293,7 +293,7 @@ final class SigningEngineCoordinatorTests: XCTestCase {
             progress: { snapshots.append($0) }
         )
 
-        XCTAssertEqual(result.status, .signed)
+        XCTAssertEqual(result.status, .signed, result.failure?.detail ?? "no failure recorded")
         XCTAssertFalse(snapshots.isEmpty)
         XCTAssertEqual(snapshots.first?.currentStage, .preparing)
         for snapshot in snapshots {
@@ -324,7 +324,7 @@ final class SigningEngineCoordinatorTests: XCTestCase {
         let engine = makeEngine(identities: identities)
 
         let result = try await engine.sign(try makeRequest(source: source, output: output, identity: identities))
-        XCTAssertEqual(result.status, .signed)
+        XCTAssertEqual(result.status, .signed, result.failure?.detail ?? "no failure recorded")
         let expectations = try XCTUnwrap(result.expectations)
 
         let reVerification = try await engine.verifyAgain(containerURL: output, expectations: expectations)
