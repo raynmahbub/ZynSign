@@ -1,9 +1,9 @@
 # What Does Not Exist — Honest Limitations
 
-> ZynSign `v0.1.0-alpha.3` (market `0.1.0`, build `2`) — **10 staged · 7 on · 3 still ahead · 3 never**.
+> ZynSign `v0.1.0-alpha.2` (market `0.1.0`, build `8`) — **19 staged · 8 on · 11 still ahead · 3 never**.
 >
 > **Wired** means the capability is compiled into the app and reachable. A Release
-> build of `v0.1.0-alpha.3` switches on every feature up to and including that
+> build of `v0.1.0-alpha.2` switches on every feature up to and including that
 > stop on the [release train](../releases/release-train.md); Debug builds show
 > all of them.
 > **Still ahead** means the code is present and tested but the train has not
@@ -11,11 +11,12 @@
 > **Never** means no release will claim it: those rows are recorded decisions, not
 > missing features.
 >
-> The count is the point. Ten features are staged; this build ships **seven** of
-> them. The remaining three — Mission Control, the installation delivery
-> hand-off, and the local activity journal — are `beta1`. Until the train gets
-> there they are reachable in Debug and absent in Release, and this file will say
-> so rather than let the badge imply otherwise.
+> The count is the point. Nineteen features are staged; this build ships **eight**
+> of them. The next stop, `v0.1.0-alpha.3`, turns on Entitlements Studio and the
+> Developer Identity Center; `beta1` then turns on Mission Control, the
+> installation delivery hand-off, and the local activity journal. Until the train
+> gets there each is reachable in Debug and absent in Release, and this file will
+> say so rather than let the badge imply otherwise.
 >
 > This file is the anti-roadmap. A local success is not platform trust, so this is
 > what ZynSign still does **not** claim — and what it says instead. Details live in

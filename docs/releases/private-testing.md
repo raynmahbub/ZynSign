@@ -11,7 +11,7 @@ finished app. Test the **Release configuration**, which shows exactly
 `ReleaseTrain.current`. For each release:
 
 1. Check Settings → Diagnostics → Build → **Release** shows the expected tag
-   (for example `v0.1.0-alpha.3 · 10 of 19 staged features`). That string is
+   and feature count (`<tag> · <n> of <total> staged features`). That string is
    `ReleaseGate.summary`, derived from the train — never retype it here.
 2. Run the matrix rows for the features visible in this release. For a
    development stop (`v0.0.1-dev.1` through `v0.0.1`, none of which introduces a
@@ -31,7 +31,7 @@ release that switches them on.
 
 ## Principle
 
-* **Private build = same code, same version, no public tag.** It is built from `main` at the commit you intend to publish (the release-train state you are about to tag), carrying the `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` that `python3 Scripts/release_train.py status` prints for the current stop — for `v0.1.0-alpha.3` that is market `0.1.0`, build `2` — but distributed only to your trusted testers.
+* **Private build = same code, same version, no public tag.** It is built from `main` at the commit you intend to publish (the release-train state you are about to tag), carrying the `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` that `python3 Scripts/release_train.py status` prints for the current stop — never a number copied into this document, which is how the build it once named went stale — but distributed only to your trusted testers.
 * **Public build = same commit, same binary, new tag.** After private green, you push the current stop's tag and `🚀 Release` publishes the GitHub release. The market version does not change between private and public — the build is not rebuilt to avoid binary drift.
 
 ## When to run

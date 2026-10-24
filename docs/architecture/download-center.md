@@ -1,6 +1,6 @@
 # Download Center & Update Engine
 
-**Status:** Implemented · gated by `ReleaseFeature.downloads` (visible from `v0.1.0-alpha.3`; the center itself is the Beta 1 Step 22 transfer pipeline)
+**Status:** Implemented · gated by `ReleaseFeature.downloads` (visible from `v0.0.1`; the center itself is the Beta 1 Step 22 transfer pipeline)
 **Scope:** Beta 1 — Step 22
 
 This document records how ZynSign downloads, validates, and hands off packages

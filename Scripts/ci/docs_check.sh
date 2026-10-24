@@ -8,6 +8,9 @@
 #   missing images — image references whose file is absent              (error)
 #   orphaned pages — docs pages no other page links to                  (warning)
 #   markdown quality — missing final newline, CRLF, unbalanced fences   (warning)
+#   version claims — every page that names a release agrees with the
+#                    release train and the Xcode project       (error, see
+#                    Scripts/ci/version_claims.py)
 #
 # Broken links and missing images fail the run; warnings are reported
 # for the maintenance bot. Workflows call this script; CI logic lives
@@ -122,3 +125,9 @@ with open(metrics_path, "w") as fh:
 print(f"Docs check: {len(md_files)} pages, {len(errors)} error(s), {len(warnings)} warning(s).")
 sys.exit(1 if errors else 0)
 PYEOF
+
+# --- what the pages say about the release --------------------------------
+# The pages above are checked for shape; their claims about which release this
+# is are checked against the train, because a page can be perfectly linked and
+# still describe a stop that was never cut.
+python3 Scripts/ci/version_claims.py
