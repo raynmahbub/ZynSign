@@ -1090,7 +1090,7 @@ struct SignApplicationPipeline {
                     signed: signed,
                     bundleDirectory: bundleDirectory
                 )
-                metadata = prepared.metadata
+                metadata = prepared
             }
             let singleItemPlan = NestedSigningPlan(
                 rootItemID: plan.rootItemID,
@@ -1212,7 +1212,7 @@ struct SignApplicationPipeline {
             document = try CodeResourcesGenerator(messageDigest: digest).generate(
                 from: store,
                 configuration: ResourceSealingConfiguration(symlinkPolicy: .exclude, excludedPaths: excluded),
-                nestedCode: nestedSeals
+                nestedCode: seals
             )
             let bytes = try CodeResourcesSerializer().serialize(document)
             let signatureDirectory = containerDirectory.appendingPathComponent("_CodeSignature", isDirectory: true)
@@ -1319,7 +1319,7 @@ struct SignApplicationPipeline {
             document = try CodeResourcesGenerator(messageDigest: digest).generate(
                 from: store,
                 configuration: ResourceSealingConfiguration(symlinkPolicy: .exclude, excludedPaths: excluded),
-                nestedCode: nestedSeals
+                nestedCode: seals
             )
         } catch {
             throw mapSealError(error, stage: .resourceSealing)
