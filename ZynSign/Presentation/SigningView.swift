@@ -59,6 +59,11 @@ struct SigningView: View {
     /// about what was asked for.
     @State private var sideloadDraft = SideloadOptionsDraft()
 
+    /// Whether an already-signed container is stripped and signed again.
+    /// On by default: the package a person downloads has usually been signed
+    /// by someone else, and re-signing it is the whole point of the run.
+    @State private var replacesExistingSignatures = true
+
     /// The tweak staging picker, and the plan it produced. The plan is
     /// validated by the tweak library before it can exist at all.
     @State private var showTweakPicker = false
@@ -630,6 +635,13 @@ struct SigningView: View {
             NavigationLink {
                 Form {
                     SideloadOptionsForm(draft: $sideloadDraft, hasCertificate: selectedIdentityID != nil)
+                    Section {
+                        Toggle("Re-sign an already signed package", isOn: $replacesExistingSignatures)
+                    } footer: {
+                        Text(replacesExistingSignatures
+                             ? "The existing signature, its seal and its embedded profile are removed in the working copy before this run signs. An unsigned package is unaffected."
+                             : "A package that already carries a signature will be refused rather than signed twice.")
+                    }
                 }
                 .navigationTitle("Package Edits")
                 .navigationBarTitleDisplayMode(.inline)
@@ -1222,7 +1234,8 @@ struct SigningView: View {
                 entry: entry, sourceURL: sourceURL, profile: profile,
                 identityID: identityID, entitlements: entitlements,
                 emitDEREntitlements: requestedKey.emitDER,
-                sideload: sideloadDraft.options
+                sideload: sideloadDraft.options,
+                replacesExistingSignatures: replacesExistingSignatures
             ),
             environment: env,
             onFinish: { result, wasCancelled in

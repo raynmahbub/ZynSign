@@ -298,6 +298,14 @@ struct SignApplicationOptions {
     /// The default changes nothing, so an existing caller's run is identical.
     let sideload: SideloadSigningOptions
 
+    /// Whether an already-signed package is stripped and signed again.
+    ///
+    /// Re-signing is what makes a certificate useful: the package a user
+    /// downloads was signed by someone else with an expired profile. The
+    /// default does not change an existing caller's run — a signed input is
+    /// still refused — and the sideloading screen turns it on.
+    let replacesExistingSignatures: Bool
+
     init(
         existingSignaturePolicy: MachOExistingCodeSignaturePolicy = .rejectExistingSignature,
         teamIdentifier: CodeDirectoryTeamIdentifier? = nil,
@@ -306,7 +314,8 @@ struct SignApplicationOptions {
         getTaskAllow: SigningGetTaskAllowPreference = .unspecified,
         intendedProfileClass: ProvisioningProfileClassification? = nil,
         emitDEREntitlements: Bool = false,
-        sideload: SideloadSigningOptions = .none
+        sideload: SideloadSigningOptions = .none,
+        replacesExistingSignatures: Bool = false
     ) {
         self.existingSignaturePolicy = existingSignaturePolicy
         self.teamIdentifier = teamIdentifier
@@ -316,6 +325,7 @@ struct SignApplicationOptions {
         self.intendedProfileClass = intendedProfileClass
         self.emitDEREntitlements = emitDEREntitlements
         self.sideload = sideload
+        self.replacesExistingSignatures = replacesExistingSignatures
     }
 }
 
@@ -918,6 +928,23 @@ struct SignApplicationPipeline {
         } catch {
             throw map(error, stage: .extraction, detail: "The replacement profile could not be embedded.")
         }
+        // Re-signing starts by removing what is there. The strip runs before
+        // the edits because both rewrite the same header, and the signature
+        // that must survive is the new one.
+        if request.options.replacesExistingSignatures {
+            do {
+                try stripExistingSignatures(in: bundleDirectory)
+            } catch let error as MachOCodeSignatureStripper.Failure {
+                throw ApplicationSigningFailure(
+                    stage: .extraction,
+                    detail: "An existing signature could not be removed (\(error)).",
+                    category: .unsupportedInput
+                )
+            } catch {
+                throw map(error, stage: .extraction,
+                          detail: "An existing signature could not be removed.")
+            }
+        }
         // Sideloading edits land here, after extraction and before the first
         // signature: the CodeDirectory hashes the header this step rewrites.
         var sideloadReport: SideloadEditReport?
@@ -934,6 +961,63 @@ struct SignApplicationPipeline {
         }
         return ExtractionContext(report: report, bundleDirectory: bundleDirectory,
                                  sideloadReport: sideloadReport)
+    }
+
+    /// What the signers are told about existing signatures.
+    ///
+    /// After a strip the images carry none, so the policy that would refuse a
+    /// signed input is the honest one: it still refuses an image the strip
+    /// missed, rather than overwriting it by accident.
+    private func signaturePolicy(for request: SignApplicationRequest) -> MachOExistingCodeSignaturePolicy {
+        request.options.replacesExistingSignatures
+            ? .rejectExistingSignature
+            : request.options.existingSignaturePolicy
+    }
+
+    /// Removes every signature, seal and embedded profile from a working copy.
+    ///
+    /// Every Mach-O is stripped of its `LC_CODE_SIGNATURE` and its file end
+    /// moved back to where the signature began; `_CodeSignature` directories
+    /// and the embedded profile are removed because the new run writes its own.
+    /// Files that are not Mach-O images are left exactly as they are.
+    private func stripExistingSignatures(in bundleDirectory: URL) throws {
+        let fileManager = FileManager.default
+        guard let enumerator = fileManager.enumerator(
+            at: bundleDirectory,
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
+            options: []
+        ) else {
+            throw ApplicationSigningFailure(
+                stage: .extraction,
+                detail: "The working copy could not be walked to remove signatures.",
+                category: .internalFailure
+            )
+        }
+        for case let entry as URL in enumerator {
+            let values = try entry.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey])
+            if values.isDirectory == true {
+                if entry.lastPathComponent == "_CodeSignature" {
+                    try fileManager.removeItem(at: entry)
+                    enumerator.skipDescendants()
+                }
+                continue
+            }
+            guard values.isRegularFile == true else { continue }
+            if entry.lastPathComponent == "embedded.mobileprovision" {
+                try fileManager.removeItem(at: entry)
+                continue
+            }
+            // A file is only rewritten when its own bytes say it carries the
+            // command. A resource is never decoded as an image merely because
+            // it was found in a bundle.
+            guard let image = try? Data(contentsOf: entry, options: .mappedIfSafe),
+                  image.count <= MachOCodeSignatureStripper.maximumImageByteCount,
+                  MachOCodeSignatureStripper.carriesSignature(image) else {
+                continue
+            }
+            try MachOCodeSignatureStripper.stripSignature(from: image)
+                .write(to: entry, options: .atomic)
+        }
     }
 
     // MARK: - Nested signing
@@ -1014,7 +1098,7 @@ struct SignApplicationPipeline {
                 NestedSigningRequest(
                     plan: singleItemPlan,
                     identityID: request.identityID,
-                    existingSignaturePolicy: request.options.existingSignaturePolicy,
+                    existingSignaturePolicy: signaturePolicy(for: request),
                     teamIdentifier: request.options.teamIdentifier,
                     configuration: NestedCodeSigningConfiguration(targetMetadata: [item.id: metadata]),
                     mutationStrategy: .directMutation
@@ -1362,7 +1446,7 @@ struct SignApplicationPipeline {
                     codeLimit: codeLimit
                 ),
                 algorithm: .rsaPKCS1SHA256Digest,
-                existingSignaturePolicy: request.options.existingSignaturePolicy,
+                existingSignaturePolicy: signaturePolicy(for: request),
                 policy: .singleImageCryptographicExperiment,
                 metadata: MachOSigningMetadata(
                     entitlements: request.entitlements,

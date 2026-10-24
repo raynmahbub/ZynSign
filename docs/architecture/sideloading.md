@@ -174,7 +174,9 @@ Not proven here, and named as open:
   memory, never logged; `redactedSummary` exposes eight hex characters and no
   key material. The platform store is the Keychain-backed one.
 - Injection rewrites bytes before they are signed. An image that is already
-  signed is refused rather than silently re-signed.
+  signed is refused unless the run was asked to re-sign, in which case the old
+  `LC_CODE_SIGNATURE`, its `_CodeSignature` directory and the embedded profile
+  are removed from the working copy first — never overwritten in place.
 - A guest's data container is inside the container; nothing in the container
   path reads the host's library or identity material.
 - The app installs nothing it did not send, and lists nothing as installed

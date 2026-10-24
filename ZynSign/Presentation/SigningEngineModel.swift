@@ -185,13 +185,15 @@ final class SigningEngineModel: ObservableObject {
         identityID: SigningIdentityIdentifier,
         entitlements: CodeSigningEntitlements,
         emitDEREntitlements: Bool,
-        sideload: SideloadSigningOptions = .none
+        sideload: SideloadSigningOptions = .none,
+        replacesExistingSignatures: Bool = false
     ) -> SigningEngineRequest {
         // The sideloading edits travel with the ordinary options, so the run
         // the engine performs is the same run whether or not anything is
         // rewritten — there is no second pipeline.
         var options = SignApplicationOptions(emitDEREntitlements: emitDEREntitlements,
-                                             sideload: sideload)
+                                             sideload: sideload,
+                                             replacesExistingSignatures: replacesExistingSignatures)
         return SigningEngineRequest(
             sourceURL: sourceURL,
             profile: profile,

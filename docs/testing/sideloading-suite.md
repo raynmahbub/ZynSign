@@ -39,7 +39,7 @@ Those stay open in the architecture record; this page does not upgrade them.
 
 | Fact | Result |
 | --- | --- |
-| Host tests | 85 run, 0 failures, 0 errors (`python3 -m unittest discover -s Tests/Host`) |
+| Host tests | 119 run, 0 failures, 0 errors (`python3 -m unittest discover -s Tests/Host`) |
 | Signed package | 3 images, all valid, CMS accepted by `openssl cms -verify` for each; the loader is linked into the main executable only |
 | Tampering | a flipped byte inside the hashed region rejected |
 | Injection | `@executable_path/Frameworks/ZynTweak.dylib` present in the main executable, header padding consumed, signature valid afterwards |
@@ -50,6 +50,10 @@ Those stay open in the architecture record; this page does not upgrade them.
 | Container | 4 images ad-hoc signed and verified; guest patched to `MH_DYLIB`; loader linked; 12 container entries |
 | Overrides | bundle identifier, display name and version rewritten; extension identifiers follow the new prefix |
 | Profile authorisation | a profile that does not cover the identifier is refused before signing |
+| Special slot 1 | every application and extension executable carries its own bundle's `Info.plist` digest |
+| Nested seals | each nested bundle has its own `_CodeSignature/CodeResources`, and its executable binds it in special slot 3; the container names it by `cdhash` |
+| Re-signing | a signed package is stripped (command removed, file end moved back, `_CodeSignature` and profile removed) and signed again; a different identity replaces the signer |
+| Certificate chain | a p12 carrying its intermediate verifies against the root; dropping the intermediate breaks it |
 
 Re-run the script for the current numbers; this table records the state at the
 commit that introduced it.
