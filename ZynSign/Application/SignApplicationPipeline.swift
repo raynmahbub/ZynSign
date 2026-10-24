@@ -1457,6 +1457,12 @@ struct SignApplicationPipeline {
                 detail: "The main executable already carries a signature, which this signing does not replace.",
                 category: .unsupportedInput
             )
+        case .emptyInfoPlist:
+            return ApplicationSigningFailure(
+                stage: .mainExecutable,
+                detail: "The bundle's Info.plist is empty, so special slot 1 cannot be derived.",
+                category: .invalidInput
+            )
         case .codeDirectoryConstruction, .codeDirectorySerialization, .entitlements,
              .requirements, .digestFailure, .signatureBlobConstruction, .superBlobConstruction,
              .layout, .mutation, .postSignVerification:

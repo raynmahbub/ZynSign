@@ -826,6 +826,9 @@ struct SignNestedCodeUseCase {
         case .resourceLimitExceeded:
             reason = .resourceLimitExceeded
             detail = "Resource limit exceeded during Mach-O signing."
+        case .emptyInfoPlist:
+            reason = .invalidConfiguration
+            detail = "The nested bundle's Info.plist is empty, so special slot 1 cannot be derived."
         }
 
         return NestedSigningFailure(
