@@ -1,5 +1,23 @@
 import Foundation
 
+/// What one batch step needs from the signing engine: a call that returns the
+/// run's outcome, refusals included.
+///
+/// The coordinator depends on this rather than on `SignApplicationPipeline` so
+/// the sequencing rules — a refusal is never counted as a delivery, one failure
+/// does not stop the run, every step is recorded — can be exercised without
+/// real packages on disk. `SignApplicationPipeline` is the only production
+/// conformance.
+protocol BatchSigningStep {
+    func signApplication(_ request: SignApplicationRequest) async throws -> SignApplicationResult
+}
+
+extension SignApplicationPipeline: BatchSigningStep {
+    func signApplication(_ request: SignApplicationRequest) async throws -> SignApplicationResult {
+        try await sign(request)
+    }
+}
+
 /// Coordinates a batch signing run: signing multiple applications with
 /// the same identity and profile in sequence, recording each result in
 /// the signing history, and emitting progress the UI can observe.
@@ -16,8 +34,8 @@ import Foundation
 /// the rest of the user's setup.
 actor BatchSigningCoordinator {
 
-    /// The single-entry pipeline reused for every batch step.
-    private let pipeline: SignApplicationPipeline
+    /// The single-entry signing engine reused for every batch step.
+    private let pipeline: any BatchSigningStep
 
     /// The signing history store that records every batch step.
     private let history: any SigningHistoryStore
@@ -31,7 +49,7 @@ actor BatchSigningCoordinator {
     private let now: @Sendable () -> Date
 
     init(
-        pipeline: SignApplicationPipeline,
+        pipeline: any BatchSigningStep,
         history: any SigningHistoryStore,
         requestFactory: @escaping @Sendable (LibraryEntry, SigningIdentityIdentifier, Data) throws -> SignApplicationRequest,
         now: @escaping @Sendable () -> Date = { Date() }
@@ -254,8 +272,20 @@ actor BatchSigningCoordinator {
         let outputURL = outputDirectory.appendingPathComponent(safeName)
         let request = try requestFactory(entry, identityID, profile)
             .with(outputURL: outputURL, options: optionsOverride)
-        _ = try await pipeline.sign(request)
-        return outputURL
+        // The pipeline returns a refusal as a result rather than throwing, so
+        // the status has to be read. Taking only the return value — as this
+        // did — reports a refused package as a delivered one, and a batch
+        // summary that counts refusals as successes is worse than the failure
+        // it hides.
+        let signed = try await pipeline.signApplication(request)
+        guard signed.status == .signed else {
+            throw ZynSignError(
+                category: .invalidInput,
+                userMessage: signed.failure?.detail ?? "Signing was refused. Nothing was delivered.",
+                diagnosticDetail: signed.failure?.stage.rawValue
+            )
+        }
+        return signed.outputURL ?? outputURL
     }
 
     /// Signs one already-built request and records it. The professional
@@ -276,7 +306,7 @@ actor BatchSigningCoordinator {
         let startMonotonic = Date()
         do {
             try Task.checkCancellation()
-            let signed = try await pipeline.sign(request)
+            let signed = try await pipeline.signApplication(request)
             guard signed.status == .signed else {
                 throw ZynSignError(
                     category: .invalidInput,

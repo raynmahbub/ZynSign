@@ -56,7 +56,7 @@ them, so the stop that switches one on changes nothing a user can see:
 
 | Feature | Stop | What exists | What is missing |
 |---|---|---|---|
-| **Batch Signing** | `v0.9.0-beta.3` | `BatchSigningCoordinator` — a complete, tested sequencer over the signing pipeline that records each result in the signing history | No screen constructs it. Nothing offers "sign these applications" from the Library, and no view reads the recorded batch history. |
+| **Batch Signing** | `v0.9.0-beta.3` | `BatchSigningCoordinator` — a sequencer over the signing pipeline that records each step in the signing history, covered by `BatchSigningCoordinatorTests`; it compiles into every build | No screen constructs it and no view reads the recorded history. Nothing offers "sign these applications" from the Library. |
 | **Signing Health Score** | `v1.0.0` | `SigningHealthScore` (0–100, banded) and `SigningHealthAssessment` (identity + profile + bundle → score and findings), both complete and tested | Nothing reads them. The signing-health card on an application's detail screen is the older, always-on `SigningDiagnosticsAnalysis` — a different feature that ships in every build. |
 
 Those stops are not wrong about the plan; they are wrong about the present.
