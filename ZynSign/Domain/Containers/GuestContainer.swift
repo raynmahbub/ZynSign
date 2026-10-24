@@ -73,11 +73,15 @@ enum GuestContainer {
     }
 
     /// One caveat that does not stop the guest but changes what it can do.
+    ///
+    /// Every case describes the guest itself. Whether any tweak was staged is
+    /// a fact about the staging plan, so it is reported there and never
+    /// inferred from the container — a guest with nothing staged is the
+    /// ordinary guest, not a caveat.
     enum Warning: String, CaseIterable, Hashable, Sendable {
         case requiresJIT
         case metalRequired
         case minimumOSNewerThanHost
-        case tweaksNotStaged
 
         var message: String {
             switch self {
@@ -87,8 +91,6 @@ enum GuestContainer {
                 return "The guest declares a Metal requirement."
             case .minimumOSNewerThanHost:
                 return "The guest declares a minimum OS newer than the host's deployment target."
-            case .tweaksNotStaged:
-                return "No tweaks are staged; the loader will start the guest without hooks."
             }
         }
     }
@@ -224,10 +226,6 @@ enum GuestContainer {
            order == .orderedAscending {
             warnings.append(.minimumOSNewerThanHost)
         }
-        // A guest with no staged tweaks is the ordinary guest. Whether a tweak
-        // was asked for is a fact about the staging plan, not about the
-        // container, so it is reported there and not inferred here.
-
         return Assessment(
             bundleIdentifier: evidence.bundleIdentifier,
             name: evidence.name,
