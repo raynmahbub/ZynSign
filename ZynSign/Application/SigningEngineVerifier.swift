@@ -64,6 +64,12 @@ struct SigningEngineVerificationMaterial: Equatable, Sendable {
         /// The identifier the target's container declared, when it declared
         /// one. `nil` for a target that is not bundle-backed.
         let bundleIdentifier: String?
+
+        /// The target's container directory, when it is bundle-backed: the
+        /// seal the target's executable must bind through special slot 3
+        /// lives inside it. `nil` for a loose dynamic library, which has no
+        /// bundle of its own and therefore no seal.
+        let containerPath: BundlePath?
     }
 
     /// The bundle directory's own name.
@@ -182,13 +188,26 @@ struct SigningEngineVerifier {
         ))
 
         for target in material.nestedTargets {
+            let fileURL = Self.fileURL(for: target.executablePath, in: bundleDirectory)
+            let containerSeal: Data? = target.containerPath.flatMap { container in
+                try? Data(contentsOf: Self.fileURL(for: container, in: bundleDirectory)
+                    .appendingPathComponent("_CodeSignature", isDirectory: true)
+                    .appendingPathComponent("CodeResources", isDirectory: false))
+            }
             checks.append(contentsOf: binaryChecks(
                 label: target.executablePath.rawValue,
-                fileURL: Self.fileURL(for: target.executablePath, in: bundleDirectory),
+                fileURL: fileURL,
                 certificate: resolvedCertificate,
                 material: material,
                 expectsSeal: false
             ))
+            if let containerSeal {
+                checks.append(nestedSealBindingCheck(
+                    label: target.executablePath.rawValue,
+                    fileURL: fileURL,
+                    sealBytes: containerSeal
+                ))
+            }
         }
 
         return SigningEngineVerificationReport(checks: checks)
@@ -410,6 +429,31 @@ struct SigningEngineVerifier {
             return "The CMS signature verifies over the CodeDirectory (\(cdhash.hexString.prefix(16))…)."
         })
         return checks
+    }
+
+    /// Special slot 3 of a nested bundle's executable, held against the seal
+    /// written inside that bundle.
+    ///
+    /// The check is per bundle, against that bundle's own `CodeResources`: a
+    /// framework's slot must bind the framework's seal, never the application's.
+    private func nestedSealBindingCheck(
+        label: String,
+        fileURL: URL,
+        sealBytes: Data
+    ) -> SigningEngineVerificationCheck {
+        check("\(label)/special-slots") {
+            let bytes = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+            let inspection = try Self.inspect(parser: parser, bytes: bytes)
+            let sealDigest = try digest.digest(sealBytes, algorithm: .sha256)
+            try VerificationIssue.require(
+                inspection.codeDirectory.specialSlots.contains { slot in
+                    slot.kind == .codeResources
+                        && slot.hash == Data(sealDigest.bytes.prefix(slot.hash.count))
+                },
+                "The nested executable binds no resource seal: slot 3 does not hash its bundle's CodeResources."
+            )
+            return "Slot 3 binds the bundle's own seal (\(sealBytes.count) bytes)."
+        }
     }
 
     // MARK: - Internals

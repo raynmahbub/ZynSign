@@ -124,6 +124,30 @@ def evidence(work: Path) -> dict:
                   f"special slots {report.special_slots}, "
                   f"injected {report.dylibs or '[]'}"),
     })
+    # Every bundle is sealed before its own executable is signed, so each
+    # nested executable binds *its own* seal through special slot 3. Reading
+    # that back is the check a strict verifier performs on nested code.
+    nested_rows = []
+    for bundle_path in ("Payload/Demo.app/PlugIns/DemoWidget.appex",
+                        "Payload/Demo.app/Frameworks/libdemo.dylib"):
+        seal_path = f"{bundle_path}/_CodeSignature/CodeResources"
+        if seal_path in main_binary.entries:
+            executable_path = main_binary.executable_path(bundle_path)
+            seal_bytes = main_binary.entries[seal_path]
+            nested_report = codesign.verify_image(
+                main_binary.entries[executable_path],
+                info_plist=main_binary.entries.get(f"{bundle_path}/Info.plist"),
+                resource_seal=seal_bytes)
+            nested_rows.append(
+                f"{bundle_path.split('/')[-1]}: seal {len(seal_bytes)} bytes, "
+                f"slot 3 {'binds it' if nested_report.resource_seal_valid else 'DOES NOT bind it'}")
+        else:
+            nested_rows.append(f"{bundle_path.split('/')[-1]}: no seal (not a bundle)")
+    steps.append({
+        "step": "Bind each nested bundle's own seal",
+        "proof": " · ".join(nested_rows),
+    })
+
     tampered = bytearray(executable)
     tampered[0x500] ^= 1
     detected = not codesign.verify_image(bytes(tampered)).page_hashes_valid

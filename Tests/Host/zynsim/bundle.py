@@ -305,9 +305,31 @@ class IPABundle:
         binaries: list[SignedBinary] = []
         entitlements_by_path: dict[str, dict] = {}
 
-        # Deepest bundle first: an outer signature covers what is inside it.
+        # Deepest bundle first, and each bundle is *sealed* before its own
+        # executable is signed. Two bindings force that order: a container's
+        # seal names a nested bundle by its code-directory hash, so the child
+        # must already be signed; and an executable binds its own seal through
+        # special slot 3, so the seal must already be written. Sealing
+        # everything at the end — the obvious order — leaves every nested
+        # executable with no slot 3, which a strict verifier rejects.
+        # Loose dynamic libraries first. A dylib is not a bundle: it has no
+        # seal of its own, so it takes no slot 3, but its container's seal
+        # references it by cdhash — which means it has to be signed before any
+        # container is sealed. Signing it inside the container loop, or after
+        # it, leaves the seal pointing at a hash the file no longer has.
+        for path in list(self.macho_files()):
+            if path.endswith("/Info.plist") or not self._is_nested_code(path):
+                continue
+            if any(path == self.executable_path(directory)
+                   for directory, _ in self.app_containers()):
+                continue
+            entitlements = self._entitlements(profile_object, main_identifier, True)
+            self._sign_image_entry(path, main_identifier, identity, entitlements,
+                                   overrides.injected_libraries if overrides.inject_into_nested else [],
+                                   version, binaries, entitlements_by_path)
+
         containers = sorted(self.app_containers(), key=lambda item: item[0].count("/"), reverse=True)
-        seen: set[str] = set()
+        seals: dict[str, bytes] = {}
         for directory, _ in containers:
             identifier = self.bundle_identifier_of(directory)
             nested = directory != app
@@ -316,32 +338,24 @@ class IPABundle:
             # asked for nested images too — the same default zsign uses.
             wants_injection = not nested or overrides.inject_into_nested
             injection = overrides.injected_libraries if wants_injection else []
+            seal = self._write_resource_seal(directory)
+            seals[directory] = seal
             self._sign_directory(directory, identifier, identity, entitlements,
                                  injection, version, binaries, entitlements_by_path,
-                                 inject_into_libraries=overrides.inject_into_nested)
-            seen.add(self.executable_path(directory) or "")
-        # Frameworks and loose dylibs are not bundles; they are still code.
-        for path, content in list(self.macho_files().items()):
-            if path in seen or path in entitlements_by_path:
-                continue
-            if path.endswith("/Info.plist"):
-                continue
-            if not self._is_nested_code(path):
-                continue
-            entitlements = self._entitlements(profile_object, main_identifier, True)
-            self._sign_image_entry(path, main_identifier, identity, entitlements,
-                                   overrides.injected_libraries if overrides.inject_into_nested else [],
-                                   version, binaries, entitlements_by_path)
-        self._write_resource_seals()
+                                 inject_into_libraries=overrides.inject_into_nested,
+                                 resource_seal=seal)
         data = self.to_bytes()
         verification = []
         for binary in binaries:
             info_plist = None
+            resource_seal = None
             for directory, _ in self.app_containers():
                 if self.executable_path(directory) == binary.path:
                     info_plist = self.entries.get(f"{directory}/Info.plist")
+                    resource_seal = seals.get(directory)
             verification.append(codesign.verify_image(self.entries[binary.path],
-                                                      info_plist=info_plist))
+                                                      info_plist=info_plist,
+                                                      resource_seal=resource_seal))
         return SigningOutcome(data=data, bundle_id=main_identifier, binaries=binaries,
                               verification=verification, removed=removed,
                               entitlements=entitlements_by_path,
@@ -350,7 +364,8 @@ class IPABundle:
     def _sign_directory(self, directory: str, identifier: str, identity,
                         entitlements: dict, injection: list[tuple[str, bool]], version: int,
                         binaries: list[SignedBinary], entitlements_by_path: dict,
-                        *, inject_into_libraries: bool) -> None:
+                        *, inject_into_libraries: bool,
+                        resource_seal: bytes | None = None) -> None:
         executable = self.executable_path(directory)
         if executable is not None:
             # Slot 1 carries *this* bundle's Info.plist — for an extension that
@@ -358,7 +373,7 @@ class IPABundle:
             info_plist = self.entries.get(f"{directory}/Info.plist")
             self._sign_image_entry(executable, identifier, identity, entitlements, injection,
                                    version, binaries, entitlements_by_path,
-                                   info_plist=info_plist)
+                                   info_plist=info_plist, resource_seal=resource_seal)
         for path in sorted(self.entries):
             if not path.startswith(directory + "/"):
                 continue
@@ -381,7 +396,8 @@ class IPABundle:
     def _sign_image_entry(self, path: str, identifier: str, identity, entitlements: dict,
                           injection: list[tuple[str, bool]], version: int,
                           binaries: list[SignedBinary], entitlements_by_path: dict,
-                          info_plist: bytes | None = None) -> None:
+                          info_plist: bytes | None = None,
+                          resource_seal: bytes | None = None) -> None:
         content = self.entries[path]
         try:
             image = macho.MachO(content)
@@ -407,26 +423,43 @@ class IPABundle:
                 adhoc=identity is None,
                 version=version,
                 info_plist=info_plist,
+                resource_seal=resource_seal,
             )
         else:
             options = codesign.SigningOptions(
                 identifier=identifier, identity=identity, adhoc=identity is None,
-                version=version, info_plist=info_plist)
+                version=version, info_plist=info_plist, resource_seal=resource_seal)
         signed, _ = codesign.sign_image(image.bytes(), options)
         self.entries[path] = signed
         binaries.append(SignedBinary(path=path, identifier=identifier, adhoc=identity is None,
                                      injected=injected, size_before=len(content), size_after=len(signed)))
         entitlements_by_path[path] = entitlements
 
+    def _write_resource_seal(self, directory: str) -> bytes:
+        """Write one bundle's seal and return its exact bytes.
+
+        The bytes are returned because slot 3 hashes this file, and the file
+        must be written before the executable that binds it is signed.
+        """
+        seal = resourceseal.build(
+            self.entries,
+            bundle_prefix=directory,
+            executable=self.executable_path(directory),
+            cdhashes=self._nested_cdhashes(directory),
+        )
+        payload = resourceseal.serialize(seal)
+        self.entries[f"{directory}/_CodeSignature/CodeResources"] = payload
+        return payload
+
     def _write_resource_seals(self) -> None:
-        for directory, _ in self.app_containers():
-            seal = resourceseal.build(
-                self.entries,
-                bundle_prefix=directory,
-                executable=self.executable_path(directory),
-                cdhashes=self._nested_cdhashes(directory),
-            )
-            self.entries[f"{directory}/_CodeSignature/CodeResources"] = resourceseal.serialize(seal)
+        """Seal every bundle, deepest first, without signing anything.
+
+        Used when the caller wants the seals alone — the signing path seals and
+        signs per bundle so each executable can bind its own seal.
+        """
+        for directory, _ in sorted(self.app_containers(),
+                                   key=lambda item: item[0].count("/"), reverse=True):
+            self._write_resource_seal(directory)
 
     def code_directories(self) -> dict[str, bytes]:
         """The embedded CodeDirectory of every signed binary, by entry path."""

@@ -231,6 +231,99 @@ class SigningPipelineTests(unittest.TestCase):
         self.assertTrue(any("Assets.car" in problem for problem in rebuilt.verify_seals()))
 
 
+class NestedSealTests(unittest.TestCase):
+    """A nested bundle is sealed by its container *and* seals itself.
+
+    Two independent bindings, and a package that has only one of them is
+    accepted by a naive checker and refused by a strict verifier: the
+    container names the bundle by `cdhash`, and the bundle's own executable
+    binds its own `CodeResources` through special slot 3.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.identity = fixtures.TestIdentity(WORK / "nested")
+        cls.profile = profile.parse_profile(cls.identity.wrapped_profile("com.example.demo"))
+        cls.outcome = bundle.sign_ipa(fixtures.build_ipa(),
+                                      identity=cls.identity.identity,
+                                      profile_object=cls.profile)
+        cls.rebuilt = bundle.IPABundle.from_bytes(cls.outcome.data)
+
+    def nested_containers(self) -> list[str]:
+        return [directory for directory, _ in self.rebuilt.app_containers()
+                if directory != self.rebuilt.main_app()]
+
+    def test_every_nested_bundle_carries_its_own_seal(self) -> None:
+        containers = self.nested_containers()
+        self.assertTrue(containers)
+        for directory in containers:
+            with self.subTest(directory=directory):
+                self.assertIn(f"{directory}/_CodeSignature/CodeResources",
+                              self.rebuilt.entries)
+
+    def test_each_nested_executable_binds_its_own_seal_in_slot_three(self) -> None:
+        for directory in self.nested_containers():
+            seal = self.rebuilt.entries[f"{directory}/_CodeSignature/CodeResources"]
+            report = codesign.verify_image(
+                self.rebuilt.entries[self.rebuilt.executable_path(directory)],
+                info_plist=self.rebuilt.entries[f"{directory}/Info.plist"],
+                resource_seal=seal)
+            with self.subTest(directory=directory):
+                self.assertTrue(report.has_resource_seal_slot, report.problems)
+                self.assertTrue(report.resource_seal_valid, report.problems)
+                self.assertTrue(report.valid, report.problems)
+
+    def test_a_nested_bundle_does_not_bind_the_main_apps_seal(self) -> None:
+        main_seal = self.rebuilt.entries[
+            f"{self.rebuilt.main_app()}/_CodeSignature/CodeResources"]
+        directory = self.nested_containers()[0]
+        report = codesign.verify_image(
+            self.rebuilt.entries[self.rebuilt.executable_path(directory)],
+            resource_seal=main_seal)
+        self.assertFalse(report.resource_seal_valid)
+
+    def test_a_nested_seal_lists_only_its_own_contents(self) -> None:
+        directory = self.nested_containers()[0]
+        seal = plistlib.loads(self.rebuilt.entries[
+            f"{directory}/_CodeSignature/CodeResources"])
+        for key in seal["files2"]:
+            with self.subTest(key=key):
+                self.assertFalse(key.startswith("Payload/"),
+                                 "a nested seal must use its own relative paths")
+        self.assertNotIn(self.rebuilt.executable_path(directory).split("/")[-1],
+                         seal["files2"])
+
+    def test_the_container_seal_names_the_bundle_by_cdhash(self) -> None:
+        main_seal = plistlib.loads(self.rebuilt.entries[
+            f"{self.rebuilt.main_app()}/_CodeSignature/CodeResources"])
+        for directory in self.nested_containers():
+            relative = directory.split(f"{self.rebuilt.main_app()}/", 1)[1]
+            with self.subTest(container=relative):
+                self.assertIn(relative, main_seal["files2"])
+                self.assertIn("cdhash", main_seal["files2"][relative])
+
+    def test_the_nested_binding_survives_a_resign(self) -> None:
+        again = bundle.sign_ipa(self.outcome.data, identity=self.identity.identity,
+                                profile_object=self.profile, resign=True)
+        self.assertTrue(again.verified, again.seal_problems)
+        rebuilt = bundle.IPABundle.from_bytes(again.data)
+        directory = self.nested_containers()[0]
+        seal = rebuilt.entries[f"{directory}/_CodeSignature/CodeResources"]
+        report = codesign.verify_image(
+            rebuilt.entries[rebuilt.executable_path(directory)], resource_seal=seal)
+        self.assertTrue(report.resource_seal_valid, report.problems)
+
+    def test_a_tampered_nested_seal_is_caught(self) -> None:
+        directory = self.nested_containers()[0]
+        seal = bytearray(self.rebuilt.entries[f"{directory}/_CodeSignature/CodeResources"])
+        seal[10] ^= 0xFF
+        report = codesign.verify_image(
+            self.rebuilt.entries[self.rebuilt.executable_path(directory)],
+            resource_seal=bytes(seal))
+        self.assertFalse(report.resource_seal_valid)
+        self.assertFalse(report.valid)
+
+
 class ReSigningTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

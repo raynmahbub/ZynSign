@@ -423,7 +423,8 @@ struct SigningEngineCoordinator {
                 nestedTargets: signed.reports.discovery.nestedTargets.map { target in
                     SigningEngineVerificationMaterial.NestedTarget(
                         executablePath: target.executablePath,
-                        bundleIdentifier: target.bundleIdentifier
+                        bundleIdentifier: target.bundleIdentifier,
+                        containerPath: target.containerPath
                     )
                 },
                 identityID: request.identityID,

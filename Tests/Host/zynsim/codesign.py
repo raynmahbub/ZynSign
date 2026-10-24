@@ -41,6 +41,10 @@ CSMAGIC_BLOBWRAPPER = 0xFADE0B01
 CSSLOT_INFO_PLIST = 1
 CSSLOT_CODEDIRECTORY = 0
 CSSLOT_REQUIREMENTS = 2
+#: The bundle's own ``_CodeSignature/CodeResources``. Unlike slots 1 and 2 this
+#: one is a plain file digest, and a bundle that has a seal but no slot 3 is
+#: refused by a strict verifier in the same way a missing slot 1 is.
+CSSLOT_RESOURCES = 3
 CSSLOT_ENTITLEMENTS = 5
 CSSLOT_DER_ENTITLEMENTS = 7
 CSSLOT_SIGNATURE = 0x10000
@@ -214,6 +218,7 @@ def build_code_directory(
     der_entitlements: bytes | None = None,
     requirements: bytes | None = None,
     info_plist: bytes | None = None,
+    resource_seal: bytes | None = None,
     flags: int = 0,
     version: int = 0x20400,
     hash_type: int = HASH_SHA256,
@@ -235,6 +240,10 @@ def build_code_directory(
         # Slot 1 is the bundle's Info.plist, not a blob: the digest covers the
         # file exactly as it sits in the bundle.
         special[CSSLOT_INFO_PLIST] = _digest(info_plist, hash_type)[:hash_size]
+    if resource_seal is not None:
+        # Slot 3 is a file digest like slot 1: the seal's bytes exactly as they
+        # are written, so a verifier can rehash the file it finds.
+        special[CSSLOT_RESOURCES] = _digest(resource_seal, hash_type)[:hash_size]
     for slot, payload in ((CSSLOT_REQUIREMENTS, requirements),
                           (CSSLOT_ENTITLEMENTS, entitlements),
                           (CSSLOT_DER_ENTITLEMENTS, der_entitlements)):
@@ -300,6 +309,7 @@ class SigningOptions:
     requirements: bytes | None = None
     embed_requirements: bool = True
     info_plist: bytes | None = None
+    resource_seal: bytes | None = None
     identity: cms.CertificateIdentity | None = None
     intermediates: list[bytes] | None = None
     adhoc: bool = False
@@ -361,6 +371,7 @@ def sign_image(data: bytes, options: SigningOptions) -> tuple[bytes, SignatureIn
             der_entitlements=der_entitlements,
             requirements=requirements,
             info_plist=options.info_plist,
+            resource_seal=options.resource_seal,
             flags=flags,
             version=options.version,
             hash_type=options.hash_type,
@@ -409,6 +420,7 @@ def sign_image(data: bytes, options: SigningOptions) -> tuple[bytes, SignatureIn
         der_entitlements=der_entitlements,
         requirements=requirements,
         info_plist=options.info_plist,
+        resource_seal=options.resource_seal,
         flags=flags,
         version=options.version,
         hash_type=options.hash_type,
@@ -466,10 +478,15 @@ class VerificationReport:
     #: the slot is present, but its correctness is not something this call
     #: can establish.
     info_plist_valid: bool | None = None
+    #: Whether slot 3 is present, and whether it matches the seal the caller
+    #: handed in. ``None`` when no seal bytes were supplied to compare against.
+    has_resource_seal_slot: bool = False
+    resource_seal_valid: bool | None = None
     problems: list[str] = field(default_factory=list)
 
 
-def verify_image(data: bytes, *, info_plist: bytes | None = None) -> VerificationReport:
+def verify_image(data: bytes, *, info_plist: bytes | None = None,
+                 resource_seal: bytes | None = None) -> VerificationReport:
     """Re-derive every digest from the bytes and compare with the signature.
 
     A malformed signature is a rejection, not an exception: a verifier that
@@ -478,7 +495,7 @@ def verify_image(data: bytes, *, info_plist: bytes | None = None) -> Verificatio
     entry that says what was wrong.
     """
     try:
-        return _verify_image(data, info_plist=info_plist)
+        return _verify_image(data, info_plist=info_plist, resource_seal=resource_seal)
     except (SigningError, macho.MachOError) as error:
         return VerificationReport(
             valid=False, page_hashes_valid=False, special_slots_valid=False,
@@ -489,7 +506,8 @@ def verify_image(data: bytes, *, info_plist: bytes | None = None) -> Verificatio
         )
 
 
-def _verify_image(data: bytes, *, info_plist: bytes | None = None) -> VerificationReport:
+def _verify_image(data: bytes, *, info_plist: bytes | None = None,
+                  resource_seal: bytes | None = None) -> VerificationReport:
     image = macho.MachO(bytes(data))
     command = image.code_signature_command()
     if command is None:
@@ -564,6 +582,17 @@ def _verify_image(data: bytes, *, info_plist: bytes | None = None) -> Verificati
 
     special_slots_valid = True
     info_plist_valid: bool | None = None
+    resource_seal_valid: bool | None = None
+    has_resource_seal_slot = special_count >= CSSLOT_RESOURCES and any(
+        blob_bytes[hash_offset - CSSLOT_RESOURCES * hash_size:
+                   hash_offset - (CSSLOT_RESOURCES - 1) * hash_size])
+    if has_resource_seal_slot and resource_seal is not None:
+        recorded_seal = blob_bytes[hash_offset - CSSLOT_RESOURCES * hash_size:
+                                   hash_offset - (CSSLOT_RESOURCES - 1) * hash_size]
+        resource_seal_valid = recorded_seal == digest(resource_seal)
+        if not resource_seal_valid:
+            special_slots_valid = False
+            problems.append("special slot 3 does not match the bundle's CodeResources")
     special_base = hash_offset
     if special_count >= CSSLOT_INFO_PLIST:
         recorded_info = blob_bytes[special_base - hash_size:special_base]
@@ -577,13 +606,16 @@ def _verify_image(data: bytes, *, info_plist: bytes | None = None) -> Verificati
     # compare it with can only confirm the slot is present, not right. It is
     # therefore checked only when the caller supplied the file.
     slot_payloads = {
+        CSSLOT_RESOURCES: resource_seal,
         CSSLOT_REQUIREMENTS: blobs.get(CSSLOT_REQUIREMENTS),
         CSSLOT_ENTITLEMENTS: blobs.get(CSSLOT_ENTITLEMENTS),
         CSSLOT_DER_ENTITLEMENTS: blobs.get(CSSLOT_DER_ENTITLEMENTS),
     }
     for slot in range(1, special_count + 1):
-        if slot == CSSLOT_INFO_PLIST:
-            continue  # checked above, against a file this call may not have
+        if slot in (CSSLOT_INFO_PLIST, CSSLOT_RESOURCES):
+            # Both hash bundle files rather than embedded blobs, so they are
+            # checked above only when the caller supplied the file.
+            continue
         recorded = blob_bytes[special_base - slot * hash_size:special_base - (slot - 1) * hash_size]
         payload = slot_payloads.get(slot)
         if payload is None:
@@ -631,5 +663,7 @@ def _verify_image(data: bytes, *, info_plist: bytes | None = None) -> Verificati
         executable_block=exec_block,
         has_info_plist_slot=bool(has_info_plist_slot),
         info_plist_valid=info_plist_valid,
+        has_resource_seal_slot=bool(has_resource_seal_slot),
+        resource_seal_valid=resource_seal_valid,
         problems=problems,
     )
