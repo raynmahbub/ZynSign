@@ -74,6 +74,10 @@ struct ApplicationSigningNestedTargetReport: Equatable {
 
     /// The identifier the target's container declared, when it declared one.
     let bundleIdentifier: String?
+
+    /// The target's container directory, when the target is bundle-backed, so
+    /// verification can find the seal written inside it.
+    let containerPath: BundlePath?
 }
 
 /// What nested signing produced: the aggregate summary, per-target results,
@@ -1108,7 +1112,7 @@ struct SignApplicationPipeline {
             )
             itemResults.append(contentsOf: result.itemResults)
             guard result.isSuccess,
-                  let itemResult = result.for(item.id),
+                  let itemResult = result.result(for: item.id),
                   case .signed(let details) = itemResult.status else {
                 let failure = result.itemResults.compactMap { outcome -> NestedSigningFailure? in
                     if case .failed(let failure) = outcome.status { return failure }
@@ -1154,7 +1158,7 @@ struct SignApplicationPipeline {
         plan: NestedSigningPlan,
         signed: [BundlePath: Digest],
         bundleDirectory: URL
-    ) throws -> (metadata: MachOSigningMetadata, seal: SealedCodeResources) {
+    ) throws -> MachOSigningMetadata {
         let container = item.bundlePath
         var containerDirectory = bundleDirectory
         for component in container.components {
@@ -1208,7 +1212,7 @@ struct SignApplicationPipeline {
             document = try CodeResourcesGenerator(messageDigest: digest).generate(
                 from: store,
                 configuration: ResourceSealingConfiguration(symlinkPolicy: .exclude, excludedPaths: excluded),
-                nestedCode: seals
+                nestedCode: nestedSeals
             )
             let bytes = try CodeResourcesSerializer().serialize(document)
             let signatureDirectory = containerDirectory.appendingPathComponent("_CodeSignature", isDirectory: true)
@@ -1315,7 +1319,7 @@ struct SignApplicationPipeline {
             document = try CodeResourcesGenerator(messageDigest: digest).generate(
                 from: store,
                 configuration: ResourceSealingConfiguration(symlinkPolicy: .exclude, excludedPaths: excluded),
-                nestedCode: seals
+                nestedCode: nestedSeals
             )
         } catch {
             throw mapSealError(error, stage: .resourceSealing)
