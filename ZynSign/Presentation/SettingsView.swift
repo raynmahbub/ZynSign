@@ -291,6 +291,10 @@ struct SettingsView: View {
                 Text("ZynSign can inspect and prepare files on this device. It does not pair with Apple TV, Watch, Mac, or Vision Pro, and it does not enable JIT.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
+            // Deliberately not behind a release gate: this screen is the
+            // explanation for what a sideloading capability still needs, so a
+            // build that cannot install is exactly the build that must show
+            // it. It is registered as `CoreFeature.sideloading`.
             Section("Sideloading") {
                 NavigationLink {
                     SideloadingView(embedsNavigationStack: false)
