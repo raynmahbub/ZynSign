@@ -1163,12 +1163,18 @@ struct SignApplicationPipeline {
         for component in container.components {
             containerDirectory.appendPathComponent(component)
         }
-        let innerContainers = Set(plan.items
-            .filter { $0.id != item.id && $0.bundlePath.isWithin(container) }
-            .map(\.bundlePath))
+        // What this container seals as nested code: every target below it
+        // that has been signed already, named the way its seal names it — a
+        // bundle by its directory, a loose dynamic library by its file.
+        var innerCode: [(absolute: BundlePath, relative: BundlePath)] = []
+        for absolute in signed.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
+            guard absolute.isWithin(container),
+                  let relative = Self.relativePath(of: absolute, within: container) else { continue }
+            innerCode.append((absolute: absolute, relative: relative))
+        }
         let store = WorkingCopyResourceContentStore(
             bundleDirectory: containerDirectory,
-            nestedContainers: innerContainers
+            nestedCodePaths: Set(innerCode.map(\.relative))
         )
         let listing: [ResourceListingEntry]
         do {
@@ -1184,24 +1190,15 @@ struct SignApplicationPipeline {
             )
         }
         var excluded: Set<BundlePath> = []
-        for entry in listing {
-            if entry.path == executableRelative || entry.path.components.first == "_CodeSignature" {
-                excluded.insert(entry.path)
-                continue
-            }
-            var absolute = container
-            for component in entry.path.components {
-                guard let next = absolute.appending(component: component) else { continue }
-                absolute = next
-            }
-            if innerContainers.contains(absolute) { excluded.insert(entry.path) }
+        for entry in listing where entry.path == executableRelative
+            || entry.path.components.first == "_CodeSignature" {
+            excluded.insert(entry.path)
         }
         let nestedSeals: [NestedCodeResourceSeal]
         do {
-            nestedSeals = try innerContainers.compactMap { inner -> NestedCodeResourceSeal? in
-                guard let digest = signed[inner],
-                      let relative = Self.relativePath(of: inner, within: container) else { return nil }
-                return try NestedCodeResourceSeal(path: relative, codeDirectoryDigest: digest)
+            nestedSeals = try innerCode.compactMap { inner -> NestedCodeResourceSeal? in
+                guard let digest = signed[inner.absolute] else { return nil }
+                return try NestedCodeResourceSeal(path: inner.relative, codeDirectoryDigest: digest)
             }
         } catch {
             throw map(error, stage: .nestedSigning, detail: "A nested-code seal could not be constructed.")
@@ -1273,8 +1270,7 @@ struct SignApplicationPipeline {
         } catch {
             throw map(error, stage: .resourceSealing, detail: "A nested-code seal could not be constructed.")
         }
-        let nestedContainers = Set(plan.items.filter(\.kind.isBundleBacked).map(\.bundlePath))
-        for container in nestedContainers {
+        for container in plan.items.filter(\.kind.isBundleBacked).map(\.bundlePath) {
             guard !container.components.isEmpty else {
                 throw ApplicationSigningFailure(
                     stage: .resourceSealing,
@@ -1283,9 +1279,13 @@ struct SignApplicationPipeline {
                 )
             }
         }
+        // Each nested target is stated once, by the seal built from its own
+        // code directory. Naming the same path as a listed resource would
+        // state it twice, which the seal refuses, so the walk is told which
+        // paths the nested seals own.
         let store = WorkingCopyResourceContentStore(
             bundleDirectory: bundleDirectory,
-            nestedContainers: nestedContainers
+            nestedCodePaths: Set(seals.map(\.path))
         )
         let listing: [ResourceListingEntry]
         do {
@@ -1295,21 +1295,12 @@ struct SignApplicationPipeline {
         }
         // The main executable and the signature directory are sealed by
         // reference, not by content: the executable by its own CodeDirectory
-        // and the seal it carries, the signature directory not at all. The
-        // store already keeps nested-container contents out of the walk; the
-        // container directories themselves are excluded here so the seal
-        // records the decision as an omission.
+        // and the seal it carries, the signature directory not at all. Nested
+        // targets are not excluded here — a signature directory the walk
+        // reports is, and the walk never reports a nested target.
         var excluded: Set<BundlePath> = []
         for entry in listing {
-            if entry.path == mainExecutable {
-                excluded.insert(entry.path)
-                continue
-            }
-            if entry.path.components.first == "_CodeSignature" {
-                excluded.insert(entry.path)
-                continue
-            }
-            if nestedContainers.contains(entry.path) {
+            if entry.path == mainExecutable || entry.path.components.first == "_CodeSignature" {
                 excluded.insert(entry.path)
             }
         }
