@@ -40,6 +40,22 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ### Fixed
 
+- **Two release stops no longer promise a screen that does not exist.** The
+  train schedules Batch Signing at `v0.9.0-beta.3` and Signing Health Score at
+  `v1.0.0`, and **Settings → Features** labels both `Planned · <tag>` — but
+  nothing in the app referenced either: `BatchSigningCoordinator` is a complete,
+  tested sequencer that no screen constructs, and `SigningHealthScore` /
+  `SigningHealthAssessment` are complete, tested values nothing reads (the
+  always-on health card on an application's detail screen is the older
+  `SigningDiagnosticsAnalysis`, a different feature). Both stops would have
+  reached users having changed nothing they could see. The gap is now recorded
+  where a reader looks for it — `docs/product/WHAT_DOES_NOT_EXIST.md` and
+  `release-train.md` name both features, their stops, and what is missing — and
+  `Scripts/audit_release_gating.py` enforces the rule from now on: every
+  `ReleaseFeature` is either referenced by the app's own source or listed in
+  `Scripts/ci/release-surface-deferrals.txt` with a reason, and a deferral that
+  has been repaid fails the build, so the list cannot outlive the gaps it
+  describes.
 - **Sideloading is in the capability catalogue.** The `Settings → Devices →
   Sideloading` screen was reachable in every build — Debug and Release alike —
   while no registry named it: it was not a `CoreFeature`, not a

@@ -47,6 +47,26 @@
 | **Pairing / JIT / Mux / OpenSSL** | Revised — pairing composed behind an entitled transport; JIT still never; OpenSSL still host-only ([ADR](../architecture/pairing-jit-mux-feasibility.md)) | Pairing records, session start, service start, AFC upload and `installation_proxy` are implemented as wire protocols with no private framework and no daemon socket; the missing piece is the local tunnel entitlement, which is a distribution fact this repository cannot grant itself. JIT is still refused everywhere. No `MobileDevice`, no `usbmuxd` socket, no OpenSSL linked into the app binary. `Application/PairingCapability.swift` models `pairing/jit/mux/openSSLLinkage` as `PairingAssessment(limitations: [.requiresPrivateEntitlement, .requiresLockdownDaemon, .notComposed])` with per-capability `feasibilityNote` naming the private surface. Settings → Pairing / JIT / Mux shows `Never` + limitations + feasibility notes + anchors. Feasibility record: `docs/architecture/pairing-jit-mux-feasibility.md` (reopen triggers, boundaries). OpenSSL only in `Tests/Host` external validation (`openssl cms -verify`), never linked. Pinned by `PairingCapabilityTests`. |
 | **Off-device analytics / tracking** | None — `AnalyticsPolicy.isEnabled == false` | No `AnalyticsKit`, no telemetry sender, no crash-reporter SDK, no outbound endpoint, no identifier collection. `Application/AnalyticsPolicy.swift` (`isEnabled false`, `eventCount 0`, `endpoint nil`, 6 `Guarantee`s incl. `localJournalOnly`) is the single policy; the local journal above is the only event store that exists, and it cannot transmit. Settings → Analytics shows `None` + `0 events sent` + journal controls + guarantees. Any future off-device measurement requires ADR + port + platform + consent toggle. Pinned by `AnalyticsPolicyTests`. |
 
+## Declared on the train, no surface yet
+
+Two rows of the release train predict a capability the app cannot show. They are
+scheduled — `ReleaseStage.introducedFeatures` names them, and **Settings →
+Features** labels them `Planned · <tag>` — but nothing in the app references
+them, so the stop that switches one on changes nothing a user can see:
+
+| Feature | Stop | What exists | What is missing |
+|---|---|---|---|
+| **Batch Signing** | `v0.9.0-beta.3` | `BatchSigningCoordinator` — a complete, tested sequencer over the signing pipeline that records each result in the signing history | No screen constructs it. Nothing offers "sign these applications" from the Library, and no view reads the recorded batch history. |
+| **Signing Health Score** | `v1.0.0` | `SigningHealthScore` (0–100, banded) and `SigningHealthAssessment` (identity + profile + bundle → score and findings), both complete and tested | Nothing reads them. The signing-health card on an application's detail screen is the older, always-on `SigningDiagnosticsAnalysis` — a different feature that ships in every build. |
+
+Those stops are not wrong about the plan; they are wrong about the present.
+`Scripts/audit_release_gating.py` keeps the distinction visible and mechanical:
+every `ReleaseFeature` must be either referenced by the app's own source or
+named in `Scripts/ci/release-surface-deferrals.txt` with the reason it is not,
+and a deferral that has been repaid fails the build so the list cannot outlive
+the gap. When either surface is built, the deferral goes away and the stop
+becomes true.
+
 ## What *does* exist instead
 
 `Files → Library → Home → App Store → Downloads → Settings` shell, `ipa/tipa` import (bounded, security-scoped, SHA-256), durable library, bundle explorer, Certificate Manager (`CertificateManagerView` + `CertificateManagerModel`: `.p12/.pfx` 10 MiB → `SecureIdentityStore`, search/sort/filters, list/grid, expiration intelligence via `CertificateExpirationAssessment`, team/type extraction, local labels + default identity via `FileIdentityAnnotationsStore`, `CertificateDetailView` + **Export public JSON**), Smart Sign (`SigningView` + `SigningEngineCoordinator` + `ZProgressRing` + `ZSigningStatusMachine` 9 stages → isolated working copy → independent verification → `Documents/Signed` + **Export IPA** / **Open Details** / **Verify Again** / **Return to Library** + `ZToast`/`ZBottomSheet` + **DER toggle 0x20400** + **Live Activity**), `Downloads` (**Download Center: queue, validation before import, honest resume**), `App Store` (**health Fast/Slow/Offline**), `Home` (**Mission Control Refresh Everything**), `Settings → Devices → Sideloading` (**always on, `CoreFeature.sideloading`**: one row per capability naming the requirement it is missing — pairing record, local-tunnel entitlement, bundled loader — plus the package edits a signing run can apply), `DesignSystem` (`ZCard`/`ZStatusBadge`/`ZSkeleton`/`ZProgressRing`/`ZToast`/`ZBottomSheet` + `DesignTokens` + `ZDL v1.0`), `DEREntitlements` (`DEREntitlementsBlob` + `DEREntitlementsSerializer` + `CodeDirectoryVersion.v20400`).
