@@ -36,6 +36,19 @@ At this checkout the current stop is **`v0.1.0-alpha.2`** (stage `.alpha2`, alph
 
 Each stop accumulates features from earlier stops. The stage definitions, prerequisites, marketing versions, and build numbers in `ReleaseTrain.swift` are authoritative; this table is a quick reference.
 
+A stop's row is a claim about what a build exposes, so it is only true where the
+app holds a surface the gate can reveal. Two rows are scheduled ahead of their
+surface — Batch Signing (`v0.9.0-beta.3`) and Signing Health Score (`v1.0.0`) —
+and both are recorded as deferrals in
+[`Scripts/ci/release-surface-deferrals.txt`](../../Scripts/ci/release-surface-deferrals.txt):
+the code is complete and tested, nothing in the app references it, so those
+stops would change nothing a user can see.
+[`Scripts/audit_release_gating.py`](../../Scripts/audit_release_gating.py) fails
+the build when a staged feature has neither a surface nor a recorded decision,
+and when a recorded decision has been repaid.
+[`WHAT_DOES_NOT_EXIST.md`](../product/WHAT_DOES_NOT_EXIST.md) states the same
+two gaps for users.
+
 ## What the app exposes
 
 - **Root navigation:** the bar draws exactly five tabs — Home, Library, Store, Downloads, and Settings (`ShellSection.allTabs`, pinned by `ShellSectionTabTests`). The Files browser is one `Settings → Browse` row away, the searchable Features catalogue is under `Settings → Features`, and Certificates and Profiles share one `Home → Certificates & Profiles` entry and one `Settings → Signing` screen. Store and Downloads remain direct tabs when their release gates are open and are the only two of the five that a stage can hide. The shell draws its own glass bar (`ShellTabBar`) instead of UIKit's five-item bar, whose *More* list would push destinations into nested stacks; five is the product's count, never the ceiling's.

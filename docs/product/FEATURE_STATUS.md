@@ -21,7 +21,7 @@ A source entry means code and a presentation surface exist; it does **not** mean
 | `v1.0.0` | Signing Health Score |
 | `v3.0.0-nova.1` | Nova Assistant |
 
-Features accumulate at later stops. Debug builds can expose staged code for development; the catalogue still labels Release availability from `ReleaseTrain`.
+Features accumulate at later stops. Debug builds can expose staged code for development; the catalogue still labels Release availability from `ReleaseTrain`. A `Planned · <tag>` label names the stop that would expose the capability; it does not assert that a surface exists today. Two entries — Batch Signing (`v0.9.0-beta.3`) and Signing Health Score (`v1.0.0`) — are scheduled ahead of any screen that references them, which `Scripts/audit_release_gating.py` records as deliberate deferrals rather than leaving the gap implicit.
 
 ## Always-on and unsupported entries
 
