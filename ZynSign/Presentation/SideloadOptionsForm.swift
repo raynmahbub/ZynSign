@@ -35,24 +35,29 @@ struct SideloadOptionsDraft: Equatable {
     var libraryField = ""
 
     /// Whether the draft would change a package.
-    var isEdited: Bool { self != SideloadOptionsDraft() }
+    ///
+    /// The comparison is over the options the draft produces, so a field
+    /// holding nothing but spaces is not an edit: it means "keep the
+    /// package's value", which is what the run would do.
+    var isEdited: Bool { options != SideloadSigningOptions.none }
 
     /// How many edits are switched on, for the summary row.
     var editCount: Int {
+        let options = self.options
         var count = 0
-        if !bundleIdentifier.isEmpty { count += 1 }
-        if !displayName.isEmpty { count += 1 }
-        if !name.isEmpty { count += 1 }
-        if !shortVersion.isEmpty { count += 1 }
-        if !version.isEmpty { count += 1 }
-        if !minimumOSVersion.isEmpty { count += 1 }
-        if removesPlugIns { count += 1 }
-        if removesWatchApps { count += 1 }
-        if removesAppExtensions { count += 1 }
-        if removesURLSchemes { count += 1 }
-        count += libraries.count
-        if adHoc { count += 1 }
-        if hardenedRuntime { count += 1 }
+        if options.bundleIdentifier != nil { count += 1 }
+        if options.displayName != nil { count += 1 }
+        if options.name != nil { count += 1 }
+        if options.shortVersion != nil { count += 1 }
+        if options.version != nil { count += 1 }
+        if options.minimumOSVersion != nil { count += 1 }
+        if options.removesPlugIns { count += 1 }
+        if options.removesWatchApps { count += 1 }
+        if options.removesAppExtensions { count += 1 }
+        if options.removesURLSchemes { count += 1 }
+        count += options.injectedLibraries.count
+        if options.adHoc { count += 1 }
+        if options.hardenedRuntime { count += 1 }
         return count
     }
 

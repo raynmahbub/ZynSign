@@ -41,15 +41,16 @@ final class MachOCodeSignatureStripperTests: XCTestCase {
     }
 
     func testACommandTableKeepsItsLayoutAfterRemoval() throws {
-        // Two commands: `__LINKEDIT`, then the signature. Removing the second
+        // Two commands: a segment, then the signature. Removing the second
         // must leave the first exactly where it was, because every offset in
-        // the file is relative to the layout.
+        // the file is relative to the layout. The segment is not `__LINKEDIT`,
+        // so nothing in it is rewritten by the strip.
         let fileOffset = UInt64(32 + 72 + 16)
         let segment = MachOFixtures.segment64(
-            fileOffset: fileOffset, fileSize: 32, virtualMemorySize: 4_096)
+            name: "__TEXT", fileOffset: fileOffset, fileSize: 32, virtualMemorySize: 4_096)
         var signatureCommand = MachOFixtures.command(0x1D, size: 16)
-        MachOFixtures.put(UInt64(32 + 72 + 16 + 16), at: 8, in: &signatureCommand)
-        MachOFixtures.put(64, at: 12, in: &signatureCommand)
+        putUInt32(32 + 72 + 16 + 16, into: &signatureCommand, at: 8)
+        putUInt32(64, into: &signatureCommand, at: 12)
         let image = MachOFixtures.thin(
             commands: [segment, signatureCommand],
             payload: [UInt8](repeating: 0x7E, count: 32) + [UInt8](repeating: 0x11, count: 64)
@@ -67,12 +68,16 @@ final class MachOCodeSignatureStripperTests: XCTestCase {
     }
 
     func testLinkEditShrinksToTheNewFileEnd() throws {
-        let fileOffset = UInt64(32 + 72)
+        // Header 32, one 72-byte segment, one 16-byte signature command: the
+        // segment's file content starts at 120. `__LINKEDIT` covers the payload
+        // and the signature it carries — 120 through 216 — and must end where
+        // the signature began once that is gone.
+        let fileOffset = UInt64(32 + 72 + 16)
         let segment = MachOFixtures.segment64(
-            fileOffset: fileOffset, fileSize: 32, virtualMemorySize: 4_096)
+            fileOffset: fileOffset, fileSize: 96, virtualMemorySize: 4_096)
         var signatureCommand = MachOFixtures.command(0x1D, size: 16)
-        MachOFixtures.put(UInt64(32 + 72 + 16 + 32), at: 8, in: &signatureCommand)
-        MachOFixtures.put(64, at: 12, in: &signatureCommand)
+        putUInt32(UInt32(fileOffset) + 32, into: &signatureCommand, at: 8)
+        putUInt32(64, into: &signatureCommand, at: 12)
         let image = MachOFixtures.thin(
             commands: [segment, signatureCommand],
             payload: [UInt8](repeating: 0x7E, count: 32) + [UInt8](repeating: 0x11, count: 64)
@@ -81,8 +86,9 @@ final class MachOCodeSignatureStripperTests: XCTestCase {
 
         let fileSize = readUInt64(stripped, at: 32 + 48)
         let virtualSize = readUInt64(stripped, at: 32 + 32)
-        let signatureOffset = UInt64(32 + 72 + 16 + 32)
+        let signatureOffset = UInt64(fileOffset) + 32
         XCTAssertEqual(fileSize, signatureOffset - fileOffset)
+        XCTAssertLessThanOrEqual(fileSize, UInt64(stripped.count) - fileOffset)
         XCTAssertGreaterThanOrEqual(virtualSize, fileSize)
         XCTAssertEqual(virtualSize % 16_384, 0, "the virtual size keeps page alignment")
     }
@@ -110,8 +116,8 @@ final class MachOCodeSignatureStripperTests: XCTestCase {
 
     func testASignatureOutsideTheFileIsRefused() {
         var signatureCommand = MachOFixtures.command(0x1D, size: 16)
-        MachOFixtures.put(9_999, at: 8, in: &signatureCommand)
-        MachOFixtures.put(64, at: 12, in: &signatureCommand)
+        putUInt32(9_999, into: &signatureCommand, at: 8)
+        putUInt32(64, into: &signatureCommand, at: 12)
         let image = data(MachOFixtures.thin(commands: [signatureCommand],
                                             payload: [UInt8](repeating: 0, count: 32)))
         XCTAssertThrowsError(try MachOCodeSignatureStripper.stripSignature(from: image)) { error in
@@ -136,6 +142,13 @@ final class MachOCodeSignatureStripperTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// Little-endian, like every Mach-O field this build signs.
+    private func putUInt32(_ value: UInt32, into bytes: inout [UInt8], at offset: Int) {
+        for index in 0..<4 {
+            bytes[offset + index] = UInt8(truncatingIfNeeded: value >> (8 * UInt32(index)))
+        }
+    }
 
     private func readUInt32(_ data: Data, at offset: Int) -> UInt32 {
         let bytes = [UInt8](data)
