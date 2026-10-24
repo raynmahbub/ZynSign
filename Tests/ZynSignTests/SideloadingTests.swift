@@ -111,17 +111,21 @@ final class DylibInjectionPlanTests: XCTestCase {
     func testLoadCommandMatchesTheHostSuiteBytes() throws {
         let command = try DylibInjectionPlanner.loadCommand(
             installName: "@executable_path/Frameworks/Tweak.dylib", isWeak: false)
-        // length 64 = 24-byte dylib_command + 38-byte name + 2 bytes padding
+        // 39 UTF-8 bytes plus the terminator is 40, so the 24-byte command and
+        // the name fill 64 exactly: no padding is added and the last byte is
+        // the name's terminator.
         XCTAssertEqual(command.count, 64)
         XCTAssertEqual(Array(command.prefix(24)), [
             0x0C, 0x00, 0x00, 0x00,   // LC_LOAD_DYLIB
             0x40, 0x00, 0x00, 0x00,   // cmdsize 64
             0x18, 0x00, 0x00, 0x00,   // name offset 24
-            0x00, 0x00, 0x00, 0x00,   // timestamp
+            0x02, 0x00, 0x00, 0x00,   // timestamp, as `ld` writes it
             0x00, 0x00, 0x01, 0x00,   // current version 1.0
             0x00, 0x00, 0x01, 0x00,   // compatibility version 1.0
         ])
-        XCTAssertEqual(command.suffix(2), Data([0x00, 0x00]))
+        let name = String(decoding: command[24..<(24 + 39)], as: UTF8.self)
+        XCTAssertEqual(name, "@executable_path/Frameworks/Tweak.dylib")
+        XCTAssertEqual(command.last, 0x00)
     }
 
     func testWeakCommandUsesTheWeakConstant() throws {

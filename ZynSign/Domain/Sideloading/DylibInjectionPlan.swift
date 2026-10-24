@@ -90,7 +90,7 @@ enum DylibInjectionPlanner {
         appendLittleEndian(isWeak ? loadWeakDylibCommand : loadDylibCommand, to: &data)
         appendLittleEndian(UInt32(size), to: &data)
         appendLittleEndian(UInt32(dylibCommandSize), to: &data)  // name offset
-        appendLittleEndian(UInt32(0), to: &data)                 // timestamp
+        appendLittleEndian(UInt32(2), to: &data)                 // timestamp, as `ld` writes it
         appendLittleEndian(UInt32(0x1_0000), to: &data)          // current version 1.0
         appendLittleEndian(UInt32(0x1_0000), to: &data)          // compatibility 1.0
         data.append(contentsOf: encoded)

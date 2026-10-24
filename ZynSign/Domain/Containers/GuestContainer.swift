@@ -224,7 +224,9 @@ enum GuestContainer {
            order == .orderedAscending {
             warnings.append(.minimumOSNewerThanHost)
         }
-        if evidence.stagedTweaks == 0 { warnings.append(.tweaksNotStaged) }
+        // A guest with no staged tweaks is the ordinary guest. Whether a tweak
+        // was asked for is a fact about the staging plan, not about the
+        // container, so it is reported there and not inferred here.
 
         return Assessment(
             bundleIdentifier: evidence.bundleIdentifier,
