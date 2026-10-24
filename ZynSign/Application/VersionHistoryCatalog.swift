@@ -105,19 +105,6 @@ enum VersionHistoryCatalog {
             ]
         ),
         VersionHistoryEntry(
-            tag: "v0.1.0-alpha.3",
-            marketingVersion: "0.1.0",
-            buildNumber: 2,
-            releasedAt: DateComponents(year: 2026, month: 9, day: 29),
-            headline: "Ten staged features, seven first reachable in a Release build.",
-            highlights: [
-                "Certificate Studio, Library power features, Smart Sign.",
-                "Provisioning Profile Manager and Professional Signing Queue.",
-                "Intelligent signing presets and the Developer Identity Center.",
-                "App Store with repository health, Download Center, Entitlements Studio.",
-            ]
-        ),
-        VersionHistoryEntry(
             tag: "v0.0.1-dev.1",
             marketingVersion: "0.0.1",
             buildNumber: 2,
