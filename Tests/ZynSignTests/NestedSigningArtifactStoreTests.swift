@@ -90,6 +90,51 @@ final class NestedSigningArtifactStoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: sibling.appendingPathComponent("x").path))
     }
 
+    // MARK: - Working-copy resource walk
+
+    /// A path the caller states as nested code is stated once: by the
+    /// nested-code seal. The walk leaves it out instead of reporting it as a
+    /// resource the file seal would also hash and record.
+    func testNestedCodePathsAreNeitherListedNorDescendedInto() throws {
+        let bundle = try makeBundle(named: "App.app")
+        let framework = bundle.appendingPathComponent("Frameworks/Kit.framework", isDirectory: true)
+        try FileManager.default.createDirectory(at: framework, withIntermediateDirectories: true)
+        try Data("plist".utf8).write(to: framework.appendingPathComponent("Info.plist"))
+        try Data("frameworks".utf8).write(to: bundle.appendingPathComponent("App"))
+        let nested = try XCTUnwrap(BundlePath(rawValue: "Frameworks/Kit.framework"))
+
+        let store = WorkingCopyResourceContentStore(
+            bundleDirectory: bundle,
+            nestedCodePaths: [nested]
+        )
+        let listing = try store.listEntries()
+        let paths = Set(listing.map(\.path))
+
+        XCTAssertFalse(paths.contains(nested))
+        XCTAssertFalse(listing.contains { $0.path.rawValue.hasPrefix("Frameworks/Kit.framework/") })
+        XCTAssertTrue(paths.contains(try XCTUnwrap(BundlePath(rawValue: "App"))))
+    }
+
+    /// The directory that holds nested code is walked; the code inside it is
+    /// not. Listing the holder keeps the walk honest about the tree without
+    /// reaching into what another seal owns.
+    func testDirectoriesThatHoldNestedCodeAreStillWalked() throws {
+        let bundle = try makeBundle(named: "App.app")
+        let framework = bundle.appendingPathComponent("Frameworks/Kit.framework/Kit", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: framework.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("kit".utf8).write(to: framework)
+        let nested = try XCTUnwrap(BundlePath(rawValue: "Frameworks/Kit.framework"))
+
+        let listing = try WorkingCopyResourceContentStore(
+            bundleDirectory: bundle,
+            nestedCodePaths: [nested]
+        ).listEntries()
+
+        XCTAssertEqual(listing.map(\.path.rawValue), ["Frameworks"])
+        XCTAssertEqual(listing.map(\.kind), [.directory])
+    }
+
     // MARK: - Helpers
 
     private func makeBundle(named name: String) throws -> URL {

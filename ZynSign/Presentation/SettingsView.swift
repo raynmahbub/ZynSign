@@ -291,6 +291,17 @@ struct SettingsView: View {
                 Text("ZynSign can inspect and prepare files on this device. It does not pair with Apple TV, Watch, Mac, or Vision Pro, and it does not enable JIT.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
+            Section("Sideloading") {
+                NavigationLink {
+                    SideloadingView(embedsNavigationStack: false)
+                } label: {
+                    ZSettingsLabel(
+                        title: "Sideloading",
+                        subtitle: "Device pairing, installation, guest containers, and package edits — with the requirement each one is missing.",
+                        symbol: "arrow.down.app.fill"
+                    )
+                }
+            }
             if ReleaseTrain.isAvailable(.installationWorkspace) {
                 Section("Device Handoff") {
                     NavigationLink {

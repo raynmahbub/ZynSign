@@ -54,6 +54,16 @@ struct SigningView: View {
     @State private var showErrorToast = false
     @State private var emitDEREntitlements = false
 
+    /// The package edits this run applies. Held here, beside the identity and
+    /// profile it will sign with, so the form and the request cannot disagree
+    /// about what was asked for.
+    @State private var sideloadDraft = SideloadOptionsDraft()
+
+    /// Whether an already-signed container is stripped and signed again.
+    /// On by default: the package a person downloads has usually been signed
+    /// by someone else, and re-signing it is the whole point of the run.
+    @State private var replacesExistingSignatures = true
+
     /// The tweak staging picker, and the plan it produced. The plan is
     /// validated by the tweak library before it can exist at all.
     @State private var showTweakPicker = false
@@ -622,6 +632,28 @@ struct SigningView: View {
             NavigationLink { SigningOptionsView(emitDEREntitlements: $emitDEREntitlements) } label: {
                 Label("Signing Options", systemImage: "slider.horizontal.3")
             }.disabled(isSigning)
+            NavigationLink {
+                Form {
+                    SideloadOptionsForm(draft: $sideloadDraft, hasCertificate: selectedIdentityID != nil)
+                    Section {
+                        Toggle("Re-sign an already signed package", isOn: $replacesExistingSignatures)
+                    } footer: {
+                        Text(replacesExistingSignatures
+                             ? "The existing signature, its seal and its embedded profile are removed in the working copy before this run signs. An unsigned package is unaffected."
+                             : "A package that already carries a signature will be refused rather than signed twice.")
+                    }
+                }
+                .navigationTitle("Package Edits")
+                .navigationBarTitleDisplayMode(.inline)
+            } label: {
+                LabeledContent {
+                    Text(sideloadDraft.isEdited ? "\(sideloadDraft.editCount)" : "None")
+                        .foregroundStyle(sideloadDraft.isEdited ? .primary : .secondary)
+                } label: {
+                    Label("Package Edits", systemImage: "wand.and.stars")
+                }
+            }
+            .disabled(isSigning)
             Button { ZHaptics.tap(); showSigningOptions = true } label: {
                 Label("Quick Options (Sheet)", systemImage: "rectangle.bottomthird.inset.filled")
             }.foregroundStyle(.secondary).disabled(isSigning)
@@ -1201,7 +1233,9 @@ struct SigningView: View {
             SigningEngineModel.makeRequest(
                 entry: entry, sourceURL: sourceURL, profile: profile,
                 identityID: identityID, entitlements: entitlements,
-                emitDEREntitlements: requestedKey.emitDER
+                emitDEREntitlements: requestedKey.emitDER,
+                sideload: sideloadDraft.options,
+                replacesExistingSignatures: replacesExistingSignatures
             ),
             environment: env,
             onFinish: { result, wasCancelled in

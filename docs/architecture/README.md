@@ -9,6 +9,20 @@
 
 Architectural decisions for ZynSign are recorded here.
 
+## Sideloading
+
+Device installation, guest containers, and the package edits that sign-time
+rewriting needs are recorded in [sideloading.md](sideloading.md). That record
+also states what the bridge requires (a pairing record, a local-tunnel
+entitlement, an entitled build), how the four wire protocols are framed, why
+the guest container patches a binary's file type before signing it, and which
+parts are proven by the host suite rather than by a device.
+
+It supersedes the "never composed" half of
+[pairing-jit-mux-feasibility.md](pairing-jit-mux-feasibility.md): pairing is now
+composed behind a transport that needs an entitlement, while JIT stays refused
+and OpenSSL stays host-only.
+
 ## Current State
 
 The record below is in decision order, oldest first. Which stop the project

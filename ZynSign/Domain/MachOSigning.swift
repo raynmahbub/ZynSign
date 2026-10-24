@@ -99,6 +99,7 @@ enum MachOSigningError: Error, Equatable {
     case entitlements(EntitlementsError)
     case requirements(RequirementsError)
     case resourceSeal(ResourceSealError)
+    case emptyInfoPlist
     case digestFailure
     case signatureBlobConstruction
     case superBlobConstruction

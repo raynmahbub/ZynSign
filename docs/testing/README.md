@@ -9,6 +9,14 @@
 
 Testing strategy and practice for ZynSign will be recorded here.
 
+## Sideloading suite
+
+The signing engine, the device wire protocols and the guest container are
+exercised by an executable specification in `Tests/Host/zynsim`, driven by
+`Scripts/sim/run_unified_suite.py`. What that run establishes — and what it
+deliberately does not, such as a Swift build or a physical device — is recorded
+in [sideloading-suite.md](sideloading-suite.md).
+
 ## Current State
 
 The repository has a unit-test target (`ZynSignTests`) with pure tests for the

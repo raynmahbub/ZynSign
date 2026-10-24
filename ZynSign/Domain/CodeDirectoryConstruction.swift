@@ -31,11 +31,20 @@ enum CodeDirectoryVersion: Equatable, Hashable {
         }
     }
 
+    /// The fixed header each version declares, in bytes.
+    ///
+    /// These are the sizes `cs_blobs.h` defines, and the sizes
+    /// `ReadOnlyMachOParser` already reads: `0x20001` ends at `spare2`,
+    /// `0x20200` adds `scatterOffset` and `teamOffset`, and `0x20400` adds
+    /// `spare3`, `codeLimit64`, `execSegBase`, `execSegLimit` and
+    /// `execSegFlags`. Declaring `0x20400` while writing a 52-byte header —
+    /// which is what this type did before — puts the identifier where a device
+    /// expects `codeLimit64`, and the signature is rejected.
     var headerLength: Int {
         switch self {
         case .v20001: return 44
         case .v20200: return 52
-        case .v20400: return 52
+        case .v20400: return 88
         case .unsupported: return 0
         }
     }

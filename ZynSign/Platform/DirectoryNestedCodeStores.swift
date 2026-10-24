@@ -145,23 +145,26 @@ final class DirectoryBundleBinaryStore: NestedSigningArtifactStore {
 /// a link stops the walk with a traversal failure rather than being
 /// silently skipped.
 ///
-/// Nested containers are listed but never descended into. The seal
-/// references nested code by caller-supplied seals over paths the walk
-/// never reports — a nested path that also appears in the listing is
-/// refused as a collision — so the contents of every nested container
-/// stay out of the file walk by construction.
+/// Nested code is neither reported nor descended into. The seal states a
+/// nested target through the caller's nested-code seal, and a generator that
+/// also received the target as a listed resource would refuse the path as a
+/// collision — so the walk leaves every path the caller names as nested code
+/// out of the listing, and the contents of a nested container stay out of the
+/// walk by construction.
 final class WorkingCopyResourceContentStore: ResourceContentStore {
 
     /// The working-copy `<Name>.app` directory the store is bounded to.
     let bundleDirectory: URL
 
-    /// The nested container directories the walk lists but never descends
-    /// into, relative to the bundle root.
-    let nestedContainers: Set<BundlePath>
+    /// The paths, relative to the bundle root, that the caller states as
+    /// nested code. They are neither listed nor descended into: the
+    /// caller-supplied nested-code seal is the one statement the seal makes
+    /// about them.
+    let nestedCodePaths: Set<BundlePath>
 
-    init(bundleDirectory: URL, nestedContainers: Set<BundlePath> = []) {
+    init(bundleDirectory: URL, nestedCodePaths: Set<BundlePath> = []) {
         self.bundleDirectory = bundleDirectory
-        self.nestedContainers = nestedContainers
+        self.nestedCodePaths = nestedCodePaths
     }
 
     func listEntries() throws -> [ResourceListingEntry] {
@@ -185,8 +188,11 @@ final class WorkingCopyResourceContentStore: ResourceContentStore {
             }
             for child in children {
                 let entry = try classify(child: child, parentComponents: components)
+                if nestedCodePaths.contains(entry.path) {
+                    continue
+                }
                 entries.append(entry)
-                if case .directory = entry.kind, !nestedContainers.contains(entry.path) {
+                if case .directory = entry.kind {
                     stack.append(components + [child.lastPathComponent])
                 }
             }

@@ -69,19 +69,31 @@ struct MachOSigningMetadata: Equatable {
     let requirements: CodeSigningRequirements?
     let resourceSeal: SealedCodeResources?
 
+    /// The bytes of the bundle's `Info.plist`, when this target is an
+    /// application executable and the caller has them.
+    ///
+    /// An iOS application executable's special slot 1 carries the digest of
+    /// its bundle's `Info.plist`; a device refuses an installation whose
+    /// executable does not carry it. Nested code carries its own bundle's
+    /// `Info.plist`, so this is per-target, never inherited from the main app.
+    let bundleInfoPlist: Data?
+
     init(
         entitlements: CodeSigningEntitlements? = nil,
         requirements: CodeSigningRequirements? = nil,
-        resourceSeal: SealedCodeResources? = nil
+        resourceSeal: SealedCodeResources? = nil,
+        bundleInfoPlist: Data? = nil
     ) {
         self.entitlements = entitlements
         self.requirements = requirements
         self.resourceSeal = resourceSeal
+        self.bundleInfoPlist = bundleInfoPlist
     }
 
     /// Whether any component is present.
     var isEmpty: Bool {
         entitlements == nil && requirements == nil && resourceSeal == nil
+            && bundleInfoPlist == nil
     }
 
     /// Validates that every present component can actually be embedded.
@@ -113,6 +125,7 @@ struct MachOSigningMetadata: Equatable {
 /// Slot assignments, all **Verified** against the Apple open-source headers
 /// and the parser's own `CodeDirectorySpecialSlotKind`:
 ///
+/// - slot 1 — the bundle's `Info.plist` bytes (a bundle file, not a blob);
 /// - slot 2 — the requirements blob (embedded in the SuperBlob);
 /// - slot 3 — the CodeResources *file* bytes (not a SuperBlob blob);
 /// - slot 5 — the entitlements blob (embedded in the SuperBlob).
@@ -125,13 +138,15 @@ struct MachOSigningMetadata: Equatable {
 /// experiment in the architecture document.
 struct SigningMetadataSlotDigests: Equatable {
 
+    let infoPlist: Digest?
     let requirements: Digest?
     let codeResources: Digest?
     let entitlements: Digest?
 
     /// Whether any digest is present.
     var isEmpty: Bool {
-        requirements == nil && codeResources == nil && entitlements == nil
+        infoPlist == nil && requirements == nil && codeResources == nil
+            && entitlements == nil
     }
 
     /// The special slots in CodeDirectory construction order: contiguous
@@ -139,16 +154,16 @@ struct SigningMetadataSlotDigests: Equatable {
     /// slots represented as zero-hash placeholders.
     ///
     /// A zero-filled reserved slot is the format's absence representation,
-    /// not an invented digest. Note what this does **not** do: it never
-    /// produces the Info.plist digest of slot 1. An iOS application
-    /// executable's slot 1 carries its bundle's Info.plist hash; producing
-    /// that belongs to bundle-level signing, not to this layer.
+    /// not an invented digest. Slot 1 is produced only for a target whose
+    /// caller supplied the bundle's `Info.plist`; see
+    /// `MachOSigningMetadata.bundleInfoPlist`.
     ///
     /// - Parameter hashSize: the CodeDirectory's per-slot hash size. A full
     ///   digest longer than the slot size keeps its first `hashSize` bytes,
     ///   the same truncation rule the page-hash path applies.
     func specialSlots(hashSize: Int) -> [CodeDirectorySpecialSlot] {
         var highest = 0
+        if infoPlist != nil { highest = max(highest, CodeDirectorySpecialSlotKind.infoPlist.slotIndex) }
         if requirements != nil { highest = max(highest, CodeDirectorySpecialSlotKind.requirements.slotIndex) }
         if codeResources != nil { highest = max(highest, CodeDirectorySpecialSlotKind.codeResources.slotIndex) }
         if entitlements != nil { highest = max(highest, CodeDirectorySpecialSlotKind.entitlements.slotIndex) }
@@ -157,6 +172,11 @@ struct SigningMetadataSlotDigests: Equatable {
         slots.reserveCapacity(highest)
         for index in 1...highest {
             switch index {
+            case CodeDirectorySpecialSlotKind.infoPlist.slotIndex:
+                slots.append(CodeDirectorySpecialSlot(
+                    kind: .infoPlist,
+                    hash: infoPlist.map { truncated($0, hashSize: hashSize) }
+                ))
             case CodeDirectorySpecialSlotKind.requirements.slotIndex:
                 slots.append(CodeDirectorySpecialSlot(
                     kind: .requirements,
@@ -218,6 +238,7 @@ enum SigningMetadataError: Error, Equatable {
     case entitlements(EntitlementsError)
     case requirements(RequirementsError)
     case resourceSeal(ResourceSealError)
+    case emptyInfoPlist
     case digestFailure
 }
 
@@ -277,6 +298,7 @@ struct SigningMetadataPreparation: Equatable {
                 requirementsSet: nil,
                 requirementsSetBytes: nil,
                 slotDigests: SigningMetadataSlotDigests(
+                    infoPlist: nil,
                     requirements: nil,
                     codeResources: nil,
                     entitlements: nil
@@ -294,6 +316,13 @@ struct SigningMetadataPreparation: Equatable {
         var entitlementsDigest: Digest?
         var requirementsDigest: Digest?
         var codeResourcesDigest: Digest?
+        var infoPlistDigest: Digest?
+
+        if let infoPlist = metadata.bundleInfoPlist {
+            guard !infoPlist.isEmpty else { throw SigningMetadataError.emptyInfoPlist }
+            infoPlistDigest = try slotDigest(infoPlist, hashConfiguration: hashConfiguration,
+                                             messageDigest: messageDigest)
+        }
 
         if let entitlements = metadata.entitlements {
             let blob: EntitlementsBlob
@@ -335,6 +364,7 @@ struct SigningMetadataPreparation: Equatable {
             requirementsSet: requirementsSet,
             requirementsSetBytes: requirementsBytes,
             slotDigests: SigningMetadataSlotDigests(
+                infoPlist: infoPlistDigest,
                 requirements: requirementsDigest,
                 codeResources: codeResourcesDigest,
                 entitlements: entitlementsDigest

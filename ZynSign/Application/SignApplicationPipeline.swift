@@ -74,6 +74,22 @@ struct ApplicationSigningNestedTargetReport: Equatable {
 
     /// The identifier the target's container declared, when it declared one.
     let bundleIdentifier: String?
+
+    /// The target's container directory, when the target is bundle-backed, so
+    /// verification can find the seal written inside it.
+    let containerPath: BundlePath?
+}
+
+/// What nested signing produced: the aggregate summary, per-target results,
+/// and the code-directory digests the main seal references.
+struct NestedSigningOutcome {
+    let summary: NestedSigningSummary
+    let results: [NestedCodeItemID: NestedSigningItemResult]
+
+    /// One entry per signed target, keyed by the path its container's seal
+    /// records: the bundle for bundle-backed code, the file for a loose
+    /// dynamic library.
+    let codeSeals: [(path: BundlePath, digest: Digest)]
 }
 
 /// The discovery stage's evidence.
@@ -281,6 +297,19 @@ struct SignApplicationOptions {
     /// XML-only signature with a misleading v0x20400 CodeDirectory.
     let emitDEREntitlements: Bool
 
+    /// Package edits applied inside the working copy before anything is
+    /// signed: identity overrides, refused nested code, injected libraries.
+    /// The default changes nothing, so an existing caller's run is identical.
+    let sideload: SideloadSigningOptions
+
+    /// Whether an already-signed package is stripped and signed again.
+    ///
+    /// Re-signing is what makes a certificate useful: the package a user
+    /// downloads was signed by someone else with an expired profile. The
+    /// default does not change an existing caller's run — a signed input is
+    /// still refused — and the sideloading screen turns it on.
+    let replacesExistingSignatures: Bool
+
     init(
         existingSignaturePolicy: MachOExistingCodeSignaturePolicy = .rejectExistingSignature,
         teamIdentifier: CodeDirectoryTeamIdentifier? = nil,
@@ -288,7 +317,9 @@ struct SignApplicationOptions {
         intendedPlatforms: [ProvisioningProfilePlatform]? = nil,
         getTaskAllow: SigningGetTaskAllowPreference = .unspecified,
         intendedProfileClass: ProvisioningProfileClassification? = nil,
-        emitDEREntitlements: Bool = false
+        emitDEREntitlements: Bool = false,
+        sideload: SideloadSigningOptions = .none,
+        replacesExistingSignatures: Bool = false
     ) {
         self.existingSignaturePolicy = existingSignaturePolicy
         self.teamIdentifier = teamIdentifier
@@ -297,6 +328,8 @@ struct SignApplicationOptions {
         self.getTaskAllow = getTaskAllow
         self.intendedProfileClass = intendedProfileClass
         self.emitDEREntitlements = emitDEREntitlements
+        self.sideload = sideload
+        self.replacesExistingSignatures = replacesExistingSignatures
     }
 }
 
@@ -353,11 +386,14 @@ struct SignApplicationRequest {
 /// Three composition facts shape what the pipeline can sign:
 ///
 /// - Existing signatures are rejected: the signing machinery appends
-///   signatures and refuses replacement, so inputs must be unsigned.
-/// - Nested targets sign without their own resource seals: the nested
-///   use case takes no per-target seal input, so nested binaries carry no
-///   slot-3 binding. The main seal references each nested binary by its
-///   code-directory digest.
+///   signatures and refuses replacement, so inputs must be unsigned. A
+///   package that already carries signatures is re-signed by first removing
+///   them, which the sideloading entry point does explicitly.
+/// - Every bundle is sealed before its own executable is signed: a nested
+///   bundle gets its own `_CodeSignature/CodeResources` and binds it through
+///   special slot 3, and its container's seal references it by code-directory
+///   hash. The nesting is therefore processed inside out, one target at a
+///   time.
 /// - Symbolic links are recorded as seal omissions: the platform's own
 ///   treatment of links is not established in ZynSign's record, so the
 ///   pipeline seals what it can state and omits the rest explicitly.
@@ -542,7 +578,7 @@ struct SignApplicationPipeline {
             observer?(.stageStarted(.resourceSealing))
             let sealing = try runSealing(
                 plan: plan,
-                nested: nested,
+                nestedSeals: nested.codeSeals,
                 integrity: integrity,
                 bundleDirectory: extraction.bundleDirectory
             )
@@ -581,7 +617,8 @@ struct SignApplicationPipeline {
                             ApplicationSigningNestedTargetReport(
                                 executablePath: item.executablePath,
                                 kind: item.kind,
-                                bundleIdentifier: item.bundleIdentifier?.rawValue
+                                bundleIdentifier: item.bundleIdentifier?.rawValue,
+                                containerPath: item.kind.isBundleBacked ? item.bundlePath : nil
                             )
                         }
                     ),
@@ -856,6 +893,9 @@ struct SignApplicationPipeline {
     private struct ExtractionContext {
         let report: ArchiveExtractionReport
         let bundleDirectory: URL
+        /// The package edits applied before signing, when the request asked
+        /// for any. `nil` means the run signed the package as it was.
+        let sideloadReport: SideloadEditReport?
     }
 
     private func runExtraction(
@@ -892,17 +932,115 @@ struct SignApplicationPipeline {
         } catch {
             throw map(error, stage: .extraction, detail: "The replacement profile could not be embedded.")
         }
-        return ExtractionContext(report: report, bundleDirectory: bundleDirectory)
+        // Re-signing starts by removing what is there. The strip runs before
+        // the edits because both rewrite the same header, and the signature
+        // that must survive is the new one.
+        if request.options.replacesExistingSignatures {
+            do {
+                try stripExistingSignatures(in: bundleDirectory)
+            } catch let error as MachOCodeSignatureStripper.Failure {
+                throw ApplicationSigningFailure(
+                    stage: .extraction,
+                    detail: "An existing signature could not be removed (\(error)).",
+                    category: .unsupportedInput
+                )
+            } catch {
+                throw map(error, stage: .extraction,
+                          detail: "An existing signature could not be removed.")
+            }
+        }
+        // Sideloading edits land here, after extraction and before the first
+        // signature: the CodeDirectory hashes the header this step rewrites.
+        var sideloadReport: SideloadEditReport?
+        if !request.options.sideload.isEmpty {
+            do {
+                sideloadReport = try SideloadPackageEditor(options: request.options.sideload)
+                    .apply(in: bundleDirectory)
+            } catch let error as SideloadEditError {
+                throw map(error, stage: .extraction, detail: error.message)
+            } catch {
+                throw map(error, stage: .extraction,
+                          detail: "The package edits could not be applied.")
+            }
+        }
+        return ExtractionContext(report: report, bundleDirectory: bundleDirectory,
+                                 sideloadReport: sideloadReport)
+    }
+
+    /// What the signers are told about existing signatures.
+    ///
+    /// After a strip the images carry none, so the policy that would refuse a
+    /// signed input is the honest one: it still refuses an image the strip
+    /// missed, rather than overwriting it by accident.
+    private func signaturePolicy(for request: SignApplicationRequest) -> MachOExistingCodeSignaturePolicy {
+        request.options.replacesExistingSignatures
+            ? .rejectExistingSignature
+            : request.options.existingSignaturePolicy
+    }
+
+    /// Removes every signature, seal and embedded profile from a working copy.
+    ///
+    /// Every Mach-O is stripped of its `LC_CODE_SIGNATURE` and its file end
+    /// moved back to where the signature began; `_CodeSignature` directories
+    /// and the embedded profile are removed because the new run writes its own.
+    /// Files that are not Mach-O images are left exactly as they are.
+    private func stripExistingSignatures(in bundleDirectory: URL) throws {
+        let fileManager = FileManager.default
+        guard let enumerator = fileManager.enumerator(
+            at: bundleDirectory,
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
+            options: []
+        ) else {
+            throw ApplicationSigningFailure(
+                stage: .extraction,
+                detail: "The working copy could not be walked to remove signatures.",
+                category: .internalFailure
+            )
+        }
+        for case let entry as URL in enumerator {
+            let values = try entry.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey])
+            if values.isDirectory == true {
+                if entry.lastPathComponent == "_CodeSignature" {
+                    try fileManager.removeItem(at: entry)
+                    enumerator.skipDescendants()
+                }
+                continue
+            }
+            guard values.isRegularFile == true else { continue }
+            if entry.lastPathComponent == "embedded.mobileprovision" {
+                try fileManager.removeItem(at: entry)
+                continue
+            }
+            // A file is only rewritten when its own bytes say it carries the
+            // command. A resource is never decoded as an image merely because
+            // it was found in a bundle.
+            guard let image = try? Data(contentsOf: entry, options: .mappedIfSafe),
+                  image.count <= MachOCodeSignatureStripper.maximumImageByteCount,
+                  MachOCodeSignatureStripper.carriesSignature(image) else {
+                continue
+            }
+            try MachOCodeSignatureStripper.stripSignature(from: image)
+                .write(to: entry, options: .atomic)
+        }
     }
 
     // MARK: - Nested signing
 
+    /// Seals and signs every nested target, deepest first.
+    ///
+    /// The order is the reason this is one loop rather than two passes. A
+    /// bundle's seal names its nested code by code-directory hash, so a child
+    /// must be signed before its container is sealed; and a bundle's own
+    /// executable binds its seal through special slot 3, so the container must
+    /// be sealed before its executable is signed. Each target is therefore
+    /// sealed and signed as one step, from the inside out — the only order in
+    /// which every binding refers to bytes that already exist.
     private func runNestedSigning(
         request: SignApplicationRequest,
         plan: NestedSigningPlan,
         bundleDirectory: URL,
         observer: ApplicationSigningProgressObserver? = nil
-    ) throws -> NestedSigningResult {
+    ) throws -> NestedSigningOutcome {
         let store = DirectoryBundleBinaryStore(
             bundleDirectory: bundleDirectory,
             maximumBinaryBytes: limits.maximumEntryBytes
@@ -934,43 +1072,170 @@ struct SignApplicationPipeline {
                 }
             }
         }
-        let result = nestedSigner.sign(
-            NestedSigningRequest(
-                plan: plan,
-                identityID: request.identityID,
-                existingSignaturePolicy: request.options.existingSignaturePolicy,
-                teamIdentifier: request.options.teamIdentifier,
-                mutationStrategy: .directMutation
-            ),
-            store: store,
-            observer: nestedObserver
-        )
-        guard result.isSuccess else {
-            let detail = result.itemResults.first {
-                if case .failed(_) = $0.status {
-                    return true
-                }
-                return false
-            }.flatMap { itemResult -> String? in
-                if case .failed(let failure) = itemResult.status {
-                    return failure.detail
-                }
-                return nil
-            } ?? "Nested signing failed."
-            let category = result.itemResults.first {
-                if case .failed(_) = $0.status {
-                    return true
-                }
-                return false
-            }.flatMap { itemResult -> DiagnosticCategory? in
-                if case .failed(let failure) = itemResult.status {
-                    return failure.category
-                }
-                return nil
-            } ?? .internalFailure
-            throw ApplicationSigningFailure(stage: .nestedSigning, detail: detail, category: category)
+
+        var itemResults: [NestedSigningItemResult] = []
+        // Code-directory digests of the targets signed so far, by the path the
+        // seal will record: the container for a bundle, the file for a loose
+        // dynamic library.
+        var signed: [BundlePath: Digest] = [:]
+
+        for item in plan.items {
+            try Task.checkCancellation()
+            var metadata = MachOSigningMetadata()
+            if item.kind.isBundleBacked {
+                let prepared = try sealNestedContainer(
+                    item: item,
+                    plan: plan,
+                    signed: signed,
+                    bundleDirectory: bundleDirectory
+                )
+                metadata = prepared
+            }
+            let singleItemPlan = NestedSigningPlan(
+                rootItemID: plan.rootItemID,
+                rootExecutablePath: plan.rootExecutablePath,
+                items: [item],
+                dependencies: plan.dependencies
+            )
+            let result = nestedSigner.sign(
+                NestedSigningRequest(
+                    plan: singleItemPlan,
+                    identityID: request.identityID,
+                    existingSignaturePolicy: signaturePolicy(for: request),
+                    teamIdentifier: request.options.teamIdentifier,
+                    configuration: NestedCodeSigningConfiguration(targetMetadata: [item.id: metadata]),
+                    mutationStrategy: .directMutation
+                ),
+                store: store,
+                observer: nestedObserver
+            )
+            itemResults.append(contentsOf: result.itemResults)
+            guard result.isSuccess,
+                  let itemResult = result.result(for: item.id),
+                  case .signed(let details) = itemResult.status else {
+                let failure = result.itemResults.compactMap { outcome -> NestedSigningFailure? in
+                    if case .failed(let failure) = outcome.status { return failure }
+                    return nil
+                }.first
+                throw ApplicationSigningFailure(
+                    stage: .nestedSigning,
+                    detail: failure?.detail ?? "Nested signing failed.",
+                    category: failure?.category ?? .internalFailure
+                )
+            }
+            signed[item.kind.isBundleBacked ? item.bundlePath : item.executablePath] = details.codeDirectoryDigest
         }
-        return result
+
+        let summary = NestedSigningSummary(
+            totalTargets: plan.items.count,
+            successfullySignedCount: itemResults.filter {
+                if case .signed = $0.status { return true }
+                return false
+            }.count,
+            failedCount: 0,
+            skippedCount: 0,
+            mutationState: .allTargetsModified(count: plan.items.count)
+        )
+        return NestedSigningOutcome(
+            summary: summary,
+            results: Dictionary(uniqueKeysWithValues: itemResults.map { ($0.itemID, $0) }),
+            codeSeals: signed.map { (path: $0.key, digest: $0.value) }
+                .sorted { $0.path.rawValue < $1.path.rawValue }
+        )
+    }
+
+    /// The metadata one nested target signs with: its container's own seal and
+    /// its container's `Info.plist`.
+    ///
+    /// The seal is written to `_CodeSignature/CodeResources` inside the
+    /// container before this returns, because slot 3 hashes the file the device
+    /// will read. A framework with resources and no slot 3 fails strict
+    /// verification; a seal that names a child by a hash the child does not
+    /// have fails the same way. Both are why this runs after the children.
+    private func sealNestedContainer(
+        item: NestedSigningItem,
+        plan: NestedSigningPlan,
+        signed: [BundlePath: Digest],
+        bundleDirectory: URL
+    ) throws -> MachOSigningMetadata {
+        let container = item.bundlePath
+        var containerDirectory = bundleDirectory
+        for component in container.components {
+            containerDirectory.appendPathComponent(component)
+        }
+        // What this container seals as nested code: every target below it
+        // that has been signed already, named the way its seal names it — a
+        // bundle by its directory, a loose dynamic library by its file.
+        var innerCode: [(absolute: BundlePath, relative: BundlePath)] = []
+        for absolute in signed.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
+            guard absolute.isWithin(container),
+                  let relative = Self.relativePath(of: absolute, within: container) else { continue }
+            innerCode.append((absolute: absolute, relative: relative))
+        }
+        let store = WorkingCopyResourceContentStore(
+            bundleDirectory: containerDirectory,
+            nestedCodePaths: Set(innerCode.map(\.relative))
+        )
+        let listing: [ResourceListingEntry]
+        do {
+            listing = try store.listEntries()
+        } catch {
+            throw mapSealError(error, stage: .nestedSigning)
+        }
+        guard let executableRelative = Self.relativePath(of: item.executablePath, within: container) else {
+            throw ApplicationSigningFailure(
+                stage: .nestedSigning,
+                detail: "A nested executable lies outside its own container.",
+                category: .internalFailure
+            )
+        }
+        var excluded: Set<BundlePath> = []
+        for entry in listing where entry.path == executableRelative
+            || entry.path.components.first == "_CodeSignature" {
+            excluded.insert(entry.path)
+        }
+        let nestedSeals: [NestedCodeResourceSeal]
+        do {
+            nestedSeals = try innerCode.compactMap { inner -> NestedCodeResourceSeal? in
+                guard let digest = signed[inner.absolute] else { return nil }
+                return try NestedCodeResourceSeal(path: inner.relative, codeDirectoryDigest: digest)
+            }
+        } catch {
+            throw map(error, stage: .nestedSigning, detail: "A nested-code seal could not be constructed.")
+        }
+        let document: CodeResourcesDocument
+        do {
+            document = try CodeResourcesGenerator(messageDigest: digest).generate(
+                from: store,
+                configuration: ResourceSealingConfiguration(symlinkPolicy: .exclude, excludedPaths: excluded),
+                nestedCode: nestedSeals
+            )
+            let bytes = try CodeResourcesSerializer().serialize(document)
+            let signatureDirectory = containerDirectory.appendingPathComponent("_CodeSignature", isDirectory: true)
+            try FileManager.default.createDirectory(at: signatureDirectory, withIntermediateDirectories: true)
+            try bytes.write(to: signatureDirectory.appendingPathComponent("CodeResources"), options: .atomic)
+        } catch {
+            throw mapSealError(error, stage: .nestedSigning)
+        }
+        let plistURL = containerDirectory.appendingPathComponent("Info.plist", isDirectory: false)
+        let plist = try? Data(contentsOf: plistURL, options: .mappedIfSafe)
+        let seal: SealedCodeResources
+        do {
+            seal = try SealedCodeResources(bytes: try CodeResourcesSerializer().serialize(document))
+        } catch {
+            throw mapSealError(error, stage: .nestedSigning)
+        }
+        return MachOSigningMetadata(
+            resourceSeal: seal,
+            bundleInfoPlist: plist?.isEmpty == false ? plist : nil
+        )
+    }
+
+    /// `path` with `container`'s components removed, or `nil` when `path` does
+    /// not lie strictly inside `container`.
+    private static func relativePath(of path: BundlePath, within container: BundlePath) -> BundlePath? {
+        guard path.isWithin(container) else { return nil }
+        return BundlePath(components: Array(path.components.dropFirst(container.components.count)))
     }
 
     // MARK: - Resource sealing
@@ -982,7 +1247,7 @@ struct SignApplicationPipeline {
 
     private func runSealing(
         plan: NestedSigningPlan,
-        nested: NestedSigningResult,
+        nestedSeals: [(path: BundlePath, digest: Digest)],
         integrity: IntegrityContext,
         bundleDirectory: URL
     ) throws -> SealingContext {
@@ -993,27 +1258,19 @@ struct SignApplicationPipeline {
                 category: .internalFailure
             )
         }
-        var nestedSeals: [NestedCodeResourceSeal] = []
-        for item in plan.items {
-            guard let itemResult = nested.result(for: item.id),
-                  case .signed(let details) = itemResult.status else {
-                throw ApplicationSigningFailure(
-                    stage: .resourceSealing,
-                    detail: "A nested target has no established signature to seal.",
-                    category: .internalFailure
-                )
+        // Each entry names what the nested signer actually sealed: a bundle by
+        // its directory, a loose dynamic library by its file. Naming a bundle's
+        // executable instead is the mistake a strict verifier catches, because
+        // the bundle is nested code in its own right and has no file entry.
+        let seals: [NestedCodeResourceSeal]
+        do {
+            seals = try nestedSeals.map {
+                try NestedCodeResourceSeal(path: $0.path, codeDirectoryDigest: $0.digest)
             }
-            do {
-                nestedSeals.append(try NestedCodeResourceSeal(
-                    path: item.executablePath,
-                    codeDirectoryDigest: details.codeDirectoryDigest
-                ))
-            } catch {
-                throw map(error, stage: .resourceSealing, detail: "A nested-code seal could not be constructed.")
-            }
+        } catch {
+            throw map(error, stage: .resourceSealing, detail: "A nested-code seal could not be constructed.")
         }
-        let nestedContainers = Set(plan.items.map { $0.bundlePath })
-        for container in nestedContainers {
+        for container in plan.items.filter(\.kind.isBundleBacked).map(\.bundlePath) {
             guard !container.components.isEmpty else {
                 throw ApplicationSigningFailure(
                     stage: .resourceSealing,
@@ -1022,9 +1279,13 @@ struct SignApplicationPipeline {
                 )
             }
         }
+        // Each nested target is stated once, by the seal built from its own
+        // code directory. Naming the same path as a listed resource would
+        // state it twice, which the seal refuses, so the walk is told which
+        // paths the nested seals own.
         let store = WorkingCopyResourceContentStore(
             bundleDirectory: bundleDirectory,
-            nestedContainers: nestedContainers
+            nestedCodePaths: Set(seals.map(\.path))
         )
         let listing: [ResourceListingEntry]
         do {
@@ -1034,21 +1295,12 @@ struct SignApplicationPipeline {
         }
         // The main executable and the signature directory are sealed by
         // reference, not by content: the executable by its own CodeDirectory
-        // and the seal it carries, the signature directory not at all. The
-        // store already keeps nested-container contents out of the walk; the
-        // container directories themselves are excluded here so the seal
-        // records the decision as an omission.
+        // and the seal it carries, the signature directory not at all. Nested
+        // targets are not excluded here — a signature directory the walk
+        // reports is, and the walk never reports a nested target.
         var excluded: Set<BundlePath> = []
         for entry in listing {
-            if entry.path == mainExecutable {
-                excluded.insert(entry.path)
-                continue
-            }
-            if entry.path.components.first == "_CodeSignature" {
-                excluded.insert(entry.path)
-                continue
-            }
-            if nestedContainers.contains(entry.path) {
+            if entry.path == mainExecutable || entry.path.components.first == "_CodeSignature" {
                 excluded.insert(entry.path)
             }
         }
@@ -1057,7 +1309,7 @@ struct SignApplicationPipeline {
             document = try CodeResourcesGenerator(messageDigest: digest).generate(
                 from: store,
                 configuration: ResourceSealingConfiguration(symlinkPolicy: .exclude, excludedPaths: excluded),
-                nestedCode: nestedSeals
+                nestedCode: seals
             )
         } catch {
             throw mapSealError(error, stage: .resourceSealing)
@@ -1124,6 +1376,24 @@ struct SignApplicationPipeline {
             bundleDirectory: bundleDirectory,
             maximumBinaryBytes: limits.maximumEntryBytes
         )
+        // Special slot 1 carries the bundle's Info.plist digest. A device
+        // refuses an installation whose app executable lacks it, so it is read
+        // here — after the overrides, so the digest covers the plist that will
+        // actually ship.
+        guard let infoPlistRelative = BundlePath(rawValue: "Info.plist") else {
+            throw ApplicationSigningFailure(
+                stage: .mainExecutable,
+                detail: "The bundle's Info.plist path is not a safe bundle path.",
+                category: .internalFailure
+            )
+        }
+        let bundleInfoPlist: Data
+        do {
+            bundleInfoPlist = try store.readBinary(at: infoPlistRelative)
+        } catch {
+            throw map(error, stage: .mainExecutable,
+                      detail: "The bundle's Info.plist could not be read for special slot 1.")
+        }
         let originalBytes: Data
         do {
             originalBytes = try store.readBinary(at: executableRelative)
@@ -1170,11 +1440,12 @@ struct SignApplicationPipeline {
                     codeLimit: codeLimit
                 ),
                 algorithm: .rsaPKCS1SHA256Digest,
-                existingSignaturePolicy: request.options.existingSignaturePolicy,
+                existingSignaturePolicy: signaturePolicy(for: request),
                 policy: .singleImageCryptographicExperiment,
                 metadata: MachOSigningMetadata(
                     entitlements: request.entitlements,
-                    resourceSeal: sealed
+                    resourceSeal: sealed,
+                    bundleInfoPlist: bundleInfoPlist
                 )
             ))
         } catch let signingError as MachOSigningError {
@@ -1263,6 +1534,12 @@ struct SignApplicationPipeline {
                 stage: .mainExecutable,
                 detail: "The main executable already carries a signature, which this signing does not replace.",
                 category: .unsupportedInput
+            )
+        case .emptyInfoPlist:
+            return ApplicationSigningFailure(
+                stage: .mainExecutable,
+                detail: "The bundle's Info.plist is empty, so special slot 1 cannot be derived.",
+                category: .invalidInput
             )
         case .codeDirectoryConstruction, .codeDirectorySerialization, .entitlements,
              .requirements, .digestFailure, .signatureBlobConstruction, .superBlobConstruction,

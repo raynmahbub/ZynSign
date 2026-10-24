@@ -125,11 +125,31 @@ struct CodeDirectorySerializer {
         try writer.appendUInt8(directory.pageSize.exponent)
         try writer.appendUInt32BigEndian(0) // spare2
 
-        if directory.version == .v20200 {
-            try writer.appendUInt32BigEndian(0) // scatterOffset; not constructed
+        // Trailing fields are version-driven, in the order cs_blobs.h
+        // declares them. A version whose header is longer than the bytes
+        // written here would place the identifier at the wrong offset and
+        // produce a CodeDirectory no device accepts.
+        let version = directory.version.rawValue
+        if version >= 0x20100 {
+            try writer.appendUInt32BigEndian(0) // scatterOffset: not constructed
+        }
+        if directory.version.supportsTeamIdentifier {
             let teamOffset = layout.teamIdentifierOffset ?? 0
             let encodedTeamOffset = try writer.checkedUInt32(teamOffset, field: .teamIdentifier)
             try writer.appendUInt32BigEndian(encodedTeamOffset)
+        }
+        if version >= 0x20300 {
+            try writer.appendUInt32BigEndian(0) // spare3
+            try writer.appendUInt64BigEndian(0) // codeLimit64: codeLimit fits 32 bits
+        }
+        if version >= 0x20400 {
+            // execSegBase / execSegLimit / execSegFlags. Zero flags mean the
+            // image makes no main-binary claim, which is always true here:
+            // this writer signs single images, never a whole executable
+            // segment policy.
+            try writer.appendUInt64BigEndian(0)
+            try writer.appendUInt64BigEndian(0)
+            try writer.appendUInt64BigEndian(0)
         }
         guard writer.count == layout.identifierOffset else {
             throw CodeDirectoryError.invalidOffset(.identifier)

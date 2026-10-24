@@ -252,6 +252,8 @@ struct SignMachOUseCase {
                 throw MachOSigningError.requirements(requirementsError)
             case .resourceSeal(let resourceSealError):
                 throw MachOSigningError.resourceSeal(resourceSealError)
+            case .emptyInfoPlist:
+                throw MachOSigningError.emptyInfoPlist
             case .digestFailure:
                 throw MachOSigningError.digestFailure
             }
