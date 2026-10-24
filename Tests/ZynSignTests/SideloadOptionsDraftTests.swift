@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+@testable import ZynSign
 
 /// The form's draft is a value conversion, so it is testable without a screen:
 /// empty text means "keep the package's value", and the draft refuses with the

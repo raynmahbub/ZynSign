@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+@testable import ZynSign
 
 /// Stripping a signature is the step that makes re-signing possible, so the
 /// tests hold it to what a re-sign actually needs: the command is gone, every

@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+@testable import ZynSign
 
 /// What a device checks about a package beyond the page hashes: the bundle's
 /// `Info.plist` in special slot 1, the `rules2` set the resource seal carries,
