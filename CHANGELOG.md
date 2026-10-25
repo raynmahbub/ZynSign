@@ -40,12 +40,39 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ### Fixed
 
+- **Batch Signing is a duplicate of a shipped behaviour, and the record now
+  says so.** The train schedules it at `v0.9.0-beta.3` as if it were missing.
+  It is not: **Queue Selected for Signing…** applies one identity and profile to
+  a whole selection and `SigningQueue` runs those jobs one at a time
+  (`maximumConcurrentJobs = 1`), journalled by `SigningOperationCenter` — that
+  is what signing a set with one configuration means, and it shipped in
+  `v0.1.0-alpha.2`. The only code carrying the stop's name is
+  `BatchSigningCoordinator`, which nothing constructs and which predates the
+  operation center: it takes the raw pipeline, names its own outputs, and writes
+  its own history records, so a surface built on it would be a second signing
+  path that delivers, verifies and journals differently from every other signed
+  artifact. Its documentation said the signing queue used it; the queue does
+  not — it runs through `SigningOperationExecutor`. The duplication is recorded
+  in the deferral file and on the product page, and the coordinator's own header
+  now states that nothing constructs it and why a surface must not be built on
+  it before the duplication is retired.
+- **A batch run no longer reports a refused package as delivered.**
+  `BatchSigningCoordinator` read only the signing engine's return value, not its
+  status — and the engine reports a refusal as a returned result rather than a
+  thrown error. A package the pipeline refused was therefore recorded as a
+  success with an output file name, nothing on disk, and a `succeeded` step in
+  the summary: the one claim a batch result must never make. The step now reads
+  the status, refuses with the failing stage and the pipeline's own detail, and
+  leaves the remaining entries to run. The coordinator also depends on a
+  `BatchSigningStep` port rather than the concrete pipeline, so the sequencing
+  rules are exercised by `BatchSigningCoordinatorTests` — the suite this
+  sequencer never had, which is how the defect survived.
 - **Two release stops no longer promise a screen that does not exist.** The
   train schedules Batch Signing at `v0.9.0-beta.3` and Signing Health Score at
   `v1.0.0`, and **Settings → Features** labels both `Planned · <tag>` — but
-  nothing in the app referenced either: `BatchSigningCoordinator` is a complete,
-  tested sequencer that no screen constructs, and `SigningHealthScore` /
-  `SigningHealthAssessment` are complete, tested values nothing reads (the
+  nothing in the app referenced either: `BatchSigningCoordinator` is a sequencer
+  no screen constructs, and `SigningHealthScore` / `SigningHealthAssessment` are
+  tested values nothing reads (the
   always-on health card on an application's detail screen is the older
   `SigningDiagnosticsAnalysis`, a different feature). Both stops would have
   reached users having changed nothing they could see. The gap is now recorded
