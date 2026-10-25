@@ -18,20 +18,28 @@ extension SignApplicationPipeline: BatchSigningStep {
     }
 }
 
-/// Coordinates a batch signing run: signing multiple applications with
-/// the same identity and profile in sequence, recording each result in
-/// the signing history, and emitting progress the UI can observe.
+/// Sequences several signing runs over one configuration.
 ///
-/// The coordinator does not replace the signing pipeline; it sequences
-/// `SignApplicationPipeline` invocations and collects their results. The
-/// pipeline itself remains the single source of truth for what "a signed
-/// application" means.
+/// **Nothing constructs this type.** The capability it describes — sign a set
+/// of applications with one identity and one profile, one after another —
+/// ships as the signing queue: `SigningQueueConfigurationView` applies one
+/// configuration to a whole selection, `SigningQueue` runs the jobs one at a
+/// time (`maximumConcurrentJobs = 1`), and each run goes through
+/// `SigningOperationCenter`, which owns working-copy isolation, export naming,
+/// independent verification of the committed artifact, and the journal.
 ///
-/// Sequential execution is deliberate: signing is CPU- and I/O-heavy,
-/// and parallel runs would multiply peak memory and battery cost. A
-/// failed signing of one entry does not stop the run; the remaining
-/// entries are still attempted, so a single bad bundle does not waste
-/// the rest of the user's setup.
+/// This type predates the operation center and duplicates part of it: it takes
+/// the raw pipeline, chooses output names itself, and writes its own history
+/// records, so a run driven through it would deliver and journal differently
+/// from every other signed artifact in the app. A batch surface must not be
+/// built on it without first retiring that duplication — two signing paths are
+/// two answers to what "a signed application" is, and the architecture keeps
+/// one.
+///
+/// The sequencing rules it does state correctly are worth keeping wherever the
+/// next version of this lives: a refusal is never a delivery, one failure does
+/// not stop the run, and every step is accounted for. `BatchSigningCoordinatorTests`
+/// pins them here so the rules survive a rewrite.
 actor BatchSigningCoordinator {
 
     /// The single-entry signing engine reused for every batch step.
@@ -288,10 +296,13 @@ actor BatchSigningCoordinator {
         return signed.outputURL ?? outputURL
     }
 
-    /// Signs one already-built request and records it. The professional
-    /// signing queue uses this so a preset's options, entitlements, and
-    /// output location are the ones the queue prepared — not a second
-    /// factory that could drop them.
+    /// Signs one already-built request and records it.
+    ///
+    /// Written for the signing queue and never adopted by it: the queue runs
+    /// through `SigningOperationExecutor` and `SigningOperationCenter`, which
+    /// also commit the artifact to export storage and verify it there. This
+    /// entry point has no caller, which is why it shares the coordinator's
+    /// fate rather than being kept beside the queue.
     ///
     /// Does not throw for a signing refusal. Cancellation and failure are
     /// step outcomes, so the queue can continue with the next compatible

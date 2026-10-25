@@ -40,6 +40,22 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ### Fixed
 
+- **Batch Signing is a duplicate of a shipped behaviour, and the record now
+  says so.** The train schedules it at `v0.9.0-beta.3` as if it were missing.
+  It is not: **Queue Selected for Signing…** applies one identity and profile to
+  a whole selection and `SigningQueue` runs those jobs one at a time
+  (`maximumConcurrentJobs = 1`), journalled by `SigningOperationCenter` — that
+  is what signing a set with one configuration means, and it shipped in
+  `v0.1.0-alpha.2`. The only code carrying the stop's name is
+  `BatchSigningCoordinator`, which nothing constructs and which predates the
+  operation center: it takes the raw pipeline, names its own outputs, and writes
+  its own history records, so a surface built on it would be a second signing
+  path that delivers, verifies and journals differently from every other signed
+  artifact. Its documentation said the signing queue used it; the queue does
+  not — it runs through `SigningOperationExecutor`. The duplication is recorded
+  in the deferral file and on the product page, and the coordinator's own header
+  now states that nothing constructs it and why a surface must not be built on
+  it before the duplication is retired.
 - **A batch run no longer reports a refused package as delivered.**
   `BatchSigningCoordinator` read only the signing engine's return value, not its
   status — and the engine reports a refusal as a returned result rather than a

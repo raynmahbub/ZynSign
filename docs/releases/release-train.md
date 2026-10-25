@@ -42,9 +42,11 @@ surface — Batch Signing (`v0.9.0-beta.3`) and Signing Health Score (`v1.0.0`) 
 and both are recorded as deferrals in
 [`Scripts/ci/release-surface-deferrals.txt`](../../Scripts/ci/release-surface-deferrals.txt):
 nothing in the app references either one, so those stops would change nothing a
-user can see. The two differ in how far they were taken — the health-score
-values are covered by `SigningHealthScoreTests`, the sequencer by
-`BatchSigningCoordinatorTests`, and neither is reachable from a screen.
+user can see. They differ in kind: the health-score values are a
+missing screen over code that works (`SigningHealthScoreTests`), while Batch
+Signing names a behaviour the signing queue already ships — sign a selection
+with one configuration, one job at a time — so its stop needs a retirement or a
+definition, not an implementation.
 [`Scripts/audit_release_gating.py`](../../Scripts/audit_release_gating.py) fails
 the build when a staged feature has neither a surface nor a recorded decision,
 and when a recorded decision has been repaid.
