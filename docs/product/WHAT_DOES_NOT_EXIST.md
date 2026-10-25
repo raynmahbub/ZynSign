@@ -1,6 +1,6 @@
 # What Does Not Exist — Honest Limitations
 
-> ZynSign `v0.1.0-alpha.2` (market `0.1.0`, build `8`) — **19 staged · 8 on · 11 still ahead · 3 never**.
+> ZynSign `v0.1.0-alpha.2` (market `0.1.0`, build `8`) — **18 staged · 8 on · 10 still ahead · 3 never**.
 >
 > **Wired** means the capability is compiled into the app and reachable. A Release
 > build of `v0.1.0-alpha.2` switches on every feature up to and including that
@@ -47,31 +47,21 @@
 | **Pairing / JIT / Mux / OpenSSL** | Revised — pairing composed behind an entitled transport; JIT still never; OpenSSL still host-only ([ADR](../architecture/pairing-jit-mux-feasibility.md)) | Pairing records, session start, service start, AFC upload and `installation_proxy` are implemented as wire protocols with no private framework and no daemon socket; the missing piece is the local tunnel entitlement, which is a distribution fact this repository cannot grant itself. JIT is still refused everywhere. No `MobileDevice`, no `usbmuxd` socket, no OpenSSL linked into the app binary. `Application/PairingCapability.swift` models `pairing/jit/mux/openSSLLinkage` as `PairingAssessment(limitations: [.requiresPrivateEntitlement, .requiresLockdownDaemon, .notComposed])` with per-capability `feasibilityNote` naming the private surface. Settings → Pairing / JIT / Mux shows `Never` + limitations + feasibility notes + anchors. Feasibility record: `docs/architecture/pairing-jit-mux-feasibility.md` (reopen triggers, boundaries). OpenSSL only in `Tests/Host` external validation (`openssl cms -verify`), never linked. Pinned by `PairingCapabilityTests`. |
 | **Off-device analytics / tracking** | None — `AnalyticsPolicy.isEnabled == false` | No `AnalyticsKit`, no telemetry sender, no crash-reporter SDK, no outbound endpoint, no identifier collection. `Application/AnalyticsPolicy.swift` (`isEnabled false`, `eventCount 0`, `endpoint nil`, 6 `Guarantee`s incl. `localJournalOnly`) is the single policy; the local journal above is the only event store that exists, and it cannot transmit. Settings → Analytics shows `None` + `0 events sent` + journal controls + guarantees. Any future off-device measurement requires ADR + port + platform + consent toggle. Pinned by `AnalyticsPolicyTests`. |
 
-## Declared on the train, no surface yet
+## Stops the train settled, not deferred
 
-Two rows of the release train predict a capability the app cannot show as
-written. They are scheduled — `ReleaseStage.introducedFeatures` names them, and
-**Settings → Features** labels them `Planned · <tag>` — but no screen offers
-either, so the stop that switches one on would change nothing a user can see.
-They are not the same kind of gap:
+No row of the release train now predicts a capability without a surface. Two
+stops used to, and both were decisions rather than missing work:
 
-| Feature | Stop | What exists | What is missing |
-|---|---|---|---|
-| **Batch Signing** | `v0.9.0-beta.3` | The behaviour is already shipped, under a different gate: **Queue Selected for Signing…** (`ReleaseFeature.signingQueue`, since `v0.1.0-alpha.2`) applies one identity and profile to a whole selection and runs the jobs one at a time. The only code carrying this stop's name is `BatchSigningCoordinator`, which nothing constructs. | A distinct capability. Signing a set with one configuration is what the queue already does, so the stop as written would add a second name for a shipped behaviour — or, if wired to that coordinator, a second *signing path*, since it delivers, names, verifies and journals differently from `SigningOperationCenter`. |
-| **Signing Health Score** | `v1.0.0` | `SigningHealthScore` (0–100, banded) and `SigningHealthAssessment` (identity + profile + bundle → score and findings), both complete and tested | Nothing reads them. The signing-health card on an application's detail screen is the older, always-on `SigningDiagnosticsAnalysis` — a different feature that ships in every build. |
+| Feature | Stop | What happened |
+|---|---|---|
+| **Batch Signing** | `v0.9.0-beta.3` | **Retired.** The behaviour is already shipped, under a different gate: **Queue Selected for Signing…** (`ReleaseFeature.signingQueue`, since `v0.1.0-alpha.2`) applies one identity and profile to a whole selection and runs the jobs one at a time, journalled by `SigningOperationCenter`. The stop named a second label for that behaviour, and the only code carrying the name — `BatchSigningCoordinator`, which nothing constructs — delivers, names, verifies and journals differently, so a surface built on it would be a second signing path. `ReleaseFeature.batchSigning` no longer exists, `v0.9.0-beta.3` is a fixes-and-compatibility stop, and no user loses anything: the gate was never exposed. |
+| **Signing Health Score** | `v1.0.0` | **Wired.** `SigningHealthScore` (0–100, banded) and `SigningHealthAssessment` (identity + profile + bundle → score and findings) now render as `SigningHealthScoreCard` on the Sign screen, recomputed whenever the selected identity, profile or bundle changes. The always-on `SigningDiagnosticsAnalysis` card on an application's detail screen is a different feature and keeps its own score. |
 
-The first row is a duplication, not an omission: signing a set with one
-configuration is what the signing queue is, so `Batch Signing` needs a
-retirement or a definition before it can have a surface. The second is an
-ordinary missing screen over values that already exist.
-
-Those stops are not wrong about the plan; they are wrong about the present.
 `Scripts/audit_release_gating.py` keeps the distinction visible and mechanical:
-every `ReleaseFeature` must be either referenced by the app's own source or
-named in `Scripts/ci/release-surface-deferrals.txt` with the reason it is not,
-and a deferral that has been repaid fails the build so the list cannot outlive
-the gap. When either surface is built, the deferral goes away and the stop
-becomes true.
+every `ReleaseFeature` must be referenced by the app's own source, and
+`Scripts/ci/release-surface-deferrals.txt` is now empty. A deferral added in
+future is a decision a reviewer can see, and repaying one fails the build until
+the entry is deleted, so the list cannot outlive the gap it describes.
 
 ## What *does* exist instead
 

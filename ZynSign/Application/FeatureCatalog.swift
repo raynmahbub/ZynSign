@@ -292,7 +292,7 @@ private extension ReleaseFeature {
         switch self {
         case .certificateStudio, .provisioningProfileManager, .identityCenter:
             return .signing
-        case .smartSign, .signingQueue, .signingPresets, .batchSigning, .signingHealthScore:
+        case .smartSign, .signingQueue, .signingPresets, .signingHealthScore:
             return .signing
         case .entitlementsStudio:
             return .inspection
@@ -337,8 +337,6 @@ private extension ReleaseFeature {
             return "Queue signing jobs, monitor stages, control priorities, cancel, and retry recoverable failures."
         case .signingPresets:
             return "Save reusable signing choices and compatibility checks without storing passwords or private-key material."
-        case .batchSigning:
-            return "Plan and run multiple signing jobs with reviewable results and signing history."
         case .installationWorkspace:
             return "Review delivery readiness, user-confirmed installed-app records, attempts, history, and storage; ZynSign does not install."
         case .signingHealthScore:

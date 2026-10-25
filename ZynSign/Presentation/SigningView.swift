@@ -85,6 +85,10 @@ struct SigningView: View {
     @State private var scanRevision = 0
     @State private var successScale: CGFloat = 1
 
+    /// The v1.0.0 pre-sign readiness assessment for the current selection.
+    /// `nil` until one has been computed for exactly this configuration.
+    @State private var signingReadiness: SigningHealthScore?
+
     /// The Identity Center's recommended identity–profile pairing for this
     /// application, or `nil` when no pairing qualifies or the center is
     /// not composed. A proposal, never an action: applying it sets the
@@ -105,6 +109,29 @@ struct SigningView: View {
         let scanRevision: Int
         let isLoading: Bool
         let emitDER: Bool
+    }
+
+    /// The provisioning profile summary behind the current picker selection.
+    private var selectedSavedProfile: ProvisioningProfileSummary? {
+        guard let id = selectedSavedProfileID else { return nil }
+        return savedProfiles.first { $0.id == id }
+    }
+
+    /// Identifies the exact (application, identity, profile) triple a readiness
+    /// score was computed for, so a stale score can never label a new selection.
+    private struct SigningReadinessKey: Hashable {
+        let recordID: ApplicationRecordIdentifier
+        let identityID: SigningIdentityIdentifier?
+        let profileID: ProvisioningProfileIdentifier?
+        let identityRevision: Int
+        let profileRevision: Int
+    }
+
+    private var readinessKey: SigningReadinessKey {
+        SigningReadinessKey(recordID: entry.record.id, identityID: selectedIdentityID,
+                            profileID: selectedSavedProfileID,
+                            identityRevision: identityRevision,
+                            profileRevision: profileRevision)
     }
 
     private var scanKey: SigningScanKey {
@@ -223,6 +250,7 @@ struct SigningView: View {
             appSection
             RecommendedPresetSection(entry: entry, origin: .signingScreen)
             recommendedIdentitySection
+            readinessSection
             diagnosticsSection
             if isSigning || model.progress != nil {
                 progressSection
@@ -244,6 +272,7 @@ struct SigningView: View {
             }
         }
         .task { await loadSavedProfiles() }
+        .task(id: readinessKey) { await updateSigningReadiness() }
         .task(id: scanKey) {
             guard !scanKey.isLoading else { return }
             guard settings.preferences.signing.automaticCompatibilityAnalysis else {
@@ -287,6 +316,45 @@ struct SigningView: View {
             .disabled(!entry.isArtifactAvailable)
             .accessibilityHint("Opens the read-only IPA explorer.")
         }
+    }
+
+    /// The v1.0.0 distinguishing feature: one score for the configuration the
+    /// user is about to sign with. Advice, never a gate — `canSign` does not
+    /// read it, and the pipeline remains the authority on the run.
+    @ViewBuilder
+    private var readinessSection: some View {
+        if ReleaseTrain.isAvailable(.signingHealthScore) {
+            Section {
+                SigningHealthScoreCard(score: signingReadiness)
+                    .listRowInsets(EdgeInsets(top: ZSpacing.sm, leading: ZSpacing.md,
+                                              bottom: ZSpacing.sm, trailing: ZSpacing.md))
+                    .listRowBackground(Color.clear)
+            } footer: {
+                Text("Recomputed from the identity, profile and bundle you select. Nothing here is written to the package.")
+            }
+        }
+    }
+
+    /// Recomputes the readiness score for the current selection. The inputs are
+    /// domain values — the identity's certificate metadata and key state, the
+    /// profile summary, and the bundle identifier — so the assessment is pure
+    /// arithmetic over what is already on screen.
+    @MainActor private func updateSigningReadiness() async {
+        guard ReleaseTrain.isAvailable(.signingHealthScore) else {
+            signingReadiness = nil
+            return
+        }
+        let identity = selectedIdentity
+        let assessment = SigningHealthAssessment(
+            certificate: identity?.certificate,
+            keyAvailability: identity?.keyAvailability ?? .unknown,
+            isKeyNonExportable: identity?.isKeyNonExportable,
+            profile: selectedSavedProfile,
+            bundleIdentifier: entry.record.bundleIdentifier.rawValue
+        )
+        let score = await assessment.assess()
+        guard !Task.isCancelled else { return }
+        signingReadiness = score
     }
 
     private var diagnosticsSection: some View {
