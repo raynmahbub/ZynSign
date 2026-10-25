@@ -144,7 +144,10 @@ final class ReleaseTrainTests: XCTestCase {
             [.missionControl, .deliveryHandoff, .activityJournal]
         )
         XCTAssertFalse(ReleaseStage.beta1.introducedFeatures.contains(.signingPresets))
-        XCTAssertFalse(ReleaseStage.beta1.features.contains(.batchSigning), "Batch signing ships in beta 3")
+        XCTAssertTrue(
+            ReleaseStage.beta3.introducedFeatures.isEmpty,
+            "Beta 3 is a fixes stop: batch signing was retired, the queue already ships it"
+        )
         XCTAssertEqual(
             ReleaseStage.beta3.features,
             Set(ReleaseFeature.allCases).subtracting([.signingHealthScore, .smartWorkspace, .novaAssistant])

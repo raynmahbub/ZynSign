@@ -40,6 +40,24 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ### Fixed
 
+- **The two stops that promised a screen now tell the truth — one retired, one
+  wired.** `ReleaseFeature.batchSigning` is gone: the `v0.9.0-beta.3` row named
+  a behaviour the signing queue already ships (**Queue Selected for Signing…**
+  applies one identity and profile to a whole selection, one job at a time,
+  journalled by `SigningOperationCenter`), so the stop would have added a second
+  name for a shipped behaviour or, if wired to `BatchSigningCoordinator`, a
+  second signing path. The gate was never exposed, so no user loses anything;
+  the coordinator and its `BatchSigningCoordinatorTests` stay as the tested
+  sequencer they are, with nothing constructing them. The other stop is real:
+  **Signing Health Score** now renders on the Sign screen as
+  `SigningHealthScoreCard`, built from `SigningHealthAssessment` over the
+  identity, profile and bundle the user has selected — a prediction with its
+  findings, recomputed when the selection changes, and never a gate (the
+  pipeline remains the authority). `Scripts/ci/release-surface-deferrals.txt` is
+  empty and `Scripts/audit_release_gating.py` now reports 18 of 18 staged
+  features wired, 0 deferred. See `docs/releases/release-train.md` and
+  `docs/product/WHAT_DOES_NOT_EXIST.md`.
+
 - **Batch Signing is a duplicate of a shipped behaviour, and the record now
   says so.** The train schedules it at `v0.9.0-beta.3` as if it were missing.
   It is not: **Queue Selected for Signing…** applies one identity and profile to

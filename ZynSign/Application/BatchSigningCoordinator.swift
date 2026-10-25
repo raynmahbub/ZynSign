@@ -20,13 +20,16 @@ extension SignApplicationPipeline: BatchSigningStep {
 
 /// Sequences several signing runs over one configuration.
 ///
-/// **Nothing constructs this type.** The capability it describes — sign a set
-/// of applications with one identity and one profile, one after another —
-/// ships as the signing queue: `SigningQueueConfigurationView` applies one
-/// configuration to a whole selection, `SigningQueue` runs the jobs one at a
-/// time (`maximumConcurrentJobs = 1`), and each run goes through
+/// **Nothing constructs this type, and the release train no longer promises
+/// it.** The capability it describes — sign a set of applications with one
+/// identity and one profile, one after another — ships as the signing queue:
+/// `SigningQueueConfigurationView` applies one configuration to a whole
+/// selection, `SigningQueue` runs the jobs one at a time
+/// (`maximumConcurrentJobs = 1`), and each run goes through
 /// `SigningOperationCenter`, which owns working-copy isolation, export naming,
 /// independent verification of the committed artifact, and the journal.
+/// `ReleaseFeature.batchSigning` was retired for the same reason, so the
+/// `v0.9.0-beta.3` stop exposes nothing new.
 ///
 /// This type predates the operation center and duplicates part of it: it takes
 /// the raw pipeline, chooses output names itself, and writes its own history

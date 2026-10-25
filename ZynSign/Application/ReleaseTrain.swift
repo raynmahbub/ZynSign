@@ -53,9 +53,6 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
     /// one-tap confirmation, and bulk planning into the signing queue.
     case signingPresets
 
-    /// Beta 3: Productivity — batch signing and signing history.
-    case batchSigning
-
     /// Beta 2: The Installation Workspace — readiness checklists, the
     /// Installed Apps Library, delivery attempts and confirmations,
     /// installation history, the artifact relationship view, bulk
@@ -103,7 +100,6 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .identityCenter: return [.certificateStudio, .smartSign, .provisioningProfileManager]
         case .signingQueue: return [.smartSign]
         case .signingPresets: return [.smartSign, .certificateStudio]
-        case .batchSigning: return [.signingPresets]
         case .installationWorkspace: return [.deliveryHandoff]
         case .signingHealthScore: return [.smartSign, .signingPresets]
         case .performanceDashboard: return [.libraryPowerFeatures]
@@ -131,7 +127,6 @@ enum ReleaseFeature: String, CaseIterable, Hashable, Sendable {
         case .identityCenter: return "Developer Identity Center"
         case .signingQueue: return "Professional Signing Queue"
         case .signingPresets: return "Intelligent Signing Presets"
-        case .batchSigning: return "Batch Signing"
         case .installationWorkspace: return "Installation Workspace"
         case .signingHealthScore: return "Signing Health Score"
         case .performanceDashboard: return "Performance Engine"
@@ -221,7 +216,7 @@ enum ReleaseStage: String, CaseIterable, Comparable, Sendable {
         case .alpha3: return [.entitlementsStudio, .identityCenter]
         case .beta1: return [.missionControl, .deliveryHandoff, .activityJournal]
         case .beta2: return [.installationWorkspace, .performanceDashboard]
-        case .beta3: return [.batchSigning]
+        case .beta3: return []              // fixes: the batch stop was retired, the queue ships it
         case .beta4: return []
         case .rc1, .rc3: return []
         case .rc2: return [.smartWorkspace]   // Mission Control home — the RC 2 UX pass

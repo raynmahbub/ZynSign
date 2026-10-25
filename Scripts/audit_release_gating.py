@@ -10,11 +10,12 @@ does not, the train reaches the stop, bumps the version, and nothing changes
 for anyone — the release notes claim a capability that no screen can show.
 
 Two features were in exactly that state: `BatchSigningCoordinator` is an actor
-no screen constructs, and `SigningHealthScore` / `SigningHealthAssessment` are
-domain types no screen reads. Both are covered by tests; a test is not a
-surface.
-Both are scheduled — beta 3 and 1.0.0 — so both stops would have shipped the
-promise and none of the feature. (Signing's existing health *card* is a
+no screen constructs, and `SigningHealthScore` / `SigningHealthAssessment` were
+domain types no screen read. Both were covered by tests; a test is not a
+surface. Both are now settled: Batch Signing was retired from the train (the
+signing queue already ships the behaviour), and the health score renders on the
+Sign screen as `SigningHealthScoreCard`. The rule stays, so a future case cannot
+repeat the gap. (Signing's existing health *card* on the app-detail screen is a
 different, always-on diagnostic; it is not this feature.)
 
 The rule this script enforces:
