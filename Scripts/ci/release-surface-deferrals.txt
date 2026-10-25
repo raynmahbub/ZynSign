@@ -13,6 +13,6 @@
 #
 # Format: `<feature> — <reason>`
 
-batchSigning — `BatchSigningCoordinator` is compiled and tested, but nothing constructs it: no screen offers to sign several applications in one run, and no history view records the results. `beta 3` would switch on a gate with no surface behind it, so the stop changes nothing a user can see until the Library gains that action.
+batchSigning — The capability this stop names already ships, under another gate: `SigningQueueConfigurationView` applies one identity and profile to a whole selection, `SigningQueue` runs those jobs one at a time, and every run is journalled by `SigningOperationCenter`. The only code carrying this feature's name is `BatchSigningCoordinator`, which nothing constructs and which duplicates the operation center's delivery, naming, verification and journal duties — building a surface on it would create a second, weaker signing path. The stop therefore needs a decision rather than an implementation: retire `ReleaseFeature.batchSigning` (it has never been exposed, so no user loses anything) or define a distinct behaviour for it and build that on the operation center.
 
 signingHealthScore — `SigningHealthScore` and `SigningHealthAssessment` are compiled and tested, but nothing reads them. The signing-health card on an application's detail screen is the older `SigningDiagnosticsAnalysis` diagnostic, which is always on and is not this feature. `1.0.0` would switch on a gate with no surface behind it, so the score stays invisible until a screen shows it.
