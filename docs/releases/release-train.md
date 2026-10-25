@@ -41,12 +41,8 @@ app holds a surface the gate can reveal. Two rows are scheduled ahead of their
 surface — Batch Signing (`v0.9.0-beta.3`) and Signing Health Score (`v1.0.0`) —
 and both are recorded as deferrals in
 [`Scripts/ci/release-surface-deferrals.txt`](../../Scripts/ci/release-surface-deferrals.txt):
-nothing in the app references either one, so those stops would change nothing a
-user can see. They differ in kind: the health-score values are a
-missing screen over code that works (`SigningHealthScoreTests`), while Batch
-Signing names a behaviour the signing queue already ships — sign a selection
-with one configuration, one job at a time — so its stop needs a retirement or a
-definition, not an implementation.
+the code is complete and tested, nothing in the app references it, so those
+stops would change nothing a user can see.
 [`Scripts/audit_release_gating.py`](../../Scripts/audit_release_gating.py) fails
 the build when a staged feature has neither a surface nor a recorded decision,
 and when a recorded decision has been repaid.

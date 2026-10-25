@@ -49,21 +49,15 @@
 
 ## Declared on the train, no surface yet
 
-Two rows of the release train predict a capability the app cannot show as
-written. They are scheduled — `ReleaseStage.introducedFeatures` names them, and
-**Settings → Features** labels them `Planned · <tag>` — but no screen offers
-either, so the stop that switches one on would change nothing a user can see.
-They are not the same kind of gap:
+Two rows of the release train predict a capability the app cannot show. They are
+scheduled — `ReleaseStage.introducedFeatures` names them, and **Settings →
+Features** labels them `Planned · <tag>` — but nothing in the app references
+them, so the stop that switches one on changes nothing a user can see:
 
 | Feature | Stop | What exists | What is missing |
 |---|---|---|---|
-| **Batch Signing** | `v0.9.0-beta.3` | The behaviour is already shipped, under a different gate: **Queue Selected for Signing…** (`ReleaseFeature.signingQueue`, since `v0.1.0-alpha.2`) applies one identity and profile to a whole selection and runs the jobs one at a time. The only code carrying this stop's name is `BatchSigningCoordinator`, which nothing constructs. | A distinct capability. Signing a set with one configuration is what the queue already does, so the stop as written would add a second name for a shipped behaviour — or, if wired to that coordinator, a second *signing path*, since it delivers, names, verifies and journals differently from `SigningOperationCenter`. |
+| **Batch Signing** | `v0.9.0-beta.3` | `BatchSigningCoordinator` — a complete, tested sequencer over the signing pipeline that records each result in the signing history | No screen constructs it. Nothing offers "sign these applications" from the Library, and no view reads the recorded batch history. |
 | **Signing Health Score** | `v1.0.0` | `SigningHealthScore` (0–100, banded) and `SigningHealthAssessment` (identity + profile + bundle → score and findings), both complete and tested | Nothing reads them. The signing-health card on an application's detail screen is the older, always-on `SigningDiagnosticsAnalysis` — a different feature that ships in every build. |
-
-The first row is a duplication, not an omission: signing a set with one
-configuration is what the signing queue is, so `Batch Signing` needs a
-retirement or a definition before it can have a surface. The second is an
-ordinary missing screen over values that already exist.
 
 Those stops are not wrong about the plan; they are wrong about the present.
 `Scripts/audit_release_gating.py` keeps the distinction visible and mechanical:

@@ -1,49 +1,23 @@
 import Foundation
 
-/// What one batch step needs from the signing engine: a call that returns the
-/// run's outcome, refusals included.
+/// Coordinates a batch signing run: signing multiple applications with
+/// the same identity and profile in sequence, recording each result in
+/// the signing history, and emitting progress the UI can observe.
 ///
-/// The coordinator depends on this rather than on `SignApplicationPipeline` so
-/// the sequencing rules — a refusal is never counted as a delivery, one failure
-/// does not stop the run, every step is recorded — can be exercised without
-/// real packages on disk. `SignApplicationPipeline` is the only production
-/// conformance.
-protocol BatchSigningStep {
-    func signApplication(_ request: SignApplicationRequest) async throws -> SignApplicationResult
-}
-
-extension SignApplicationPipeline: BatchSigningStep {
-    func signApplication(_ request: SignApplicationRequest) async throws -> SignApplicationResult {
-        try await sign(request)
-    }
-}
-
-/// Sequences several signing runs over one configuration.
+/// The coordinator does not replace the signing pipeline; it sequences
+/// `SignApplicationPipeline` invocations and collects their results. The
+/// pipeline itself remains the single source of truth for what "a signed
+/// application" means.
 ///
-/// **Nothing constructs this type.** The capability it describes — sign a set
-/// of applications with one identity and one profile, one after another —
-/// ships as the signing queue: `SigningQueueConfigurationView` applies one
-/// configuration to a whole selection, `SigningQueue` runs the jobs one at a
-/// time (`maximumConcurrentJobs = 1`), and each run goes through
-/// `SigningOperationCenter`, which owns working-copy isolation, export naming,
-/// independent verification of the committed artifact, and the journal.
-///
-/// This type predates the operation center and duplicates part of it: it takes
-/// the raw pipeline, chooses output names itself, and writes its own history
-/// records, so a run driven through it would deliver and journal differently
-/// from every other signed artifact in the app. A batch surface must not be
-/// built on it without first retiring that duplication — two signing paths are
-/// two answers to what "a signed application" is, and the architecture keeps
-/// one.
-///
-/// The sequencing rules it does state correctly are worth keeping wherever the
-/// next version of this lives: a refusal is never a delivery, one failure does
-/// not stop the run, and every step is accounted for. `BatchSigningCoordinatorTests`
-/// pins them here so the rules survive a rewrite.
+/// Sequential execution is deliberate: signing is CPU- and I/O-heavy,
+/// and parallel runs would multiply peak memory and battery cost. A
+/// failed signing of one entry does not stop the run; the remaining
+/// entries are still attempted, so a single bad bundle does not waste
+/// the rest of the user's setup.
 actor BatchSigningCoordinator {
 
-    /// The single-entry signing engine reused for every batch step.
-    private let pipeline: any BatchSigningStep
+    /// The single-entry pipeline reused for every batch step.
+    private let pipeline: SignApplicationPipeline
 
     /// The signing history store that records every batch step.
     private let history: any SigningHistoryStore
@@ -57,7 +31,7 @@ actor BatchSigningCoordinator {
     private let now: @Sendable () -> Date
 
     init(
-        pipeline: any BatchSigningStep,
+        pipeline: SignApplicationPipeline,
         history: any SigningHistoryStore,
         requestFactory: @escaping @Sendable (LibraryEntry, SigningIdentityIdentifier, Data) throws -> SignApplicationRequest,
         now: @escaping @Sendable () -> Date = { Date() }
@@ -280,29 +254,14 @@ actor BatchSigningCoordinator {
         let outputURL = outputDirectory.appendingPathComponent(safeName)
         let request = try requestFactory(entry, identityID, profile)
             .with(outputURL: outputURL, options: optionsOverride)
-        // The pipeline returns a refusal as a result rather than throwing, so
-        // the status has to be read. Taking only the return value — as this
-        // did — reports a refused package as a delivered one, and a batch
-        // summary that counts refusals as successes is worse than the failure
-        // it hides.
-        let signed = try await pipeline.signApplication(request)
-        guard signed.status == .signed else {
-            throw ZynSignError(
-                category: .invalidInput,
-                userMessage: signed.failure?.detail ?? "Signing was refused. Nothing was delivered.",
-                diagnosticDetail: signed.failure?.stage.rawValue
-            )
-        }
-        return signed.outputURL ?? outputURL
+        _ = try await pipeline.sign(request)
+        return outputURL
     }
 
-    /// Signs one already-built request and records it.
-    ///
-    /// Written for the signing queue and never adopted by it: the queue runs
-    /// through `SigningOperationExecutor` and `SigningOperationCenter`, which
-    /// also commit the artifact to export storage and verify it there. This
-    /// entry point has no caller, which is why it shares the coordinator's
-    /// fate rather than being kept beside the queue.
+    /// Signs one already-built request and records it. The professional
+    /// signing queue uses this so a preset's options, entitlements, and
+    /// output location are the ones the queue prepared — not a second
+    /// factory that could drop them.
     ///
     /// Does not throw for a signing refusal. Cancellation and failure are
     /// step outcomes, so the queue can continue with the next compatible
@@ -317,7 +276,7 @@ actor BatchSigningCoordinator {
         let startMonotonic = Date()
         do {
             try Task.checkCancellation()
-            let signed = try await pipeline.signApplication(request)
+            let signed = try await pipeline.sign(request)
             guard signed.status == .signed else {
                 throw ZynSignError(
                     category: .invalidInput,

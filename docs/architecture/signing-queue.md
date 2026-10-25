@@ -105,9 +105,10 @@ at Preparing and journals nothing, because nothing ran.
 ## 3. Scheduling and priorities
 
 - `maximumConcurrentJobs = 1`. Signing is heavy on CPU and I/O. Running jobs
-  in parallel would multiply peak memory and battery use. The scheduler loop is
-  written against this bound, and jobs are fully isolated (§5). Raising the
-  bound is a policy change, not an architecture change.
+  in parallel would multiply peak memory and battery use, which is the same
+  reasoning `BatchSigningCoordinator` gives. The scheduler loop is written
+  against this bound, and jobs are fully isolated (§5). Raising the bound is
+  a policy change, not an architecture change.
 - Waiting order is **High → Normal → Low**, then the order the user asked.
   A new job goes in before the first waiting job of strictly lower priority.
 - **Move Up / Move Down / Send to Top / Priority** apply only to waiting
