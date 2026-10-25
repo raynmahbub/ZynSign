@@ -16,12 +16,11 @@ A source entry means code and a presentation surface exist; it does **not** mean
 | `v0.1.0-alpha.3` | Entitlements Studio, Developer Identity Center |
 | `v0.9.0-beta.1` | Mission Control, Delivery Hand-off, Activity Journal |
 | `v0.9.0-beta.2` | Installation Workspace, Performance Dashboard |
-| `v0.9.0-beta.3` | Batch Signing |
 | `v1.0.0-rc.2` | Smart Workspace |
 | `v1.0.0` | Signing Health Score |
 | `v3.0.0-nova.1` | Nova Assistant |
 
-Features accumulate at later stops. Debug builds can expose staged code for development; the catalogue still labels Release availability from `ReleaseTrain`. A `Planned · <tag>` label names the stop that would expose the capability; it does not assert that a surface exists today. Two entries — Batch Signing (`v0.9.0-beta.3`) and Signing Health Score (`v1.0.0`) — are scheduled ahead of any screen that references them, which `Scripts/audit_release_gating.py` records as deliberate deferrals rather than leaving the gap implicit.
+Features accumulate at later stops. Debug builds can expose staged code for development; the catalogue still labels Release availability from `ReleaseTrain`. A `Planned · <tag>` label names the stop that would expose the capability. Every entry in the table above now has a surface the gate can reveal: Batch Signing was retired from the train at `v0.9.0-beta.3` because the signing queue already ships that behaviour, and Signing Health Score (`v1.0.0`) renders on the Sign screen as `SigningHealthScoreCard`. `Scripts/audit_release_gating.py` enforces the rule — every `ReleaseFeature` must be referenced by the app's own source — and `Scripts/ci/release-surface-deferrals.txt` holds no entries.
 
 ## Always-on and unsupported entries
 

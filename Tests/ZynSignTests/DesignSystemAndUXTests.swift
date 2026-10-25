@@ -142,6 +142,5 @@ final class DesignSystemAndUXTests: XCTestCase {
         XCTAssertTrue(ReleaseStage.rc2.features.contains(.smartSign))
         XCTAssertTrue(ReleaseStage.rc2.features.contains(.signingQueue))
         XCTAssertTrue(ReleaseStage.rc2.features.contains(.signingPresets))
-        XCTAssertTrue(ReleaseStage.rc2.features.contains(.batchSigning))
     }
 }
