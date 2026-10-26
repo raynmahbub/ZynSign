@@ -24,7 +24,7 @@ At this checkout the current stop is **`v0.1.0-alpha.2`** (stage `.alpha2`, alph
 | Alpha 3 | `0.1.0-alpha.3` | Entitlements Studio, Developer Identity Center |
 | Beta 1 | `0.9.0-beta.1` | Mission Control, Delivery Hand-off, Activity Journal |
 | Beta 2 | `0.9.0-beta.2` | Installation Workspace, Performance Dashboard |
-| Beta 3 | `0.9.0-beta.3` | Batch Signing |
+| Beta 3 | `0.9.0-beta.3` | None — fixes and compatibility |
 | Beta 4 | `0.9.0-beta.4` | None — fixes and compatibility |
 | RC 1 | `1.0.0-rc.1` | None |
 | RC 2 | `1.0.0-rc.2` | Smart Workspace |
@@ -37,21 +37,28 @@ At this checkout the current stop is **`v0.1.0-alpha.2`** (stage `.alpha2`, alph
 Each stop accumulates features from earlier stops. The stage definitions, prerequisites, marketing versions, and build numbers in `ReleaseTrain.swift` are authoritative; this table is a quick reference.
 
 A stop's row is a claim about what a build exposes, so it is only true where the
-app holds a surface the gate can reveal. Two rows are scheduled ahead of their
-surface — Batch Signing (`v0.9.0-beta.3`) and Signing Health Score (`v1.0.0`) —
-and both are recorded as deferrals in
-[`Scripts/ci/release-surface-deferrals.txt`](../../Scripts/ci/release-surface-deferrals.txt):
-nothing in the app references either one, so those stops would change nothing a
-user can see. They differ in kind: the health-score values are a
-missing screen over code that works (`SigningHealthScoreTests`), while Batch
-Signing names a behaviour the signing queue already ships — sign a selection
-with one configuration, one job at a time — so its stop needs a retirement or a
-definition, not an implementation.
-[`Scripts/audit_release_gating.py`](../../Scripts/audit_release_gating.py) fails
-the build when a staged feature has neither a surface nor a recorded decision,
-and when a recorded decision has been repaid.
-[`WHAT_DOES_NOT_EXIST.md`](../product/WHAT_DOES_NOT_EXIST.md) states the same
-two gaps for users.
+app holds a surface the gate can reveal. Both gaps that this table used to
+schedule ahead of their surface have been settled:
+
+- **Batch Signing (`v0.9.0-beta.3`) is retired.** It named a behaviour the
+  signing queue already ships — sign a selection with one configuration, one
+  job at a time — so the stop now carries no new gate and `ReleaseFeature` has
+  no `batchSigning` case. `BatchSigningCoordinator` remains as the tested
+  sequencer it always was, but nothing constructs it and no stop promises it;
+  building a surface on it would create a second signing path beside
+  `SigningOperationCenter`.
+- **Signing Health Score (`v1.0.0`) has a surface.** The Sign screen renders
+  `SigningHealthScoreCard` from `SigningHealthAssessment` for the identity,
+  profile and bundle currently selected, so the `v1.0.0` row describes a card
+  users will see rather than an invisible value.
+
+[`Scripts/ci/release-surface-deferrals.txt`](../../Scripts/ci/release-surface-deferrals.txt)
+is therefore empty, and
+[`Scripts/audit_release_gating.py`](../../Scripts/audit_release_gating.py)
+enforces that it stays that way: every staged feature must be referenced by the
+app's own source, and a deferral that has been repaid fails the build.
+[`WHAT_DOES_NOT_EXIST.md`](../product/WHAT_DOES_NOT_EXIST.md) states both
+decisions for users.
 
 ## What the app exposes
 
