@@ -40,6 +40,24 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ### Fixed
 
+- **The weekly sweep opens its repair pull request again.** The
+  `04-maintenance.yml` repair step built the PR body with two backslashes
+  before each markdown backtick. bash reads `\\` as one literal backslash and
+  then starts a command substitution on the backtick that is now unescaped, so
+  the step tried to *run* `04-maintenance.yml`, `docs/internal/`,
+  `.swiftformat` and `MARKETING_VERSION` and the job died with exit 127 —
+  after the metrics report, the formatting pass and the artifact upload had
+  already succeeded. The body took one backslash per backtick, and the step now
+  reaches the path it was written for: it stages the branch and, in a
+  repository where Actions may not open pull requests, reports that as the
+  warning it is instead of a failure. The summary card carried the same
+  escaping mistake and printed "is a directory" for `docs/internal/`; it now
+  renders the row. `Scripts/ci/workflow_shell_check.py` keeps the class of
+  mistake out: it parses every workflow `run:` block with `bash -n` — which a
+  YAML edit that breaks quoting should never survive — and refuses a backtick
+  with two backslashes in front of it, which `bash -n` cannot see. The
+  Repository hygiene job runs it on every pull request.
+
 - **The two stops that promised a screen now tell the truth — one retired, one
   wired.** `ReleaseFeature.batchSigning` is gone: the `v0.9.0-beta.3` row named
   a behaviour the signing queue already ships (**Queue Selected for Signing…**

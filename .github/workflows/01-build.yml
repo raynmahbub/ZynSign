@@ -118,6 +118,13 @@ jobs:
           done
           exit $failed
 
+      # The workflows are code too. A quoting mistake in a `run:` block only
+      # surfaces on a runner, and `bash -n` cannot see the trap that broke a
+      # scheduled sweep: two backslashes before a backtick leave the backtick
+      # unescaped, so bash runs the prose as a command substitution.
+      - name: Check the shell inside the workflows
+        run: python3 Scripts/ci/workflow_shell_check.py
+
       # The Quality workflow runs this self-test for pull requests and
       # integration pushes; retain it here for manual Build dispatches, which
       # do not start the Quality workflow.
