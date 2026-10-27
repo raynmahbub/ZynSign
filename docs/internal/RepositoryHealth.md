@@ -1,17 +1,17 @@
 # Repository Health
 
-_Generated 2026-10-01 by `Scripts/ci/metrics_report.sh` at commit `02f629d` (`arena/01a0f5e6-zynsign`).
+_Generated 2026-10-27 by `Scripts/ci/metrics_report.sh` at commit `591151c` (`main`).
 Every CI summary and the weekly `04-maintenance.yml` sweep keep this dashboard current._
 
 ## Overview
 
 | Metric | Value |
 | --- | --- |
-| Swift files | 870 |
-| Swift lines of code | 214452 |
-| Test files | 221 |
-| Unit tests | 2836 |
-| Documentation pages | 77 |
+| Swift files | 916 |
+| Swift lines of code | 225878 |
+| Test files | 234 |
+| Unit tests | 2962 |
+| Documentation pages | 80 |
 | External dependencies | 0 |
 | Release readiness score | **100%** (6/6 checks) |
 
@@ -23,11 +23,11 @@ Every CI summary and the weekly `04-maintenance.yml` sweep keep this dashboard c
 | Dependency validation | ✅ pass |
 | Documentation check | ✅ pass (0 broken links, 0 orphaned pages) |
 | Secret policy | ✅ pass |
-| Complexity guard | ✅ pass (155 findings — warnings only) |
-| Dead code scan (heuristic) | pass (291 candidates) |
+| Complexity guard | ✅ pass (137 findings — warnings only) |
+| Dead code scan (periphery) | pass (1046 candidates) |
 | Release train | ✅ pass |
 
-Current train: Current release : v0.0.1  (stage .horizon) Xcode project   : MARKETING_VERSION 0.0.1 · build 5 
+Current train: Current release : v0.1.0-alpha.2  (stage .alpha2) Xcode project   : MARKETING_VERSION 0.1.0 · build 8 
 
 ## Release Readiness
 
@@ -45,21 +45,21 @@ Current train: Current release : v0.0.1  (stage .horizon) Xcode project   : MARK
 
 | File | Lines |
 | --- | --- |
-| ZynSign/Presentation/ApplicationDetailView.swift | 1993 |
-| ZynSign/Presentation/ApplicationLibraryView.swift | 1723 |
+| ZynSign/Application/SignApplicationPipeline.swift | 1554 |
+| ZynSign/Presentation/ApplicationDetailView.swift | 1472 |
 | ZynSign/Domain/NestedCodeDiscovery.swift | 1458 |
 | Tests/ZynSignTests/ProvisioningPolicyValidationTests.swift | 1419 |
+| ZynSign/Presentation/SigningView.swift | 1399 |
 | ZynSign/Application/ValidateProvisioningProfile.swift | 1390 |
-| ZynSign/Application/ImportHub.swift | 1354 |
+| ZynSign/Application/ImportHub.swift | 1386 |
 | ZynSign/Presentation/ApplicationLibraryModel.swift | 1346 |
-| ZynSign/Presentation/SigningView.swift | 1283 |
 
 Worst function: 417 lines at ZynSign/Application/SignNestedCode.swift:53 func sign
-Largest file: 1993 lines at ZynSign/Presentation/ApplicationDetailView.swift
+Largest file: 1554 lines at ZynSign/Application/SignApplicationPipeline.swift
 
 ## Dead Code
 
-291 candidate(s) reported by the heuristic engine.
+1046 candidate(s) reported by the periphery engine.
 See `Reports/DeadCodeReport.md` (CI artifact) — nothing is deleted automatically.
 
 ## Dependency Health
