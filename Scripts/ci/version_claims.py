@@ -94,7 +94,13 @@ def load_train() -> tuple[list[Stage], str, dict[str, list[str]]]:
     introduced_body = stage_enum.split("var introducedFeatures", 1)[-1].split("var features", 1)[0]
     introduced: dict[str, tuple[str, ...]] = {}
     for line in introduced_body.splitlines():
-        match = re.match(r"\s*case ([^:]+): return (\[[^\]]*\])\s*$", line)
+        # A trailing comment on a `case` line is common — `return [.smartWorkspace]
+        # // the RC 2 UX pass` — and an anchored match that ignores it silently
+        # drops the feature from every count this check makes. Strip the comment
+        # first; the arrays carry bare identifiers, so nothing else can look like
+        # one.
+        code = line.split("//", 1)[0].rstrip()
+        match = re.match(r"\s*case ([^:]+): return (\[[^\]]*\])\s*$", code)
         if not match:
             continue
         names = tuple(n.strip().lstrip(".") for n in match.group(2).strip("[]").split(",") if n.strip())
