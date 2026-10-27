@@ -166,7 +166,7 @@ final class ExportsCenterModelTests: XCTestCase {
     }
 
     func testTheQueryNarrowsByVerificationAndSortsByIdentity() async throws {
-        let valid = try await holdExport(name: "Valid", verification: .valid, createdAt: Date(timeIntervalSince1970: 1_000))
+        let valid = try await holdExport(name: "Valid", createdAt: Date(timeIntervalSince1970: 1_000), verification: .valid)
         let unsupported = try await holdExport(name: "Unknown", createdAt: Date(timeIntervalSince1970: 2_000))
         let model = makeModel()
         await model.load()
@@ -187,14 +187,15 @@ final class ExportsCenterModelTests: XCTestCase {
     func testVerificationReplacesTheRowWithWhatTheReportConcluded() async throws {
         let record = try await holdExport(name: "Sign Me")
         let concluded = report(status: .valid)
-        let exports = self.exports
-        let model = ExportsCenterModel(exports: exports, history: history, verifyExport: { identifier in
-            let updated = try await exports.recordVerification(concluded, for: identifier)
+        let center: ExportCenter = exports
+        let model = ExportsCenterModel(exports: center, history: history, verifyExport: { identifier in
+            let updated = try await center.recordVerification(concluded, for: identifier)
             return ExportedArtifactVerification(record: updated, report: concluded)
         })
         await model.load()
 
-        await model.verify(try XCTUnwrap(model.entries.first))
+        let entry = try XCTUnwrap(model.entries.first)
+        await model.verify(entry)
 
         XCTAssertEqual(model.entries.first?.record.verificationStatus, .valid)
         XCTAssertEqual(model.verificationPresentation?.report.status, .valid)
@@ -208,7 +209,8 @@ final class ExportsCenterModelTests: XCTestCase {
         let model = makeModel()
         await model.load()
 
-        await model.verify(try XCTUnwrap(model.entries.first))
+        let entry = try XCTUnwrap(model.entries.first)
+        await model.verify(entry)
 
         XCTAssertEqual(model.entries.first?.record.verificationStatus, .unsupported, "The row keeps what the catalog says.")
         XCTAssertNil(model.verificationPresentation)
@@ -271,7 +273,7 @@ final class ExportsCenterModelTests: XCTestCase {
             duration: 12,
             exportIdentifier: record.id.rawValue
         )
-        await history.append(operation)
+        try await history.append(operation)
         let model = makeModel()
 
         await model.load()
