@@ -222,6 +222,85 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   file handed to ZynSign that is none of the accepted kinds lands in the Import
   Hub as a refusal that names what ZynSign does take.
 
+## [1.0.0] - 2026-10-28
+
+> The train's last stops before this one carried no new feature of their own:
+> `v0.9.0-beta.3`, `v0.9.0-beta.4`, `v1.0.0-rc.1`, `v1.0.0-rc.2` and
+> `v1.0.0-rc.3` were fixes-only rehearsals of the surfaces below. `1.0.0` is the
+> stop that switches them on together, and nothing in it is new code that has
+> not been compiled and tested since its alpha.
+
+### Added
+
+- **The Export Center.** Every signed artifact ZynSign holds is now one list:
+  newest first, filtered by verification, availability, and date, each row
+  carrying the application it came from, the bytes it holds, its last
+  independent verification, and whether it has been handed to the system.
+  `ExportsCenterView` presents the catalog `ExportCenter` already kept —
+  verifying an artifact again, sharing it, revealing its source application in
+  the Library, or deleting it — and the detail screen links each artifact back
+  to the signing operation that produced it. The list is a projection of the
+  catalog, never an edited copy: an artifact whose file is gone stays listed and
+  says so, a failed verification is reported and changes no row it did not
+  measure, and deleting an export never touches the imported application or the
+  signing history beside it. Reachable from Home, the Library toolbar, a
+  signing result, and Settings.
+- **Signing History.** `SigningHistoryView` is the journal's own screen — every
+  run of the signing pipeline, including the ones that produced no artifact.
+  A failure is a first-class row: the stage it stopped at, the outcome it
+  recorded, and the same detail screen the Export Center links to. Without it a
+  failed signing left no trace the user could reach, because only successes put
+  a file in export storage. Filter by outcome, verification, and date; clear
+  the journal without touching a single artifact.
+- **Entitlements Studio.** Read-only entitlements and profile compatibility
+  reachable from an application's detail screen, its signing run, and
+  Settings → Diagnostics.
+- **The Developer Identity Center.** Teams, identity health, certificate and
+  profile inspectors, conflicts, expiration forecast, and the identity timeline,
+  with the recommended identity surfaced on the signing screen.
+- **Mission Control.** Home → Refresh Everything: repository refresh, a library
+  re-read, and cache cleanup in one pass, with a report of what completed and
+  what was unavailable.
+- **Installation delivery hand-off.** Sign → Deliver… builds the OTA manifest,
+  the percent-encoded install link, an on-device QR, and the step guides for
+  OTA, MDM, and host tooling. ZynSign uploads nothing, hosts nothing, and never
+  learns an install outcome; `InstallationCapabilityAssessment` keeps in-app
+  installation unavailable on every path.
+- **The local activity journal.** Settings → Analytics records category, fixed
+  slug, outcome, and time in a bounded on-device journal, with live counts,
+  recent activity, one-tap clear, and export. Off-device measurement stays off:
+  `AnalyticsPolicy.isEnabled` is `false`, the endpoint is `nil`, and the counter
+  reads zero.
+- **The Installation Workspace.** Delivery readiness checklists, the installed
+  applications library, delivery attempts and confirmations, installation
+  history, the artifact relationship view, and storage awareness — from
+  Settings → Devices, a signing result, and the Smart Workspace's Install Health
+  card.
+- **The Performance Engine dashboard.** Settings → Advanced → Performance shows
+  the library and index counts, cache statistics by category, the search index's
+  status, benchmarks with regression detection, and manual optimization.
+- **The Smart Workspace.** Home becomes the command center at `v1.0.0-rc.2`:
+  a daypart greeting, widgets ordered by what the person actually opens,
+  Continue Last Session, and the Nova Assistant's on-device suggestions when
+  that feature ships. The classic dashboard's import doors stay where they were;
+  its counts, favourites, and recently imported summaries move into the widgets
+  that already carry the same facts.
+- **Signing Health Score.** Pre-sign compatibility assessment predicts whether an
+  identity, profile, and bundle will succeed before the pipeline runs.
+
+### Changed
+
+- The release train reaches its first stable stop. Every staged feature except
+  the Nova Assistant — which ships at `v3.0.0-nova.1` — is switched on in a
+  Release build; `Scripts/audit_release_gating.py` reports 18 features wired,
+  one still ahead, and the honest limitations page records the limits that stay.
+- **`Scripts/audit_presentation_ports.py`** makes the shell's presentation ports
+  mechanical. A `*Presentation` value the shell never installs hands every
+  caller a silent no-op: the surface exists, the tests pass, and nothing can
+  reach it — which is exactly how the Export Center stayed invisible while its
+  use case, model, and detail screen were complete. The audit fails on a port
+  the shell does not install and on a deferral that has since been repaid.
+
 ## [0.1.0-alpha.2] - 2026-10-05
 
 > The seven-tab bar the section below this one describes was this train's own

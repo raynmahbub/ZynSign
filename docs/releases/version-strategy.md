@@ -68,7 +68,7 @@ After stable, use SemVer: patch for compatible fixes/security updates, minor for
 ```sh
 python3 Scripts/release_train.py status
 python3 Scripts/release_train.py promote            # next permitted stop
-python3 Scripts/release_train.py promote alpha2     # named stop, if permitted
+python3 Scripts/release_train.py promote stable     # named stop, if permitted
 python3 Scripts/release_train.py check --tag v0.1.0-alpha.1
 ```
 
