@@ -301,6 +301,20 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   use case, model, and detail screen were complete. The audit fails on a port
   the shell does not install and on a deferral that has since been repaid.
 
+### Fixed
+
+- **Import reads the file that was chosen, not the one the screen allows.** A
+  package whose name did not look like the accepted kind was refused before its
+  bytes were examined, and a hand-off could be answered with a refusal for a
+  file the user never picked. The chosen document is the one that is read now,
+  and the destination screen no longer decides which file arrives.
+- **`Scripts/ci/version_claims.py` counted 17 of 18 features.** A `case` line
+  that declared its features before a trailing comment —
+  `return [.smartWorkspace]   // …` — was skipped by an end-anchored match, so
+  the honest page's "N on · M ahead" header was computed from a short list. The
+  line comment is stripped before matching, and the reason is recorded in the
+  code.
+
 ## [0.1.0-alpha.2] - 2026-10-05
 
 > The seven-tab bar the section below this one describes was this train's own
