@@ -28,6 +28,20 @@ enum VersionHistoryCatalog {
     /// Every entry, newest first.
     static let entries: [VersionHistoryEntry] = [
         VersionHistoryEntry(
+            tag: "v1.0.0",
+            marketingVersion: "1.0.0",
+            buildNumber: 9,
+            releasedAt: DateComponents(year: 2026, month: 10, day: 28),
+            headline: "1.0.0 switches on every staged feature the train has carried — including the Export Center and the signing history that make what you signed findable again.",
+            highlights: [
+                "Export Center: every signed artifact in one list, with its verification, its provenance, sharing, reveal in Library, and deletion. An artifact whose file is gone stays listed and says so.",
+                "Signing History: the journal's own screen, including the runs that produced no artifact — the only place a failed signing is explained in full.",
+                "Entitlements Studio, the Developer Identity Center, Mission Control, the installation delivery hand-off, the local activity journal, the Installation Workspace, the Performance Engine dashboard, the Smart Workspace, and the Signing Health Score.",
+                "Home becomes the command center: greeting, widgets ordered by what you open, and Continue Last Session. Its import doors are unchanged.",
+                "The Nova Assistant is the one staged feature still ahead: it ships at v3.0.0-nova.1.",
+            ]
+        ),
+        VersionHistoryEntry(
             tag: "v0.1.0-alpha.2",
             marketingVersion: "0.1.0",
             buildNumber: 8,

@@ -8,7 +8,7 @@ The release train in [`ZynSign/Application/ReleaseTrain.swift`](../../ZynSign/Ap
 python3 Scripts/release_train.py status
 ```
 
-At this checkout the current stop is **`v0.1.0-alpha.2`** (stage `.alpha2`, alpha channel; marketing version `0.1.0`, build `8`). The command is authoritative if this page and the source ever disagree. The current stop is not evidence that a release has been published or device-verified.
+At this checkout the current stop is **`v1.0.0`** (stage `.stable`, stable channel; marketing version `1.0.0`, build `9`). The command is authoritative if this page and the source ever disagree. The current stop is not evidence that a release has been published or device-verified.
 
 ## Ordered stops
 
@@ -51,6 +51,20 @@ schedule ahead of their surface have been settled:
   `SigningHealthScoreCard` from `SigningHealthAssessment` for the identity,
   profile and bundle currently selected, so the `v1.0.0` row describes a card
   users will see rather than an invisible value.
+- **The Smart Workspace (`v1.0.0-rc.2`) is Home at that stop.** `HomeView`
+  renders `SmartWorkspaceView` from the composed `SmartWorkspaceService` when
+  both the service and the gate agree, and its cards open the tabs that own the
+  work. The classic dashboard's import doors stay; its counts, favourites, and
+  recently imported summaries are carried by the widgets.
+
+A reference is not the same thing as a reachable screen, and the export area
+proved it: `ExportsPresentation`, `ExportCenter`, `ExportsCenterModel`, and the
+whole detail screen existed, tested and composed, while no build ever installed
+the port or built the list — "where did my signed package go?" had no answer.
+[`Scripts/audit_presentation_ports.py`](../../Scripts/audit_presentation_ports.py)
+now makes the shell's side of that promise mechanical: every `*Presentation`
+value in `Presentation/` must be installed by `RootView`, and a deferral in
+`Scripts/ci/presentation-port-deferrals.txt` fails once it has been repaid.
 
 [`Scripts/ci/release-surface-deferrals.txt`](../../Scripts/ci/release-surface-deferrals.txt)
 is therefore empty, and
@@ -74,7 +88,7 @@ python3 Scripts/release_train.py status
 python3 Scripts/release_train.py current --tag
 python3 Scripts/release_train.py check --tag v0.1.0-alpha.1
 python3 Scripts/release_train.py promote                 # next stop
-python3 Scripts/release_train.py promote alpha2          # a named stop
+python3 Scripts/release_train.py promote stable          # a named stop
 ```
 
 `promote` advances the declared train stop and updates the Xcode marketing/build settings. Review its changes, run the checks, and commit the source before creating a tag. `check --tag` refuses a tag that is not the train's current stop or whose project settings disagree.

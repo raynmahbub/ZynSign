@@ -19,6 +19,9 @@ enum ShellPresentation: Equatable, Hashable {
     /// to import `url`.
     case certificates(URL)
 
+    /// The Export Center, optionally opened at one artifact.
+    case exports(ExportIdentifier?)
+
     /// Whether `other` names the same surface, whatever document it carries.
     ///
     /// A second hand-off of the same kind updates the screen that is already
@@ -26,6 +29,8 @@ enum ShellPresentation: Equatable, Hashable {
     func isSameSurface(as other: ShellPresentation) -> Bool {
         switch (self, other) {
         case (.importHub, .importHub), (.profiles, .profiles), (.certificates, .certificates):
+            return true
+        case (.exports, .exports):
             return true
         default:
             return false

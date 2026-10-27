@@ -59,6 +59,15 @@ struct RootView: View {
     @State private var isShowingImport = false
     @State private var hubRequest: ImportHubRequest = .none
 
+    /// The Export Center, and the artifact a caller already had in mind.
+    @State private var isShowingExports = false
+    @State private var exportsSelection: ExportIdentifier?
+
+    /// The library application to open once the Library tab is on screen.
+    /// The library clears it, so a reveal happens once and a later visit to
+    /// the tab is an ordinary visit.
+    @State private var pendingLibraryRecord: ApplicationRecordIdentifier?
+
     /// The combined signing-material screen is presented for a system-opened
     /// certificate/profile file; the selected segment follows the file type.
     @State private var isShowingSigningMaterials = false
@@ -220,6 +229,15 @@ struct RootView: View {
                 isAvailable: true
             )
         )
+        .environment(
+            \.exportsPresentation,
+            ExportsPresentation(
+                present: { presentWhenActive(.exports(nil)) },
+                presentExport: { identifier in presentWhenActive(.exports(identifier)) },
+                revealInLibrary: { recordID in revealInLibrary(recordID) },
+                isAvailable: true
+            )
+        )
         .sheet(isPresented: $isShowingImport, onDismiss: { presentPendingShellPresentation() }) {
             ImportHubView(
                 hub: environment.importHub,
@@ -229,6 +247,24 @@ struct RootView: View {
                     selected = .library
                 },
                 onDone: { isShowingImport = false }
+            )
+            .background { shellAppearanceReporter() }
+        }
+        .sheet(
+            isPresented: $isShowingExports,
+            onDismiss: {
+                exportsSelection = nil
+                presentPendingShellPresentation()
+            }
+        ) {
+            ExportsCenterView(
+                exports: environment.exportCenter,
+                history: environment.signingHistory,
+                verifyExport: { identifier in
+                    try await environment.signingOperations.verifyExportedArtifact(withID: identifier)
+                },
+                initialSelection: exportsSelection,
+                onRevealInLibrary: { recordID in revealInLibrary(recordID) }
             )
             .background { shellAppearanceReporter() }
         }
@@ -669,7 +705,22 @@ struct RootView: View {
     }
 
     private var hasPresentedShellSurface: Bool {
-        isShowingImport || isShowingSigningMaterials || isShowingSigningQueue || isShowingOnboarding
+        isShowingImport || isShowingSigningMaterials || isShowingSigningQueue
+            || isShowingExports || isShowingOnboarding
+    }
+
+    /// Closes whatever the shell is showing and opens the Library at one
+    /// application. A reveal is a hand-off between two surfaces the shell
+    /// owns, so it closes the one it is leaving rather than stacking on it.
+    private func revealInLibrary(_ recordID: ApplicationRecordIdentifier) {
+        isShowingImport = false
+        isShowingSigningMaterials = false
+        isShowingSigningQueue = false
+        isShowingExports = false
+        exportsSelection = nil
+        pendingLibraryRecord = recordID
+        selected = .library
+        visitedTabs.insert(.library)
     }
 
     /// Reports when a shell sheet has finished appearing.
@@ -693,6 +744,9 @@ struct RootView: View {
         case .profiles, .certificates:
             isShowingSigningMaterials = false
             signingMaterialsImportURL = nil
+        case .exports:
+            isShowingExports = false
+            exportsSelection = nil
         }
     }
 
@@ -704,6 +758,8 @@ struct RootView: View {
             return isShowingSigningMaterials && signingMaterialsSelection == .profiles
         case .certificates(_):
             return isShowingSigningMaterials && signingMaterialsSelection == .certificates
+        case .exports:
+            return isShowingExports
         }
     }
 
@@ -720,6 +776,9 @@ struct RootView: View {
             signingMaterialsSelection = .certificates
             signingMaterialsImportURL = url
             isShowingSigningMaterials = true
+        case .exports(let identifier):
+            exportsSelection = identifier
+            isShowingExports = true
         }
     }
 
@@ -817,7 +876,9 @@ struct RootView: View {
                 organizer: environment.libraryOrganizer,
                 provenance: environment.applicationProvenance,
                 exporter: environment.libraryExport,
-                performanceEngine: environment.performanceEngine
+                performanceEngine: environment.performanceEngine,
+                initialRecord: pendingLibraryRecord,
+                onInitialRecordConsumed: { pendingLibraryRecord = nil }
             )
         case .features:
             FeatureCatalogView()

@@ -1,0 +1,12 @@
+# Presentation-port deferrals — shell surfaces that exist but are not installed.
+#
+# `Scripts/audit_presentation_ports.py` requires every `*Presentation` value in
+# `Presentation/` to be installed by the shell (`RootView`). A port the shell
+# does not install is a surface no screen can open: every caller falls through
+# to the default no-op, and nothing fails.
+#
+# An entry is a recorded decision, not a suppression. Delete it the moment the
+# shell installs the port — the audit fails on a deferral that has been repaid,
+# so this list cannot outlive the gaps it describes.
+#
+# Format: `<port> — <reason>`

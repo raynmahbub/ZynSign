@@ -9,6 +9,7 @@ struct SettingsView: View {
     @Environment(\.applicationEnvironment) private var environment
     @Environment(\.signingQueuePresentation) private var signingQueuePresentation
     @Environment(\.importPresentation) private var importPresentation
+    @Environment(\.exportsPresentation) private var exportsPresentation
     @AppStorage("zynsign.settings.categoryOrder") private var storedCategoryOrder = ""
     @State private var searchText = ""
     @State private var editMode: EditMode = .inactive
@@ -154,6 +155,17 @@ struct SettingsView: View {
                         ZSettingsLabel(title: "Signing Queue", subtitle: "Review and manage queued signing jobs.", symbol: "tray.full")
                     }
                 }
+                if let history = environment.signingHistory {
+                    NavigationLink {
+                        SigningHistoryView(history: history, embedsNavigationStack: false)
+                    } label: {
+                        ZSettingsLabel(
+                            title: "Signing History",
+                            subtitle: "Every signing run the journal holds — including the ones that produced no artifact.",
+                            symbol: "clock.arrow.circlepath"
+                        )
+                    }
+                }
                 if ReleaseTrain.isAvailable(.signingPresets) {
                     NavigationLink { PresetsView(embedsNavigationStack: false) } label: {
                         ZSettingsLabel(title: "Signing Presets", subtitle: "Manage reusable signing configurations.", symbol: "rectangle.stack")
@@ -273,6 +285,17 @@ struct SettingsView: View {
                 }
                 NavigationLink { StorageManagerSection() } label: {
                     ZSettingsLabel(title: "Storage", subtitle: "Review app storage and manage local data.", symbol: "externaldrive")
+                }
+                if exportsPresentation.isAvailable {
+                    Button {
+                        exportsPresentation.present()
+                    } label: {
+                        ZSettingsLabel(
+                            title: "Export Center",
+                            subtitle: "Every signed artifact ZynSign holds — verify, share, reveal, or delete it.",
+                            symbol: "shippingbox"
+                        )
+                    }
                 }
             }
             Section("Notifications") {

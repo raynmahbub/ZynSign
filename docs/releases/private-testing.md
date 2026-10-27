@@ -25,9 +25,14 @@ finished app. Test the **Release configuration**, which shows exactly
    reachable regardless of the release stage.
 4. Re-run the rows for previously released features as a regression check.
 
-Rows for features shipping later (Certificate, Smart Sign, Repository health,
-Downloads, Mission Control, delivery hand-off, journal) become required in the
-release that switches them on.
+Every row below is required at the current stop. `1.0.0` switches on all but one
+staged feature, so the rows that used to wait — Certificates & Profiles, Smart
+Sign, Repository health, Downloads, Mission Control, the delivery hand-off, the
+activity journal, and the surfaces this stop introduces (Export Center, signing
+history, Smart Workspace, Entitlements Studio, Identity Center, Installation
+Workspace, Performance Engine, Signing Health Score) — are all gates now.
+The Nova Assistant's row arrives with `v3.0.0-nova.1`; it is not visible in this
+release and this matrix does not test it.
 
 ## Principle
 
@@ -95,19 +100,40 @@ Test on **two real devices**: one iOS 17 (e.g., iPhone 13) + one iOS 18 (e.g., i
 | **Import** | Pick `app.ipa` + `app.tipa` (50-200 MB) three ways — the Import Hub's own button, Files → ⌄ → *Import*, and a share sheet / *Open In* from the Files app — plus a >500 MB package and, if available, an iCloud Drive item that is not downloaded yet | Each way opens the Import Hub (the picker appears after the sheet settles, never silently), the item reaches *Ready to Import*, **Add to Library** stores it, `Library` shows `isArtifactAvailable`; an iCloud item is not rejected during its download; the source remains untouched; a hand-off from another app opens the hub once ZynSign is in the foreground |
 | **Library** | Re-launch, check `isArtifactAvailable`, `Explore IPA`, open one file, delete | Persists across kill, tree and stats match the package, the preview does not modify it, orphan sweep works |
 | **Signing materials** | `Home → Certificates & Profiles` (or `Settings → Signing → Certificates & Profiles`), import a real `.p12` / `.pfx` with its password, then the wrong password and the same file again; switch to Profiles and import a real `.mobileprovision`. Also use Files → *Open In* for each file type, and drag each file type from another app onto ZynSign | Both segments open from the same screen; Open In and a drop start the selected file's import without choosing it twice, and a dropped `.p12` / `.mobileprovision` opens Certificates & Profiles — never the Import Hub; the password sheet appears after the picker closes; the identity lists with `ZStatusBadge ready` (and can sign when Smart Sign is enabled); the profile appears in the profile list; wrong password → `invalidPassphrase`; duplicate certificate import is refused. **Protection is read from the Keychain, not assumed**: `WhenUnlockedThisDeviceOnly` where the platform accepts the importer's upgrade request, the Keychain's default `WhenUnlocked` where it does not — both are unreadable while the device is locked. Report identities that arrive but show *unsupported*, with the exact status |
+| **Identity Center** | `Settings → Signing → Developer Identity Center`: open each team, a certificate inspector, a profile inspector, the conflicts list, the expiration forecast, and the identity timeline | Every section renders from the stores the other screens read; a conflict names both sides; the forecast and the timeline agree with the certificate detail; the recommended identity shown on the Sign screen is the one the Center recommends |
 | **Smart Sign** | `Library → Sign` with real cert + `.mobileprovision` (derive `N keys` preview) + `DER 0x20400` on/off + empty profile (should refuse at `profile` stage) | 9 stages → `Documents/Signed/*_signed.ipa` `Share`, `ZProgressRing` + `ZSigningStatusMachine` + Live Activity in-app badge, refusal `Refused at profile` no container |
+| **Export Center** | `Library → ⌘ Export Center` (also from Home, from a signing result, and from `Settings → General`), sign one package so the list is not empty, then: filter by verification / availability / date, sort, *Verify Again* one artifact, share one, reveal one in the Library, and delete one | Every entry point opens the same screen; the list is newest first and each row shows its verification, availability, size, and delivery state; a filtered-to-nothing state names *Clear Filters* instead of pretending the catalog is empty; **Verify Again** replaces that row's status and opens the report with its findings and check count; **Reveal in Library** closes the Export Center, switches to the Library tab, and pushes the application the artifact was signed from; deleting asks first, says what it will delete, and leaves the imported application and the signing history intact. Delete the artifact's file behind the app's back (Files app, if sandbox access allows) and relaunch: the record is still listed, marked unavailable, with share/verify disabled and the reason shown |
+| **Signing history** | `Settings → Signing → Signing History` (also the journal button in the Export Center): sign one package successfully and force one failure (an empty profile refuses at the `profile` stage), then filter by outcome, sort, open both rows, and *Clear History* | Both operations are listed — the failed run is a first-class row, not a footnote — and the failure opens `SigningOperationDetailView` with the stage it stopped at, the category, the fixed-language explanation, and the technical detail behind a disclosure. Clearing asks first, empties the journal, and leaves exported artifacts, imported applications, and identities untouched. A row whose artifact still exists offers its artifact |
+| **Entitlements Studio** | Library → an app → *Entitlements* (and the same section from its signing run and from `Settings → Diagnostics`) | Entitlements and profile compatibility render read-only; a profile that does not match the bundle says so in fixed language; nothing on the screen edits the package |
+| **Signing Health Score** | On the Sign screen, pick an identity + profile + app, then change one of them to a mismatched combination | The card predicts the outcome before the pipeline runs; a blocked combination names the check that blocks it; it never starts a signing run on its own |
 | **Repository** | `App Store → Add Source` `https://qnblackcat.github.io/AltStore/apps.json` + bad URL → `Check Health` | `Fast <800ms` / `Slow` / `Offline` + `ms` + `ZStatusBadge`, bad URL → `Offline` |
 | **Downloads** | Add `https://…/app.ipa` on device (LTE), lock, `Pause` → `Resume` → `Cancel`, kill app mid-download, relaunch | Background `com.zynsign.downloads` resumes, `Retry ×3`, survives backgrounding |
 | **Mission Control** | `Home → Refresh Everything` (repeat 3×), check `tmp` + `Downloads` pruning | Report `Completed` + `N sources` + `N apps` + `N cleaned` + `ms`, no re-sign auto-triggered |
+| **Smart Workspace** | Open Home on a fresh install and again after importing, signing, and opening an app a few times: check the greeting, the widget order, *Continue Last Session*, and tap every widget card; confirm the import doors still work from the same screen | Home renders the workspace rather than the classic dashboard; the widget order follows what was actually opened; *Continue Last Session* resumes the last thing the user was doing; each card opens the tab that owns the work (queue, installation, certificates, profiles, library); the Import Hub button, the direct-link field, and files dropped on Home behave exactly as before. With Reduce Motion on, the cross-fades are immediate |
 | **Bundle Explorer** | Library → an imported app → *View Bundle* (and Sign → *Explore IPA*), then open a file and a nested folder in the tree | The explorer opens without a force close on phone and iPad, and its details push rather than nesting a second navigation container. This row exists because the failure it guards is invisible to the static audits: the pushed screen was correct on its own and the screen it built owned a `NavigationStack`, which is a runtime crash. `audit_navigation_stack.py` now follows that construction chain, and this row is where the fix is confirmed on a device |
 | **Shell & Settings** | Open every root tab — Home, Library, Store, Downloads, and Settings, exactly five — then open `Settings → Features`, `Settings → Signing`, `Settings → Browse → Files`, and every row of `Settings → Updates` | Each Updates row opens as a sheet with its own stack (no nested-container crash, no shared search bar); Features opens from Settings, Signing exposes the combined Certificates & Profiles screen and the Presets page (on iPad too — the split view must not nest), and there is no system *More* list. Confirm tab changes cross-fade and remain immediate when Reduce Motion is enabled |
 | **IPSW Browser** | Open from Home and `Settings → Updates`; search a device, open its firmware list, refresh, toggle signed-only, and follow an Apple download link | Devices and firmware load; status and release details render; signed-only filtering works; external links are HTTPS Apple hosts; failures have a retry path; the status disclaimer remains visible |
 | **Honest screens** | `Settings → Installation` / `Pairing` / `Analytics` | `Unavailable` `Never` `None` + typed `InstallationLimitation`/`PairingLimitation`/`Guarantee` + `ZStatusBadge`; Installation screen describes the delivery hand-off; Pairing screen renders feasibility notes + ADR anchors |
 | **Deliver hand-off** | Sign a package → `Deliver…` → enter a real HTTPS host → build manifest | `manifest.plist` + `itms-services://…` link + QR generated; `http://`/`file://` refused with a typed error; proxy shows **no** traffic from ZynSign |
+| **Installation Workspace** | `Settings → Devices → Installation Workspace` (also from a signing result and the workspace's Install Health card): open a readiness checklist, record a delivery, and read the installation history | Readiness lists what is ready and what is blocked *with the missing requirement named*; recording a delivery uses the same hand-off path as *Deliver…*; in-app installation is unavailable on every row and the screen says why rather than offering a button that cannot work |
 | **Analytics journal** | Exercise import / sign / download → `Settings → Analytics` | Counts + recent activity appear; toggle off stops recording; Clear + Export work; proxy shows **no** outbound traffic |
 | **Diagnostics** | `Settings → Diagnostics & Logs` | Redacted, no key/profile bytes, no `AnalyticsKit` traffic (Charles proxy shows none) |
+| **Performance Engine** | `Settings → Advanced → Performance`: read the counts, switch a benchmark on, and run *Optimize* | Counts and cache statistics match what the Library and Storage screens report; a benchmark shows a verdict and its regression comparison; *Optimize* reports what it reclaimed and never removes imported applications or exported artifacts |
 
-Log results in `docs/releases/private-testing.md` (append a dated table) — the private build is green only when the matrix is all green.
+Log results in the record below — the private build is green only when the
+matrix is all green.
+
+## Candidate record
+
+One row per candidate, appended when the matrix has actually been run. A row is
+written by the person who ran it, from the build they installed, and names the
+commit that build was cut from. **A candidate with no row has not been tested**,
+whatever the changelog and the notes say — the absence of a row is the honest
+state, and it is what blocks the tag.
+
+| Candidate | Build | Source commit | Devices | Verdict |
+|---|---|---|---|---|
+| `v1.0.0` | 9 | merge commit of PR #108 (`feat(release): open the Export Center, the signing history, and the 1.0.0 train`) | — | **Not run.** No device has installed this build. Every row above is the open work; the tag waits for them. |
 
 ## From private green to public publish
 
