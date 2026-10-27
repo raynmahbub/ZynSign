@@ -30,6 +30,7 @@ struct ApplicationLibraryView: View {
 
     @StateObject private var model: ApplicationLibraryModel
     @Environment(\.importPresentation) private var importPresentation
+    @Environment(\.exportsPresentation) private var exportsPresentation
     @Environment(\.signingQueuePresentation) private var signingQueuePresentation
     @Environment(\.applicationEnvironment) private var environment
 
@@ -60,6 +61,14 @@ struct ApplicationLibraryView: View {
 
     private let bundleInspection: IPABundleContentsInspection
     private let detailsInspection: IPAApplicationDetailsInspection
+
+    /// An application the shell asked to open — a reveal from another
+    /// surface. Opening it is the first thing the library does once its list
+    /// is ready, and it is consumed so a later visit is an ordinary one.
+    private let initialRecord: ApplicationRecordIdentifier?
+
+    /// Called once `initialRecord` has been opened.
+    private let onInitialRecordConsumed: () -> Void
     private let features = LibraryFeatureAvailability.current
 
     /// Creates the screen over the use cases the composition root supplied.
@@ -80,7 +89,9 @@ struct ApplicationLibraryView: View {
         organizer: LibraryOrganizer? = nil,
         provenance: ApplicationProvenanceExtraction? = nil,
         exporter: LibraryExportPreparation? = nil,
-        performanceEngine: PerformanceEngine? = nil
+        performanceEngine: PerformanceEngine? = nil,
+        initialRecord: ApplicationRecordIdentifier? = nil,
+        onInitialRecordConsumed: @escaping () -> Void = {}
     ) {
         _model = StateObject(wrappedValue: ApplicationLibraryModel(
             library: library,
@@ -93,6 +104,8 @@ struct ApplicationLibraryView: View {
         ))
         self.bundleInspection = bundleInspection
         self.detailsInspection = detailsInspection
+        self.initialRecord = initialRecord
+        self.onInitialRecordConsumed = onInitialRecordConsumed
     }
 
     var body: some View {
@@ -894,6 +907,15 @@ struct ApplicationLibraryView: View {
                 }
                 sortMenu
                 layoutToggle
+                if exportsPresentation.isAvailable {
+                    Button {
+                        ZHaptics.tap()
+                        exportsPresentation.present()
+                    } label: {
+                        Label("Export Center", systemImage: "shippingbox")
+                    }
+                    .accessibilityHint("Every signed artifact ZynSign holds, with verification, sharing, and deletion.")
+                }
                 Button {
                     importPresentation.present()
                 } label: {
@@ -1079,6 +1101,18 @@ struct ApplicationLibraryView: View {
             applyStoredScope(storedScope)
         }
         await model.load()
+        openRequestedRecordIfNeeded()
+    }
+
+    /// Opens the application the shell asked for, once the list it opens into
+    /// has loaded. A record the library no longer holds is not pushed: the
+    /// user is left on the list, where its absence is the honest answer,
+    /// rather than on a detail screen for something that is not there.
+    private func openRequestedRecordIfNeeded() {
+        guard let requested = initialRecord else { return }
+        onInitialRecordConsumed()
+        guard model.entry(for: requested) != nil else { return }
+        path = [.details(requested)]
     }
 
     /// Applies a remembered or handed-over scope — Home opens the library on

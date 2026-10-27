@@ -174,6 +174,12 @@ jobs:
       - name: Check the regression catalogue names real tests
         run: python3 Scripts/audit_regression_coverage.py
 
+      # A presentation port is the shell's promise to open a surface. A port
+      # the shell never installs hands every caller a silent no-op, so the
+      # surface exists, tests green, and cannot be reached from the app.
+      - name: Check every shell port is installed by the shell
+        run: python3 Scripts/audit_presentation_ports.py
+
       - name: Check hand-written design values against the token baseline
         run: python3 Scripts/audit_design_tokens.py --baseline Scripts/design_tokens_baseline.json --check
 

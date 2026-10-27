@@ -28,6 +28,8 @@ struct HomeView: View {
 
     @Environment(\.applicationEnvironment) private var environment
     @Environment(\.importPresentation) private var importPresentation
+    @Environment(\.exportsPresentation) private var exportsPresentation
+    @Environment(\.signingQueuePresentation) private var signingQueuePresentation
     @StateObject private var missionControl = MissionControlService()
     @State private var entries: [LibraryEntry] = []
     @State private var certificateCount: Int?
@@ -46,6 +48,10 @@ struct HomeView: View {
     @State private var signingMaterialsSelection: SigningMaterialsSection = .certificates
     @State private var isShowingSigningMaterials = false
     @State private var isShowingIPSWBrowser = false
+    /// The Installation Workspace, opened from the workspace's Install Health
+    /// card. It is a sheet because the secondary sections are reached from
+    /// Settings too, and neither presentation owns the screen.
+    @State private var isShowingInstallation = false
     /// Repository management supplies its own navigation stack.
     @State private var isShowingSources = false
     @AppStorage(LibraryPreferenceKeys.scope) private var libraryScope = LibraryScope.all.storageValue
@@ -61,12 +67,37 @@ struct HomeView: View {
         settings.preferences.general.onboardingCompleted
     }
 
+    /// Whether Home is showing the Smart Workspace rather than the classic
+    /// dashboard. Both the composed service and the release train must agree:
+    /// a build before the workspace stop has no service, and a build whose
+    /// train is behind must not read one.
+    private var isWorkspaceActive: Bool {
+        environment.smartWorkspace != nil && ReleaseTrain.isAvailable(.smartWorkspace)
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: ZSpacing.lg) {
                     wordmark
-                    countsRow
+                    // The command center, once the release train turns it on:
+                    // a greeting, the widgets the layout policy chose from what
+                    // the user actually opens, and the last session to pick up.
+                    // Below it Home keeps its import doors, which are core
+                    // behaviour rather than a staged feature.
+                    if let workspace = environment.smartWorkspace,
+                       ReleaseTrain.isAvailable(.smartWorkspace) {
+                        SmartWorkspaceView(
+                            service: workspace,
+                            entries: entries,
+                            onOpenSection: onOpenSection,
+                            onOpenSigningQueue: { signingQueuePresentation.present() },
+                            onOpenInstallation: { isShowingInstallation = true }
+                        )
+                    }
+                    if !isWorkspaceActive {
+                        countsRow
+                    }
                     ImportHubStatusBanner(hub: environment.importHub) {
                         importPresentation.present()
                     }
@@ -95,11 +126,18 @@ struct HomeView: View {
                     if onboardingNeeded {
                         onboardingCard
                     }
-                    if showsFavorites {
-                        favoritesCard
-                    }
-                    if !entries.isEmpty {
-                        recentlyImportedCard
+                    // Favourites and Recently Imported are the classic
+                    // dashboard's summary of the library. The workspace
+                    // carries the same facts as its Collections and Recent
+                    // Apps widgets, so showing both would say everything
+                    // twice.
+                    if !isWorkspaceActive {
+                        if showsFavorites {
+                            favoritesCard
+                        }
+                        if !entries.isEmpty {
+                            recentlyImportedCard
+                        }
                     }
                     if ReleaseTrain.isAvailable(.missionControl) {
                         missionControlCard
@@ -146,6 +184,12 @@ struct HomeView: View {
             }
             .sheet(isPresented: $isShowingIPSWBrowser) {
                 IPSWBrowserView()
+            }
+            .sheet(isPresented: $isShowingInstallation) {
+                InstallationWorkspaceView(
+                    workspace: environment.installationWorkspace,
+                    storage: environment.storageManagement
+                )
             }
             .sheet(isPresented: $isShowingSources) {
                 if let store = environment.storeBrowser {
@@ -293,6 +337,16 @@ struct HomeView: View {
                 tint: ZHomeTint.apps
             ) {
                 isShowingIPSWBrowser = true
+            }
+            if exportsPresentation.isAvailable {
+                ZHomeActionRow(
+                    title: "Export Center",
+                    subtitle: "Every signed package, with its verification",
+                    symbol: "shippingbox.fill",
+                    tint: ZHomeTint.apps
+                ) {
+                    exportsPresentation.present()
+                }
             }
         }
     }

@@ -29,6 +29,7 @@ struct SigningView: View {
     @Environment(\.settingsCenter) private var settings
     @Environment(\.appLock) private var appLock
     @Environment(\.signingQueuePresentation) private var signingQueuePresentation
+    @Environment(\.exportsPresentation) private var exportsPresentation
     @State private var showQueuedToast = false
     @State private var isPresentingWorkspace = false
     @State private var isQueueing = false
@@ -890,6 +891,15 @@ struct SigningView: View {
                 }
 
                 Button { ZHaptics.tap(); shareItem = ShareURL(url: url) } label: { Label("Export IPA", systemImage: "square.and.arrow.up") }
+                if exportsPresentation.isAvailable {
+                    Button {
+                        ZHaptics.tap()
+                        exportsPresentation.present()
+                    } label: {
+                        Label("Open Export Center", systemImage: "shippingbox")
+                    }
+                    .accessibilityHint("Shows every signed artifact, with its verification, sharing, and deletion.")
+                }
                 Button { model.isPresentingDetails = true } label: { Label("Open Details", systemImage: "list.bullet.rectangle") }
                 Button {
                     ZHaptics.tap()

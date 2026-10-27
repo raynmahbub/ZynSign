@@ -134,7 +134,15 @@ struct SmartWorkspaceView: View {
         case .healthScore:
             if let entry = recentEntries.first, let app = fact(for: entry) {
                 let report = InstallHealthReport.preview(for: app, facts: snapshot.facts, now: snapshot.readAt)
-                card(widget) {
+                card(
+                    widget,
+                    actionTitle: ReleaseTrain.isAvailable(.installationWorkspace) ? "Installation" : nil,
+                    action: {
+                        service.noteOpened(widget)
+                        ZHaptics.play(.navigate)
+                        onOpenInstallation()
+                    }
+                ) {
                     HealthCard(
                         score: report.score,
                         verdict: report.verdict.title,
