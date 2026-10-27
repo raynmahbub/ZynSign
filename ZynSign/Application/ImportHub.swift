@@ -742,6 +742,16 @@ final class ImportHub: ObservableObject {
         guard !hasRestored else { return }
         hasRestored = true
         isRestoring = true
+        // The restore gate holds every waiting item back — `pump()` starts
+        // nothing while it is closed — so it is released on every path out of
+        // this function, including the one where a journal or a sweep never
+        // answers. A closed gate is otherwise indistinguishable from an import
+        // that silently does nothing: the item sits at "waiting" with no
+        // failure to read.
+        defer {
+            isRestoring = false
+            pump()
+        }
 
         let records = (try? await recoveryJournal?.pendingRecords()) ?? []
         let processing = self.processing
@@ -785,9 +795,7 @@ final class ImportHub: ObservableObject {
         }.value
 
         items.insert(contentsOf: restored, at: 0)
-        isRestoring = false
         scheduleJournalWrite()
-        pump()
     }
 
     /// Resumes paused work. Call when ZynSign becomes active.

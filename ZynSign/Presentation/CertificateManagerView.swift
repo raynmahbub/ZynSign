@@ -602,25 +602,42 @@ struct CertificateManagerView: View {
         return Array(types)
     }
 
-    /// Presents the system picker from the stable Certificates screen.
+    /// Presents the system picker, or finishes the import already read.
     ///
-    /// A document picker is owned by SwiftUI's `.fileImporter` presentation
-    /// binding. Requiring an unrelated UIKit view-controller identity change
-    /// before keeping that binding true can reset a valid request before the
-    /// system picker appears, so this path only waits for the current transition
-    /// to settle and then lets SwiftUI present it.
+    /// A certificate whose bytes arrived but whose password form has not
+    /// appeared yet is still a certificate the person chose: the same button
+    /// opens its password form instead of asking for the file again. Otherwise
+    /// the binding is armed and **checked** — a `.fileImporter` binding left
+    /// `true` by a dropped presentation answers every later tap with "already
+    /// presenting", so it is reset and asked once more before the screen says
+    /// out loud that the picker did not open.
     private func requestCertificatePicker() {
         guard !isOpeningCertificatePicker,
               !model.isImporting,
               !isReadingSelectedFile,
-              pendingData == nil,
               !showPasswordSheet else { return }
+        if pendingData != nil {
+            presentPasswordSheetAfterPickerSettles()
+            return
+        }
         isOpeningCertificatePicker = true
         Task { @MainActor in
             defer { isOpeningCertificatePicker = false }
-            _ = await PresentationSettle.waitForIdle()
-            guard !Task.isCancelled else { return }
-            showImporter = true
+            for _ in 0..<2 {
+                let appeared = await PresentationSettle.presentAndConfirm(
+                    cap: .milliseconds(2500),
+                    waiting: .milliseconds(400)
+                ) {
+                    showImporter = true
+                }
+                if appeared { return }
+                showImporter = false
+                await Task.yield()
+            }
+            presentToast(
+                "The system file picker could not be opened. Tap Import Certificate… to try again.",
+                style: .error
+            )
         }
     }
 
@@ -729,16 +746,29 @@ struct CertificateManagerView: View {
 
     /// Presents the password sheet only after the picker has fully left the
     /// presented-controller chain. The picker callback may arrive while its
-    /// child controller is still dismissing; the shared helper waits for that
+    /// child controller is still dismissing; the shared helper waits out that
     /// child and confirms that the password form appeared.
+    ///
+    /// The bytes are never given up here. A form the platform refused to
+    /// present used to clear them and ask for the file again, which turned a
+    /// certificate that had been read successfully into an import that looked
+    /// like it failed; now the chosen file stays pending and *Import
+    /// Certificate…* presents its form again.
     private func presentPasswordSheetAfterPickerSettles() {
-        guard !isPresentingPasswordSheet, !showPasswordSheet else { return }
+        guard !isPresentingPasswordSheet, !showPasswordSheet,
+              pendingData != nil, pendingFileName != nil else { return }
         isPresentingPasswordSheet = true
         Task { @MainActor in
             defer { isPresentingPasswordSheet = false }
-            guard pendingData != nil, pendingFileName != nil else { return }
             for _ in 0..<2 {
-                let appeared = await PresentationSettle.presentAndConfirm {
+                if showPasswordSheet {
+                    showPasswordSheet = false
+                    await Task.yield()
+                }
+                let appeared = await PresentationSettle.presentAndConfirm(
+                    cap: .milliseconds(2000),
+                    waiting: .milliseconds(600)
+                ) {
                     withAnimation(ZMotion.interactive) {
                         showPasswordSheet = true
                     }
@@ -748,12 +778,10 @@ struct CertificateManagerView: View {
                 await Task.yield()
             }
 
-            // Do not leave the import controls disabled if UIKit rejected both
-            // presentations. The user can choose the file again after seeing
-            // this explicit recovery instruction.
-            pendingData = nil
-            pendingFileName = nil
-            presentToast("The certificate was read, but its password form could not be opened. Choose the file again to retry.", style: .error)
+            presentToast(
+                "The certificate was read. Tap Import Certificate… again to enter its password.",
+                style: .warning
+            )
         }
     }
 

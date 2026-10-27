@@ -40,6 +40,27 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ### Fixed
 
+- **A file the person chose is imported, whatever the screen is doing.**
+  Two silent refusals sat between the document picker and the importer, and
+  both were about presentation state rather than about the file. The Import
+  Hub discarded a whole selection — and asked the person to choose again —
+  when the presented-controller chain took longer than eight seconds to report
+  idle after the picker closed; it now receives the files the moment the
+  picker answers, and a package the importer cannot read is refused on its own
+  item with the reason. The Certificates password form discarded a `.p12` that
+  had already been read successfully when the platform refused to present the
+  sheet twice; the bytes now stay pending and *Import Certificate…* presents
+  the form again instead of asking for the file. Both pickers are armed and
+  then *checked*: a `.fileImporter` binding the platform refused stays `true`,
+  so every later tap disappears into "already presenting" — a presentation
+  that does not appear is now reset, retried once, and reported when it still
+  fails. The shell's queue follows the same rule: a hand-off is presented after
+  a short best-effort settle rather than parked until some sheet that is not
+  coming is dismissed, a shell sheet that never appears is detected by its own
+  appearance report and asked for again, and the Import Hub's restore gate is
+  released on every path out of restoration, so a file received during a
+  launch restore can no longer sit at "waiting" with nothing to read.
+
 - **The weekly sweep opens its repair pull request again.** The
   `04-maintenance.yml` repair step built the PR body with two backslashes
   before each markdown backtick. bash reads `\\` as one literal backslash and

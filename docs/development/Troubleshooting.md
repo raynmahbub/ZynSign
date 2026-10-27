@@ -14,6 +14,8 @@ row.
 | A `.zip` archive of packages is refused | The archive was classified unsafe, duplicated, or link-bearing | Re-zip with plain package entries; links and unsafe entries are rejected before extraction |
 | Import stalls with the app in background | Imports continue only while ZynSign is open (plus iOS's short background extension) | Return to the app; interrupted items resume from surviving working copies |
 | "Not enough free space" | `storageFailure` — checked before every copy | Free space (Settings → Advanced can move the workspace) |
+| Tapping *Add Files* or *Import Certificate…* shows no picker | The previous presentation was still closing when the picker was asked for, or a picker binding was left armed by one the platform dropped | Tap again: ZynSign resets an unconfirmed picker binding and asks a second time, and says so when both attempts fail |
+| A hand-off (Open In, share sheet, drop) opens nothing | The scene was inactive, or another ZynSign sheet was up when the file arrived | The request is queued, not dropped: it opens when that sheet closes or ZynSign comes back to the foreground |
 
 ## Certificates and profiles
 
