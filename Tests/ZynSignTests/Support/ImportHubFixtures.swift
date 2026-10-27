@@ -394,6 +394,61 @@ actor InMemoryImportRecoveryJournal: ImportRecoveryJournal {
     }
 }
 
+/// An interrupted-import journal whose read waits for the test to release it.
+///
+/// It exists to hold the Import Hub's restore gate open for as long as a test
+/// needs: while the gate is closed every waiting item is held back, so a test
+/// can prove both that nothing starts during a restore and that the item does
+/// start once the restore lets go — the difference between an import that
+/// waits and an import that never happens.
+final class SuspendedImportRecoveryJournal: ImportRecoveryJournal, @unchecked Sendable {
+
+    private let lock = NSLock()
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var isReleased = false
+    private var readsStarted = 0
+
+    /// Whether the restore has reached this journal and is being held.
+    var hasStartedReading: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return readsStarted > 0
+    }
+
+    func pendingRecords() async throws -> [ImportRecoveryRecord] {
+        lock.lock()
+        readsStarted += 1
+        let alreadyReleased = isReleased
+        lock.unlock()
+        guard !alreadyReleased else { return [] }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            if isReleased {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                waiters.append(continuation)
+                lock.unlock()
+            }
+        }
+        return []
+    }
+
+    func replace(with records: [ImportRecoveryRecord]) throws {}
+
+    /// Lets the held read answer.
+    func release() {
+        lock.lock()
+        isReleased = true
+        let pending = waiters
+        waiters.removeAll()
+        lock.unlock()
+        for waiter in pending {
+            waiter.resume()
+        }
+    }
+}
+
 /// A background-execution double that hands out activities and keeps the
 /// expiration handler so a test can end the background time.
 @MainActor

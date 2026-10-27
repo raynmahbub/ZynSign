@@ -618,21 +618,25 @@ struct ImportHubView: View {
         switch result {
         case .success(let urls):
             guard !urls.isEmpty else { return }
-            Task { @MainActor in
-                guard await PresentationSettle.waitForIdle(cap: .seconds(8)) else {
-                    pickerFailure = "The system file picker is still closing. Wait a moment, then choose the files again."
-                    return
-                }
-                withAnimation(ZMotion.fast) {
-                    _ = hub.receive(urls, origin: .documentPicker)
-                }
-                availableCapacity = hub.availableCapacity()
+            // What the person chose is the import. Whether the system picker's
+            // own dismissal has finished is a fact about UIKit, not about the
+            // files, and it must never decide whether they are accepted: a
+            // wait that timed out here used to discard the whole selection and
+            // ask the person to choose again. The items appear in the hub at
+            // once, and preflight refuses anything it cannot read with the
+            // reason on the item.
+            withAnimation(ZMotion.fast) {
+                _ = hub.receive(urls, origin: .documentPicker)
             }
+            availableCapacity = hub.availableCapacity()
         case .failure(let error):
             guard !ImportQueueRendering.isCancellation(error) else { return }
             let failureMessage = ImportQueueRendering.pickerFailureMessage(for: error)
             Task { @MainActor in
-                _ = await PresentationSettle.waitForIdle(cap: .seconds(8))
+                // Only the *message* waits for the picker to leave the screen;
+                // the wait is best-effort, so a hierarchy that never reports
+                // idle still gets the explanation.
+                _ = await PresentationSettle.waitForIdle(cap: .milliseconds(800))
                 pickerFailure = failureMessage
             }
         }
@@ -675,32 +679,51 @@ struct ImportHubView: View {
     ///
     /// `.task` and `handle(_:)` may both notice the same request, and a user
     /// control may ask while the sheet is still settling. The in-flight flag
-    /// serializes those callers. `.fileImporter` owns the document picker through
-    /// its Boolean binding, so this keeps the request armed instead of cancelling
-    /// it based on an unrelated UIKit controller-identity check.
+    /// serializes those callers, and the request flag is consumed exactly once.
+    ///
+    /// The binding is then armed **and checked**. `.fileImporter` presents
+    /// through a Boolean, and a presentation the platform drops leaves that
+    /// Boolean `true` with no picker on screen — after which every later tap is
+    /// answered with "already presenting", so the control never works again.
+    /// Resetting the binding and asking once more keeps *Add Files* alive; the
+    /// second failure says so out loud rather than staying silent.
     ///
     /// - Parameter waitingForSheet: Whether the hub's own sheet may still be
-    ///   animating in. When it may, the sheet's appearance reporter is awaited;
-    ///   the presented-controller chain is allowed to settle before the binding
-    ///   is armed.
+    ///   animating in. When it may, the sheet's own appearance report is
+    ///   awaited — the platform's answer to "the hub is up", not a duration
+    ///   that is usually long enough.
     private func presentPendingFilePick(waitingForSheet: Bool) async {
-        guard wantsFilePickerOnAppear else { return }
-        if isShowingPicker {
-            wantsFilePickerOnAppear = false
-            return
-        }
-        guard !isPresentingFilePicker else { return }
+        guard wantsFilePickerOnAppear, !isPresentingFilePicker else { return }
         isPresentingFilePicker = true
         defer { isPresentingFilePicker = false }
 
         if waitingForSheet {
             _ = await PresentationSettle.waitUntil { hasSettled }
         }
-        _ = await PresentationSettle.waitForIdle()
         guard wantsFilePickerOnAppear, !Task.isCancelled else { return }
-
-        isShowingPicker = true
         wantsFilePickerOnAppear = false
+        if isShowingPicker {
+            // Left armed by a dropped presentation: clear it first, so the
+            // request below is a new presentation rather than a no-op.
+            isShowingPicker = false
+            await Task.yield()
+        }
+
+        // Two attempts, each with a short settle window: a picker the person
+        // just asked for should not spend seconds waiting out an unrelated
+        // transition, and an unconfirmed attempt is reset before the next.
+        for _ in 0..<2 {
+            let appeared = await PresentationSettle.presentAndConfirm(
+                cap: .milliseconds(2500),
+                waiting: .milliseconds(400)
+            ) {
+                isShowingPicker = true
+            }
+            if appeared { return }
+            isShowingPicker = false
+            await Task.yield()
+        }
+        pickerFailure = "The system file picker could not be opened. Tap Add Files to try again."
     }
 
     private func openRecord(_ record: ApplicationRecord) {

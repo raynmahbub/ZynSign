@@ -565,6 +565,33 @@ final class ImportHubTests: XCTestCase {
         XCTAssertEqual(processing.sweptKeeping, [surviving])
     }
 
+    func testAFileReceivedDuringARestoreStartsAsSoonAsTheRestoreLetsGo() async {
+        // A journal that never answers is the shape of the stall this guards:
+        // the restore gate stays closed, so `pump()` starts nothing and every
+        // item sits at "waiting" with no failure to read. The gate must open
+        // on its own, and the file that arrived meanwhile must start then.
+        let suspended = SuspendedImportRecoveryJournal()
+        hub = ImportHub(
+            processing: processing,
+            history: history,
+            recoveryJournal: suspended,
+            backgroundExecution: background,
+            releaseSource: { [weak self] url in self?.released.append(url) },
+            maximumConcurrentPreparations: 2,
+            progressInterval: 0,
+            now: { Date() }
+        )
+        let restore = Task { await hub.restoreInterruptedImports() }
+        await waitUntil("The restore never reached the journal.") { suspended.hasStartedReading }
+
+        _ = receive("A.ipa")
+        XCTAssertEqual(item(named: "A.ipa")?.phase, .waiting, "Nothing prepares while the restore holds the gate.")
+
+        suspended.release()
+        await restore.value
+        await waitUntilReady("A.ipa")
+    }
+
     func testRestoringHappensOnlyOnce() async {
         journal = InMemoryImportRecoveryJournal(records: [
             ImportRecoveryRecord(itemID: UUID(), batchID: UUID(), fileName: "Lost.ipa", origin: .documentPicker, enqueuedAt: Date(), stagedArtifactID: nil, containerFileName: nil),

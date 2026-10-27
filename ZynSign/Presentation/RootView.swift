@@ -65,33 +65,31 @@ struct RootView: View {
     @State private var signingMaterialsSelection: SigningMaterialsSection = .certificates
     @State private var signingMaterialsImportURL: URL?
 
-    /// A shell surface the app owes the user once the scene is active again.
+    /// The shell surfaces the app owes the user, oldest first.
     ///
     /// An Open In or share-sheet hand-off is delivered as ZynSign comes back
-    /// to the foreground; UIKit drops a presentation asked for in that frame
+    /// to the foreground; UIKit drops a presentation asked for in that frame,
     /// and the state that asked for it stays set, so the surface never opens
-    /// and the screen looks like it did nothing. The request is held as the
-    /// surface's name and any incoming document URL — no stored closure —
-    /// and honoured the moment the scene is active.
-    private enum ShellPresentation {
-        case importHub
-        case profiles(URL)
-        case certificates(URL)
-    }
-
-    /// Shell surfaces waiting for the current presentation to finish.
+    /// and the screen looks like it did nothing. A request is held as the
+    /// surface's name and any incoming document URL — no stored closure — and
+    /// honoured when the scene and the screen are both free.
     ///
-    /// This is a FIFO rather than a single optional request. One drag can
-    /// legitimately carry both a certificate and a provisioning profile; a
-    /// single slot silently discarded the second file whenever the scene was
-    /// inactive or the first sheet was already being prepared.
-    @State private var pendingShellPresentations: [ShellPresentation] = []
+    /// It is a queue rather than a single slot: one drag can legitimately carry
+    /// both a certificate and a provisioning profile, and a single slot
+    /// silently discarded the second file whenever the scene was inactive or
+    /// the first sheet was already being prepared.
+    @State private var pendingShellPresentations = ShellPresentationQueue()
 
     /// True while `presentWhenActive` is waiting for UIKit's presentation
     /// chain to settle. State changes to the sheet bindings are not visible
     /// until the next render pass, so this closes the small window in which
     /// two same-frame requests could both try to present.
     @State private var isPreparingShellPresentation = false
+
+    /// Set by the sheet's own appearance report, so a presentation that the
+    /// platform refused is a fact rather than a guess. Only one attempt is in
+    /// flight at a time, so one flag is enough.
+    @State private var hasConfirmedShellPresentation = false
 
     /// The items whose outcome has already been recorded, so an import is
     /// reported exactly once however many times the item list changes.
@@ -232,6 +230,7 @@ struct RootView: View {
                 },
                 onDone: { isShowingImport = false }
             )
+            .background { shellAppearanceReporter() }
         }
         .sheet(
             isPresented: $isShowingSigningMaterials,
@@ -248,6 +247,7 @@ struct RootView: View {
                 )
             }
             .id(signingMaterialsSelection)
+            .background { shellAppearanceReporter() }
         }
         .environment(
             \.signingQueuePresentation,
@@ -583,12 +583,23 @@ struct RootView: View {
     }
 
     /// Presents a shell surface now, or queues it until the scene and any
-    /// already-presented ZynSign sheet are ready. A presentation requested
-    /// while another application's controller is dismissing (the share sheet
-    /// or Files hand-off) is also held until UIKit reports the whole chain idle.
+    /// already-presented ZynSign sheet are ready.
+    ///
+    /// A hand-off that opens nothing is the report this whole path exists for,
+    /// so the rule is that a request is never discarded: when the screen is
+    /// busy the request keeps its place in the queue, and when a transition is
+    /// still finishing the presentation is attempted anyway after a short
+    /// best-effort wait. Waiting used to *decide* the outcome — a hierarchy
+    /// that never reported idle parked the request until some sheet was
+    /// dismissed, which for an Open In from another app never happened.
     private func presentWhenActive(_ surface: ShellPresentation) {
-        guard scenePhase == .active else {
-            enqueueShellPresentation(surface)
+        let decision = ShellPresentationRouting.decide(
+            sceneIsActive: scenePhase == .active,
+            surfaceIsAlreadyShowing: isShowingSameSurface(as: surface),
+            shellIsOccupied: hasPresentedShellSurface || isPreparingShellPresentation
+        )
+        guard decision == .present else {
+            pendingShellPresentations.enqueue(surface)
             return
         }
 
@@ -598,10 +609,6 @@ struct RootView: View {
             present(surface)
             return
         }
-        guard !hasPresentedShellSurface, !isPreparingShellPresentation else {
-            enqueueShellPresentation(surface)
-            return
-        }
 
         // Claim the presentation synchronously, before the task first yields.
         // A certificate and profile routed from one drop arrive in the same
@@ -609,32 +616,43 @@ struct RootView: View {
         isPreparingShellPresentation = true
         Task { @MainActor in
             defer { isPreparingShellPresentation = false }
-            guard await PresentationSettle.waitForIdle(cap: .seconds(8)) else {
-                enqueueShellPresentation(surface, atFront: true)
-                return
-            }
+            // Best effort, not a gate: a share sheet or another app's
+            // controller gets a short window to leave the screen, and then the
+            // surface is presented regardless.
+            _ = await PresentationSettle.waitForIdle(cap: .milliseconds(800))
             guard scenePhase == .active else {
-                enqueueShellPresentation(surface, atFront: true)
+                pendingShellPresentations.enqueue(surface, atFront: true)
                 return
             }
             if isShowingSameSurface(as: surface) {
                 present(surface)
-            } else if hasPresentedShellSurface {
-                enqueueShellPresentation(surface, atFront: true)
-            } else {
-                present(surface)
+                return
             }
-        }
-    }
+            guard !hasPresentedShellSurface else {
+                pendingShellPresentations.enqueue(surface, atFront: true)
+                return
+            }
 
-    /// Adds a request to the serial shell-presentation queue. Retried work is
-    /// inserted at the front so it keeps its place ahead of requests that
-    /// arrived while UIKit was settling.
-    private func enqueueShellPresentation(_ surface: ShellPresentation, atFront: Bool = false) {
-        if atFront {
-            pendingShellPresentations.insert(surface, at: 0)
-        } else {
-            pendingShellPresentations.append(surface)
+            // Ask, then wait for the sheet's own appearance report. A binding
+            // the platform refused is worse than no request at all: it leaves
+            // the shell looking occupied while nothing is on screen, so every
+            // later import waits for a dismissal that never comes. One retry
+            // with the binding cleared is what turns that into a second
+            // attempt instead of a dead screen.
+            for _ in 0..<2 {
+                hasConfirmedShellPresentation = false
+                present(surface)
+                let appeared = await PresentationSettle.waitUntil(cap: .milliseconds(2500)) {
+                    hasConfirmedShellPresentation
+                }
+                if appeared { return }
+                clearShellSurface(surface)
+                await Task.yield()
+            }
+            // Neither attempt appeared. Keep the request rather than losing
+            // it: a dismissal, an activation, or the next import action
+            // presents it.
+            pendingShellPresentations.enqueue(surface, atFront: true)
         }
     }
 
@@ -646,12 +664,36 @@ struct RootView: View {
               !hasPresentedShellSurface,
               !isPreparingShellPresentation,
               !pendingShellPresentations.isEmpty else { return }
-        let pending = pendingShellPresentations.removeFirst()
+        guard let pending = pendingShellPresentations.removeFirst() else { return }
         presentWhenActive(pending)
     }
 
     private var hasPresentedShellSurface: Bool {
         isShowingImport || isShowingSigningMaterials || isShowingSigningQueue || isShowingOnboarding
+    }
+
+    /// Reports when a shell sheet has finished appearing.
+    ///
+    /// The report is UIKit's own answer to "is it on screen", so a presentation
+    /// the platform dropped is detected instead of assumed successful.
+    private func shellAppearanceReporter() -> some View {
+        SheetPresentationReporter { hasConfirmedShellPresentation = true }
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+    }
+
+    /// Undoes the state of a presentation that never appeared.
+    ///
+    /// Called only after the surface's own appearance report failed to arrive,
+    /// so a sheet that is genuinely coming is never dismissed here.
+    private func clearShellSurface(_ surface: ShellPresentation) {
+        switch surface {
+        case .importHub:
+            isShowingImport = false
+        case .profiles, .certificates:
+            isShowingSigningMaterials = false
+            signingMaterialsImportURL = nil
+        }
     }
 
     private func isShowingSameSurface(as surface: ShellPresentation) -> Bool {

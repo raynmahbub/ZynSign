@@ -25,8 +25,10 @@ import UIKit
 /// - `presentAndConfirm(_:)` presents, checks that the hierarchy changed, and
 ///   reports failure so the caller can reset its binding and retry.
 ///
-/// The cap bounds waits whose platform report never arrives. It is a failure
-/// result, never permission to present into a hierarchy still in transition.
+/// The cap bounds waits whose platform report never arrives. A wait that times
+/// out is reported honestly, and it is never permission to skip the work the
+/// person asked for: the import paths present anyway and use
+/// `presentAndConfirm` to find out whether the platform took the request.
 enum PresentationSettle {
 
     /// How often a wait re-checks whatever it is waiting for.
@@ -103,24 +105,43 @@ enum PresentationSettle {
 
     /// Presents, and reports whether the presented hierarchy changed.
     ///
-    /// The wait for idle comes first, so the request is not made inside
-    /// another controller's transition. `present` is then called once, and the
-    /// hierarchy is polled: a presentation the platform accepted puts a new
-    /// controller at the top of the chain, and one it dropped leaves the chain
-    /// exactly as it was. The result lets the caller re-arm and ask again
-    /// instead of leaving the user with a tap that did nothing.
+    /// The wait for idle comes first — bounded, and **best effort**: it gives a
+    /// transition already in flight a chance to finish, and then the
+    /// presentation is attempted whatever it found. Waiting is never permission
+    /// to skip the attempt; a control the person just used is answered even
+    /// when the platform's own report is late, and an attempt the platform
+    /// drops is detected below instead of being assumed successful.
     ///
+    /// `present` is called once, and the hierarchy is polled: a presentation the
+    /// platform accepted puts a new controller at the top of the chain, and one
+    /// it dropped leaves the chain exactly as it was. The result lets the caller
+    /// re-arm and ask again instead of leaving the user with a tap that did
+    /// nothing.
+    ///
+    /// - Parameters:
+    ///   - cap: How long the appearance is polled for.
+    ///   - waiting: How long the hierarchy is given to finish a transition
+    ///     already in flight. A caller that has already waited — or that is
+    ///     presenting a picker the user just asked for — passes a short
+    ///     window, because a long one spends the user's patience before the
+    ///     presentation is even attempted.
     /// - Returns: `true` when something appeared, `false` when nothing did.
     @MainActor
     @discardableResult
     static func presentAndConfirm(
         cap: Duration = .milliseconds(1500),
+        waiting settlingCap: Duration = PresentationSettle.cap,
         _ present: @MainActor () -> Void
     ) async -> Bool {
-        guard await waitForIdle() else { return false }
+        _ = await waitForIdle(cap: settlingCap)
         #if canImport(UIKit)
-        let before = topMostViewController()
-        guard before != nil else { return false }
+        guard let before = topMostViewController() else {
+            // No window to inspect — a preview or a unit test. Nothing can be
+            // confirmed here, so the request is made and reported as accepted
+            // rather than being swallowed by an inspection that cannot work.
+            present()
+            return true
+        }
         present()
         let deadline = Date().addingTimeInterval(seconds(from: cap))
         while Date() < deadline {
