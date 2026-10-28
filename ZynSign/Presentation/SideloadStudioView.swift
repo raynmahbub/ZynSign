@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The Sideload Studio: what is installed, when it stops launching, and what
 /// the signing materials can do about it — one screen, read from the stores
@@ -30,6 +31,7 @@ private struct SideloadStudioContent: View {
     @State private var signingEntry: LibraryEntry?
     @State private var blockedNotice: BlockedRefreshNotice?
     @State private var isLoading = true
+    @State private var copiedSchedule = false
 
     @Environment(\.appTheme) private var theme
 
@@ -43,6 +45,7 @@ private struct SideloadStudioContent: View {
             VStack(spacing: ZSpacing.lg) {
                 heroCard
                 accountRow
+                calendarSection
                 refreshQueueSection
                 materialsSection
                 installedSection
@@ -240,6 +243,105 @@ private struct SideloadStudioContent: View {
         case 0: return "Re-sign before the profile ends"
         case 1: return "One build stops launching within two days"
         default: return "\(model.urgentCount) builds stop launching within two days"
+        }
+    }
+
+    // MARK: - Calendar
+
+    /// The next two weeks, one cell per day, keyed by the day a person has to
+    /// act rather than the day the build stops launching. Read-only by design:
+    /// a calendar is a plan, and the queue below it is the action.
+    private var calendarSection: some View {
+        VStack(alignment: .leading, spacing: ZSpacing.xs) {
+            sectionHeader("Next 14 days", subtitle: model.calendarSubtitle)
+            ZCard {
+                VStack(alignment: .leading, spacing: ZSpacing.sm) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: ZSpacing.xxs) {
+                            ForEach(model.calendarDays) { row in
+                                calendarCell(row)
+                            }
+                        }
+                        .padding(.horizontal, ZSpacing.xxs)
+                    }
+                    .accessibilityLabel("Re-signs over the next fourteen days")
+                    if let busiest = model.busiestDayLine {
+                        Text(busiest)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if model.calendar.outsideCount > 0 {
+                        Text(outsideWindowLine)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Button {
+                        UIPasteboard.general.string = model.scheduleText
+                        copiedSchedule = true
+                    } label: {
+                        Label(
+                            copiedSchedule ? "Schedule copied" : "Copy the schedule",
+                            systemImage: copiedSchedule ? "checkmark" : "doc.on.doc"
+                        )
+                        .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.accent)
+                    .disabled(model.calendar.days.isEmpty)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    /// What the window could not place, named rather than dropped.
+    private var outsideWindowLine: String {
+        var parts: [String] = []
+        if !model.calendar.beyondWindow.isEmpty {
+            parts.append("\(model.calendar.beyondWindow.count) later than the window")
+        }
+        if !model.calendar.scheduledWithoutDate.isEmpty {
+            parts.append("\(model.calendar.scheduledWithoutDate.count) with no expiry recorded")
+        }
+        return "Outside the window: " + parts.joined(separator: " · ") + "."
+    }
+
+    private func calendarCell(_ row: SideloadStudioModel.CalendarDayRow) -> some View {
+        VStack(spacing: ZSpacing.xxs) {
+            Text(row.weekday)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(row.dayNumber)
+                .font(.footnote.weight(row.isToday ? .bold : .regular))
+                .monospacedDigit()
+            Circle()
+                .fill(row.count == 0 ? Color.secondary.opacity(0.18) : theme.accent)
+                .frame(width: 6, height: 6)
+            Text(row.count == 0 ? " " : "\(row.count)")
+                .font(.caption2.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(row.count == 0 ? Color.secondary : theme.accent)
+        }
+        .frame(width: 34)
+        .padding(.vertical, ZSpacing.xxs)
+        .background {
+            if row.isToday {
+                RoundedRectangle(cornerRadius: ZynSignTokens.Radius.sm, style: .continuous)
+                    .fill(theme.accent.opacity(0.12))
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(calendarCellLabel(row))
+    }
+
+    private func calendarCellLabel(_ row: SideloadStudioModel.CalendarDayRow) -> String {
+        let day = row.isToday ? "Today" : "\(row.weekday) \(row.dayNumber)"
+        switch row.count {
+        case 0: return day + ", nothing to re-sign"
+        case 1: return day + ", one re-sign"
+        default: return day + ", \(row.count) re-signs"
         }
     }
 

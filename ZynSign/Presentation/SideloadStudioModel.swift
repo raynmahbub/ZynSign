@@ -37,6 +37,22 @@ final class SideloadStudioModel: ObservableObject {
     /// Each account's live leases against its published limit.
     @Published private(set) var usage: [SideloadAccountUsage] = []
 
+    /// The next two weeks, projected onto days by action date.
+    @Published private(set) var calendar: SideloadRefreshCalendar = .empty
+
+    /// The window as the screen draws it, rendered once per read so the strip
+    /// and the copied schedule are the same reading at the same instant.
+    @Published private(set) var calendarDays: [CalendarDayRow] = []
+
+    /// The sentence under the calendar's heading, rendered at read time.
+    @Published private(set) var calendarSubtitle = "Nothing to re-sign yet"
+
+    /// The busiest day in the window, in one sentence, or `nil` when quiet.
+    @Published private(set) var busiestDayLine: String?
+
+    /// The projection as plain text, for copying into a note.
+    @Published private(set) var scheduleText = ""
+
     /// The identities the store holds, in the store's own order.
     @Published private(set) var identities: [SigningIdentity] = []
 
@@ -132,6 +148,7 @@ final class SideloadStudioModel: ObservableObject {
         let moment = now()
         plan = SideloadRefreshPlan.plan(leases, at: moment)
         usage = SideloadLedger.usage(leases, at: moment)
+        rebuildCalendar(at: moment)
 
         do {
             entries = try await library.entries()
@@ -227,6 +244,87 @@ final class SideloadStudioModel: ObservableObject {
             guard let expiresAt = lease.expiresAt else { return false }
             return expiresAt.timeIntervalSince(moment) <= 2 * 86_400
         }.count
+    }
+
+    // MARK: - The next two weeks
+
+    /// One cell of the strip, with its weekday letter and day number already
+    /// rendered. The view formats nothing, so a screenshot and the running app
+    /// cannot disagree about a date.
+    struct CalendarDayRow: Identifiable, Equatable {
+        let day: SideloadRefreshDay
+        let weekday: String
+        let dayNumber: String
+        let isToday: Bool
+
+        var id: Int { day.index }
+        var count: Int { day.count }
+    }
+
+    /// Projects the leases onto days and renders everything the strip says.
+    ///
+    /// It runs inside `load()` because the countdowns belong to the read, not to
+    /// the render: reading the clock in a view body would let two cells of the
+    /// same screenshot describe two different instants.
+    private func rebuildCalendar(at moment: Date) {
+        calendar = SideloadRefreshCalendar.calendar(for: leases, at: moment)
+        calendarDays = calendar.days.map { day in
+            CalendarDayRow(
+                day: day,
+                weekday: Self.weekdayLetter(day.date),
+                dayNumber: Self.dayNumber(day.date),
+                isToday: day.isToday
+            )
+        }
+        calendarSubtitle = Self.windowSummary(for: calendar)
+        busiestDayLine = Self.busiestLine(for: calendar, at: moment)
+        scheduleText = calendar.scheduleText(
+            at: moment,
+            readOn: Self.formatted(moment, now: moment),
+            dayLabel: { Self.formatted($0, now: moment) }
+        )
+    }
+
+    /// What the window holds, in the same words the queue uses.
+    private static func windowSummary(for calendar: SideloadRefreshCalendar) -> String {
+        let window = calendar.days.count
+        guard !calendar.isEmpty else {
+            return window == 0
+                ? "The window opens after the first read"
+                : "Nothing to re-sign in the next \(window) days"
+        }
+        let count = calendar.actionCount
+        let base = "\(count) re-sign\(count == 1 ? "" : "s") by re-sign date"
+        guard let next = calendar.nextActionDay?.leases.first?.displayName else { return base }
+        return base + " · next is \(next)"
+    }
+
+    /// The busiest day, or the honest alternative when the window is quiet.
+    private static func busiestLine(for calendar: SideloadRefreshCalendar, at moment: Date) -> String? {
+        guard let busiest = calendar.busiestDay else { return nil }
+        let label = Self.formatted(busiest.date, now: moment)
+        if busiest.count == 1 {
+            return "One build is due on \(label)."
+        }
+        return "\(busiest.count) builds are due on \(label) — the busiest day in the window."
+    }
+
+    /// The weekday letter a strip cell shows, in the reader's locale.
+    static func weekdayLetter(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.calendar = SideloadRefreshCalendar.gregorian
+        formatter.setLocalizedDateFormatFromTemplate("EEEEE")
+        return formatter.string(from: date)
+    }
+
+    /// The day-of-month number a strip cell shows.
+    static func dayNumber(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.calendar = SideloadRefreshCalendar.gregorian
+        formatter.setLocalizedDateFormatFromTemplate("d")
+        return formatter.string(from: date)
     }
 
     // MARK: - Signing materials
