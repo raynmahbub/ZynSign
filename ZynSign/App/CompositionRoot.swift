@@ -312,6 +312,9 @@ enum CompositionRoot {
         )
         environment.downloadCenter = downloadCenter
         environment.downloadNotifier = downloadNotifier
+        // Refresh reminders are built here so one scheduler exists per launch;
+        // their preference lives in `UserDefaults` and is off by default.
+        environment.refreshReminders = LocalRefreshReminderScheduler()
         environment.repositoryDirectory = repositoryDirectory
         environment.installationWorkspace = makeInstallationWorkspace(
             library: foundation.library,

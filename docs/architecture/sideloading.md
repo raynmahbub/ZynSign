@@ -98,6 +98,31 @@ the usage rows — so the strip, the queue, and the copied schedule all describe
 one instant, and a screenshot can be reproduced. Nothing is stored: a re-sign
 writes a record, and the next read moves the cells.
 
+### Reminders
+
+A countdown is only useful if it is seen. `SideloadRefreshReminderPlan.make`
+turns the same leases into local notifications: one per lease, firing at nine in
+the morning on the day the lease's own lead time says to sign again, soonest
+first and capped at twelve. The rules mirror the calendar's:
+
+- **Work that is already due gets no reminder.** The queue is on screen and says
+  so; a notification about a date that has passed is noise, and the count of
+  skipped leases is carried in the plan rather than dropped.
+- **A run with no expiry gets no reminder.** The same rule as the action date:
+  no deadline invented from nothing.
+- **The identifier is stable and namespaced** (`zynsign.refresh.<lease>`), so a
+  second read replaces a reminder instead of doubling it, and clearing this
+  app's reminders cannot touch anything else in the notification centre.
+
+`LocalRefreshReminderScheduler` is the platform half, and it is the most refused
+component in the studio for the same reason the signing queue's notifier is: a
+reminder is posted only when the platform has a notification centre, the person
+allowed notifications, and the studio's own preference is on. The preference is
+off by default, turning it on is the only path that asks the system for
+authorization, and a refusal is accepted silently — the countdowns stay exactly
+where they were. Nothing is transmitted; a notification is this device posting a
+sentence to itself.
+
 ## 1. Package editing
 
 The signing engine already produced signatures. What it could not do was change

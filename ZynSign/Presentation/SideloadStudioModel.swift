@@ -53,6 +53,12 @@ final class SideloadStudioModel: ObservableObject {
     /// The projection as plain text, for copying into a note.
     @Published private(set) var scheduleText = ""
 
+    /// The reminders the leases imply, and what was left out of them.
+    @Published private(set) var reminderPlan: SideloadRefreshReminderPlan = .empty
+
+    /// Whether the person turned local refresh reminders on.
+    @Published private(set) var remindersEnabled = false
+
     /// The identities the store holds, in the store's own order.
     @Published private(set) var identities: [SigningIdentity] = []
 
@@ -80,6 +86,8 @@ final class SideloadStudioModel: ObservableObject {
     private let signingHistory: (any SigningHistoryStore)?
     private let provisioningProfiles: ProvisioningProfileLibrary?
     private let library: ApplicationLibrary
+    private let reminders: (any RefreshReminderScheduling)?
+    private let reminderDefaults: UserDefaults
     private let now: () -> Date
     private var isReading = false
 
@@ -88,12 +96,17 @@ final class SideloadStudioModel: ObservableObject {
         signingHistory: (any SigningHistoryStore)?,
         provisioningProfiles: ProvisioningProfileLibrary?,
         library: ApplicationLibrary,
+        reminders: (any RefreshReminderScheduling)? = nil,
+        reminderDefaults: UserDefaults = .standard,
         now: @escaping () -> Date = { Date() }
     ) {
         self.identityStore = identityStore
         self.signingHistory = signingHistory
         self.provisioningProfiles = provisioningProfiles
         self.library = library
+        self.reminders = reminders
+        self.reminderDefaults = reminderDefaults
+        self.remindersEnabled = RefreshReminderPreferences.isEnabled(in: reminderDefaults)
         self.now = now
     }
 
@@ -104,6 +117,7 @@ final class SideloadStudioModel: ObservableObject {
             signingHistory: environment.signingHistory,
             provisioningProfiles: environment.provisioningProfiles,
             library: environment.library,
+            reminders: environment.refreshReminders,
             now: now
         )
     }
@@ -149,6 +163,7 @@ final class SideloadStudioModel: ObservableObject {
         plan = SideloadRefreshPlan.plan(leases, at: moment)
         usage = SideloadLedger.usage(leases, at: moment)
         rebuildCalendar(at: moment)
+        await applyReminders(at: moment)
 
         do {
             entries = try await library.entries()
@@ -325,6 +340,67 @@ final class SideloadStudioModel: ObservableObject {
         formatter.calendar = SideloadRefreshCalendar.gregorian
         formatter.setLocalizedDateFormatFromTemplate("d")
         return formatter.string(from: date)
+    }
+
+    // MARK: - Reminders
+
+    /// Whether this device can post a reminder at all.
+    var remindersSupported: Bool {
+        reminders?.isSupported ?? false
+    }
+
+    /// The sentence beside the switch: what would be posted, and what never is.
+    var reminderSummary: String {
+        guard remindersSupported else {
+            return "This device offers no notification centre, so reminders are unavailable. The countdowns above remain."
+        }
+        guard remindersEnabled else {
+            return "Off. A reminder is a local notification posted by this device; nothing is sent anywhere."
+        }
+        switch reminderPlan.count {
+        case 0:
+            return reminderPlan.skippedInPast > 0
+                ? "On. Nothing ahead to remind you about — the builds in the queue are due now."
+                : "On. A reminder appears the next time a lease has a day to sign again."
+        case 1:
+            return "On. One reminder scheduled, on the day a build should be signed again."
+        default:
+            return "On. \(reminderPlan.count) reminders scheduled, each on the day a build should be signed again."
+        }
+    }
+
+    /// Turns reminders on or off.
+    ///
+    /// Turning them on asks the system for authorization — because the person
+    /// just asked for reminders — and then schedules the plan that is already
+    /// built. Turning them off removes every pending reminder this app posted.
+    func setRemindersEnabled(_ enabled: Bool) async {
+        guard let reminders, reminders.isSupported else {
+            remindersEnabled = false
+            return
+        }
+        remindersEnabled = enabled
+        RefreshReminderPreferences.setEnabled(enabled, in: reminderDefaults)
+        if enabled {
+            await reminders.requestAuthorizationIfNeeded()
+            await reminders.schedule(reminderPlan.reminders)
+        } else {
+            await reminders.clearScheduled()
+        }
+    }
+
+    /// Builds the plan for this reading and, when the person asked for
+    /// reminders, replaces what is pending with it.
+    private func applyReminders(at moment: Date) async {
+        reminderPlan = SideloadRefreshReminderPlan.make(
+            for: leases,
+            at: moment,
+            dayLabel: { Self.formatted($0, now: moment) }
+        )
+        remindersEnabled = RefreshReminderPreferences.isEnabled(in: reminderDefaults)
+        if remindersEnabled, let reminders {
+            await reminders.schedule(reminderPlan.reminders)
+        }
     }
 
     // MARK: - Signing materials

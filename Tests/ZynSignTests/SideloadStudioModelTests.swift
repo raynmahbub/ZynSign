@@ -42,15 +42,25 @@ final class SideloadStudioModelTests: XCTestCase {
 
     private func makeModel(
         history: (any SigningHistoryStore)? = nil,
-        profileLibrary: ProvisioningProfileLibrary? = nil
+        profileLibrary: ProvisioningProfileLibrary? = nil,
+        reminders: (any RefreshReminderScheduling)? = nil
     ) -> SideloadStudioModel {
         SideloadStudioModel(
             identityStore: identities,
             signingHistory: history,
             provisioningProfiles: profileLibrary,
             library: library,
+            reminders: reminders,
+            reminderDefaults: Self.reminderDefaults(),
             now: { self.now }
         )
+    }
+
+    /// A throwaway defaults suite, so a test never reads the preference a person
+    /// (or an earlier test) left behind.
+    private static func reminderDefaults() -> UserDefaults {
+        let suite = "ZynSignTests.reminders.\(UUID().uuidString)"
+        return UserDefaults(suiteName: suite) ?? .standard
     }
 
     private func record(
@@ -181,6 +191,62 @@ final class SideloadStudioModelTests: XCTestCase {
         XCTAssertEqual(model.calendar.scheduledWithoutDate.count, 1)
         XCTAssertTrue(model.calendarSubtitle.contains("Nothing to re-sign in the next 14 days"))
         XCTAssertTrue(model.scheduleText.contains("1 with no expiry recorded."))
+    }
+
+    /// Turning reminders on asks the system once and posts the window that is
+    /// already built — not a second projection computed at the wrong instant.
+    func testTurningRemindersOnSchedulesTheWindow() async {
+        let scheduler = RecordingRefreshReminders()
+        journal = InMemorySigningHistoryStore(records: [
+            record(profileExpiresAt: now.addingTimeInterval(6 * 86_400)),
+        ])
+        let model = makeModel(history: journal, reminders: scheduler)
+        await model.load()
+
+        XCTAssertTrue(model.remindersSupported)
+        XCTAssertFalse(model.remindersEnabled)
+        XCTAssertEqual(model.reminderPlan.count, 1)
+
+        await model.setRemindersEnabled(true)
+
+        XCTAssertTrue(model.remindersEnabled)
+        XCTAssertEqual(scheduler.authorizationRequests, 1)
+        XCTAssertEqual(scheduler.scheduled.last?.count, 1)
+        XCTAssertEqual(scheduler.scheduled.last?.first?.leaseID, model.reminderPlan.reminders.first?.leaseID)
+    }
+
+    /// Turning them off removes what was posted and leaves the countdowns alone.
+    func testTurningRemindersOffClearsWhatWasScheduled() async {
+        let scheduler = RecordingRefreshReminders()
+        journal = InMemorySigningHistoryStore(records: [
+            record(profileExpiresAt: now.addingTimeInterval(6 * 86_400)),
+        ])
+        let model = makeModel(history: journal, reminders: scheduler)
+        await model.load()
+        await model.setRemindersEnabled(true)
+        await model.setRemindersEnabled(false)
+
+        XCTAssertFalse(model.remindersEnabled)
+        XCTAssertEqual(scheduler.clearCount, 1)
+        XCTAssertEqual(model.calendar.actionCount, 1, "a reminder is a nudge; the countdown stays")
+    }
+
+    /// A device with no notification centre never claims to have scheduled
+    /// anything.
+    func testADeviceThatCannotPostRemindersKeepsThemOff() async {
+        let scheduler = RecordingRefreshReminders()
+        scheduler.isSupported = false
+        journal = InMemorySigningHistoryStore(records: [
+            record(profileExpiresAt: now.addingTimeInterval(6 * 86_400)),
+        ])
+        let model = makeModel(history: journal, reminders: scheduler)
+        await model.load()
+        await model.setRemindersEnabled(true)
+
+        XCTAssertFalse(model.remindersSupported)
+        XCTAssertFalse(model.remindersEnabled)
+        XCTAssertTrue(scheduler.scheduled.isEmpty)
+        XCTAssertTrue(model.reminderSummary.contains("no notification centre"))
     }
 
     func testReadingTwiceDoesNotDuplicateTheLedger() async {

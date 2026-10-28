@@ -290,6 +290,24 @@ private struct SideloadStudioContent: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(theme.accent)
                     .disabled(model.calendar.days.isEmpty)
+                    if model.remindersSupported {
+                        Divider()
+                        Toggle(isOn: Binding(
+                            get: { model.remindersEnabled },
+                            set: { newValue in Task { await model.setRemindersEnabled(newValue) } }
+                        )) {
+                            VStack(alignment: .leading, spacing: ZSpacing.xxs) {
+                                Text("Remind me before a build stops launching")
+                                    .font(.footnote.weight(.medium))
+                                Text(model.reminderSummary)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .tint(theme.accent)
+                        .accessibilityHint("Posts a local notification on the day a build should be signed again.")
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

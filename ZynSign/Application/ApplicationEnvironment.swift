@@ -257,6 +257,12 @@ struct ApplicationEnvironment {
     /// are posted either way. Off unless the user turns them on.
     var downloadNotifier: (any DownloadNotifying)? = nil
 
+    /// Local reminders for the Sideload Studio: one notification on the day a
+    /// signed build should be signed again. Optional, off by default, and the
+    /// only path that asks the system for authorization is the person turning
+    /// it on. Nothing is transmitted.
+    var refreshReminders: (any RefreshReminderScheduling)? = nil
+
     /// The Binary & Signature Inspector use case: inspects, read-only, every
     /// executable in a library application's bundle — Mach-O structure,
     /// load commands, and code signature — and verifies each signature on
