@@ -21,6 +21,25 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ### Added
 
+- **Sideload Studio: the seven-day clock, read from the journal.**
+  Every delivered signing run already records the profile and certificate that
+  signed it; `SideloadLedger` reads those records and derives one lease per
+  application — the earlier of the two expiry dates, the account the profile
+  belongs to, and how many days are left — without storing a second list of
+  what is installed. A free personal team's week, a paid membership's year, and
+  an in-house profile's year are read from the profile's own classification and
+  lifetime, and a run whose account cannot be established is left without one
+  rather than guessed at. `SideloadAccount` publishes the limits the studio
+  plans with — three apps at once and ten App IDs a week for a free team, a
+  hundred registered devices for a membership — and names the services a
+  personal profile cannot carry. The screen leads with the build that stops
+  launching next, puts the due and expired builds in a refresh queue, and hands
+  one to the ordinary signing flow; a build whose application has left the
+  library says so instead of offering a button that cannot work. The countdown
+  is the profile's date, never a claim that the app is installed on a device.
+  A new studio surface — midnight-to-violet hero, gradient rings, account
+  cards — sits beside the existing themes rather than replacing any of them.
+  See `docs/architecture/sideloading.md`.
 - **Sideloading: package edits, a device bridge, and guest containers.**
   `SideloadPackageEditor` rewrites a package inside the signing working copy —
   Info.plist overrides, nested-code and URL-scheme removal, dylib injection

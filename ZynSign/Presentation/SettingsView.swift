@@ -320,10 +320,19 @@ struct SettingsView: View {
             // it. It is registered as `CoreFeature.sideloading`.
             Section("Sideloading") {
                 NavigationLink {
+                    SideloadStudioView()
+                } label: {
+                    ZSettingsLabel(
+                        title: "Sideload Studio",
+                        subtitle: "When each signed build stops launching, which account signed it, and what has to be re-signed.",
+                        symbol: "hourglass.badge.plus"
+                    )
+                }
+                NavigationLink {
                     SideloadingView(embedsNavigationStack: false)
                 } label: {
                     ZSettingsLabel(
-                        title: "Sideloading",
+                        title: "Delivery report",
                         subtitle: "Device pairing, installation, guest containers, and package edits — with the requirement each one is missing.",
                         symbol: "arrow.down.app.fill"
                     )
