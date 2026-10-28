@@ -252,7 +252,7 @@ final class SideloadStudioModelTests: XCTestCase {
             identity: identity,
             capability: RecordingSigningCapability()
         )
-        await profiles.upsert(IdentityCenterFixtures.summary(for: IdentityCenterFixtures.profileFacts()))
+        try await profiles.upsert(IdentityCenterFixtures.summary(for: IdentityCenterFixtures.profileFacts()))
 
         let model = makeModel(profileLibrary: profiles)
         await model.load()
