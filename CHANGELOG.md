@@ -64,6 +64,22 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   the usage rows, so the strip, the queue, and the copied schedule describe one
   instant. See `docs/architecture/sideloading.md`.
 
+### Fixed
+
+- **A capacity failure no longer looks like a lint failure.** `Lint and format`
+  ran on `macos-15` only to `brew install` SwiftLint and SwiftFormat, and when
+  GitHub's hosted macOS pool was short a runner the job ended red with the
+  annotation *"the job was not acquired by Runner of type hosted"* — not one
+  step executed, nothing linted, nothing disproved — beside a green Xcode build.
+  Neither tool needs Xcode: `Scripts/ci/lint.sh` and `Scripts/ci/format.sh`
+  already run both from their published Linux images when no binary is
+  installed, so the job now runs on `ubuntu-24.04` with the same pinned
+  `.swiftlint.yml` and `.swiftformat` rule sets and the same verdict, leaving
+  the macOS pool to the two jobs that genuinely need it. The retry path for a
+  run that still cannot get a machine is written down in
+  `docs/development/continuous-integration.md` — re-run the failed jobs on the
+  same commit; a shortage is never a test result.
+
 ## [3.0.0-nova.1] - 2026-10-28
 
 > `v2.0.0` was scheduled as depth and fixes and introduced no gate of its own,

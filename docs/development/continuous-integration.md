@@ -14,7 +14,7 @@ there by design, as it does everywhere without
 | --- | --- | --- |
 | Repository hygiene | `ubuntu-24.04` | On manual Build runs, refuse private-key material and certificate text outside `Tests/` and run the release-metadata self-test; on all Build events, refuse generated artifacts and machine state (`DerivedData/`, `xcuserdata/`, `*.xcresult`, `*.xcuserstate`, `.DS_Store`), **parse every workflow `run:` block with `bash -n` and refuse a backtick that two backslashes left unescaped** (`workflow_shell_check.py`), check the release verdict (`release_verdict.sh --self-test`), run the host vector scripts and external-validation harness self-test; **refuse a crash surface that disagrees with its baseline; refuse an accessibility finding in the sources; refuse a regression catalogue that names a test which does not exist; build and upload the hardening report** |
 | Build and test (Xcode) | `macos-15` | Select the newest stable Xcode, record the toolchain versions, restore the Swift Package cache, then run `Scripts/ci/build.sh`: resolve packages, clean Derived Data, build every target, build the test targets, run the unit tests on a resolved iPhone simulator, annotate each failing case from the result bundle, and upload `build/logs/` on failure. The manual `run_unit_tests: false` switch turns the run into a compile-only gate |
-| Lint and format | `macos-15` | One Homebrew install of SwiftLint and SwiftFormat, then `Scripts/ci/lint.sh` (error-severity findings block) and `Scripts/ci/format.sh check` (the pinned `.swiftformat` rule set, repaired with `Scripts/ci/format.sh apply`) |
+| Lint and format | `ubuntu-24.04` | `Scripts/ci/lint.sh` (error-severity findings block) and `Scripts/ci/format.sh check` (the pinned `.swiftformat` rule set, repaired with `Scripts/ci/format.sh apply`). Neither tool needs Xcode: with no binary installed the scripts run SwiftLint and SwiftFormat from their published Linux images, so this job does not consume a macOS runner |
 | External validation (Apple tooling) | `macos-15` | Run `ExternalValidationExportTests` with `TEST_RUNNER_ZYNSIGN_EXPORT_DIR` set, judge the exported artifacts with `Tests/Host/external_validation.py run` (`codesign`, `otool`, `ditto`, `unzip`, OpenSSL, ad hoc reference signing), publish the report to the job summary, upload the report and the exports as the `external-validation` artifact, and emit one notice per artifact |
 | Private test IPA (manual, `mode: private-ipa`) | `macos-15` | Run `Scripts/ci/private_ipa.sh`: archive for a real device and **always** deliver an IPA — `ZynSign-{tag}-{config}-private.ipa`, a signed ad-hoc export, when the `TEAM_ID` secret is configured; otherwise `ZynSign-{tag}-{config}-private-unsigned.ipa`, the raw Payload package, which must be re-signed before installation. The artifact is a 7-day workflow artifact (`build/private/` with the IPA, its SHA-256 and the logs) — never a tag, never a release. A green job always contains an IPA; when none can be produced the job fails |
 
@@ -80,6 +80,35 @@ parser, and those fixtures embed no private keys. Anything matching outside
   owner enables in repository settings, which cannot be configured from this
   file.
 
+## When a job never got a runner
+
+A hosted-runner shortage is not a finding. GitHub reports it as a failed job
+whose annotation reads *"The job was not acquired by Runner of type hosted
+even after multiple attempts"*, with no runner assigned and **no step having
+run** — so nothing was compiled, linted, or validated, and nothing was
+disproved either. The two are easy to confuse in a run list that shows one
+red check beside a green build.
+
+Read the shape of the failure before you read the code:
+
+1. Open the job. A red job with failing steps is a real verdict; a red job
+   with zero failing steps and no runner is capacity.
+2. Confirm on the run summary — capacity failures arrive within minutes,
+   not at the end of a normal job's duration.
+3. **Re-run the failed jobs** on the same commit (`gh run rerun <run-id>
+   --failed`, or *Re-run failed jobs* in the UI). A re-run keeps the same
+   commit and the same artefacts; nothing needs to be rebuilt or re-pushed,
+   and no source change is warranted by capacity alone.
+4. Never record a capacity failure as a test result, a device result, or a
+   reason to loosen a gate. The commit's verdict is whatever the gates say
+   when they actually run.
+
+The structural mitigation is the split in the section above: only jobs that
+need Xcode hold a macOS runner, and `lint-and-format` — which needs a Swift
+toolchain but not a Mac — runs its tools from their published Linux images on
+`ubuntu-24.04`. That does not remove the shortage; it keeps the two jobs that
+cannot avoid the macOS pool from queuing behind a third that can.
+
 ## Running the Same Checks Locally
 
 With Xcode installed:
@@ -142,11 +171,15 @@ bundle so the failing suites are readable without opening a raw log.
 
 The suite is split by what it needs, which is what keeps the macOS bill
 down — macOS minutes cost roughly ten times ubuntu minutes, so only the
-jobs that genuinely need Xcode run on macOS:
+jobs that genuinely need Xcode run on macOS. (It is also a reliability
+matter: GitHub's hosted macOS pool is capacity-limited, so every job that
+does not need a Mac is one less chance that a run ends red without a
+single step having failed — see [When a job never got a
+runner](#when-a-job-never-got-a-runner).)
 
 | Workflow | Trigger | Jobs | Gate type |
 | --- | --- | --- | --- |
-| `01-build.yml` · 🔨 Build | PR + manual (`mode: build \| private-ipa`, plus `configuration`, `run_unit_tests`, `note`); branch pushes do not start an Xcode build | `hygiene` (ubuntu) · `build-and-test` · `lint-and-format` · `external-validation` (macOS); on a PR also `pr-title` · `commitlint` · `label-pr` (ubuntu) · `danger` (macOS); on demand `private-ipa` | blocking, except external validation (measures) and Danger (advises) |
+| `01-build.yml` · 🔨 Build | PR + manual (`mode: build \| private-ipa`, plus `configuration`, `run_unit_tests`, `note`); branch pushes do not start an Xcode build | `hygiene` · `lint-and-format` (ubuntu) · `build-and-test` · `external-validation` (macOS); on a PR also `pr-title` · `commitlint` · `label-pr` (ubuntu) · `danger` (macOS); on demand `private-ipa` | blocking, except external validation (measures) and Danger (advises) |
 | `02-quality.yml` · 🛡 Quality | PR + push to `main`/`develop` + manual | 9 ubuntu jobs: `architecture-guard` · `dependency-validation` · `docs-check` · `secret-policy` · `gitleaks` · `release-train` · `complexity-check` · `engineering-summary` · `readme-check` | blocking, except complexity and the summary |
 | `03-release.yml` · 🚀 Release | tag `v*` + manual (`version`, `dry_run`) | `meta` → quality gate → build/test → assets → publish → verdict; `dry_run: true` is the full rehearsal and publishes nothing | blocking |
 | `04-maintenance.yml` · 🧹 Maintenance | Monday 03:23 UTC + manual (`repair`) | one macOS sweep: full metrics (Periphery), `format.sh apply`, `update_readme.py`, then one repair PR (staged on a branch with a warning when Actions may not open PRs) | advisory — nothing requires it |
