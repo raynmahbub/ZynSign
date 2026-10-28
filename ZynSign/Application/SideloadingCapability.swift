@@ -241,4 +241,18 @@ enum SideloadingTruth {
 
     static let containerEvidenceRule =
         "A guest is listed as runnable only when every block in its assessment is clear."
+
+    /// The statements the refresh ledger adds. A countdown is only useful if the
+    /// screen is honest about what it is counting: a date the profile declared,
+    /// not a promise that the app will launch on the device.
+    static let leaseStatements = [
+        "A countdown is the profile's own expiry, read from the signing journal. "
+            + "ZynSign does not know whether the build is still installed.",
+        "Re-signing produces a new package. Replacing the installed one is the "
+            + "device's installer's job, and ZynSign reports only what it answers.",
+        "A free personal team issues seven-day profiles and holds three apps at "
+            + "once; a paid membership issues year-long ones.",
+        "Removing an app from the library leaves the journal's record of it. "
+            + "The lease stays and says it cannot be signed again from here.",
+    ]
 }

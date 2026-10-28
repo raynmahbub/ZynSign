@@ -1,20 +1,23 @@
 # Sideloading: installation, guest containers and package editing
 
-> Scope: the device bridge, the guest container, and the package edits that
-> sign-time rewriting needs. Code: `ZynSign/Domain/Sideloading`,
-> `ZynSign/Domain/DeviceBridge`, `ZynSign/Domain/Containers`,
-> `ZynSign/Application/DeviceBridgeService.swift`,
+> Scope: the refresh lease, the device bridge, the guest container, and the
+> package edits that sign-time rewriting needs. Code:
+> `ZynSign/Domain/Sideloading`, `ZynSign/Domain/DeviceBridge`,
+> `ZynSign/Domain/Containers`, `ZynSign/Application/DeviceBridgeService.swift`,
 > `ZynSign/Application/SideloadPackageEditor.swift`,
 > `ZynSign/Application/SideloadingCapability.swift`,
+> `ZynSign/Application/SideloadLedger.swift`,
+> `ZynSign/Presentation/SideloadStudioView.swift`,
 > `ZynSign/Presentation/SideloadingView.swift`.
 > Executable specification and suite: `Tests/Host/zynsim`,
 > `Scripts/sim/run_unified_suite.py`.
 
-This record covers three capabilities: rewriting a package while it is signed,
-delivering a signed package to a device's own installer through `lockdownd`,
-and running a guest application inside the host instead of installing it. All
-three are implemented here, each with the requirements it actually has — stated
-per capability rather than as a single disclaimer.
+This record covers four capabilities: reading the refresh lease a signature
+carries, rewriting a package while it is signed, delivering a signed package to
+a device's own installer through `lockdownd`, and running a guest application
+inside the host instead of installing it. All four are implemented here, each
+with the requirements it actually has — stated per capability rather than as a
+single disclaimer.
 
 **Availability.** The area is `CoreFeature.sideloading` — always reachable, in
 every release — and not a `ReleaseFeature`. A release gate controls what a
@@ -23,6 +26,41 @@ gating it would hide the explanation from exactly the build that needs it. The
 package edits it previews are applied by the signing run, which is gated by
 `ReleaseFeature.smartSign`; nothing on this screen installs, launches, or
 persists a change on its own.
+
+## 0. The refresh lease
+
+A sideloaded build is not permanent. The profile that authorises it is issued
+for a fixed period — seven days for a free Apple ID's personal team, a year for
+a paid or in-house membership — and when that period ends the app stops
+opening. The date is the profile's, not the application's, so a tool that
+cannot read it cannot warn anyone.
+
+`SideloadLease` is derived, never stored. `SideloadLedger.leases(from:profiles:)`
+reads the signing journal, keeps only delivered runs, keeps only the newest run
+per application (signing replaces the signature, so an older run's expiry
+decides nothing), and builds one lease per application:
+
+- `expiresAt` is the **earlier** of the profile's and the certificate's expiry,
+  and `ending` names which one it was. A build stops launching on that date
+  whichever came first.
+- The account is read from the stored profile's own classification, settled by
+  the profile's lifetime when the classification is a development profile, and
+  left **unknown** when neither answers. An unknown account still gets a lease;
+  it does not get a limit or a lead time it cannot prove — it falls back to a
+  neutral three days.
+- `status(at:)` is `current`, `refreshDue` (inside the account's lead window,
+  two days for a free team, twenty-one and forty-five for the memberships),
+  `expired`, or `unrecorded` when the run captured no date at all.
+
+`SideloadRefreshPlan.plan(_:at:)` partitions every lease into due, healthy and
+unrecorded lists, so a screen can show the whole journal rather than only the
+urgent part. Every function takes its instant as an argument; nothing in this
+layer reads the clock, which is what makes the countdown testable.
+
+**What a countdown is not.** It is the profile's declared date. It is not
+evidence that the build is installed on any device, and re-signing produces a
+new package that the device's own installer must still be asked to accept. The
+studio says both, on screen, next to the number.
 
 ## 1. Package editing
 
@@ -136,7 +174,8 @@ bundle swizzles — with the prerequisite each one carries.
 | Wire codecs | `Domain/DeviceBridge/DeviceBridgeProtocols.swift`, `DevicePairingRecord.swift` | `zynsim/protocol.py`, `zynsim/pairing.py` |
 | Session and installation orchestration | `Application/DeviceBridgeService.swift` | `zynsim/device.py` |
 | Container rules and launch plan | `Domain/Containers/GuestContainer.swift` | `zynsim/container.py` |
-| Screen | `Presentation/SideloadingView.swift` | — |
+| Refresh leases and account limits | `Domain/Sideloading/SideloadLease.swift`, `SideloadAccount.swift`, `Application/SideloadLedger.swift` | — |
+| Screens | `Presentation/SideloadStudioView.swift`, `Presentation/SideloadingView.swift` | — |
 
 The host reference is where the byte-level work is executed and verified in this
 repository; the app holds the same rules behind its own types, and its transport
@@ -167,7 +206,9 @@ Not proven here, and named as open:
 
 1. **Swift build and XCTest.** `swift` and `xcodebuild` are absent from this
    environment. `Tests/ZynSignTests/SideloadingTests.swift` mirrors the
-   byte-level expectations above.
+   byte-level expectations above; `SideloadAccountTests`,
+   `SideloadLeaseTests`, `SideloadLedgerTests` and `SideloadStudioModelTests`
+   cover the lease rules and are compiled by CI, not here.
 2. **A physical device.** The simulator speaks the recorded framing and
    terminates real mutual TLS, but a device's exact AFC header and service
    ports are asserted, not confirmed.
