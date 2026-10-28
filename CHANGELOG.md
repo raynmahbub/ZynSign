@@ -19,6 +19,23 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Added
+
+- **A refresh calendar for the next two weeks.** The Sideload Studio answers a
+  second question beside "what is late": *when is my week busy*. Every lease is
+  projected onto the day it should be signed again — its expiry minus the lead
+  its own account implies, so a seven-day personal-team build acts on day five
+  and a year-long membership build three weeks before its anniversary — and the
+  fourteen days are drawn as one strip, empty days and all. Work that is late
+  lands on today rather than in a negative column; a lease whose run recorded no
+  expiry is listed beside the strip instead of being given a deadline nobody
+  agreed to; a lease past the window is counted rather than squeezed into the
+  last cell. The whole window can be copied as plain text — app, day to re-sign
+  by, the expiry that date came from, and the account that signed it — so a plan
+  can leave the screen. The calendar is built once per read beside the plan and
+  the usage rows, so the strip, the queue, and the copied schedule describe one
+  instant. See `docs/architecture/sideloading.md`.
+
 ## [3.0.0-nova.1] - 2026-10-28
 
 > `v2.0.0` was scheduled as depth and fixes and introduced no gate of its own,

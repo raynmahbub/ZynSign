@@ -45,6 +45,14 @@ for the private matrix to be run on real hardware.
   model, no network client, and no telemetry are involved — the facts it reads
   never leave the process.
 
+- **A two-week refresh calendar in the studio.** Each lease is projected onto
+  the day it should be signed again — its expiry minus the lead its own account
+  implies — and drawn as fourteen cells, empty days included. Late work lands on
+  today, work past the window is counted rather than squeezed in, and a run with
+  no expiry is listed instead of being given a deadline nobody agreed to. The
+  window copies as plain text: app, day to re-sign by, the expiry behind it, and
+  the account that signed it.
+
 - **Zeus**, **the Sideload Studio**, and the **sideloading package work** —
   written since `1.0.0` and released here (their full descriptions are in
   `CHANGELOG.md`). In short: the violet theme a new install opens on; one

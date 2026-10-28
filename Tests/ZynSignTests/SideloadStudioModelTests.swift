@@ -146,6 +146,43 @@ final class SideloadStudioModelTests: XCTestCase {
         XCTAssertEqual(model.plan.expiredCount(at: now), 1)
     }
 
+    /// The strip is a reading, not a render: the model builds it once per load,
+    /// so two cells of one screenshot cannot describe two instants — and the
+    /// copied schedule is the same reading in words.
+    func testTheCalendarIsBuiltFromTheSameReadingAsTheQueue() async throws {
+        let expires = now.addingTimeInterval(6 * 86_400)
+        journal = InMemorySigningHistoryStore(records: [record(profileExpiresAt: expires)])
+        let model = makeModel(history: journal)
+        await model.load()
+
+        XCTAssertEqual(model.calendar.days.count, SideloadRefreshCalendar.defaultDayCount)
+        XCTAssertEqual(model.calendarDays.count, SideloadRefreshCalendar.defaultDayCount)
+        XCTAssertEqual(model.calendarDays.first?.isToday, true)
+        XCTAssertEqual(model.calendar.actionCount, 1)
+
+        // A personal team's two-day lead puts the action date four days out.
+        let action = try XCTUnwrap(model.calendar.nextActionDay)
+        XCTAssertEqual(action.index, 4)
+        XCTAssertTrue(model.calendarSubtitle.contains("next is Example"))
+        XCTAssertEqual(try XCTUnwrap(model.busiestDayLine), "One build is due on \(SideloadStudioModel.formatted(action.date, now: now)).")
+        XCTAssertTrue(model.scheduleText.contains("Example"))
+        XCTAssertTrue(model.scheduleText.contains("1 re-sign in the next 14 days."))
+    }
+
+    /// A journal with no expiry in it produces a quiet strip and a schedule that
+    /// says so, rather than a countdown derived from nothing.
+    func testACalendarWithNoExpiryIsQuietAndSaysWhy() async {
+        journal = InMemorySigningHistoryStore(records: [record(profileExpiresAt: nil)])
+        let model = makeModel(history: journal)
+        await model.load()
+
+        XCTAssertEqual(model.calendar.actionCount, 0)
+        XCTAssertNil(model.busiestDayLine)
+        XCTAssertEqual(model.calendar.scheduledWithoutDate.count, 1)
+        XCTAssertTrue(model.calendarSubtitle.contains("Nothing to re-sign in the next 14 days"))
+        XCTAssertTrue(model.scheduleText.contains("1 with no expiry recorded."))
+    }
+
     func testReadingTwiceDoesNotDuplicateTheLedger() async {
         journal = InMemorySigningHistoryStore(records: [
             record(profileExpiresAt: now.addingTimeInterval(6 * 86_400)),

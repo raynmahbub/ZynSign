@@ -62,6 +62,42 @@ evidence that the build is installed on any device, and re-signing produces a
 new package that the device's own installer must still be asked to accept. The
 studio says both, on screen, next to the number.
 
+### The next two weeks
+
+A list of what is due answers "what is late". A calendar answers the question a
+person with three apps on a free team actually asks: *when is my week busy, and
+what do I have to re-sign before it lapses?*
+
+`SideloadRefreshCalendar.calendar(for:dayCount:at:calendar:)` projects the
+leases onto days by their **action date**, not by their expiry. A lease's action
+date is `expiresAt` minus its own lead — `refreshBy()` — so a seven-day
+personal-team build lands on day five when it is signed today, and a year-long
+membership build lands three weeks before its anniversary. Three rules keep the
+projection honest:
+
+- **Late work lands on today, not in a negative column.** An action date that
+  has already arrived — including one that has already passed — fills today's
+  cell, because "act now" is a real bucket.
+- **The window is every day, including the empty ones.** Fourteen cells, gaps
+  and all: dropping a quiet day would make the strip look like one continuous
+  queue.
+- **What cannot be placed is named, never dropped.** A lease whose run recorded
+  no expiry has no action date and is listed separately; a lease whose action
+  date falls past the window is counted as beyond it rather than squeezed into
+  the last cell.
+
+`SideloadRefreshCalendar.scheduleText(at:readOn:dayLabel:)` renders the same
+projection as plain text so a person can copy their plan into a note. It names
+the app, the day to re-sign by, the expiry that date came from, and the account
+that signed it, and it ends with the sentence the rest of the studio repeats: a
+date is the profile's own expiry, and ZynSign does not know whether a build is
+installed.
+
+The model builds the calendar once per read, in `load()`, beside the plan and
+the usage rows — so the strip, the queue, and the copied schedule all describe
+one instant, and a screenshot can be reproduced. Nothing is stored: a re-sign
+writes a record, and the next read moves the cells.
+
 ## 1. Package editing
 
 The signing engine already produced signatures. What it could not do was change
