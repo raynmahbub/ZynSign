@@ -31,6 +31,10 @@ enum EntitlementsError: Error, Equatable {
     case invalidBlobFraming
     /// A requirements of the entitlement set cannot be evaluated here.
     case notRepresentable
+    /// The payload was DER, but not the entitlement grammar: a bad tag, a
+    /// non-minimal length, a non-canonical boolean or integer, a duplicate key,
+    /// a truncated element, or trailing bytes after the set.
+    case malformedDEREncoding
 }
 
 /// The typed representation of one signing target's entitlement claims.

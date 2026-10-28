@@ -34,15 +34,19 @@ enum EntitlementsStudioInspection {
             let name = "Architecture \(index + 1) · \(String(describing: slice.header.cpu))"
             switch metadata.entitlements {
             case .present(let entitlements):
+                let slot = metadata.entitlementsSource == .der ? "DER (slot 7)" : "XML (slot 5)"
+                let disagreement = metadata.entitlementSlotsDisagree
+                    ? " The XML (slot 5) and DER (slot 7) slots decode to different claim sets; the XML claims are shown. A signature this app produces encodes both from one dictionary, so treat the difference as a fact worth investigating."
+                    : ""
                 return .init(id: index, name: name, entitlements: entitlements,
-                             note: "Decoded XML entitlement claims from the main executable, architecture \(index + 1) of \(image.slices.count). No signature integrity or platform authorization is inferred. Inspect each architecture separately.")
+                             note: "Decoded \(slot) entitlement claims from the main executable, architecture \(index + 1) of \(image.slices.count).\(disagreement) No signature integrity or platform authorization is inferred. Inspect each architecture separately.")
             case .absent:
-                let derOnly = slice.embeddedSignature?.superBlob.entries.contains { $0.slot == .derEntitlements } == true
                 return .init(id: index, name: name, entitlements: nil,
-                             note: derOnly ? "This architecture has DER entitlements but no XML claims. DER-only decoding is not implemented; claims are unknown, not empty." : "No XML entitlement claims were found in this architecture. The executable may be unsigned. Missing claims are unknown, not a verified empty set.")
+                             note: "No entitlement slot was found in this architecture — neither XML (slot 5) nor DER (slot 7). The executable may be unsigned. Missing claims are unknown, not a verified empty set.")
             case .malformed:
+                let slot = metadata.entitlementsSource == .der ? "DER (slot 7)" : "XML (slot 5)"
                 return .init(id: index, name: name, entitlements: nil,
-                             note: "The embedded entitlement blob could not be decoded. No empty set has been substituted. Re-import an intact package or inspect its signature.")
+                             note: "The embedded \(slot) entitlement blob could not be decoded. No empty set has been substituted. Re-import an intact package or inspect its signature.")
             }
         }
     }

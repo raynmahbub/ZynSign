@@ -62,7 +62,9 @@ from missing data.
 | Capability-specific wildcard, subset or reordered array | Warning where semantics are not established |
 | Unknown key with equal values | Unknown interpretation; equality is explained rather than promoted to capability support |
 | Unsupported value form / missing source or profile | Unknown, not an empty compatible set |
-| Malformed XML blob / DER-only claims | Explicit limitation; no empty-set fallback |
+| Malformed XML or DER blob | Explicit limitation; no empty-set fallback |
+| DER-only claims (slot 7, no slot 5) | Decoded by `DEREntitlementsDecoder`; the note names the slot it read |
+| Both slots present | XML (slot 5) claims are shown; a DER slot that decodes to a different set is stated as a fact |
 | DER output preference | Encoding context updates, without changing app claims |
 
 Overall status includes context findings as well as card findings. Card counts are
@@ -73,7 +75,20 @@ UI is disabled for a detected conflict in **any** inspected architecture, includ
 an architecture not currently selected. Unknown/Warning findings do not pretend to
 be pipeline refusals; the pipeline still decides whether an operation is supported.
 
-This step does not inspect extension entitlements, decode DER-only claims, authenticate
+### Which slot a claim set came from
+
+A signature may carry the XML property list (slot 5), the DER set (slot 7), or
+both. The reader prefers slot 5 because every device ZynSign targets understands
+it, and decodes slot 7 when that is the only slot present — a DER-only signature
+now reports its claims instead of "unknown, not empty". When both slots exist,
+both are decoded and a difference between them is reported: the two blobs are
+independent bytes in the file, and a signature this app produces writes both from
+one dictionary, so a difference is a fact about the file worth investigating
+rather than something to resolve silently. `EmbeddedSigningMetadataInspection`
+records the source (`xml`/`der`) and the disagreement; neither is an integrity
+verdict, because decoding establishes structure, not trust.
+
+This step does not inspect extension entitlements, authenticate
 profile CMS, verify certificate membership/trust/validity, check devices, contact
 associated-domain servers, or infer runtime consent. It does not apply saved prefix
 or plug-in preferences from the legacy Signing Options screen (those preferences
@@ -99,8 +114,9 @@ length). Reports do not grant authorization or certify a signature.
 Added XCTest suites cover mappings, unknown preservation, counts, missing versus
 empty input, type mismatches, team/bundle/application prefix checks, debugging
 semantics, wildcard/subset uncertainty, search/filter intersection, 10,000 keys,
-report scope/privacy, embedded/unsigned/malformed/DER-only claims, unsafe/duplicate
-entries, reader closure, profile replacement/removal races, cached source reuse,
+report scope/privacy, embedded/unsigned/malformed/DER-only claims, DER round-trips,
+DER refusals, slot provenance and slot disagreement, unsafe/duplicate entries,
+reader closure, profile replacement/removal races, cached source reuse,
 retry, live certificate/DER changes, and conflicting universal architectures.
 Release-train tests cover the Alpha 3 gate. The obsolete rollout assertions were
 aligned with the feature stages already present in `ReleaseTrain`.

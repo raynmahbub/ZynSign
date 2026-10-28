@@ -48,8 +48,10 @@ used as fresh verification evidence.
   authorization, device compatibility, installation or launch testing.
 - The existing external-validation record reports resource-seal rejection and
   outstanding DER/iOS format work. Every report explicitly retains that boundary.
-- Entitlements Studio compares supported main-executable declarations. Nested
-  entitlement authorization and DER-only decoding are not established.
+- Entitlements Studio compares supported main-executable declarations, reading
+  the XML slot (5) or, for a DER-only signature, the DER slot (7) through
+  `DEREntitlementsDecoder`. Nested entitlement authorization is not established,
+  and a decoded claim set is data — never an authorization decision.
 - Existing resource verification is bounded and does not implement Apple's entire
   resource-rule policy. Output findings expose incomplete coverage.
 - Unsupported results never become green passes. With the present implementation
