@@ -126,6 +126,78 @@ final class ProcessEntitlementsTests: XCTestCase {
         )
     }
 
+    // MARK: - The executable reader
+
+    /// A fixture executable whose own signature carries these claims, written
+    /// where the reader can be pointed at it.
+    private func executable(carrying claims: [String: ProvisioningProfileValue]) throws -> URL {
+        let blob = try EntitlementsCanonicalSerializer().blob(
+            try CodeSigningEntitlements(values: claims)
+        )
+        let bytes = MachOFixtures.signedThin(MachOFixtures.superBlob([(5, Array(blob.bytes))]))
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZynSign-Entitlements-\(UUID().uuidString)")
+        try Data(bytes).write(to: url)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        return url
+    }
+
+    /// A build whose signature carries the entitlement reads as granted — the
+    /// case the hardcoded constant could never express, and the reason this
+    /// reader exists.
+    func testAnEntitledExecutableIsMeasuredAsGranted() throws {
+        let url = try executable(carrying: [
+            ProcessEntitlements.localTunnelKey: .array([.string("packet-tunnel-provider")]),
+            ProcessEntitlements.teamIdentifierKey: .string("ABCDE12345"),
+            ProcessEntitlements.applicationIdentifierKey: .string("ABCDE12345.com.example.app"),
+        ])
+        let entitlements = ExecutableEntitlementReader(executableURL: url).read()
+        XCTAssertTrue(entitlements.isMeasured)
+        XCTAssertEqual(entitlements.carriesLocalTunnelEntitlement, true)
+        XCTAssertEqual(entitlements.teamIdentifier, "ABCDE12345")
+        XCTAssertEqual(entitlements.applicationIdentifier, "ABCDE12345.com.example.app")
+    }
+
+    /// An ordinary build reads as measured-and-absent, not as unmeasured: the
+    /// signature was read, and it does not carry the key.
+    func testAnOrdinaryExecutableIsMeasuredAndAbsent() throws {
+        let url = try executable(carrying: [
+            ProcessEntitlements.applicationIdentifierKey: .string("ABCDE12345.com.example.app"),
+            ProcessEntitlements.getTaskAllowKey: .boolean(false),
+        ])
+        let entitlements = ExecutableEntitlementReader(executableURL: url).read()
+        XCTAssertTrue(entitlements.isMeasured)
+        XCTAssertEqual(entitlements.carriesLocalTunnelEntitlement, false)
+        XCTAssertEqual(entitlements.carriesGetTaskAllow, false)
+        XCTAssertEqual(entitlements.teamIdentifier, nil)
+    }
+
+    /// A file that is not a Mach-O, a missing file, and no file at all are the
+    /// same answer: not established. None of them is "nothing granted".
+    func testUnreadableInputsAreNeverMeasuredAsAbsent() throws {
+        let notMachO = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZynSign-NotMachO-\(UUID().uuidString)")
+        try Data([0x00, 0x01, 0x02, 0x03]).write(to: notMachO)
+        addTeardownBlock { try? FileManager.default.removeItem(at: notMachO) }
+
+        XCTAssertEqual(ExecutableEntitlementReader(executableURL: notMachO).read(), .unmeasured)
+        XCTAssertEqual(
+            ExecutableEntitlementReader(executableURL: URL(fileURLWithPath: "/nonexistent")).read(),
+            .unmeasured
+        )
+        XCTAssertEqual(ExecutableEntitlementReader(executableURL: nil).read(), .unmeasured)
+    }
+
+    /// A signature with no entitlements slot says nothing about entitlements, so
+    /// the build is unmeasured rather than measured-and-empty.
+    func testAnUnsignedExecutableIsUnmeasured() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZynSign-Unsigned-\(UUID().uuidString)")
+        try Data(MachOFixtures.thin()).write(to: url)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        XCTAssertEqual(ExecutableEntitlementReader(executableURL: url).read(), .unmeasured)
+    }
+
     // MARK: - The reader port
 
     /// The fixed reader is the seam tests and previews use; it reports exactly

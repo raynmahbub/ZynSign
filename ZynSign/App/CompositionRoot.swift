@@ -84,7 +84,7 @@ enum CompositionRoot {
         // Read the running binary's own signature once, here: the evidence does
         // not change while the process lives, and a screen that re-measured on
         // every redraw would be claiming a freshness it does not have.
-        environment.processEntitlements = SecTaskEntitlementReader().read()
+        environment.processEntitlements = ExecutableEntitlementReader().read()
         return environment
     }
 

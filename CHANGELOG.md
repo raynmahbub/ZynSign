@@ -73,7 +73,11 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   enterprise one. `ProcessEntitlements` now reads the running binary's own
   signature once at composition (`SecTaskEntitlementReader`), and the screen
   shows three distinct states: **granted**, **absent** (read, and not there), or
-  **not established** (nothing readable — preview, simulator). `nil` never
+  **not established** (nothing readable — preview, simulator). iOS exposes no
+  process-entitlement query (the macOS `SecTask` API is absent from the overlay),
+  so the reader parses the app's **own embedded signature** with the same
+  Mach-O/slot decoder the Entitlements Studio uses — the same claims the system
+  would consult. `nil` never
   collapses into `false`: an unmeasured build stays unsupported, but its note
   says the signature could not be read instead of claiming the entitlement is
   missing. A build that carries the entitlement lights the rows up on its own

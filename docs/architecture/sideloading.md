@@ -209,10 +209,15 @@ The rows above are assessed from evidence, and one field of that evidence used
 to be a constant: `SideloadingView` passed `buildCarriesLocalTunnelEntitlement:
 false`, which is a fact about the App Store build and a guess about any other.
 `ProcessEntitlements` replaces the guess with a measurement taken once, when the
-composition root builds the environment: `SecTaskEntitlementReader` asks the
-running process for its own entitlements and records the presence of the tunnel
-key, `get-task-allow`, the application identifier and the team identifier.
-Nothing about entitlement *values* is kept.
+composition root builds the environment. iOS has no process-entitlement query —
+the macOS `SecTask` API is not in the iOS Security overlay, so a build cannot ask
+the system what it was granted. It reads the answer it already carries instead:
+`ExecutableEntitlementReader` opens the app's own executable, parses it with
+`ReadOnlyMachOParser`, and decodes the entitlements slot with
+`EmbeddedSigningMetadataInspector` — XML slot 5 or DER slot 7 — recording the
+presence of the tunnel key, `get-task-allow`, the application identifier and the
+team identifier. That is the same claims the system would consult; nothing about
+entitlement *values* is kept, and the read is bounded (64 MiB) and read-only.
 
 Three states stay distinct, and the screen says which one it is:
 
