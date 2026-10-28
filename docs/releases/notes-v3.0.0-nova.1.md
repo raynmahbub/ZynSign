@@ -53,6 +53,11 @@ for the private matrix to be run on real hardware.
   window copies as plain text: app, day to re-sign by, the expiry behind it, and
   the account that signed it.
 
+- **Refresh reminders, off until you ask.** One local notification per build on
+  the day it should be signed again, nine in the morning, twelve at most. Work
+  already due gets none; a run with no expiry gets none; a refusal is accepted
+  silently and the countdowns stay. Nothing is transmitted.
+
 - **Zeus**, **the Sideload Studio**, and the **sideloading package work** —
   written since `1.0.0` and released here (their full descriptions are in
   `CHANGELOG.md`). In short: the violet theme a new install opens on; one

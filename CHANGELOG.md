@@ -21,6 +21,18 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ### Added
 
+- **Refresh reminders, off until you ask.** The studio can post one local
+  notification per build on the day that build should be signed again — the
+  same action date the calendar draws, nine in the morning, soonest first and
+  capped at twelve. Work that is already due gets none, because the queue is on
+  screen and a notification about a past date is noise; a run with no expiry
+  gets none, because a deadline invented from nothing is a promise nobody made.
+  Identifiers are stable and namespaced, so a second read replaces a reminder
+  rather than doubling it. The switch is off by default, turning it on is the
+  only path that asks the system for permission, and a refusal is accepted
+  silently — the countdowns stay. Nothing is transmitted: a notification is this
+  device posting a sentence to itself. See `docs/architecture/sideloading.md`.
+
 - **A refresh calendar for the next two weeks.** The Sideload Studio answers a
   second question beside "what is late": *when is my week busy*. Every lease is
   projected onto the day it should be signed again — its expiry minus the lead
