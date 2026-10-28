@@ -28,6 +28,21 @@ enum VersionHistoryCatalog {
     /// Every entry, newest first.
     static let entries: [VersionHistoryEntry] = [
         VersionHistoryEntry(
+            tag: "v3.0.0-nova.1",
+            marketingVersion: "3.0.0",
+            buildNumber: 11,
+            releasedAt: DateComponents(year: 2026, month: 10, day: 28),
+            headline: "3.0.0-nova.1 switches on the last staged feature — the Nova Assistant — beside the Sideload Studio, the screen that keeps a free Apple ID's seven-day builds running.",
+            highlights: [
+                "Nova Assistant: on-device, rule-based suggestions about expiring certificates and profiles, missing signing materials, duplicate bundle identifiers, apps no profile covers, and a backup that is overdue. Every suggestion opens the screen that owns the work; none of them acts.",
+                "Sideload Studio: one row per signed application, the earlier of its profile and certificate expiry, the account that signed it against the limits that account publishes, and a re-sign that hands the build back to the ordinary signing flow.",
+                "Zeus: violet lightning over deep indigo, and the theme a new install opens on. Every earlier theme stays selectable and a stored choice is never rewritten.",
+                "Home gains a refresh row that says what stops launching next, and stays out of the way until the journal has something to report.",
+                "The one stop that carried no new gate — v2.0.0 — ships its depth and fixes here; every staged feature the train has carried is now visible.",
+                "The three limits stay recorded and unchanged: in-app installation, pairing/JIT/mux, and off-device measurement.",
+            ]
+        ),
+        VersionHistoryEntry(
             tag: "v1.0.0",
             marketingVersion: "1.0.0",
             buildNumber: 10,

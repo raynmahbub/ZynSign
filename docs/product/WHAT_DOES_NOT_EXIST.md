@@ -1,6 +1,6 @@
 # What Does Not Exist — Honest Limitations
 
-> ZynSign `v1.0.0` (market `1.0.0`, build `10`) — **18 staged · 17 on · 1 still ahead · 3 never**.
+> ZynSign `v3.0.0-nova.1` (market `3.0.0`, build `11`) — **18 staged · 18 on · 0 still ahead · 3 never**.
 >
 > **Wired** means the capability is compiled into the app and reachable. A Release
 > build of `v1.0.0` switches on every feature up to and including that stop on the
@@ -10,13 +10,16 @@
 > **Never** means no release will claim it: those rows are recorded decisions, not
 > missing features.
 >
-> The count is the point. Eighteen features are staged; `1.0.0` ships **seventeen**
-> of them. The one still ahead is the **Nova Assistant**, which is `v3.0.0-nova.1`'s
-> alone: it recommends, it never acts, and nothing below depends on it. It is
-> reachable in Debug and absent in Release, and this file says so rather than let
-> the badge imply otherwise. Reaching the stable stop does not turn the *never*
-> rows into features: in-app installation, pairing/JIT/mux, and off-device
-> measurement stay exactly as recorded below.
+> The count is the point. Eighteen features are staged, and `3.0.0-nova.1` ships
+> **all eighteen**: the Nova Assistant — the last one that was waiting — is on at
+> this stop, and the stop that was scheduled between `1.0.0` and it (`v2.0.0`,
+> depth and fixes) introduced no gate, so the train passes through it without
+> holding anything back. Nothing is left ahead, and **nothing new is claimed** by
+> that: the three *never* rows below are platform facts and recorded decisions,
+> not work that this stop finished. In-app installation, pairing/JIT/mux, and
+> off-device measurement stay exactly as recorded, and the app still names the
+> requirement each one is missing rather than quietly offering a button that
+> cannot work.
 >
 > This file is the anti-roadmap. A local success is not platform trust, so this is
 > what ZynSign still does **not** claim — and what it says instead. Details live in
@@ -56,7 +59,7 @@ stops used to, and both were decisions rather than missing work:
 |---|---|---|
 | **Batch Signing** | `v0.9.0-beta.3` | **Retired.** The behaviour is already shipped, under a different gate: **Queue Selected for Signing…** (`ReleaseFeature.signingQueue`, since `v0.1.0-alpha.2`) applies one identity and profile to a whole selection and runs the jobs one at a time, journalled by `SigningOperationCenter`. The stop named a second label for that behaviour, and the only code carrying the name — `BatchSigningCoordinator`, which nothing constructs — delivers, names, verifies and journals differently, so a surface built on it would be a second signing path. `ReleaseFeature.batchSigning` no longer exists, `v0.9.0-beta.3` is a fixes-and-compatibility stop, and no user loses anything: the gate was never exposed. |
 | **Signing Health Score** | `v1.0.0` | **Wired.** `SigningHealthScore` (0–100, banded) and `SigningHealthAssessment` (identity + profile + bundle → score and findings) now render as `SigningHealthScoreCard` on the Sign screen, recomputed whenever the selected identity, profile or bundle changes. The always-on `SigningDiagnosticsAnalysis` card on an application's detail screen is a different feature and keeps its own score. |
-
+| **Nova Assistant** | `v3.0.0-nova.1` | **Wired.** `NovaAdvisor` turns the stores' own facts into at most six suggestions — expiring or expired certificates and profiles, a library without an identity, an identity without a profile, duplicate bundle identifiers, an application no profile covers, and a backup reminder — and `SmartWorkspaceView` renders them with a door to the screen that owns each one. It never acts, never signs, and never leaves the device. |
 `Scripts/audit_release_gating.py` keeps the distinction visible and mechanical:
 every `ReleaseFeature` must be referenced by the app's own source, and
 `Scripts/ci/release-surface-deferrals.txt` is now empty. A deferral added in
