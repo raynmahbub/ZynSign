@@ -257,6 +257,12 @@ final class SideloadStudioModelTests: XCTestCase {
         let model = makeModel(profileLibrary: profiles)
         await model.load()
 
+        // No journal in this environment: nothing is tracked for refresh, and
+        // the materials are still read and reported.
+        XCTAssertEqual(
+            model.readNotice,
+            "This build has no signing journal, so nothing is tracked for refresh."
+        )
         XCTAssertTrue(model.canSignAgain)
         XCTAssertEqual(model.usableIdentities.count, 1)
         XCTAssertEqual(model.profiles.count, 1)

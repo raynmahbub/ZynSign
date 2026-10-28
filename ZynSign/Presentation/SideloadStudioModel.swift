@@ -113,10 +113,14 @@ final class SideloadStudioModel: ObservableObject {
             notices.append("The certificate store could not be read, so signing materials are not shown.")
         }
 
+        // The materials are read whether or not there is a journal: a build
+        // that tracks no leases can still say whether it could sign one.
+        let (profileList, profileNotice) = await readProfiles()
+        if let profileNotice { notices.append(profileNotice) }
+
         if let history = signingHistory {
             do {
                 let records = try await history.allRecords()
-                let profileList = await readProfiles()
                 leases = SideloadLedger.leases(from: records, profiles: profileList)
             } catch {
                 notices.append("The signing history could not be read, so no lease is shown.")
@@ -140,18 +144,18 @@ final class SideloadStudioModel: ObservableObject {
         lastReadAt = moment
     }
 
-    private func readProfiles() async -> [ProvisioningProfileSummary] {
+    private func readProfiles() async -> ([ProvisioningProfileSummary], String?) {
         guard let library = provisioningProfiles else {
             profiles = []
-            return []
+            return ([], nil)
         }
         do {
             let list = try await library.allProfiles()
             profiles = list
-            return list
+            return (list, nil)
         } catch {
             profiles = []
-            return []
+            return ([], "The profile library could not be read, so a lease may not know its account.")
         }
     }
 

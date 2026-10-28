@@ -10,13 +10,14 @@ final class SideloadLeaseTests: XCTestCase {
     private var signedAt: Date { now.addingTimeInterval(-3 * 86_400) }
 
     private func lease(
+        id: String = "record:example",
         profileExpiresAt: Date? = nil,
         certificateExpiresAt: Date? = nil,
         account: SideloadAccount? = .personalTeam,
         refreshLeadDays: Int? = nil
     ) -> SideloadLease {
         SideloadLease(
-            id: "record:example",
+            id: id,
             displayName: "Example",
             bundleIdentifier: "com.example.synthetic",
             libraryRecordIdentifier: "example",
@@ -228,8 +229,11 @@ final class SideloadLeaseTests: XCTestCase {
     // MARK: - The plan
 
     private func mixedLeases() -> (due: SideloadLease, expired: SideloadLease, healthy: SideloadLease, unrecorded: SideloadLease) {
-        let expired = lease(profileExpiresAt: now.addingTimeInterval(-2 * 86_400))
-        let due = lease(profileExpiresAt: now.addingTimeInterval(86_400))
+        // Both are past their account's lead window, and they are two
+        // different applications: the ids have to differ for the partition to
+        // mean anything.
+        let expired = lease(id: "record:expired", profileExpiresAt: now.addingTimeInterval(-2 * 86_400))
+        let due = lease(id: "record:due", profileExpiresAt: now.addingTimeInterval(86_400))
         let healthy = SideloadLease(
             id: "record:healthy",
             displayName: "Healthy",
