@@ -143,8 +143,8 @@ struct EmbeddedSigningMetadataInspector {
             }
             // A second slot is compared, not shown: the XML claims are the ones
             // returned, because that is the slot every device reads.
-            let derClaims = derEntry.flatMap { derClaims(in: $0, artifact: artifact) }
-            return (.present(claims), .xml, derClaims.map { $0 != claims } ?? false)
+            let derSlotClaims = derEntry.flatMap { derClaims(in: $0, artifact: artifact) }
+            return (.present(claims), .xml, derSlotClaims.map { $0 != claims } ?? false)
         }
 
         if let entry = derEntry {
