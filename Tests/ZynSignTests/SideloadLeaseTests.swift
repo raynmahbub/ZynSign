@@ -194,9 +194,9 @@ final class SideloadLeaseTests: XCTestCase {
     func testTheNeutralLeadWarnsBeforeAFreeProfileExpiresButNotAfterIt() {
         // Three days is later than a personal team's two: a lease signed under
         // an unidentified account is not called due for the whole week.
-        let fourDaysLeft = lease(account: nil, profileExpiresAt: now.addingTimeInterval(4 * 86_400))
+        let fourDaysLeft = lease(profileExpiresAt: now.addingTimeInterval(4 * 86_400), account: nil)
         XCTAssertEqual(fourDaysLeft.status(at: now), .current)
-        let twoDaysLeft = lease(account: nil, profileExpiresAt: now.addingTimeInterval(2 * 86_400))
+        let twoDaysLeft = lease(profileExpiresAt: now.addingTimeInterval(2 * 86_400), account: nil)
         XCTAssertEqual(twoDaysLeft.status(at: now), .refreshDue)
     }
 
