@@ -11,8 +11,8 @@ import SwiftUI
 /// expiry, is offered a re-sign; a build whose application has left the library
 /// says so instead of offering a button that cannot work.
 ///
-/// It is pushed from Settings → Devices, so it opens no navigation stack of its
-/// own.
+/// It is pushed from Settings → Devices → Sideloading and from Home's refresh
+/// row, so it opens no navigation stack of its own.
 struct SideloadStudioView: View {
 
     @Environment(\.applicationEnvironment) private var environment
@@ -367,13 +367,7 @@ private struct SideloadStudioContent: View {
                         VStack(alignment: .leading, spacing: ZSpacing.xxs) {
                             Text("Delivery and guest container")
                                 .font(.subheadline.weight(.semibold))
-                            Text(GuestContainer.assess(.init(
-                                bundleIdentifier: "com.example.guest",
-                                name: "Example guest",
-                                version: "1.0",
-                                executableName: "Guest",
-                                loaderBundled: false
-                            )).summary)
+                            Text("Pairing, installation, package edits and guest containers — each row names the requirement this build is missing.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)

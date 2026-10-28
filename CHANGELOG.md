@@ -19,8 +19,31 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+## [3.0.0-nova.1] - 2026-10-28
+
+> `v2.0.0` was scheduled as depth and fixes and introduced no gate of its own,
+> so the train moves to the first stop that switches another feature on and
+> carries that work here. With this stop every staged feature the train has ever
+> carried is visible: **18 of 18**. The three *never* rows are unchanged and
+> still explained in `docs/product/WHAT_DOES_NOT_EXIST.md`.
+
 ### Added
 
+- **Nova Assistant — the last staged feature, now on.** Nova reads the stores
+  the rest of the app reads — identities, profiles, the library, the signing
+  journal, and the backup record — and says what needs attention before it
+  becomes a failure: an identity or a profile that has expired, or that expires
+  within fourteen days (urgent inside three); a library with applications but
+  no identity to sign them; identities but no profile; two applications sharing
+  one bundle identifier; an application no valid profile covers, one a profile
+  already covers, or one that was signed successfully before; and a backup that
+  is at least a week old. Six suggestions at most, urgent first and then by
+  title, because the top of the list is the part worth reading; every one names
+  the screen that owns the work and opens it, and **nothing is applied, queued,
+  scheduled, or signed on the person's behalf.** It runs entirely on device:
+  rule-based, no model, no network client, no telemetry, no text of yours
+  leaving the process. Visible on the Smart Workspace whenever it has something
+  to say.
 - **Zeus: the theme the app now opens on.** Violet lightning over deep indigo —
   a `#1B1140 → #4C2A9E → #8B5CF6` hero gradient, a violet accent, and cyan
   highlights on the surfaces that carry one — shipped through the existing

@@ -214,10 +214,53 @@ private struct FeatureCatalogRow: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if let detail = PlatformLimitDetail.resolved(forCatalogID: entry.id) {
+                    PlatformLimitLines(detail: detail)
+                        .padding(.top, ZSpacing.xs)
+                }
             }
         }
         .padding(.vertical, ZSpacing.xs)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// The four-part explanation behind a platform limit: what it needs, whose
+/// decision that is, what ships instead, and which live surfaces carry the
+/// alternative. Always visible rather than behind a disclosure — a limit
+/// nobody opens is a limit nobody understands.
+private struct PlatformLimitLines: View {
+
+    let detail: PlatformLimitDetail
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: ZSpacing.sm) {
+            line("Needs", detail.requirement)
+            line("Would take", detail.wouldHaveToChange)
+            line("Ships instead", detail.instead)
+            if !detail.alternatives.isEmpty {
+                Text("Already on: " + detail.alternatives.map(\.displayName).joined(separator: " · "))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(ZSpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: ZynSignTokens.Radius.sm, style: .continuous))
+    }
+
+    private func line(_ label: String, _ text: String) -> some View {
+        VStack(alignment: .leading, spacing: ZSpacing.xxs) {
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 

@@ -78,7 +78,7 @@ final class ReleaseTrainTests: XCTestCase {
             .certificateStudio, .provisioningProfileManager, .appStore, .downloads,
         ])
         XCTAssertEqual(ReleaseStage.patch1.features, ReleaseStage.horizon.features)
-        XCTAssertEqual(ReleaseTrain.current, .stable)
+        XCTAssertEqual(ReleaseTrain.current, .nova1)
     }
 
     /// A development stop proves the pipeline — build, quality gate, assets,

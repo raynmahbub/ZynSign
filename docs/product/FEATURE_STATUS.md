@@ -1,12 +1,12 @@
 # Feature Status — source inventory, not device evidence
 
-This snapshot follows the source-controlled train at `v1.0.0` (`.stable`, marketing `1.0.0`, build `10`). Confirm the active value with `python3 Scripts/release_train.py status`; the source remains authoritative. The capability catalogue is at **Settings → Features** and is generated from `CoreFeature.allCases`, `ReleaseFeature.allCases`, and `UnsupportedFeature.allCases` in [`FeatureCatalog.swift`](../../ZynSign/Application/FeatureCatalog.swift). Tests assert that each registry is represented once and that staged statuses follow the train.
+This snapshot follows the source-controlled train at `v3.0.0-nova.1` (`.nova1`, marketing `3.0.0`, build `11`). Confirm the active value with `python3 Scripts/release_train.py status`; the source remains authoritative. The capability catalogue is at **Settings → Features** and is generated from `CoreFeature.allCases`, `ReleaseFeature.allCases`, and `UnsupportedFeature.allCases` in [`FeatureCatalog.swift`](../../ZynSign/Application/FeatureCatalog.swift). Tests assert that each registry is represented once and that staged statuses follow the train.
 
 A source entry means code and a presentation surface exist; it does **not** mean the feature has passed XCTest, simulator, or physical-device verification. No Apple build or device reproduction has been performed in this checkout.
 
 ## Release-gated capabilities
 
-`ReleaseTrain.current` is `.stable`. The current Release gate includes every capability the train has carried to it — all of them, since `1.0.0` is the last stop before `v2.0.0`:
+`ReleaseTrain.current` is `.nova1`. The current Release gate includes every capability the train has carried to it — all eighteen, because `3.0.0-nova.1` switches on the last one that was waiting, and the stop scheduled between `1.0.0` and it (`v2.0.0`) introduces no gate of its own:
 
 | Introduced stop | Features |
 |---|---|
@@ -17,8 +17,8 @@ A source entry means code and a presentation surface exist; it does **not** mean
 | `v0.9.0-beta.1` | Mission Control, Delivery Hand-off, Activity Journal |
 | `v0.9.0-beta.2` | Installation Workspace, Performance Dashboard |
 | `v1.0.0-rc.2` | Smart Workspace |
-| `v1.0.0` (current) | Signing Health Score |
-| `v3.0.0-nova.1` | Nova Assistant |
+| `v1.0.0` | Signing Health Score |
+| `v3.0.0-nova.1` (current) | Nova Assistant |
 
 Features accumulate at later stops. Debug builds can expose staged code for development; the catalogue still labels Release availability from `ReleaseTrain`. A `Planned · <tag>` label names the stop that would expose the capability. Every entry in the table above now has a surface the gate can reveal: Batch Signing was retired from the train at `v0.9.0-beta.3` because the signing queue already ships that behaviour, and Signing Health Score (`v1.0.0`) renders on the Sign screen as `SigningHealthScoreCard`. `Scripts/audit_release_gating.py` enforces the rule — every `ReleaseFeature` must be referenced by the app's own source — and `Scripts/ci/release-surface-deferrals.txt` holds no entries.
 
