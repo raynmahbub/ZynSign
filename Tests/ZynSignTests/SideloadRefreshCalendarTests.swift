@@ -27,7 +27,7 @@ final class SideloadRefreshCalendarTests: XCTestCase {
 
     private func lease(
         name: String = "Example",
-        expiresInDays days: Int?,
+        expiresInDays days: Int? = nil,
         lead: Int? = 2,
         account: SideloadAccount? = .personalTeam
     ) -> SideloadLease {
@@ -61,7 +61,7 @@ final class SideloadRefreshCalendarTests: XCTestCase {
     /// A run that recorded no expiry has no action date. A deadline invented
     /// from nothing is a promise nobody made.
     func testALeaseWithNoExpiryHasNoActionDate() {
-        XCTAssertNil(lease(expiresInDays: nil).refreshBy())
+        XCTAssertNil(lease().refreshBy())
         XCTAssertNil(lease(account: .adHoc).expiresAt)
     }
 
