@@ -1,0 +1,248 @@
+import Foundation
+import XCTest
+@testable import ZynSign
+
+/// Tests for the measurement that replaced a hardcoded "no".
+///
+/// The point of `ProcessEntitlements` is that three states are distinct — the
+/// entitlement is granted, it was measured and is absent, or the signature could
+/// not be read — so most of these tests are about keeping `nil` from collapsing
+/// into `false`. A screen that confuses the last two tells a person their build
+/// is incapable when it merely could not be inspected.
+final class ProcessEntitlementsTests: XCTestCase {
+
+    private func measured(_ keys: String...) -> ProcessEntitlements {
+        ProcessEntitlements(isMeasured: true, grantedKeys: Set(keys))
+    }
+
+    // MARK: - Measurement states
+
+    /// An unread signature answers `nil` to everything. It never answers
+    /// `false`, because "not read" is not "not granted".
+    func testAnUnmeasuredBuildAnswersNothing() {
+        let entitlements = ProcessEntitlements.unmeasured
+        XCTAssertFalse(entitlements.isMeasured)
+        XCTAssertNil(entitlements.carriesLocalTunnelEntitlement)
+        XCTAssertNil(entitlements.declaresGetTaskAllow)
+        XCTAssertNil(entitlements.allowsDebugging)
+        XCTAssertTrue(entitlements.summary.contains("could not be read"))
+    }
+
+    /// A read signature with no tunnel key is a real "absent": measured, and
+    /// said so.
+    func testAMeasuredBuildWithoutTheTunnelKeyReportsAbsence() {
+        let entitlements = measured(ProcessEntitlements.applicationIdentifierKey)
+        XCTAssertEqual(entitlements.carriesLocalTunnelEntitlement, false)
+        XCTAssertTrue(entitlements.summary.contains("carries no Network Extension entitlement"))
+    }
+
+    /// A build whose profile carries the entitlement reads as granted — this is
+    /// the case the hardcoded constant could never express.
+    func testAMeasuredBuildWithTheTunnelKeyReportsTheGrant() {
+        let entitlements = measured(
+            ProcessEntitlements.applicationIdentifierKey,
+            ProcessEntitlements.localTunnelKey
+        )
+        XCTAssertEqual(entitlements.carriesLocalTunnelEntitlement, true)
+        XCTAssertTrue(entitlements.summary.contains("carries a Network Extension entitlement"))
+        XCTAssertTrue(entitlements.summary.contains("still the device's answer"))
+    }
+
+    /// An unrelated entitlement does not accidentally satisfy the tunnel key.
+    func testAnotherEntitlementIsNotTheTunnelKey() {
+        let entitlements = measured("aps-environment", ProcessEntitlements.getTaskAllowKey)
+        XCTAssertEqual(entitlements.carriesLocalTunnelEntitlement, false)
+        XCTAssertEqual(entitlements.declaresGetTaskAllow, true)
+    }
+
+    /// The probed list is the one the reader asks for, so a key cannot be added
+    /// to one side and forgotten on the other.
+    func testEveryProbedKeyIsDistinctAndNamed() {
+        let keys = ProcessEntitlements.probedKeys
+        XCTAssertEqual(Set(keys).count, keys.count)
+        XCTAssertTrue(keys.contains(ProcessEntitlements.localTunnelKey))
+        XCTAssertTrue(keys.contains(ProcessEntitlements.applicationIdentifierKey))
+        XCTAssertTrue(keys.contains(ProcessEntitlements.teamIdentifierKey))
+        XCTAssertTrue(keys.contains(ProcessEntitlements.getTaskAllowKey))
+    }
+
+    // MARK: - Evidence mapping
+
+    /// The mapping carries the measurement through and leaves the facts this
+    /// type does not measure at the values it was given.
+    func testTheEvidenceCarriesTheMeasurementNotAConstant() {
+        let granted = measured(ProcessEntitlements.localTunnelKey)
+            .sideloadingEvidence(hasPairingRecord: true)
+        XCTAssertEqual(granted.buildCarriesLocalTunnelEntitlement, true)
+        XCTAssertEqual(granted.hasPairingRecord, true)
+
+        let absent = measured(ProcessEntitlements.applicationIdentifierKey)
+            .sideloadingEvidence(hasPairingRecord: true)
+        XCTAssertEqual(absent.buildCarriesLocalTunnelEntitlement, false)
+
+        let unknown = ProcessEntitlements.unmeasured
+            .sideloadingEvidence(hasPairingRecord: true)
+        XCTAssertNil(unknown.buildCarriesLocalTunnelEntitlement)
+    }
+
+    /// An unmeasured build is still unsupported — the safe reading — but it is
+    /// unsupported for a reason the screen can state.
+    func testAnUnmeasuredBuildStaysUnsupportedRatherThanOptimistic() {
+        let evidence = ProcessEntitlements.unmeasured.sideloadingEvidence(hasPairingRecord: true)
+        let assessment = SideloadingCapability.assess(.deviceSession, evidence: evidence)
+        XCTAssertFalse(assessment.isSupported)
+        XCTAssertTrue(assessment.unmetRequirements.contains(.localTunnelEntitlement))
+    }
+
+    /// With the entitlement granted, a pairing record, and a composed transport,
+    /// the session row stops reporting the entitlement as missing. It does not
+    /// claim a device accepted anything — only that this build may try.
+    func testAnEntitledBuildStopsReportingTheEntitlementAsMissing() {
+        let evidence = measured(ProcessEntitlements.localTunnelKey)
+            .sideloadingEvidence(hasPairingRecord: true, transportComposed: true)
+        let assessment = SideloadingCapability.assess(.deviceSession, evidence: evidence)
+        XCTAssertFalse(assessment.unmetRequirements.contains(.localTunnelEntitlement))
+        XCTAssertTrue(assessment.isSupported)
+    }
+
+    /// The entitled path still needs the record and the transport: nothing here
+    /// shortens the list of real requirements.
+    func testAnEntitledBuildStillNeedsTheRecordAndTheTransport() {
+        let evidence = measured(ProcessEntitlements.localTunnelKey)
+            .sideloadingEvidence(hasPairingRecord: false, transportComposed: false)
+        let assessment = SideloadingCapability.assess(.deviceSession, evidence: evidence)
+        XCTAssertEqual(assessment.unmetRequirements, [.pairingRecord, .deviceTransport])
+        XCTAssertFalse(assessment.isSupported)
+    }
+
+    /// Pairing needs the entitlement *and* the entitled build; granting the
+    /// entitlement alone does not make the record readable.
+    func testPairingReportsBothEntitlementRequirementsWhenUnentitled() {
+        let evidence = measured(ProcessEntitlements.applicationIdentifierKey)
+            .sideloadingEvidence(hasPairingRecord: false)
+        let assessment = SideloadingCapability.assess(.devicePairing, evidence: evidence)
+        XCTAssertEqual(
+            assessment.unmetRequirements,
+            [.pairingRecord, .localTunnelEntitlement, .entitledBuild]
+        )
+    }
+
+    // MARK: - The executable reader
+
+    /// A fixture executable whose own signature carries these claims, written
+    /// where the reader can be pointed at it.
+    private func executable(carrying claims: [String: ProvisioningProfileValue]) throws -> URL {
+        let blob = try EntitlementsCanonicalSerializer().blob(
+            try CodeSigningEntitlements(values: claims)
+        )
+        let bytes = MachOFixtures.signedThin(MachOFixtures.superBlob([(5, Array(blob.bytes))]))
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZynSign-Entitlements-\(UUID().uuidString)")
+        try Data(bytes).write(to: url)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        return url
+    }
+
+    /// A build whose signature carries the entitlement reads as granted — the
+    /// case the hardcoded constant could never express, and the reason this
+    /// reader exists.
+    func testAnEntitledExecutableIsMeasuredAsGranted() throws {
+        let url = try executable(carrying: [
+            ProcessEntitlements.localTunnelKey: .array([.string("packet-tunnel-provider")]),
+            ProcessEntitlements.teamIdentifierKey: .string("ABCDE12345"),
+            ProcessEntitlements.applicationIdentifierKey: .string("ABCDE12345.com.example.app"),
+        ])
+        let entitlements = ExecutableEntitlementReader(executableURL: url).read()
+        XCTAssertTrue(entitlements.isMeasured)
+        XCTAssertEqual(entitlements.carriesLocalTunnelEntitlement, true)
+        XCTAssertEqual(entitlements.teamIdentifier, "ABCDE12345")
+        XCTAssertEqual(entitlements.applicationIdentifier, "ABCDE12345.com.example.app")
+    }
+
+    /// An ordinary build reads as measured-and-absent, not as unmeasured: the
+    /// signature was read, and it does not carry the key.
+    func testAnOrdinaryExecutableIsMeasuredAndAbsent() throws {
+        let url = try executable(carrying: [
+            ProcessEntitlements.applicationIdentifierKey: .string("ABCDE12345.com.example.app"),
+            ProcessEntitlements.getTaskAllowKey: .boolean(false),
+        ])
+        let entitlements = ExecutableEntitlementReader(executableURL: url).read()
+        XCTAssertTrue(entitlements.isMeasured)
+        XCTAssertEqual(entitlements.carriesLocalTunnelEntitlement, false)
+        // The claim is declared *false*, which is a declaration — not absence.
+        XCTAssertEqual(entitlements.declaresGetTaskAllow, true)
+        XCTAssertEqual(entitlements.allowsDebugging, false)
+        XCTAssertEqual(entitlements.teamIdentifier, nil)
+    }
+
+    /// A file that is not a Mach-O, a missing file, and no file at all are the
+    /// same answer: not established. None of them is "nothing granted".
+    func testUnreadableInputsAreNeverMeasuredAsAbsent() throws {
+        let notMachO = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZynSign-NotMachO-\(UUID().uuidString)")
+        try Data([0x00, 0x01, 0x02, 0x03]).write(to: notMachO)
+        addTeardownBlock { try? FileManager.default.removeItem(at: notMachO) }
+
+        XCTAssertEqual(ExecutableEntitlementReader(executableURL: notMachO).read(), .unmeasured)
+        XCTAssertEqual(
+            ExecutableEntitlementReader(executableURL: URL(fileURLWithPath: "/nonexistent")).read(),
+            .unmeasured
+        )
+        XCTAssertEqual(ExecutableEntitlementReader(executableURL: nil).read(), .unmeasured)
+    }
+
+    /// A signature with no entitlements slot says nothing about entitlements, so
+    /// the build is unmeasured rather than measured-and-empty.
+    func testAnUnsignedExecutableIsUnmeasured() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZynSign-Unsigned-\(UUID().uuidString)")
+        try Data(MachOFixtures.thin()).write(to: url)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        XCTAssertEqual(ExecutableEntitlementReader(executableURL: url).read(), .unmeasured)
+    }
+
+    /// "Declared false" and "not declared" are different answers, and the two
+    /// accessors keep them apart — the same rule the Entitlements Studio applies
+    /// to `get-task-allow`.
+    func testDeclaredFalseIsNotTheSameAsUndeclared() throws {
+        let declared = ExecutableEntitlementReader(
+            executableURL: try executable(carrying: [
+                ProcessEntitlements.getTaskAllowKey: .boolean(false),
+            ])
+        ).read()
+        XCTAssertEqual(declared.declaresGetTaskAllow, true)
+        XCTAssertEqual(declared.allowsDebugging, false)
+
+        let undeclared = ExecutableEntitlementReader(
+            executableURL: try executable(carrying: [
+                ProcessEntitlements.applicationIdentifierKey: .string("ABCDE12345.com.example.app"),
+            ])
+        ).read()
+        XCTAssertEqual(undeclared.declaresGetTaskAllow, false)
+        XCTAssertNil(undeclared.allowsDebugging)
+    }
+
+    /// A build that declares `get-task-allow = true` says so.
+    func testADebugBuildReadsAsAllowingDebugging() throws {
+        let entitlements = ExecutableEntitlementReader(
+            executableURL: try executable(carrying: [
+                ProcessEntitlements.getTaskAllowKey: .boolean(true),
+            ])
+        ).read()
+        XCTAssertEqual(entitlements.declaresGetTaskAllow, true)
+        XCTAssertEqual(entitlements.allowsDebugging, true)
+    }
+
+    // MARK: - The reader port
+
+    /// The fixed reader is the seam tests and previews use; it reports exactly
+    /// what it was given and never a default.
+    func testTheFixedReaderReturnsTheGivenMeasurement() {
+        let entitlements = measured(ProcessEntitlements.localTunnelKey)
+        XCTAssertEqual(FixedProcessEntitlementReader(entitlements).read(), entitlements)
+        XCTAssertEqual(
+            FixedProcessEntitlementReader(.unmeasured).read(),
+            ProcessEntitlements.unmeasured
+        )
+    }
+}

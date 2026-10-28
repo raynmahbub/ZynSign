@@ -24,6 +24,18 @@ struct ApplicationEnvironment {
     /// Facts about the running application, shown by the shell.
     let applicationInfo: ApplicationInfo
 
+    /// What this build's own signature granted it, measured once when the
+    /// environment is built.
+    ///
+    /// The sideloading rows used to hardcode "no local-tunnel entitlement" in
+    /// the view: true of an App Store build, and a guess about anyone else's.
+    /// Reading the running binary's entitlements makes the claim a measurement,
+    /// and a build whose profile carries the entitlement — a self-signed or
+    /// enterprise one — reads as entitled instead of being told it cannot be.
+    /// `.unmeasured` is the default for a context that never ran the probe, and
+    /// it is displayed as "not established", never as absence.
+    var processEntitlements: ProcessEntitlements = .unmeasured
+
     /// The one-shot package-import use case: one package, imported once,
     /// asking about duplicates as it goes. The interface imports through
     /// `importHub` instead; a caller that needs the single-shot capability —

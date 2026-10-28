@@ -81,6 +81,10 @@ enum CompositionRoot {
             preferences: foundation.preferencesSnapshot
         )
         attachWorkspaceServices(to: &environment)
+        // Read the running binary's own signature once, here: the evidence does
+        // not change while the process lives, and a screen that re-measured on
+        // every redraw would be claiming a freshness it does not have.
+        environment.processEntitlements = ExecutableEntitlementReader().read()
         return environment
     }
 
