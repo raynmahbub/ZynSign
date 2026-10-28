@@ -10,7 +10,7 @@
 #                          target, build the test targets, run unit tests,
 #                          annotate failures                           (macOS)
 #   lint-and-format      — SwiftLint errors block; SwiftFormat checks and
-#                          Scripts/ci/format.sh apply repairs drift    (macOS)
+#                          Scripts/ci/format.sh apply repairs drift   (ubuntu)
 #   external-validation  — ZynSign-signed artifacts judged by Apple's own
 #                          codesign/otool/ditto; findings are reported  (macOS)
 #
@@ -247,20 +247,27 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-  # SwiftLint and SwiftFormat in one job: a single Homebrew invocation and a
-  # single macOS runner for the pair. Lint errors block; the format check
-  # blocks too. Local drift is repaired with Scripts/ci/format.sh apply —
-  # one clean, reviewable diff.
+  # SwiftLint and SwiftFormat in one job. Lint errors block; the format check
+  # blocks too. Local drift is repaired with Scripts/ci/format.sh apply — one
+  # clean, reviewable diff.
+  #
+  # Neither tool needs Xcode: both are pure Swift source scanners, and
+  # Scripts/ci/lint.sh and Scripts/ci/format.sh already run them from their
+  # published Linux images when the binaries are not installed. Two jobs need a
+  # macOS runner to do their work (the Xcode build and Apple's own codesign /
+  # otool validation); this one held a macOS runner only to install the tools
+  # with Homebrew, and a run that cannot get one fails with "the job was not
+  # acquired by Runner of type hosted" — an infrastructure verdict sitting next
+  # to a green build, indistinguishable at a glance from a real finding. It runs
+  # on the same containerised tool versions a Mac developer reproduces with the
+  # Docker fallback, so the ruleset under review is identical.
   lint-and-format:
     name: Lint and format
-    runs-on: macos-15
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install the tooling
-        run: HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install swiftlint swiftformat
 
       - name: SwiftLint
         run: Scripts/ci/lint.sh
