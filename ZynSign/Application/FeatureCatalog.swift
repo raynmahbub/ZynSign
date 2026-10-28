@@ -227,7 +227,7 @@ enum UnsupportedFeature: String, CaseIterable, Sendable {
 
     var catalogEntry: FeatureCatalogEntry {
         FeatureCatalogEntry(
-            id: "limit.\(rawValue)",
+            id: "\(UnsupportedFeature.catalogIDPrefix)\(rawValue)",
             title: title,
             summary: summary,
             category: .platformLimits,
@@ -246,13 +246,18 @@ enum UnsupportedFeature: String, CaseIterable, Sendable {
     private var summary: String {
         switch self {
         case .inAppInstallation:
-            return "Not supported on stock iOS. ZynSign can prepare delivery instructions and artifacts, but it does not install arbitrary IPA files."
+            return "Not offered on stock iOS, which has no application-facing install API. ZynSign signs the package, writes the over-the-air manifest, renders the QR hand-off, and records the delivery; the install itself happens on the person's own device."
         case .pairingJITAndMux:
-            return "Not implemented. These capabilities require platform services and entitlements that this app does not claim to have."
+            return "Not composed. Pairing needs the local-tunnel entitlement and the lockdown daemon, JIT needs a debug entitlement the device will honour, and mux is a host socket the app sandbox cannot reach."
         case .cloudSyncAndTelemetry:
-            return "No cloud synchronization, remote analytics, or tracking endpoint is provided by this build."
+            return "Off by design, not by omission: no analytics framework, no endpoint, and no event leaves the device. Encrypted backups the person exports, and a journal that stays local, ship instead."
         }
     }
+}
+
+extension CoreFeature {
+    /// The catalogue name, for surfaces that point at this capability.
+    var displayName: String { title }
 }
 
 /// Complete, data-driven product capability inventory.

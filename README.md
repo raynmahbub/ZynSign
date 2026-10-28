@@ -26,7 +26,7 @@ The **Features** catalogue lives at **Settings → Features** and shows what is 
 - iOS 17 or later; iPhone and iPad.
 - Xcode 16+ to build. The app uses Swift and SwiftUI and has no third-party runtime dependency.
 - Signing and inspection run locally. Private keys stay in Keychain; no cloud sync or analytics service is composed.
-- ZynSign prepares a signed package and delivery instructions. The device bridge installs through the device's own `installation_proxy` when the build carries a local-tunnel entitlement; without it, nothing installs and the app says which requirement is missing. See [sideloading](docs/architecture/sideloading.md) and [unsupported capabilities](docs/product/WHAT_DOES_NOT_EXIST.md).
+- ZynSign prepares a signed package and delivery instructions. The device bridge installs through the device's own `installation_proxy` when the build carries a local-tunnel entitlement; without it, nothing installs and the app says which requirement is missing. See [sideloading](docs/architecture/sideloading.md) and the [three platform limits](docs/product/platform-limits.md), each with the requirement it is missing and what ships instead.
 
 ## Build and run
 

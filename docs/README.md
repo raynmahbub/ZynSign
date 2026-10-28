@@ -48,7 +48,7 @@ uses. Never screenshot the app to explain the architecture.
 
 New here? Three paths cover almost every question:
 
-- **"What does this app actually do?"** → [product/UNIQUE_VALUE_PROPOSITION.md](product/UNIQUE_VALUE_PROPOSITION.md), then the README's *Honest limitations* section, then [product/WHAT_DOES_NOT_EXIST.md](product/WHAT_DOES_NOT_EXIST.md).
+- **"What does this app actually do?"** → [product/UNIQUE_VALUE_PROPOSITION.md](product/UNIQUE_VALUE_PROPOSITION.md), then the README's *Honest limitations* section, then [product/WHAT_DOES_NOT_EXIST.md](product/WHAT_DOES_NOT_EXIST.md) and [product/platform-limits.md](product/platform-limits.md) — the three things it does not do, each with the requirement it is missing.
 - **"How does signing work?"** → [architecture/application-signing-pipeline.md](architecture/application-signing-pipeline.md), then [architecture/signing-engine-execution.md](architecture/signing-engine-execution.md), then [architecture/external-validation.md](architecture/external-validation.md).
 - **"How do I build and test it?"** → the README's *Development* section, then [development/continuous-integration.md](development/continuous-integration.md), then [CONTRIBUTING.md](../CONTRIBUTING.md).
 
