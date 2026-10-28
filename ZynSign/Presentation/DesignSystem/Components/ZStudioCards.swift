@@ -258,8 +258,8 @@ struct ZStudioAccountCard: View {
         .padding(ZSpacing.sm)
         .frame(width: 196, alignment: .leading)
         .background(
-            isActive ? ZStudioPalette.urgentWash : ZColors.cardBackground,
-            in: RoundedRectangle(cornerRadius: ZRadius.card, style: .continuous)
+            RoundedRectangle(cornerRadius: ZRadius.card, style: .continuous)
+                .fill(isActive ? AnyShapeStyle(ZStudioPalette.urgentWash) : AnyShapeStyle(ZColors.cardBackground))
         )
         .overlay {
             RoundedRectangle(cornerRadius: ZRadius.card, style: .continuous)
