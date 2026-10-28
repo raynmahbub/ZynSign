@@ -59,8 +59,9 @@ struct AppThemeDefinition: Equatable, Hashable, Sendable {
 
 /// The themes ZynSign ships, and the rules for resolving one.
 ///
-/// Six themes ship: the Storefront storefront look — the default from
-/// v0.1.0-alpha.2 — the original look, a translucent liquid glass look, a
+/// Seven themes ship, in picker order: Zeus — violet lightning over deep
+/// indigo, the theme a new install opens on — the Storefront look that led
+/// from v0.1.0-alpha.2, the original indigo, a translucent liquid glass look, a
 /// warm flame gradient for signing-focused sessions, a cold deep-blue night
 /// look, and a graphite look that leans entirely on system materials. The
 /// catalog is the single place a theme is defined; presentation and settings
@@ -69,6 +70,15 @@ enum AppThemeCatalog {
 
     /// Every shipped theme, in picker order.
     static let all: [AppThemeDefinition] = [
+        AppThemeDefinition(
+            identifier: ZynSignTheme.zeus.rawValue,
+            displayName: "Zeus",
+            summary: "Violet lightning — deep indigo surfaces, a violet accent, and cyan highlights.",
+            accentHex: "#8B5CF6",
+            gradientHex: ["#1B1140", "#4C2A9E", "#8B5CF6"],
+            symbolName: "bolt.circle.fill",
+            prefersDarkSurfaces: true
+        ),
         AppThemeDefinition(
             identifier: ZynSignTheme.storefront.rawValue,
             displayName: "Storefront",
@@ -130,6 +140,8 @@ enum AppThemeCatalog {
         all.first { $0.identifier == identifier } ?? all[0]
     }
 
-    /// The default theme: the Storefront storefront look new installs open on.
+    /// The default theme: the Zeus look new installs open on, because it is
+    /// the first entry. `ZynSignTheme.defaultIdentifier` names the same theme
+    /// for preferences, and a test keeps the two in step.
     static var defaultTheme: AppThemeDefinition { all[0] }
 }
