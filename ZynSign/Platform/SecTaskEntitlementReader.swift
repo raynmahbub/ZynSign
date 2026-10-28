@@ -17,12 +17,28 @@ import Security
 struct SecTaskEntitlementReader: ProcessEntitlementReading {
 
     func read() -> ProcessEntitlements {
+        // The task's type is not nameable from Swift on iOS: the Security
+        // functions are imported, the `SecTask` type is not. So it is only ever
+        // held by inference and passed straight back to Security — never
+        // annotated, never stored.
         guard let task = SecTaskCreateFromSelf(nil) else { return .unmeasured }
 
         var granted: Set<String> = []
-        for key in ProcessEntitlements.probedKeys
-        where SecTaskCopyValueForEntitlement(task, key as CFString, nil) != nil {
+        var applicationIdentifier: String?
+        var teamIdentifier: String?
+        for key in ProcessEntitlements.probedKeys {
+            guard let value = SecTaskCopyValueForEntitlement(task, key as CFString, nil) else {
+                continue
+            }
             granted.insert(key)
+            switch key {
+            case ProcessEntitlements.applicationIdentifierKey:
+                applicationIdentifier = value as? String
+            case ProcessEntitlements.teamIdentifierKey:
+                teamIdentifier = value as? String
+            default:
+                break
+            }
         }
 
         // A signature that answers nothing at all is a signature this build
@@ -34,15 +50,8 @@ struct SecTaskEntitlementReader: ProcessEntitlementReading {
         return ProcessEntitlements(
             isMeasured: true,
             grantedKeys: granted,
-            applicationIdentifier: string(task, key: ProcessEntitlements.applicationIdentifierKey),
-            teamIdentifier: string(task, key: ProcessEntitlements.teamIdentifierKey)
+            applicationIdentifier: applicationIdentifier,
+            teamIdentifier: teamIdentifier
         )
-    }
-
-    private func string(_ task: SecTask, key: String) -> String? {
-        guard let value = SecTaskCopyValueForEntitlement(task, key as CFString, nil) else {
-            return nil
-        }
-        return value as? String
     }
 }
