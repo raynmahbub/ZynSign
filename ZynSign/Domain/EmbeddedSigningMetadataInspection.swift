@@ -5,7 +5,10 @@ import Foundation
 enum EmbeddedEntitlementsState: Equatable {
     /// The slice carries no entitlements slot.
     case absent
-    /// The slot's blob framed and decoded into a typed entitlement set.
+    /// A slot's blob framed and decoded into a typed entitlement set. The slot
+    /// that carried it is `EmbeddedSigningMetadataInspection.entitlementsSource`:
+    /// the XML slot (5) when the signature has one, otherwise the DER slot (7)
+    /// that iOS 15 and later carry.
     case present(CodeSigningEntitlements)
     /// The slot exists but its blob framing or payload failed to decode.
     /// The failure is recorded, never repaired: inspection does not rewrite
@@ -26,6 +29,18 @@ enum EmbeddedCodeResourcesSealState: Equatable {
     case sealed(digest: Data)
 }
 
+/// Which slot an inspected entitlement set was read from.
+///
+/// The two slots encode the same dictionary when one tool produced both, but
+/// they are independent blobs in the file, so the source is a fact worth
+/// recording rather than assuming.
+enum EmbeddedEntitlementsSource: Equatable {
+    /// The XML property-list entitlement slot (5).
+    case xml
+    /// The DER entitlement slot (7), which iOS 15 and later carry.
+    case der
+}
+
 /// A read-only view of the signing metadata embedded in one parsed Mach-O
 /// slice.
 ///
@@ -42,6 +57,21 @@ struct EmbeddedSigningMetadataInspection: Equatable {
     let entitlements: EmbeddedEntitlementsState
     let requirements: CodeSigningRequirements
     let codeResourcesSeal: EmbeddedCodeResourcesSealState
+
+    /// The slot `entitlements` was decoded from, or `nil` when there was
+    /// nothing to decode. Recorded so a screen can say which slot it read
+    /// instead of calling every claim "XML".
+    var entitlementsSource: EmbeddedEntitlementsSource? = nil
+
+    /// Whether the signature carries both entitlement slots and the two decode
+    /// to different claim sets.
+    ///
+    /// A signature ZynSign produces encodes both slots from one dictionary, so a
+    /// disagreement means the file was assembled by something else — or edited
+    /// after signing. It is reported as a fact about the slots, never as an
+    /// integrity verdict: the claims shown are the XML ones, and the finding
+    /// says the DER slot differs.
+    var entitlementSlotsDisagree: Bool = false
 }
 
 /// Extracts and classifies embedded signing metadata from a parsed slice.
@@ -71,34 +101,79 @@ struct EmbeddedSigningMetadataInspector {
         }
 
         let entries = embedded.superBlob.entries
+        let entitlements = entitlementsState(entries: entries, artifact: artifact)
         return EmbeddedSigningMetadataInspection(
-            entitlements: entitlementsState(entries: entries, artifact: artifact),
+            entitlements: entitlements.state,
             requirements: requirementsState(entries: entries, artifact: artifact),
-            codeResourcesSeal: codeResourcesState(entries: entries)
+            codeResourcesSeal: codeResourcesState(entries: entries),
+            entitlementsSource: entitlements.source,
+            entitlementSlotsDisagree: entitlements.disagrees
         )
     }
 
     // MARK: - Per-slot classification
 
+    /// Reads whichever entitlement slot the signature carries.
+    ///
+    /// The XML slot wins when both are present: every device ZynSign targets
+    /// understands it. When both exist the DER claims are decoded too, and a
+    /// difference between the two slots is recorded on the result rather than
+    /// resolved silently. A signature that carries only the DER slot — what an
+    /// iOS 15+ signer may write, and what some upstream tools ship — is decoded
+    /// instead of being reported as unknown.
     private func entitlementsState(
         entries: [MachOSignatureEntry],
         artifact: Data
-    ) -> EmbeddedEntitlementsState {
-        guard let entry = entries.first(where: { $0.slot == .entitlements }) else {
-            return .absent
+    ) -> (state: EmbeddedEntitlementsState, source: EmbeddedEntitlementsSource?, disagrees: Bool) {
+        let xmlEntry = entries.first { $0.slot == .entitlements }
+        let derEntry = entries.first { $0.slot == .derEntitlements }
+
+        if let entry = xmlEntry {
+            guard entry.magic == EntitlementsBlob.magic,
+                  entry.fileRange.lowerBound >= artifact.startIndex,
+                  entry.fileRange.upperBound <= artifact.endIndex else {
+                return (.malformed, .xml, false)
+            }
+            let claims: CodeSigningEntitlements
+            do {
+                let blob = try EntitlementsBlob(existingBlob: artifact.subdata(in: entry.fileRange))
+                claims = try blob.parseEntitlements()
+            } catch {
+                return (.malformed, .xml, false)
+            }
+            // A second slot is compared, not shown: the XML claims are the ones
+            // returned, because that is the slot every device reads.
+            let derClaims = derEntry.flatMap { derClaims(in: $0, artifact: artifact) }
+            return (.present(claims), .xml, derClaims.map { $0 != claims } ?? false)
         }
-        guard entry.magic == EntitlementsBlob.magic,
+
+        if let entry = derEntry {
+            guard entry.magic == DEREntitlementsBlob.magic,
+                  entry.fileRange.lowerBound >= artifact.startIndex,
+                  entry.fileRange.upperBound <= artifact.endIndex else {
+                return (.malformed, .der, false)
+            }
+            do {
+                let blob = try DEREntitlementsBlob(existingBlob: artifact.subdata(in: entry.fileRange))
+                return (.present(try DEREntitlementsDecoder().decode(blob.payload)), .der, false)
+            } catch {
+                return (.malformed, .der, false)
+            }
+        }
+        return (.absent, nil, false)
+    }
+
+    /// The DER slot's claims, when that slot is both framed and decodable. A slot
+    /// that cannot be read is not evidence of disagreement, so it answers `nil`.
+    private func derClaims(in entry: MachOSignatureEntry, artifact: Data) -> CodeSigningEntitlements? {
+        guard entry.magic == DEREntitlementsBlob.magic,
               entry.fileRange.lowerBound >= artifact.startIndex,
-              entry.fileRange.upperBound <= artifact.endIndex else {
-            return .malformed
+              entry.fileRange.upperBound <= artifact.endIndex,
+              let blob = try? DEREntitlementsBlob(existingBlob: artifact.subdata(in: entry.fileRange)),
+              let claims = try? DEREntitlementsDecoder().decode(blob.payload) else {
+            return nil
         }
-        do {
-            let blob = try EntitlementsBlob(existingBlob: artifact.subdata(in: entry.fileRange))
-            let entitlements = try blob.parseEntitlements()
-            return .present(entitlements)
-        } catch {
-            return .malformed
-        }
+        return claims
     }
 
     private func requirementsState(

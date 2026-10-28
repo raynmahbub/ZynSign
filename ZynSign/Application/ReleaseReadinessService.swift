@@ -203,7 +203,7 @@ actor ReleaseReadinessService {
                 return Self.check("studio.\(target.id)", .entitlements, state,
                     "Entitlements Studio: architecture \(target.id + 1)",
                     "Capability mapping, missing matches and supported profile comparisons: \(state.title.lowercased()).",
-                    "Uses the Studio analyzer on main-executable declarations. Nested entitlement authorization and DER-only decoding are not established.",
+                    "Uses the Studio analyzer on main-executable declarations, reading whichever entitlement slot the signature carries — XML (slot 5) or DER (slot 7). Nested entitlement authorization is not established.",
                     state == .verified ? "No action for supported main-executable comparisons." : "Open Entitlements Studio to review capability conflicts and unsupported combinations.")
             } + [Self.check("nestedEntitlements", .entitlements, .unsupported,
                 "Nested entitlement authorization", "The Studio comparison covers main-executable architectures only.",

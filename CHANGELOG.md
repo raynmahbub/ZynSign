@@ -21,6 +21,22 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ### Added
 
+- **DER entitlements are read, not just written.** `DEREntitlementsSerializer`
+  has always been able to emit Apple's slot-7 form; nothing could read it back,
+  so a signature carrying only DER claims was reported as *unknown, not empty* in
+  the Entitlements Studio. `DEREntitlementsDecoder` closes that gap: it parses
+  the same grammar the encoder writes — a DER `SET` of `SEQUENCE { key, value }`
+  with UTF8String, BOOLEAN, INTEGER, OCTET STRING, SEQUENCE (array) and SET
+  (dictionary) values — back into the same typed claim set. It is strict by
+  design and refuses rather than guesses: indefinite or non-minimal lengths,
+  non-canonical booleans, non-minimal or over-wide integers, duplicate keys,
+  trailing bytes, unknown tags, and any tree past the configured depth, node,
+  string, data or collection bounds. `EmbeddedSigningMetadataInspection` now
+  records **which slot** the claims came from, the Studio names it, and a
+  malformed DER blob is still `malformed` — never silently empty and never a
+  partial set. A decoded claim set is data; no signature integrity, Apple
+  authorization or device trust is inferred from reading it.
+
 - **Refresh reminders, off until you ask.** The studio can post one local
   notification per build on the day that build should be signed again — the
   same action date the calendar draws, nine in the morning, soonest first and

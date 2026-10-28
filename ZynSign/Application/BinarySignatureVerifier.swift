@@ -149,7 +149,7 @@ struct BinarySignatureVerifier {
             specialSlotCheck(slotResults),
             cmsCheck(cms, form: form),
             requirementsCheck(metadata.requirements, form: form),
-            entitlementsCheck(metadata.entitlements, hasDER: entries.contains { $0.slot == .derEntitlements }, form: form, expected: context.expectsEntitlements),
+            entitlementsCheck(metadata, hasDER: entries.contains { $0.slot == .derEntitlements }, form: form, expected: context.expectsEntitlements),
             certificateTrustCheck(cms),
         ]
         return ArchitectureIntegrityResult(
@@ -591,12 +591,12 @@ struct BinarySignatureVerifier {
     }
 
     private func entitlementsCheck(
-        _ state: EmbeddedEntitlementsState,
+        _ metadata: EmbeddedSigningMetadataInspection,
         hasDER: Bool,
         form: CodeSignatureForm,
         expected: Bool
     ) -> BinaryVerificationCheck {
-        switch state {
+        switch metadata.entitlements {
         case .absent:
             let isConcern = expected && form == .certificate
             return BinaryVerificationCheck(
@@ -608,14 +608,26 @@ struct BinarySignatureVerifier {
                     : "Frameworks, libraries, and ad-hoc signed code often carry no entitlements."
             )
         case .present(let entitlements):
-            let derNote = hasDER
-                ? "The DER form newer iOS versions read is also present."
-                : "No DER form is present; newer iOS versions read the DER form."
+            // The claims can come from either slot, and the two are different
+            // formats: saying "property list" about a DER-only signature would
+            // misdescribe the bytes that were read.
+            let formatNote: String
+            switch metadata.entitlementsSource {
+            case .der:
+                formatNote = "The DER form decodes; this signature carries no XML property list."
+            case .xml, .none:
+                formatNote = hasDER
+                    ? "The XML property list decodes; the DER form newer iOS versions read is also present."
+                    : "The XML property list decodes; no DER form is present, which newer iOS versions read."
+            }
+            let disagreementNote = metadata.entitlementSlotsDisagree
+                ? " The two slots decode to different claim sets; the XML claims are the ones compared above."
+                : ""
             return BinaryVerificationCheck(
                 kind: .entitlements,
-                status: .passed,
+                status: metadata.entitlementSlotsDisagree ? .warning : .passed,
                 summary: "\(entitlements.count) entitlement(s) decode",
-                detail: "The entitlements decode as a property list. \(derNote) Whether a provisioning profile allows them is not evaluated here."
+                detail: "\(formatNote)\(disagreementNote) Whether a provisioning profile allows them is not evaluated here."
             )
         case .malformed:
             return BinaryVerificationCheck(
