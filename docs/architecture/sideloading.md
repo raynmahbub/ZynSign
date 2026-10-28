@@ -203,6 +203,32 @@ A self-signed build whose provisioning profile carries it can compose
 `DeviceTransport` and the whole bridge above starts working. This record does
 not claim any build currently does.
 
+### Read from the signature, not assumed
+
+The rows above are assessed from evidence, and one field of that evidence used
+to be a constant: `SideloadingView` passed `buildCarriesLocalTunnelEntitlement:
+false`, which is a fact about the App Store build and a guess about any other.
+`ProcessEntitlements` replaces the guess with a measurement taken once, when the
+composition root builds the environment: `SecTaskEntitlementReader` asks the
+running process for its own entitlements and records the presence of the tunnel
+key, `get-task-allow`, the application identifier and the team identifier.
+Nothing about entitlement *values* is kept.
+
+Three states stay distinct, and the screen says which one it is:
+
+| Measured | Meaning | Row shows |
+| --- | --- | --- |
+| key present | this build was signed with the entitlement | `Granted` |
+| read, key absent | the signature was read and does not carry it | `Absent` |
+| nothing readable | preview, simulator, or an environment that hides the task | `Not established` |
+
+`nil` is not `false`. An unmeasured build is still assessed as unsupported —
+the safe reading — but its note says the signature could not be read rather
+than claiming the entitlement is missing. A build that *does* carry the
+entitlement reads as entitled, needs a pairing record and a composed transport,
+and then reports `Available` on its own; what a device does with the session is
+still the device's answer, and no row claims an install.
+
 ## 3. Guest container
 
 A container runs a guest inside ZynSign's process instead of installing it.

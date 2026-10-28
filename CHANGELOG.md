@@ -64,6 +64,23 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   the usage rows, so the strip, the queue, and the copied schedule describe one
   instant. See `docs/architecture/sideloading.md`.
 
+### Changed
+
+- **The sideloading rows are measured, not assumed.** `Settings → Sideloading`
+  passed `buildCarriesLocalTunnelEntitlement: false` as a constant, so every
+  build said the same thing about the entitlement that decides whether a device
+  session can exist — true of an App Store build, a guess about a self-signed or
+  enterprise one. `ProcessEntitlements` now reads the running binary's own
+  signature once at composition (`SecTaskEntitlementReader`), and the screen
+  shows three distinct states: **granted**, **absent** (read, and not there), or
+  **not established** (nothing readable — preview, simulator). `nil` never
+  collapses into `false`: an unmeasured build stays unsupported, but its note
+  says the signature could not be read instead of claiming the entitlement is
+  missing. A build that carries the entitlement lights the rows up on its own
+  and still needs a pairing record and a composed transport — and what a device
+  does with the session remains the device's answer. See
+  `docs/architecture/sideloading.md`.
+
 ### Fixed
 
 - **A capacity failure no longer looks like a lint failure.** `Lint and format`

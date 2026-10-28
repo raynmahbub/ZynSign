@@ -14,16 +14,17 @@ struct SideloadingView: View {
     @State private var options = SideloadSigningOptions.none
     @State private var injectedPath = "@executable_path/Frameworks/Tweak.dylib"
 
+    /// The build's own signature, read once at composition. This screen used to
+    /// write `buildCarriesLocalTunnelEntitlement: false` here, which is a fact
+    /// about the App Store build and a guess about every other one.
+    @Environment(\.applicationEnvironment) private var environment
+
+    private var processEntitlements: ProcessEntitlements {
+        environment.processEntitlements
+    }
+
     private var evidence: SideloadingCapability.Evidence {
-        SideloadingCapability.Evidence(
-            hasPairingRecord: false,
-            buildCarriesLocalTunnelEntitlement: false,
-            transportComposed: false,
-            loaderBundled: false,
-            targetHeaderPadding: nil,
-            guestDecrypted: nil,
-            deviceAcceptsAdHoc: nil
-        )
+        processEntitlements.sideloadingEvidence(hasPairingRecord: false)
     }
 
     private var assessments: [SideloadingCapability.Assessment] {
@@ -86,8 +87,9 @@ struct SideloadingView: View {
             Text("Capabilities")
         } footer: {
             Text("A requirement is a fact about this build or this device, not a setting. "
-                 + "Importing a pairing record satisfies the first one; the rest come from "
-                 + "the identity that signed the app.")
+                 + "Importing a pairing record satisfies the first one; the entitlement "
+                 + "requirements are read from the signature that signed this copy of "
+                 + "ZynSign, so an entitled build lights these rows up on its own.")
         }
     }
 
@@ -106,17 +108,32 @@ struct SideloadingView: View {
 
     private var connectionSection: some View {
         Section {
+            LabeledContent("This build's signature", value: measurementLabel)
+            LabeledContent("Local-tunnel entitlement", value: localTunnelLabel)
             LabeledContent("Device transport", value: "Not composed")
             LabeledContent("Pairing records", value: "None")
-            Text("ZynSign reaches a device only through a local tunnel it is entitled to open. "
-                 + "This build's identity does not carry that entitlement, so the device rows "
-                 + "stay empty instead of showing a connection that was never made.")
+            Text(processEntitlements.summary)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         } header: {
             Text("Device")
         } footer: {
             Text(SideloadingTruth.installationEvidenceRule)
+        }
+    }
+
+    /// What was measured, in the plainest words available: a read signature, a
+    /// signature with nothing readable in it, or no read at all.
+    private var measurementLabel: String {
+        guard processEntitlements.isMeasured else { return "Not established" }
+        return processEntitlements.teamIdentifier.map { "Measured · team \($0)" } ?? "Measured"
+    }
+
+    private var localTunnelLabel: String {
+        switch processEntitlements.carriesLocalTunnelEntitlement {
+        case true: return "Granted"
+        case false: return "Absent"
+        case .none: return "Not established"
         }
     }
 
