@@ -133,7 +133,8 @@ state, and it is what blocks the tag.
 
 | Candidate | Build | Source commit | Devices | Verdict |
 |---|---|---|---|---|
-| `v1.0.0` | 9 | merge commit of PR #108 (`feat(release): open the Export Center, the signing history, and the 1.0.0 train`) | — | **Not run.** No device has installed this build. Every row above is the open work; the tag waits for them. |
+| `v1.0.0` | 9 | merge commit of PR #108 (`feat(release): open the Export Center, the signing history, and the 1.0.0 train`) | — | **Superseded.** No device installed build 9; the import intake changed after it was cut, so it is not the build to test. |
+| `v1.0.0` | 10 | the merge commit that lands the import intake fix (`fix(import): read every package and certificate by its content`) | — | **Not run.** No device has installed this build. Every row above is the open work; the tag waits for them. |
 
 ## From private green to public publish
 

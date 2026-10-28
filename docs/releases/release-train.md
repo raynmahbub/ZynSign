@@ -8,7 +8,7 @@ The release train in [`ZynSign/Application/ReleaseTrain.swift`](../../ZynSign/Ap
 python3 Scripts/release_train.py status
 ```
 
-At this checkout the current stop is **`v1.0.0`** (stage `.stable`, stable channel; marketing version `1.0.0`, build `9`). The command is authoritative if this page and the source ever disagree. The current stop is not evidence that a release has been published or device-verified.
+At this checkout the current stop is **`v1.0.0`** (stage `.stable`, stable channel; marketing version `1.0.0`, build `10`). The command is authoritative if this page and the source ever disagree. The current stop is not evidence that a release has been published or device-verified.
 
 ## Ordered stops
 

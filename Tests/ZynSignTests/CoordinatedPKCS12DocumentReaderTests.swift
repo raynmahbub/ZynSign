@@ -20,8 +20,17 @@ final class CoordinatedPKCS12DocumentReaderTests: XCTestCase {
         try super.tearDownWithError()
     }
 
+    /// A synthetic container body: a DER `SEQUENCE` header followed by bytes
+    /// that are not a real certificate. The reader is not a parser; it
+    /// recognises the binary container and hands it on.
+    private func containerBody(_ trailer: String = "synthetic PKCS#12 body") -> Data {
+        var payload = Data([0x30, 0x82, 0x00, 0x10])
+        payload.append(Data(trailer.utf8))
+        return payload
+    }
+
     func testReadsCoordinatedP12AndPfxFilesCaseInsensitively() throws {
-        let payload = Data("synthetic PKCS#12 bytes".utf8)
+        let payload = containerBody()
         let p12 = directory.appendingPathComponent("Identity.P12")
         let pfx = directory.appendingPathComponent("Identity.PfX")
         try payload.write(to: p12)
@@ -32,13 +41,43 @@ final class CoordinatedPKCS12DocumentReaderTests: XCTestCase {
         XCTAssertEqual(try reader.readPKCS12(at: pfx), payload)
     }
 
-    func testRejectsUnsupportedExtensionsBeforeReading() {
-        let url = directory.appendingPathComponent("Identity.pem")
-        let reader = CoordinatedPKCS12DocumentReader()
+    func testRefusesTextByItsContentWhateverItIsCalled() throws {
+        // The name decides nothing: text is refused for what it holds, under
+        // any name a person or another app gave it.
+        let namedAsCertificate = directory.appendingPathComponent("Identity.p12")
+        let foreignName = directory.appendingPathComponent("Identity.cer")
+        let text = Data("this is a note, not a certificate".utf8)
+        try text.write(to: namedAsCertificate)
+        try text.write(to: foreignName)
 
-        XCTAssertThrowsError(try reader.readPKCS12(at: url)) { error in
-            XCTAssertEqual(error as? PKCS12DocumentReadError, .unsupportedFileType)
+        for url in [namedAsCertificate, foreignName] {
+            XCTAssertThrowsError(try CoordinatedPKCS12DocumentReader().readPKCS12(at: url)) { error in
+                XCTAssertEqual(error as? PKCS12DocumentReadError, .unsupportedFileType)
+            }
         }
+    }
+
+    func testAMissingDocumentIsReportedAsUnreadable() {
+        let missing = directory.appendingPathComponent("Gone.p12")
+
+        XCTAssertThrowsError(try CoordinatedPKCS12DocumentReader().readPKCS12(at: missing)) { error in
+            XCTAssertEqual(error as? PKCS12DocumentReadError, .unreadable)
+        }
+    }
+
+    /// A certificate handed out as Base64 — bare, or between the familiar
+    /// armor lines — reaches the password form as the container it is.
+    func testUnwrapsAnEncodedContainer() throws {
+        let payload = containerBody()
+        let encoded = payload.base64EncodedString()
+        let bare = directory.appendingPathComponent("Identity.p12")
+        let armored = directory.appendingPathComponent("Identity.pfx")
+        try Data(encoded.utf8).write(to: bare)
+        try Data("-----BEGIN PKCS12-----\n\(encoded)\n-----END PKCS12-----\n".utf8).write(to: armored)
+
+        let reader = CoordinatedPKCS12DocumentReader()
+        XCTAssertEqual(try reader.readPKCS12(at: bare), payload)
+        XCTAssertEqual(try reader.readPKCS12(at: armored), payload)
     }
 
     func testRejectsEmptyFiles() throws {
@@ -53,11 +92,15 @@ final class CoordinatedPKCS12DocumentReaderTests: XCTestCase {
     func testEnforcesTheConfiguredSizeBoundWhileStreamingChunks() throws {
         let accepted = directory.appendingPathComponent("Accepted.p12")
         let oversized = directory.appendingPathComponent("Oversized.pfx")
-        try Data("12345678".utf8).write(to: accepted)
-        try Data("123456789".utf8).write(to: oversized)
+        var acceptedBytes = Data([0x30])
+        acceptedBytes.append(Data("1234567".utf8))
+        var oversizedBytes = Data([0x30])
+        oversizedBytes.append(Data("12345678".utf8))
+        try acceptedBytes.write(to: accepted)
+        try oversizedBytes.write(to: oversized)
         let reader = CoordinatedPKCS12DocumentReader(maximumByteCount: 8, chunkSize: 3)
 
-        XCTAssertEqual(try reader.readPKCS12(at: accepted), Data("12345678".utf8))
+        XCTAssertEqual(try reader.readPKCS12(at: accepted), acceptedBytes)
         XCTAssertThrowsError(try reader.readPKCS12(at: oversized)) { error in
             XCTAssertEqual(error as? PKCS12DocumentReadError, .fileTooLarge)
         }

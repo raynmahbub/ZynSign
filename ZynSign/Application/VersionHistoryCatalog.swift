@@ -30,7 +30,7 @@ enum VersionHistoryCatalog {
         VersionHistoryEntry(
             tag: "v1.0.0",
             marketingVersion: "1.0.0",
-            buildNumber: 9,
+            buildNumber: 10,
             releasedAt: DateComponents(year: 2026, month: 10, day: 28),
             headline: "1.0.0 switches on every staged feature the train has carried — including the Export Center and the signing history that make what you signed findable again.",
             highlights: [

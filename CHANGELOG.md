@@ -40,6 +40,32 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ### Fixed
 
+- **A package and a certificate are read by their content, not by their name.**
+  The document picker's own answer was being overruled before the file was
+  copied. The pre-import checks refused a package whose first four bytes read
+  through a provider did not spell a ZIP container — including when the bytes
+  could not be read at all — so a `.ipa` or `.tipa` that Files had not
+  materialised yet, or whose provider answered a partial read, was rejected
+  before staging and never reached the archive boundary. They now police the
+  resource only (not a directory, not empty, inside the copy ceiling) and leave
+  content to the copy: a package-named document is staged and the archive
+  boundary reads it, while a document under any other name is accepted when its
+  bytes begin a container, which is what makes a package that AirDrop or a
+  browser renamed importable. The copy itself gained the route it was missing —
+  a coordinator that cannot run, reports a provider error, or copies nothing is
+  retried directly on the same bytes rather than failing the import — and a
+  copy that moved no bytes is reported as unreachable instead of as a damaged
+  archive. The certificate reader no longer refuses a file by its extension at
+  all: a `.p12` renamed to `.cer`, saved without an extension, or handed over
+  as text in Base64 (bare or between `BEGIN`/`END` lines) reaches the password
+  form, a text file that was renamed to `.p12` is refused for what it holds,
+  and a failed coordinated read falls back to reading the document directly.
+  Zero-size observations are withdrawn for documents the provider has not
+  delivered, so a download in progress is no longer reported as an empty file.
+  A dropped item whose declared type cannot be loaded as a file now falls back
+  to the file URL it also carries, and the Microsoft PKCS#12 type declares the
+  `pfx` tag it was missing.
+
 - **A file the person chose is imported, whatever the screen is doing.**
   Two silent refusals sat between the document picker and the importer, and
   both were about presentation state rather than about the file. The Import

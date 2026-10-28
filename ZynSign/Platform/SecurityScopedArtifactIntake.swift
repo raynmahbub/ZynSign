@@ -126,11 +126,22 @@ final class SecurityScopedArtifactIntake: ArtifactIntake, ImportStagingArea {
             byteCount = size.intValue
         }
 
+        let signature = archiveSignatureMarker(at: source)
+        // A zero size is an observation only when the bytes were there to
+        // count. A document the provider has not materialised reports its own
+        // size as zero *and* answers every read with nothing, and those two
+        // together describe a placeholder, not an empty package. The size is
+        // withdrawn so the pre-import checks cannot refuse a package that is
+        // still arriving; the copy that follows measures it.
+        if byteCount == 0, signature == nil {
+            byteCount = nil
+        }
+
         return ImportSourceDescription(
             fileName: source.lastPathComponent,
             byteCount: byteCount,
             kind: kind,
-            beginsWithArchiveSignature: archiveSignatureMarker(at: source)
+            beginsWithArchiveSignature: signature
         )
     }
 
@@ -172,6 +183,19 @@ final class SecurityScopedArtifactIntake: ArtifactIntake, ImportStagingArea {
             // Nothing partial survives a failed or cancelled staging.
             try? FileManager.default.removeItem(at: destination)
             throw error
+        }
+        // A copy that moved nothing is not an archive. Either the document
+        // holds no content — which the pre-import checks already refuse when
+        // the platform could measure it — or the provider has not delivered
+        // the bytes it promises, which is the shape of an unfinished iCloud
+        // download. Reporting it as unreachable keeps it retryable and keeps
+        // a placeholder from arriving at the archive boundary as a damaged
+        // package.
+        guard Self.fileSize(of: destination) > 0 else {
+            try? FileManager.default.removeItem(at: destination)
+            throw ZynSignError.selectedFileUnavailable(
+                diagnosticDetail: "The copy of the selected document produced no bytes; the provider did not deliver its content."
+            )
         }
     }
 
@@ -269,10 +293,18 @@ final class SecurityScopedArtifactIntake: ArtifactIntake, ImportStagingArea {
     /// failures are mapped onto typed errors whose rendering is free of the
     /// selected document's location.
     ///
-    /// The read is coordinated through `NSFileCoordinator` when the source
-    /// is a coordinated URL (Files providers, iCloud). For plain temp URLs
-    /// produced by `fileImporter`, coordination is a no-op and the direct
-    /// `FileHandle` path is used.
+    /// The copy tries the coordinated route first, because that is the route
+    /// Files and iCloud providers publish, and then the direct route for the
+    /// same bytes. **Coordination is an optimisation, not a permission.** A
+    /// coordinator that cannot run for this selection, reports an error from
+    /// the provider, or hands over an accessor that copies nothing is
+    /// answered by reading the document directly: the bytes a provider will
+    /// not coordinate are frequently still bytes the app may read, and
+    /// refusing on the first attempt is how a perfectly good package came
+    /// back as "could not be copied". Only when the direct read fails too is
+    /// the selection refused, and then with the coordinator's own reason when
+    /// it has one, because "no permission" and "no such file" are the two
+    /// answers a person can act on.
     private func streamCopy(
         from source: URL,
         to destination: URL,
@@ -285,12 +317,8 @@ final class SecurityScopedArtifactIntake: ArtifactIntake, ImportStagingArea {
             )
         }
 
-        // Try coordinated read first — required for some Files providers that
-        // vend security-scoped URLs outside the sandbox. If coordination
-        // reports the file not yet downloaded, trigger a download and retry
-        // once with a short wait.
         var coordinationError: NSError?
-        var stagedError: (any Error)?
+        var coordinatedFailure: (any Error)?
         var didCoordinate = false
 
         let coordinator = NSFileCoordinator(filePresenter: nil)
@@ -304,42 +332,57 @@ final class SecurityScopedArtifactIntake: ArtifactIntake, ImportStagingArea {
                     reporting: progress
                 )
             } catch {
-                stagedError = error
+                coordinatedFailure = error
             }
         }
-        if let error = stagedError {
+
+        // Cancellation is the person's answer, and it is never retried.
+        if let coordinatedFailure, Self.isCancellation(coordinatedFailure) {
+            throw coordinatedFailure
+        }
+        // A coordinated read that finished without a word and wrote bytes is
+        // a complete copy.
+        if didCoordinate, coordinationError == nil, Self.fileSize(of: destination) > 0 {
+            return
+        }
+
+        // Everything else falls through to the direct read. The destination is
+        // recreated first so a partial coordinated copy cannot be appended to.
+        try? FileManager.default.removeItem(at: destination)
+        guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
+            throw ZynSignError.importTemporaryStorageFailure(
+                diagnosticDetail: "The staged archive could not be recreated after coordination."
+            )
+        }
+        do {
+            try chunkedCopy(
+                from: source,
+                to: destination,
+                totalByteCount: totalByteCount,
+                reporting: progress
+            )
+        } catch {
+            if let coordinatedFailure, Self.isCancellation(coordinatedFailure) {
+                throw coordinatedFailure
+            }
+            // The coordinator often knows *why* — no permission, no such
+            // file — and that reason is the one a person can act on. A copy
+            // that fails for an unexplained reason keeps its own error.
+            if let coordinationError, (error as? ZynSignError)?.category == .storageFailure {
+                throw Self.mapCoordinationFailure(coordinationError)
+            }
             throw error
         }
-        if didCoordinate {
-            if let error = coordinationError {
-                throw Self.mapCoordinationFailure(error)
-            }
-            // Coordination succeeded and the copy was performed inside the
-            // accessor — verify the destination has content. An empty
-            // destination means nothing was copied and we should fall back
-            // to the direct path rather than leave an empty file behind.
-            if let attrs = try? FileManager.default.attributesOfItem(atPath: destination.path),
-               let size = attrs[.size] as? NSNumber, size.intValue > 0 {
-                return
-            }
-            // If coordination produced an empty file, remove it and fall
-            // through to the direct FileHandle path so the honest copy
-            // logic can surface a proper error.
-            try? FileManager.default.removeItem(at: destination)
-            guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
-                throw ZynSignError.importTemporaryStorageFailure(
-                    diagnosticDetail: "The staged archive could not be recreated after coordination."
-                )
-            }
-        }
-        // Direct path — for fileImporter temp copies and any provider where
-        // coordination did not already succeed.
-        try chunkedCopy(
-            from: source,
-            to: destination,
-            totalByteCount: totalByteCount,
-            reporting: progress
-        )
+    }
+
+    /// The size of `url` in bytes, or zero when it cannot be measured.
+    private static func fileSize(of url: URL) -> Int {
+        ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.intValue ?? 0
+    }
+
+    /// Whether an error is the person's cancellation rather than a failure.
+    private static func isCancellation(_ error: any Error) -> Bool {
+        error is CancellationError || (error as? ZynSignError)?.category == .cancelled
     }
 
     /// The bounded chunked copy used both inside and outside coordination.

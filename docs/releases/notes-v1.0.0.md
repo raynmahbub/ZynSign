@@ -1,6 +1,6 @@
 ## [1.0.0] — stable · the whole app, switched on
 
-Market `1.0.0` build `9` (`CFBundleShortVersionString 1.0.0`,
+Market `1.0.0` build `10` (`CFBundleShortVersionString 1.0.0`,
 `CFBundleVersion 9`), tag `v1.0.0`. Release train `.stable`: this release
 switches on every staged feature the train has carried to here — Entitlements
 Studio and the Developer Identity Center (`v0.1.0-alpha.3`), Mission Control,
@@ -160,7 +160,7 @@ Host audits, run on the machine that produced this note:
 
 | Audit | Result |
 |---|---|
-| `Scripts/ci/version_claims.py` | `v1.0.0 · build 9 · 17 of 18 staged features · 3 never` |
+| `Scripts/ci/version_claims.py` | `v1.0.0 · build 10 · 17 of 18 staged features · 3 never` |
 | `Scripts/ci/docs_check.sh` | 86 pages, 0 errors, 0 warnings |
 | `Scripts/audit_release_gating.py` | 18 of 18 staged features wired, 0 deferred |
 | `Scripts/audit_presentation_ports.py` | 4 of 4 presentation ports installed; verified to fail when one is removed |

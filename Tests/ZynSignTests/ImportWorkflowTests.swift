@@ -161,15 +161,28 @@ final class ImportWorkflowTests: XCTestCase {
         XCTAssertTrue(stagedFiles().isEmpty, "The working copy moved into the library.")
     }
 
-    func testAFileThatIsNotAnArchiveIsRefusedBeforeCopying() async throws {
+    func testAFileThatIsNotAnArchiveIsRefusedByTheArchiveBoundary() async throws {
+        // The name is a shortcut, not a verdict. A document named like a
+        // package is copied and measured, and the refusal comes from the
+        // archive boundary — the only place that reads the whole container —
+        // rather than from four bytes observed through whatever route a
+        // provider offered before the copy.
         let source = writeSource("Fake.ipa", Data(ZipFixtureBuilder.notAnArchive()))
+        let workflow = makeWorkflow()
+        let staged = try await workflow.stage(
+            .document(source),
+            fileName: "Fake.ipa",
+            as: ArtifactIdentifier(),
+            reporting: nil
+        )
+        defer { workflow.discardWorkingCopy(staged.artifactID) }
         do {
-            _ = try await makeWorkflow().stage(.document(source), fileName: "Fake.ipa", as: ArtifactIdentifier(), reporting: nil)
-            XCTFail("Expected the file to be refused.")
-        } catch let error as ZynSignError {
-            XCTAssertEqual(error.category, .invalidInput)
+            _ = try await workflow.examine(staged, reporting: nil)
+            XCTFail("Expected the archive boundary to refuse the file.")
+        } catch let failure as ImportFailure {
+            XCTAssertEqual(failure, ImportFailure.corruptedArchive())
         }
-        XCTAssertTrue(stagedFiles().isEmpty)
+        XCTAssertTrue(stagedFiles().count == 1, "The working copy is still owned by the examination until it is discarded.")
     }
 
     func testACorruptedArchiveIsRejected() async throws {
