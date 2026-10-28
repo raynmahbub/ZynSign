@@ -157,7 +157,26 @@ final class DropInboxFileReceiver: DroppedFileReceiving, @unchecked Sendable {
         let suggestedName = provider.suggestedName
         switch plan {
         case .representation(let typeIdentifier):
-            return await loadRepresentation(of: provider, typeIdentifier: typeIdentifier, suggestedName: suggestedName)
+            if let url = await loadRepresentation(
+                of: provider,
+                typeIdentifier: typeIdentifier,
+                suggestedName: suggestedName
+            ) {
+                return url
+            }
+            // A provider can name a type and then not deliver it as a file.
+            // The file URL it also carries is the route that still works, and
+            // a drop that reached this app must not be lost because the
+            // preferred route answered with nothing.
+            guard provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier),
+                  let referenced = await referencedFileURL(of: provider) else {
+                return nil
+            }
+            return copyToInbox(
+                referenced,
+                suggestedName: suggestedName,
+                typeIdentifier: UTType.fileURL.identifier
+            )
         case .referencedFile:
             guard let url = await referencedFileURL(of: provider) else { return nil }
             return copyToInbox(url, suggestedName: suggestedName, typeIdentifier: UTType.fileURL.identifier)

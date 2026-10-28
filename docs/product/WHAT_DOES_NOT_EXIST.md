@@ -1,6 +1,6 @@
 # What Does Not Exist — Honest Limitations
 
-> ZynSign `v1.0.0` (market `1.0.0`, build `9`) — **18 staged · 17 on · 1 still ahead · 3 never**.
+> ZynSign `v1.0.0` (market `1.0.0`, build `10`) — **18 staged · 17 on · 1 still ahead · 3 never**.
 >
 > **Wired** means the capability is compiled into the app and reachable. A Release
 > build of `v1.0.0` switches on every feature up to and including that stop on the

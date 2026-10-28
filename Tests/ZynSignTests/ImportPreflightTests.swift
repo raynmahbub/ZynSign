@@ -12,6 +12,7 @@ import XCTest
 final class ImportPreflightTests: XCTestCase {
 
     private let source = ImportFixtures.sourceURL()
+    private let foreignName = ImportFixtures.sourceURL(name: "Example.txt")
 
     private func describe(
         byteCount: Int? = 1_024,
@@ -28,10 +29,15 @@ final class ImportPreflightTests: XCTestCase {
 
     private func refusal(
         _ description: ImportSourceDescription,
-        from url: URL? = nil
+        from url: URL? = nil,
+        acceptingContainers: Bool = false
     ) -> ZynSignError? {
         do {
-            try ImportPreflight.validate(url ?? source, describedBy: description)
+            try ImportPreflight.validate(
+                url ?? source,
+                describedBy: description,
+                acceptingContainers: acceptingContainers
+            )
             return nil
         } catch let error as ZynSignError {
             return error
@@ -71,9 +77,25 @@ final class ImportPreflightTests: XCTestCase {
         XCTAssertEqual(error?.category, .unsupportedInput)
     }
 
-    func testAFileWithoutThePackageExtensionIsRefused() throws {
-        let error = refusal(describe(), from: ImportFixtures.sourceURL(name: "Example.txt"))
+    func testAForeignNameWhoseContentIsNotAContainerIsRefused() throws {
+        // Neither observation is hopeful: the name is not one ZynSign imports
+        // and the leading bytes are not a ZIP container's.
+        let error = refusal(describe(signature: false), from: foreignName)
         XCTAssertEqual(error?.category, .unsupportedInput)
+    }
+
+    func testAPackageUnderAForeignNameIsAcceptedWhenItsContentIsAContainer() throws {
+        // Files, browsers, and other apps rewrite names. In the Import Hub —
+        // the route that classifies a container before extracting anything —
+        // bytes that begin a ZIP container are a candidate whatever the file
+        // is called, and the archive boundary decides what is inside.
+        XCTAssertNil(refusal(describe(signature: true), from: foreignName, acceptingContainers: true))
+        // The one-shot import reads packages only, so a renamed container is
+        // refused there with the message that says where containers go.
+        XCTAssertEqual(
+            refusal(describe(signature: true), from: foreignName, acceptingContainers: false)?.category,
+            .unsupportedInput
+        )
     }
 
     func testAnEmptyFileIsRefusedAsInvalidInput() throws {
@@ -96,9 +118,12 @@ final class ImportPreflightTests: XCTestCase {
         XCTAssertNil(refusal(describe(byteCount: ImportPreflight.maximumCandidateByteCount)))
     }
 
-    func testAFileThatDoesNotBeginLikeAnArchiveIsRefused() throws {
-        let error = refusal(describe(signature: false))
-        XCTAssertEqual(error?.category, .invalidInput)
+    func testAPackageNameWithUnexpectedLeadingBytesIsStillCopied() throws {
+        // Four bytes read through whatever route a provider offered are a
+        // weaker observation than the copy that follows. A package is not
+        // refused on them: the copy is made, and the archive boundary refuses
+        // what is not an archive with a message about the archive.
+        XCTAssertNil(refusal(describe(signature: false)))
     }
 
     func testTheCeilingIsFourGibibytes() {

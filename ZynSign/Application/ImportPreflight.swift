@@ -20,6 +20,18 @@ import Foundation
 /// those, about the copied bytes, and their findings are the ones that refuse
 /// a package.
 ///
+/// **The name is a shortcut, never the verdict.** A document is a candidate
+/// when its name is one ZynSign imports *or* when its leading bytes are a ZIP
+/// container's, and a package that arrived under a name Files, a browser, or
+/// another app rewrote is still imported. The reverse is true as well: a
+/// document named like a package whose leading bytes could not be read — or
+/// whose leading bytes are not what a ZIP begins with — is still copied and
+/// handed to the archive boundary, because the copy is the authority on
+/// content and a shallow check is not allowed to overrule it. Only a name
+/// ZynSign does not import *together with* leading bytes that are definitely
+/// not a container is refused here, which is the one case where both
+/// observations agree.
+///
 /// Every refusal is a typed `ZynSignError` whose user-facing message names
 /// what was observed — "empty", "too large", "not a package archive" — rather
 /// than a stage name, so the interface can render the reason without a second
@@ -38,10 +50,22 @@ enum ImportPreflight {
     /// Applies the policy to a described candidate, throwing the typed error
     /// that explains the refusal.
     ///
-    /// The document's *name* is checked here because the name is the only
-    /// thing ZynSign has to go on before reading content, and it is checked
-    /// as a policy gate only: a file called `Example.ipa` is still untrusted
-    /// afterwards, and nothing later in the import relies on the name.
+    /// Two observations decide whether the file is worth copying: the name
+    /// the platform reported, and the leading bytes it could read. Either one
+    /// is enough to make a candidate, because both routes into a package are
+    /// real — a `.ipa` from a browser keeps its name, and a package AirDropped
+    /// as `App.zip` or handed over with no name at all keeps its bytes. The
+    /// refusal is for the case where neither observation is hopeful: a name
+    /// ZynSign does not import, on a document whose bytes begin with something
+    /// that is definitely not a ZIP container.
+    ///
+    /// A package-named document that begins with anything else is *not*
+    /// refused here. A few bytes read through one route are a weaker
+    /// observation than the copy that follows, and a provider that answers
+    /// with a decrypted or partial view of its file has produced a
+    /// disagreement, not a verdict. The copy's own bytes go to the archive
+    /// boundary, and that boundary refuses what is not an archive with a
+    /// message about the archive rather than about the name.
     ///
     /// - Parameters:
     ///   - source: the URL the platform vended for the selection, used for
@@ -58,9 +82,15 @@ enum ImportPreflight {
         let acceptsName = acceptingContainers
             ? IPAFileFormat.acceptsForImport(source)
             : IPAFileFormat.accepts(source)
-        guard acceptsName else {
+        // Only the route that can open a container accepts one by its
+        // content: the Import Hub classifies an archive before extracting
+        // anything, so a package renamed to anything at all still has a way
+        // in. The one-shot import reads packages and nothing else, and a
+        // renamed container belongs in the hub.
+        let beginsWithContainer = acceptingContainers && description.beginsWithArchiveSignature == true
+        guard acceptsName || beginsWithContainer else {
             throw ZynSignError.unsupportedImportFile(
-                diagnosticDetail: "The selected file's extension is not an accepted package or archive type."
+                diagnosticDetail: "The selected file is neither named as a package or archive nor does it begin with a ZIP container signature."
             )
         }
 
@@ -76,6 +106,9 @@ enum ImportPreflight {
             break
         }
 
+        // The size is policed only when it was observed, and only as a bound
+        // on what ZynSign is willing to copy. It is not a statement about the
+        // content: the archive boundary measures the copy itself.
         if let byteCount = description.byteCount {
             guard byteCount > 0 else {
                 throw ZynSignError.importSourceEmpty(
@@ -89,14 +122,10 @@ enum ImportPreflight {
             }
         }
 
-        // Only an observation of *wrong* bytes refuses the candidate. When
-        // the leading bytes could not be read at all, the archive boundary
-        // decides instead — a provider that vends its content only through a
-        // coordinated read is not a broken package.
-        if description.beginsWithArchiveSignature == false {
-            throw ZynSignError.importContainerUnrecognised(
-                diagnosticDetail: "The selected document's first bytes are not a ZIP container signature."
-            )
-        }
+        // No content check follows, deliberately. Whether the copy is an
+        // archive is decided by reading the copy — the one place where the
+        // bytes, their length, and their checksums are all observable — and
+        // not by four bytes read through whatever route a provider happened
+        // to offer before the copy.
     }
 }
