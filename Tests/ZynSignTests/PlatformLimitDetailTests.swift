@@ -32,7 +32,7 @@ final class PlatformLimitDetailTests: XCTestCase {
             XCTAssertNil(PlatformLimitDetail.resolved(forCatalogID: feature.catalogEntry.id))
         }
         for feature in ReleaseFeature.allCases {
-            XCTAssertNil(PlatformLimitDetail.resolved(forCatalogID: feature.catalogEntry.id))
+            XCTAssertNil(PlatformLimitDetail.resolved(forCatalogID: "release.\(feature.rawValue)"))
         }
         XCTAssertNil(PlatformLimitDetail.resolved(forCatalogID: "limit.not-a-limit"))
         XCTAssertNil(PlatformLimitDetail.resolved(forCatalogID: ""))
