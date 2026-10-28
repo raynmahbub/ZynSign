@@ -23,7 +23,8 @@ final class ProcessEntitlementsTests: XCTestCase {
         let entitlements = ProcessEntitlements.unmeasured
         XCTAssertFalse(entitlements.isMeasured)
         XCTAssertNil(entitlements.carriesLocalTunnelEntitlement)
-        XCTAssertNil(entitlements.carriesGetTaskAllow)
+        XCTAssertNil(entitlements.declaresGetTaskAllow)
+        XCTAssertNil(entitlements.allowsDebugging)
         XCTAssertTrue(entitlements.summary.contains("could not be read"))
     }
 
@@ -49,9 +50,9 @@ final class ProcessEntitlementsTests: XCTestCase {
 
     /// An unrelated entitlement does not accidentally satisfy the tunnel key.
     func testAnotherEntitlementIsNotTheTunnelKey() {
-        let entitlements = measured("aps-environment", "get-task-allow")
+        let entitlements = measured("aps-environment", ProcessEntitlements.getTaskAllowKey)
         XCTAssertEqual(entitlements.carriesLocalTunnelEntitlement, false)
-        XCTAssertEqual(entitlements.carriesGetTaskAllow, true)
+        XCTAssertEqual(entitlements.declaresGetTaskAllow, true)
     }
 
     /// The probed list is the one the reader asks for, so a key cannot be added
@@ -168,7 +169,9 @@ final class ProcessEntitlementsTests: XCTestCase {
         let entitlements = ExecutableEntitlementReader(executableURL: url).read()
         XCTAssertTrue(entitlements.isMeasured)
         XCTAssertEqual(entitlements.carriesLocalTunnelEntitlement, false)
-        XCTAssertEqual(entitlements.carriesGetTaskAllow, false)
+        // The claim is declared *false*, which is a declaration — not absence.
+        XCTAssertEqual(entitlements.declaresGetTaskAllow, true)
+        XCTAssertEqual(entitlements.allowsDebugging, false)
         XCTAssertEqual(entitlements.teamIdentifier, nil)
     }
 
@@ -196,6 +199,38 @@ final class ProcessEntitlementsTests: XCTestCase {
         try Data(MachOFixtures.thin()).write(to: url)
         addTeardownBlock { try? FileManager.default.removeItem(at: url) }
         XCTAssertEqual(ExecutableEntitlementReader(executableURL: url).read(), .unmeasured)
+    }
+
+    /// "Declared false" and "not declared" are different answers, and the two
+    /// accessors keep them apart — the same rule the Entitlements Studio applies
+    /// to `get-task-allow`.
+    func testDeclaredFalseIsNotTheSameAsUndeclared() throws {
+        let declared = ExecutableEntitlementReader(
+            executableURL: try executable(carrying: [
+                ProcessEntitlements.getTaskAllowKey: .boolean(false),
+            ])
+        ).read()
+        XCTAssertEqual(declared.declaresGetTaskAllow, true)
+        XCTAssertEqual(declared.allowsDebugging, false)
+
+        let undeclared = ExecutableEntitlementReader(
+            executableURL: try executable(carrying: [
+                ProcessEntitlements.applicationIdentifierKey: .string("ABCDE12345.com.example.app"),
+            ])
+        ).read()
+        XCTAssertEqual(undeclared.declaresGetTaskAllow, false)
+        XCTAssertNil(undeclared.allowsDebugging)
+    }
+
+    /// A build that declares `get-task-allow = true` says so.
+    func testADebugBuildReadsAsAllowingDebugging() throws {
+        let entitlements = ExecutableEntitlementReader(
+            executableURL: try executable(carrying: [
+                ProcessEntitlements.getTaskAllowKey: .boolean(true),
+            ])
+        ).read()
+        XCTAssertEqual(entitlements.declaresGetTaskAllow, true)
+        XCTAssertEqual(entitlements.allowsDebugging, true)
     }
 
     // MARK: - The reader port

@@ -58,24 +58,30 @@ struct ProcessEntitlements: Equatable, Sendable {
     /// material — not an error.
     let teamIdentifier: String?
 
+    /// The declared `get-task-allow` value, when the claim carries a boolean.
+    let getTaskAllowValue: Bool?
+
     /// A build whose signature could not be read here.
     static let unmeasured = ProcessEntitlements(
         isMeasured: false,
         grantedKeys: [],
         applicationIdentifier: nil,
-        teamIdentifier: nil
+        teamIdentifier: nil,
+        getTaskAllowValue: nil
     )
 
     init(
         isMeasured: Bool,
         grantedKeys: Set<String>,
         applicationIdentifier: String? = nil,
-        teamIdentifier: String? = nil
+        teamIdentifier: String? = nil,
+        getTaskAllowValue: Bool? = nil
     ) {
         self.isMeasured = isMeasured
         self.grantedKeys = grantedKeys
         self.applicationIdentifier = applicationIdentifier
         self.teamIdentifier = teamIdentifier
+        self.getTaskAllowValue = getTaskAllowValue
     }
 
     /// Whether this build may open a local tunnel to a device's own `lockdownd`.
@@ -86,13 +92,26 @@ struct ProcessEntitlements: Equatable, Sendable {
         return grantedKeys.contains(Self.localTunnelKey)
     }
 
-    /// Whether this build carries `get-task-allow`. A debug build does; a
-    /// distribution build does not. Recorded because it is the entitlement JIT
-    /// conversations turn on, and because it is one more proof the probe read
-    /// a real signature.
-    var carriesGetTaskAllow: Bool? {
+    /// Whether this build **declares** `get-task-allow`.
+    ///
+    /// Presence, not value: a distribution profile commonly declares
+    /// `get-task-allow = false`, and that is a declared claim rather than a
+    /// missing one — the same rule the Entitlements Studio applies to the key.
+    /// Use `allowsDebugging` to ask what the value is.
+    var declaresGetTaskAllow: Bool? {
         guard isMeasured else { return nil }
         return grantedKeys.contains(Self.getTaskAllowKey)
+    }
+
+    /// The value of `get-task-allow`: `true` when a debugger may attach,
+    /// `false` when the claim says so, `nil` when the claim is not declared (or
+    /// the build was not measured — `isMeasured` separates those two).
+    ///
+    /// Kept apart from `declaresGetTaskAllow` so "declared false" and "not
+    /// declared" cannot collapse into one answer.
+    var allowsDebugging: Bool? {
+        guard isMeasured else { return nil }
+        return getTaskAllowValue
     }
 
     /// One sentence a screen shows verbatim, in the same voice as the

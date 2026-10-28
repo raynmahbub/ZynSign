@@ -95,7 +95,8 @@ private extension ProcessEntitlements {
             isMeasured: true,
             grantedKeys: granted,
             applicationIdentifier: claims.string(for: ProcessEntitlements.applicationIdentifierKey),
-            teamIdentifier: claims.string(for: ProcessEntitlements.teamIdentifierKey)
+            teamIdentifier: claims.string(for: ProcessEntitlements.teamIdentifierKey),
+            getTaskAllowValue: claims.bool(for: ProcessEntitlements.getTaskAllowKey)
         )
     }
 }
@@ -104,6 +105,12 @@ private extension CodeSigningEntitlements {
     /// One claim's text value, or `nil` when it is absent or not a string.
     func string(for key: String) -> String? {
         guard case .string(let value)? = self[key] else { return nil }
+        return value
+    }
+
+    /// One claim's boolean value, or `nil` when it is absent or not a boolean.
+    func bool(for key: String) -> Bool? {
+        guard case .boolean(let value)? = self[key] else { return nil }
         return value
     }
 }

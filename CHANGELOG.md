@@ -80,7 +80,9 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   would consult. `nil` never
   collapses into `false`: an unmeasured build stays unsupported, but its note
   says the signature could not be read instead of claiming the entitlement is
-  missing. A build that carries the entitlement lights the rows up on its own
+  missing. `get-task-allow` keeps the Studio's rule: `declaresGetTaskAllow`
+  reports the claim's presence, `allowsDebugging` reports its value, so a
+  profile that declares `false` is never read as one that declares nothing. A build that carries the entitlement lights the rows up on its own
   and still needs a pairing record and a composed transport — and what a device
   does with the session remains the device's answer. See
   `docs/architecture/sideloading.md`.
