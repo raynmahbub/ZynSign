@@ -21,6 +21,14 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ### Added
 
+- **Zeus: the theme the app now opens on.** Violet lightning over deep indigo —
+  a `#1B1140 → #4C2A9E → #8B5CF6` hero gradient, a violet accent, and cyan
+  highlights on the surfaces that carry one — shipped through the existing
+  theme catalog, so Settings → Appearance previews it like any other theme and
+  nothing about signing depends on it. A stored theme is never rewritten: every
+  earlier theme stays selectable and resolves exactly as before. The Sideload
+  Studio's own palette is the same family, so the refresh countdown and the
+  rest of the app no longer disagree about what the app looks like.
 - **Sideload Studio: the seven-day clock, read from the journal.**
   Every delivered signing run already records the profile and certificate that
   signed it; `SideloadLedger` reads those records and derives one lease per
@@ -38,8 +46,9 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   library says so instead of offering a button that cannot work. The countdown
   is the profile's date, never a claim that the app is installed on a device.
   A new studio surface — midnight-to-violet hero, gradient rings, account
-  cards — sits beside the existing themes rather than replacing any of them.
-  See `docs/architecture/sideloading.md`.
+  cards — sits beside the existing themes rather than replacing any of them,
+  and Home gains one row that says what stops launching next, hidden until the
+  journal has something to report. See `docs/architecture/sideloading.md`.
 - **Sideloading: package edits, a device bridge, and guest containers.**
   `SideloadPackageEditor` rewrites a package inside the signing working copy —
   Info.plist overrides, nested-code and URL-scheme removal, dylib injection

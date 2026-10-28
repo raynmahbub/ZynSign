@@ -184,9 +184,10 @@ final class ZynSignPreferencesTests: XCTestCase {
     }
 
     func testShippedThemesAreStored() {
-        // Storefront joins the set and ships as the default from v0.1.0-alpha.2.
-        XCTAssertEqual(ZynSignTheme.allCases.count, 6)
-        XCTAssertEqual(ZynSignTheme.defaultIdentifier, "zynsign.storefront")
+        // Seven themes ship; Zeus is what a new install opens on, while every
+        // earlier identifier stays resolvable for a stored choice.
+        XCTAssertEqual(ZynSignTheme.allCases.count, 7)
+        XCTAssertEqual(ZynSignTheme.defaultIdentifier, "zynsign.zeus")
     }
 
     // MARK: - Reset

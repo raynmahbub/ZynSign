@@ -576,6 +576,7 @@ enum AppearanceMode: String, CaseIterable, Hashable, Sendable, Codable {
 /// resolve to the default, so adding or removing a theme is never a
 /// migration.
 enum ZynSignTheme: String, CaseIterable, Hashable, Sendable, Codable {
+    case zeus = "zynsign.zeus"
     case storefront = "zynsign.storefront"
     case zynSign = "zynsign.default"
     case liquidGlass = "zynsign.liquidglass"
@@ -583,13 +584,17 @@ enum ZynSignTheme: String, CaseIterable, Hashable, Sendable, Codable {
     case midnight = "zynsign.midnight"
     case graphite = "zynsign.graphite"
 
-    /// The storefront look ships as the default: signature gradients over deep
-    /// glass, dark-first. The original indigo stays selectable, so an update
-    /// never takes an appearance away from the user who chose it.
-    static let defaultIdentifier = ZynSignTheme.storefront.rawValue
+    /// Zeus ships as the theme a new install opens on: violet lightning over
+    /// deep indigo, with cyan highlights. It was chosen for the sideloading
+    /// workspace first and then applied to the whole app, because the countdown
+    /// a person checks every week should live in the look they picked. Every
+    /// earlier theme stays selectable, and a stored choice is never rewritten,
+    /// so an update takes no appearance away.
+    static let defaultIdentifier = ZynSignTheme.zeus.rawValue
 
     var displayName: String {
         switch self {
+        case .zeus: return "Zeus"
         case .storefront: return "Storefront"
         case .zynSign: return "ZynSign"
         case .liquidGlass: return "Liquid Glass"

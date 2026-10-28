@@ -4,15 +4,16 @@ import XCTest
 /// Tests for the shipped theme catalog and hex color parsing.
 final class AppThemeCatalogTests: XCTestCase {
 
-    func testSixThemesShipAndStorefrontLeadsAsTheDefault() {
-        XCTAssertEqual(AppThemeCatalog.all.count, 6)
+    func testSevenThemesShipAndZeusLeadsAsTheDefault() {
+        XCTAssertEqual(AppThemeCatalog.all.count, 7)
         XCTAssertEqual(
             AppThemeCatalog.all.map(\.displayName),
-            ["Storefront", "ZynSign", "Liquid Glass", "Ember", "Midnight", "Graphite"]
+            ["Zeus", "Storefront", "ZynSign", "Liquid Glass", "Ember", "Midnight", "Graphite"]
         )
-        // The storefront look is what a new install opens on; the older
-        // themes stay selectable so no update takes an appearance away.
-        XCTAssertEqual(AppThemeCatalog.defaultTheme.displayName, "Storefront")
+        // Zeus is what a new install opens on; every earlier theme stays
+        // selectable so no update takes an appearance away.
+        XCTAssertEqual(AppThemeCatalog.defaultTheme.displayName, "Zeus")
+        XCTAssertEqual(AppThemeCatalog.defaultTheme.identifier, ZynSignTheme.defaultIdentifier)
     }
 
     func testEveryThemeHasValidHexStops() {
@@ -27,7 +28,7 @@ final class AppThemeCatalogTests: XCTestCase {
 
     func testUnknownIdentifierFallsBackToDefault() {
         XCTAssertEqual(AppThemeCatalog.theme(identifier: "does.not.exist").identifier, ZynSignTheme.defaultIdentifier)
-        XCTAssertEqual(AppThemeCatalog.defaultTheme.identifier, ZynSignTheme.storefront.rawValue)
+        XCTAssertEqual(AppThemeCatalog.defaultTheme.identifier, ZynSignTheme.zeus.rawValue)
     }
 
     func testThemeIdentifiersMatchThePreferenceEnum() {

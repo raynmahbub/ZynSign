@@ -54,6 +54,8 @@ struct HomeView: View {
     @State private var isShowingInstallation = false
     /// Repository management supplies its own navigation stack.
     @State private var isShowingSources = false
+    /// The Sideload Studio, opened from the refresh row.
+    @State private var isShowingSideloadStudio = false
     @AppStorage(LibraryPreferenceKeys.scope) private var libraryScope = LibraryScope.all.storageValue
     /// Whether first-launch onboarding has been completed.
     ///
@@ -100,6 +102,12 @@ struct HomeView: View {
                     }
                     ImportHubStatusBanner(hub: environment.importHub) {
                         importPresentation.present()
+                    }
+                    // What stops launching soon. It reads the signing journal
+                    // and stays hidden until there is a lease to report, so a
+                    // library with nothing signed is not nagged.
+                    SideloadRefreshRow(environment: environment) {
+                        isShowingSideloadStudio = true
                     }
                     if let updates = pendingUpdates {
                         ZHomeAttentionRow(
@@ -165,6 +173,9 @@ struct HomeView: View {
                 reloadWhenAnImportSettles(items)
             }
             .refreshable { await reload() }
+            .navigationDestination(isPresented: $isShowingSideloadStudio) {
+                SideloadStudioView()
+            }
             .navigationDestination(for: LibraryEntry.self) { entry in
                 ApplicationDetailView(
                     entry: entry,
