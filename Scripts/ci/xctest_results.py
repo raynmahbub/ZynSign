@@ -23,10 +23,21 @@ METHOD = re.compile(r"\bfunc\s+(test[A-Za-z0-9_]*)\s*\(\s*\)")
 IDENTIFIER = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*Tests)\.(test[A-Za-z0-9_]*)$")
 STATUSES = {"passed": "PASS", "failed": "FAIL", "skipped": "SKIPPED"}
 COUNT_KEYS = ("passedTests", "failedTests", "skippedTests", "totalTestCount")
+MARKDOWN_BYTE_LIMIT = 128 * 1024
+MARKDOWN_FALLBACK = (
+    "## Individual XCTest evidence\n\n"
+    "Markdown report shortened to fit the size limit. "
+    "See `xctest-results.json` in the XCTest results artifact for the full sanitized report.\n"
+)
 
 
 def source_allowlist(root: Path) -> set[str]:
-    """Only publish identifiers already present as source declarations."""
+    """Conservatively allow names from files with one unambiguous test class.
+
+    This is not a Swift parser: multiple class declarations cannot safely be
+    associated with their methods, so omit the whole file instead of creating
+    a cross-product. Extensions and inherited tests are not established here.
+    """
     names: set[str] = set()
     for path in root.rglob("*.swift"):
         if path.is_symlink():
@@ -35,9 +46,11 @@ def source_allowlist(root: Path) -> set[str]:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeError):
             continue
-        for cls in CLASS.findall(text):
-            for method in METHOD.findall(text):
-                names.add(f"{cls}.{method}")
+        classes = CLASS.findall(text)
+        if len(classes) != 1:
+            continue
+        for method in METHOD.findall(text):
+            names.add(f"{classes[0]}.{method}")
     return names
 
 
@@ -59,16 +72,23 @@ def test_results(data: object, allowed: set[str]) -> dict[str, str]:
             # sometimes with a bundle prefix. Prefer it when present; do not
             # fall back to a display name if the identifier is inconsistent.
             raw_identifier = node.get("nodeIdentifier")
-            if raw_identifier is not None:
-                if not isinstance(raw_identifier, str):
+            if "nodeIdentifier" in node:
+                if not isinstance(raw_identifier, str) or len(raw_identifier.split("/")) < 2:
+                    # A malformed identifier may be another occurrence of the
+                    # displayed case. Do not let a valid occurrence mask it.
+                    if IDENTIFIER.fullmatch(identifier) and identifier in allowed:
+                        found.setdefault(identifier, []).append("NOT VERIFIED")
                     return
                 parts = raw_identifier.split("/")
-                if len(parts) < 2:
-                    return
                 cls, method_id = parts[-2:]
                 method_id = method_id[:-2] if method_id.endswith("()") else method_id
                 identifier = f"{cls}.{method_id}"
-                if suite and suite != cls:
+                if (suite and suite != cls) or method != method_id:
+                    # Neither of the conflicting identities can be treated as
+                    # evidence, including when another occurrence looks valid.
+                    for candidate in {identifier, f"{suite}.{method}"}:
+                        if IDENTIFIER.fullmatch(candidate) and candidate in allowed:
+                            found.setdefault(candidate, []).append("NOT VERIFIED")
                     return
             if IDENTIFIER.fullmatch(identifier) and identifier in allowed:
                 raw = node.get("result")
@@ -76,7 +96,7 @@ def test_results(data: object, allowed: set[str]) -> dict[str, str]:
                 # A case with repetitions can represent a retry or multiple
                 # configurations; don't silently select a single outcome.
                 children = node.get("children", [])
-                if isinstance(children, list) and any(
+                if not isinstance(children, list) or any(
                     isinstance(child, dict) and child.get("nodeType") == "Repetition"
                     for child in children
                 ):
@@ -132,11 +152,11 @@ def create_report(tests: object, summary: object, allowed: set[str]) -> dict:
         "counts": aggregate(summary),
         "named_tests": {name: results.get(name, "NOT VERIFIED") for name in TARGETS},
         "tests": results,
-        "limitations": "Only recognized XCTest cases with identifiers found in source are included; missing, unsupported, or repeated cases are not verified.",
+        "limitations": "Source names are matched heuristically, not parsed as Swift. Files with multiple test classes are excluded; missing, unsupported, or repeated cases are not verified.",
     }
 
 
-def markdown(report: dict) -> str:
+def markdown(report: dict, byte_limit: int = MARKDOWN_BYTE_LIMIT) -> str:
     counts = report["counts"]
     counts_text = (f"{counts['passedTests']} passed, {counts['failedTests']} failed, "
                    f"{counts['skippedTests']} skipped, {counts['totalTestCount']} total") if counts else "NOT VERIFIED"
@@ -144,7 +164,12 @@ def markdown(report: dict) -> str:
              "| Test | Status |", "| --- | --- |"]
     lines.extend(f"| `{name}` | {status} |" for name, status in report["named_tests"].items())
     lines.extend(["", report["limitations"], ""])
-    return "\n".join(lines)
+    result = "\n".join(lines)
+    if len(result.encode("utf-8")) <= byte_limit:
+        return result
+    if len(MARKDOWN_FALLBACK.encode("utf-8")) > byte_limit:
+        raise ValueError("Markdown byte limit is too small for the shortened report")
+    return MARKDOWN_FALLBACK
 
 
 def main() -> None:
