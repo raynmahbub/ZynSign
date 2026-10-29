@@ -45,7 +45,7 @@ The **Settings crash** reported against the same build is not reproduced from so
 
 ## Verification status
 
-- Host changelog tooling tests: **5 passed**.
-- Documentation links, release-train consistency, release metadata self-test, architecture/dependency/navigation/regression source audits: **passed** in this checkout.
-- Swift/XCTest build, simulator run, signed-host Keychain test, and physical-device test matrix: **not run**; `swift` and `xcodebuild` are unavailable in this environment.
-- Until the private device matrix in [`private-testing.md`](../releases/private-testing.md) is completed, do not call certificate import, IPA/TIPA import, signing, Settings stability, or installation behavior device-verified.
+- Host Python & simulation suites (`Tests/Host/test_*.py`, `Scripts/sim/run_unified_suite.py`): **159 passed**.
+- Documentation links, release-train consistency, release metadata self-test, architecture/dependency/navigation/crash-surface/accessibility/regression source audits: **passed** on this tree.
+- macOS Xcode 26.3 CI (`01-build.yml` & `02-quality.yml`): builds `ZynSign` and `ZynSignTests`, runs Apple `codesign`/`openssl` external validation, and runs the iOS Simulator XCTest suite.
+- Until the physical-device matrix in [`private-testing.md`](../releases/private-testing.md) is completed on hardware, do not call certificate import, live Apple ID 2FA provisioning, loopback-tunnel installation, Settings stability, or guest container execution device-verified.

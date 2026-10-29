@@ -102,6 +102,10 @@ enum EncodedCatalogPayloadDecoder {
         var changed = false
         for index in apps.indices {
             var app = apps[index]
+            if app["bundleIdentifier"] == nil, let bundleID = app["bundleID"] as? String {
+                app["bundleIdentifier"] = bundleID
+                changed = true
+            }
             if app["downloadURL"] == nil, let down = app["down"] as? String {
                 app["downloadURL"] = down
                 changed = true

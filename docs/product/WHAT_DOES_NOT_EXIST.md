@@ -10,16 +10,18 @@
 > **Never** means no release will claim it: those rows are recorded decisions, not
 > missing features.
 >
-> The count is the point. Eighteen features are staged, and `3.0.0-nova.1` ships
-> **all eighteen**: the Nova Assistant — the last one that was waiting — is on at
-> this stop, and the stop that was scheduled between `1.0.0` and it (`v2.0.0`,
-> depth and fixes) introduced no gate, so the train passes through it without
-> holding anything back. Nothing is left ahead, and **nothing new is claimed** by
-> that: the three *never* rows below are platform facts and recorded decisions,
-> not work that this stop finished. In-app installation, pairing/JIT/mux, and
-> off-device measurement stay exactly as recorded, and the app still names the
-> requirement each one is missing rather than quietly offering a button that
-> cannot work.
+> The count is the point. Eighteen features are staged, and `v3.0.0` completes
+> the Nova train with **all eighteen** switched on: the Nova Assistant shipped
+> at `3.0.0-nova.1`, the stop between `1.0.0` and it (`v2.0.0`, depth and fixes)
+> introduced no gate, and `v3.0.0` finishes the unified Free Apple ID + Paid
+> Certificate hub, wire-free loopback bridge, multi-app host container, tweak
+> studio, and foreground LAN/WebDAV workspace. Nothing is left ahead on the
+> train, and **nothing beyond the platform's own boundaries is claimed**: the
+> three *never* rows below are platform facts and recorded decisions, not work
+> that this stop silently overrode. In-app installation without an entitled
+> tunnel, JIT/private-framework linkage, and off-device measurement stay as
+> recorded, and the app names the requirement each one needs rather than
+> offering a button that cannot work.
 >
 > This file is the anti-roadmap. A local success is not platform trust, so this is
 > what ZynSign still does **not** claim — and what it says instead. Details live in
@@ -68,7 +70,7 @@ the entry is deleted, so the list cannot outlive the gap it describes.
 
 ## What *does* exist instead
 
-`Files → Library → Home → App Store → Downloads → Settings` shell, `ipa/tipa` import (bounded, security-scoped, SHA-256), durable library, bundle explorer, Certificate Manager (`CertificateManagerView` + `CertificateManagerModel`: `.p12/.pfx` 10 MiB → `SecureIdentityStore`, search/sort/filters, list/grid, expiration intelligence via `CertificateExpirationAssessment`, team/type extraction, local labels + default identity via `FileIdentityAnnotationsStore`, `CertificateDetailView` + **Export public JSON**), Smart Sign (`SigningView` + `SigningEngineCoordinator` + `ZProgressRing` + `ZSigningStatusMachine` 9 stages → isolated working copy → independent verification → `Documents/Signed` + **Export IPA** / **Open Details** / **Verify Again** / **Return to Library** + `ZToast`/`ZBottomSheet` + **DER toggle 0x20400** + **Live Activity**), `Downloads` (**Download Center: queue, validation before import, honest resume**), `App Store` (**health Fast/Slow/Offline**), `Home` (**Mission Control Refresh Everything**), `Settings → Devices → Sideloading` (**always on, `CoreFeature.sideloading`**: one row per capability naming the requirement it is missing — pairing record, local-tunnel entitlement, bundled loader — plus the package edits a signing run can apply), `DesignSystem` (`ZCard`/`ZStatusBadge`/`ZSkeleton`/`ZProgressRing`/`ZToast`/`ZBottomSheet` + `DesignTokens` + `ZDL v1.0`), `DEREntitlements` (`DEREntitlementsBlob` + `DEREntitlementsSerializer` + `CodeDirectoryVersion.v20400`), and **Settings → Servers → Local Transfer** (a foreground-only, token-gated `NWListener`: one session page and one raw upload route, both bounded and both refused by name — no WebDAV, no browsing, no background service; see [local-transfer](../architecture/local-transfer.md)).
+`Files → Library → Home → App Store → Downloads → Settings` shell, `ipa/tipa` import (bounded, security-scoped, SHA-256), durable library, bundle explorer, Certificate Manager (`CertificateManagerView` + `CertificateManagerModel`: `.p12/.pfx` 10 MiB → `SecureIdentityStore`, search/sort/filters, list/grid, expiration intelligence via `CertificateExpirationAssessment`, team/type extraction, local labels + default identity via `FileIdentityAnnotationsStore`, `CertificateDetailView` + **Export public JSON**), Smart Sign (`SigningView` + `SigningEngineCoordinator` + `ZProgressRing` + `ZSigningStatusMachine` 9 stages → isolated working copy → independent verification → `Documents/Signed` + **Export IPA** / **Open Details** / **Verify Again** / **Return to Library** + `ZToast`/`ZBottomSheet` + **DER toggle 0x20400** + **Live Activity**), `Downloads` (**Download Center: queue, validation before import, honest resume**), `App Store` (**health Fast/Slow/Offline**), `Home` (**Mission Control Refresh Everything**), `Settings → Devices → Sideloading` (**always on, `CoreFeature.sideloading`**: one row per capability naming the requirement it is missing — pairing record, local-tunnel entitlement, bundled loader — plus the package edits a signing run can apply), `DesignSystem` (`ZCard`/`ZStatusBadge`/`ZSkeleton`/`ZProgressRing`/`ZToast`/`ZBottomSheet` + `DesignTokens` + `ZDL v1.0`), `DEREntitlements` (`DEREntitlementsBlob` + `DEREntitlementsSerializer` + `CodeDirectoryVersion.v20400`), and **Settings → File Transfer** (**Local Transfer** — a foreground-only, token-gated `NWListener` with one session page and one raw upload route, see [local-transfer](../architecture/local-transfer.md) — alongside **Wi-Fi & WebDAV Server** via `LANWebWorkspaceService` for foreground browser drag-and-drop and RFC 4918 WebDAV mounting, with no background daemon).
 
 ## How to add these (when ready)
 

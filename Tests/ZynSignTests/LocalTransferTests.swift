@@ -370,7 +370,7 @@ final class LocalTransferTests: XCTestCase {
             XCTAssertEqual(response.status, 201)
         }
         let snapshot = await service.snapshot()
-        XCTAssertEqual(snapshot.receipts.map { $0.fileName }.sorted(), ["App.ipa", "App-2.ipa"])
+        XCTAssertEqual(snapshot.receipts.map { $0.fileName }, ["App.ipa", "App-2.ipa"])
     }
 
     func testUploadWithoutTheTokenIsRefusedAndStoresNothing() async throws {
