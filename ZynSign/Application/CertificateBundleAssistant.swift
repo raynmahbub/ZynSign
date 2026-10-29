@@ -131,6 +131,6 @@ enum CertificateBundleAssistant {
         } else {
             xml = nil
         }
-        return (udids, xml)
+        return (udids.map(\.rawValue), xml)
     }
 }
