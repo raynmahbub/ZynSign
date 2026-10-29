@@ -8,7 +8,7 @@ Two edits make a guest loadable, and both happen before it is signed:
    before the guest's entry point is called.
 
 What is left is bookkeeping: a per-app data directory the guest writes into, a
-``LCAppInfo.plist`` the host reads at launch, a manifest, and a tweak folder.
+``ZynGuestInfo.plist`` the host reads at launch, a manifest, and a tweak folder.
 The launch itself is the one part that cannot be verified here — it needs a
 device and a host allowed to map guest images — so it is emitted as an explicit
 plan, and the plan says ``BLOCKED`` at its head when a prerequisite is missing.
@@ -215,21 +215,21 @@ def prepare_container(ipa, *, loader: bytes | None = None, tweaks: dict[str, byt
         container[f"{root}/{directory}/.keep"] = b""
 
     metadata = {
-        "LCBundleId": bundle_id,
-        "LCBundleName": str(plistlib.loads(entries[f"{app}/Info.plist"]).get("CFBundleName", executable)),
-        "LCDisplayName": str(plistlib.loads(entries[f"{app}/Info.plist"]).get("CFBundleDisplayName", executable)),
-        "LCGuestPath": f"{root}/App.app",
-        "LCExecutable": executable,
-        "LCDataPath": f"{root}/Data",
-        "LCSignature": "adhoc" if identity is None else "certificate",
-        "LCContainerVersion": CONTAINER_VERSION,
-        "LCLoader": LOADER_INSTALL_NAME,
-        "LCTweaks": tweak_names,
-        "LCGuestVersion": str(plistlib.loads(entries[f"{app}/Info.plist"]).get("CFBundleShortVersionString", "")),
-        "LCNeedsJIT": bool(plistlib.loads(entries[f"{app}/Info.plist"]).get("LCNeedsJIT", False)),
+        "ZynBundleId": bundle_id,
+        "ZynBundleName": str(plistlib.loads(entries[f"{app}/Info.plist"]).get("CFBundleName", executable)),
+        "ZynDisplayName": str(plistlib.loads(entries[f"{app}/Info.plist"]).get("CFBundleDisplayName", executable)),
+        "ZynGuestPath": f"{root}/App.app",
+        "ZynExecutable": executable,
+        "ZynDataPath": f"{root}/Data",
+        "ZynSignature": "adhoc" if identity is None else "certificate",
+        "ZynContainerVersion": CONTAINER_VERSION,
+        "ZynLoader": LOADER_INSTALL_NAME,
+        "ZynTweaks": tweak_names,
+        "ZynGuestVersion": str(plistlib.loads(entries[f"{app}/Info.plist"]).get("CFBundleShortVersionString", "")),
+        "ZynNeedsJIT": bool(plistlib.loads(entries[f"{app}/Info.plist"]).get("ZynNeedsJIT", False)),
     }
-    container[f"{root}/LCAppInfo.plist"] = plistlib.dumps(metadata)
-    container[f"{root}/LCContainer.json"] = json.dumps({
+    container[f"{root}/ZynGuestInfo.plist"] = plistlib.dumps(metadata)
+    container[f"{root}/ZynContainer.json"] = json.dumps({
         "version": CONTAINER_VERSION,
         "bundleIdentifier": bundle_id,
         "guest": f"{root}/App.app",
@@ -237,7 +237,7 @@ def prepare_container(ipa, *, loader: bytes | None = None, tweaks: dict[str, byt
         "tweaks": f"{root}/Tweaks",
         "loader": LOADER_NAME,
         "entryPoint": "main",
-        "signature": metadata["LCSignature"],
+        "signature": metadata["ZynSignature"],
     }, indent=2, sort_keys=True).encode()
 
     return ContainerResult(

@@ -28,6 +28,7 @@ struct SigningPreferencesSection: View {
             identitySection
             profileSection
             sessionSection
+            sideloadDefaultsSection
             analysisSection
         }
         .listStyle(.insetGrouped)
@@ -132,6 +133,55 @@ struct SigningPreferencesSection: View {
             Text("Sessions")
         } footer: {
             Text("With this on, signing with an identity and profile makes them the starting point for next time. With it off, the choices above are used every time.")
+        }
+    }
+
+    // MARK: - Sideload & PPQ defaults
+
+    private var sideloadDefaultsSection: some View {
+        Section {
+            ZSettingsPickerRow(
+                title: "Default PPQ Protection",
+                symbol: "shield.lefthalf.filled",
+                subtitle: "Starting bundle ID protection mode for new signing sessions.",
+                selection: settings.binding(\.signing.defaultPPQMode)
+            ) {
+                ForEach(PPQProtectionMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            if settings.preferences.signing.defaultPPQMode != .disabled {
+                TextField("Default PPQ Token (blank = generate)", text: settings.binding(\.signing.defaultPPQToken))
+                    .font(ZTypography.codeCaption)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                ZSettingsToggleRow(
+                    title: "Dynamic PPQ Only When Matched",
+                    subtitle: "Apply PPQ suffix only when the app's bundle ID exists on the Apple App Store.",
+                    symbol: "sparkle.magnifyingglass",
+                    isOn: settings.binding(\.signing.defaultDynamicPPQ)
+                )
+            }
+            ZSettingsToggleRow(
+                title: "Merge Original Binary Entitlements",
+                subtitle: "Preserve profile-authorized entitlements from the app's Mach-O binary.",
+                symbol: "arrow.triangle.merge",
+                isOn: settings.binding(\.signing.defaultMergesBinaryEntitlements)
+            )
+            ZSettingsToggleRow(
+                title: "Isolate Keychain Access Groups",
+                subtitle: "Scope keychain-access-groups to your signing Team ID + bundle ID.",
+                symbol: "key.horizontal",
+                isOn: settings.binding(\.signing.defaultIsolatesKeychainGroup)
+            )
+            ZSettingsToggleRow(
+                title: "Delete Imported IPA After Signing",
+                subtitle: "Automatically clean up the unsigned Library record once signing succeeds.",
+                symbol: "trash.slash",
+                isOn: settings.binding(\.signing.defaultDeletesImportedAfterSigning)
+            )
+        } header: {
+            Text("Sideloading & Anti-PPQ Defaults")
         }
     }
 

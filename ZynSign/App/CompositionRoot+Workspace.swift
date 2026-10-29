@@ -73,10 +73,45 @@ extension CompositionRoot {
     /// construction. Called once by `makeApplicationEnvironment()`.
     static func attachWorkspaceServices(to environment: inout ApplicationEnvironment) {
         environment.tweakLibrary = makeTweakLibrary()
+        environment.tweakAutoInjectRules = FileTweakAutoInjectStore(
+            location: libraryRootDirectory.appendingPathComponent("TweakAutoInjectRules.json", isDirectory: false)
+        )
+        environment.packageModifier = PackageModificationService()
         environment.revocationService = makeRevocationService()
         environment.releaseFeeds = makeReleaseFeedProvider()
+        environment.selfUpdateChecker = SelfUpdateChecker(transport: URLSessionReleaseFeedTransport())
+        environment.portableWorkspaceSync = PortableWorkspaceSyncService()
+        environment.downloadKeepAlive = AVAudioBackgroundDownloadKeepAlive()
         environment.appProtection = makeAppProtection()
         environment.storageGauge = makeStorageGauge()
         environment.localTransfer = makeLocalTransferService()
+        let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? libraryRootDirectory
+        environment.lanWebWorkspace = LANWebWorkspaceService(
+            rootDirectory: documentsDir.appendingPathComponent("WebWorkspace", isDirectory: true),
+            makeTransport: { NetworkLANWebWorkspaceServer() }
+        )
+        environment.guestContainerHost = GuestContainerHostService(
+            documentsDirectory: documentsDir,
+            runtimeLoader: PosixGuestRuntimeLoader()
+        )
+        let endpointConfig = DeviceBridgeEndpointConfig()
+        let digest = makeMessageDigest()
+        environment.deviceBridgeController = DeviceBridgeController(
+            recordStore: KeychainPairingRecordStore(digest: digest),
+            digest: digest,
+            endpointConfig: endpointConfig,
+            makeTransport: { NetworkDeviceBridgeTransport(endpointConfig: endpointConfig) }
+        )
+        let identityStore = environment.identityStore
+        let profileImporter = environment.provisioningProfileImporter
+        let profileLibrary = environment.provisioningProfiles
+        environment.appleAccountProvisioner = AppleAccountProvisioningService(
+            portalClient: URLSessionAppleDeveloperPortalClient(),
+            csrProvisioner: KeychainCSRIdentityProvisioner(identityStore: identityStore),
+            profileImporter: profileImporter,
+            profileLibrary: profileLibrary,
+            settingsURL: libraryRootDirectory.appendingPathComponent("AppleProvisioningConfig.json", isDirectory: false)
+        )
     }
 }

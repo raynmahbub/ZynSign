@@ -18,8 +18,8 @@ enum GuestContainer {
         static let appBundle = "App.app"
         static let tweaks = "Tweaks"
         static let data = "Data"
-        static let info = "LCAppInfo.plist"
-        static let manifest = "LCContainer.json"
+        static let info = "ZynGuestInfo.plist"
+        static let manifest = "ZynContainer.json"
         static let loaderName = "TweakLoader.dylib"
         static let entryPoint = "main"
 
@@ -108,23 +108,23 @@ enum GuestContainer {
         let injectedLibraries: [String]
         let requiresJIT: Bool
 
-        /// The property-list form written to `LCAppInfo.plist`.
+        /// The property-list form written to `ZynGuestInfo.plist`.
         func propertyList() -> [String: Any] {
             [
-                "LCAppName": name,
-                "LCBundleId": bundleIdentifier,
-                "LCVersion": version,
-                "LCBuildVersion": buildVersion,
-                "LCExecutable": executable,
-                "LCDataUUID": dataIdentifier,
-                "LCGuestPath": Layout.guestPath(bundleIdentifier: bundleIdentifier),
-                "LCDataPath": Layout.dataPath(bundleIdentifier: bundleIdentifier),
-                "LCTweaks": tweaks,
-                "LCInjectedLibraries": injectedLibraries,
-                "LCSignature": stagingMode,
-                "LCRequiresJIT": requiresJIT,
-                "LCContainerVersion": 1,
-                "LCLaunchArgument": Layout.entryPoint,
+                "ZynAppName": name,
+                "ZynBundleId": bundleIdentifier,
+                "ZynVersion": version,
+                "ZynBuildVersion": buildVersion,
+                "ZynExecutable": executable,
+                "ZynDataUUID": dataIdentifier,
+                "ZynGuestPath": Layout.guestPath(bundleIdentifier: bundleIdentifier),
+                "ZynDataPath": Layout.dataPath(bundleIdentifier: bundleIdentifier),
+                "ZynTweaks": tweaks,
+                "ZynInjectedLibraries": injectedLibraries,
+                "ZynSignature": stagingMode,
+                "ZynRequiresJIT": requiresJIT,
+                "ZynContainerVersion": 1,
+                "ZynLaunchArgument": Layout.entryPoint,
             ]
         }
     }

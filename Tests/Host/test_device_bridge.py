@@ -210,10 +210,10 @@ class ContainerTests(unittest.TestCase):
         result = self.prepare()
         for directory in ("Documents", "Library/Caches", "Library/Preferences", "tmp"):
             self.assertIn(f"{result.root}/Data/{directory}/.keep", result.entries)
-        metadata = plistlib.loads(result.entries[f"{result.root}/LCAppInfo.plist"])
-        self.assertEqual(metadata["LCBundleId"], "com.example.demo")
-        self.assertEqual(metadata["LCGuestPath"], f"{result.root}/App.app")
-        self.assertEqual(metadata["LCLoader"], "@executable_path/Frameworks/TweakLoader.dylib")
+        metadata = plistlib.loads(result.entries[f"{result.root}/ZynGuestInfo.plist"])
+        self.assertEqual(metadata["ZynBundleId"], "com.example.demo")
+        self.assertEqual(metadata["ZynGuestPath"], f"{result.root}/App.app")
+        self.assertEqual(metadata["ZynLoader"], "@executable_path/Frameworks/TweakLoader.dylib")
 
     def test_tweaks_are_staged_and_signed(self) -> None:
         result = self.prepare(tweaks={"DemoTweak.dylib": self.tweak})

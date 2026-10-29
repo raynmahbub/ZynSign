@@ -31,6 +31,10 @@ struct ProfileDetailView: View {
     @State private var isShowingToast = false
     @State private var toastMessage = ""
     @State private var toastStyle: ZToast.Style = .success
+    @State private var provisionedUDIDs: [String] = []
+    @State private var udidQuery = ""
+    @State private var entitlementsXML: String?
+    @State private var shareEntitlementsURL: URL?
 
     /// A transient, user-presentable announcement.
     private struct Notice: Equatable, Identifiable {
@@ -68,6 +72,9 @@ struct ProfileDetailView: View {
             generalSection
             applicationSection
             distributionSection
+            if !provisionedUDIDs.isEmpty {
+                udidLookupSection
+            }
             if compatibility != nil {
                 compatibilitySection
                 diagnosticsSection
@@ -80,9 +87,18 @@ struct ProfileDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await refreshValidation() }
         .zToast(isPresented: $isShowingToast, message: toastMessage, style: toastStyle)
+        .sheet(isPresented: Binding(
+            get: { shareEntitlementsURL != nil },
+            set: { if !$0 { shareEntitlementsURL = nil } }
+        )) {
+            if let url = shareEntitlementsURL {
+                CertificateToolShareSheet(url: url)
+            }
+        }
         .task {
             preferredProfileID = environment.profileSelections?.preferredProfileID()
             evaluate()
+            await loadStoredProfileDetails()
         }
         .alert(
             notice?.title ?? "",
@@ -320,6 +336,22 @@ struct ProfileDetailView: View {
                     Label("Copy Bundle ID", systemImage: "app.badge.checkmark")
                 }
             }
+            if let xml = entitlementsXML {
+                Button {
+                    UIPasteboard.general.string = xml
+                    showToast("Entitlements XML copied.", style: .info)
+                } label: {
+                    Label("Copy Entitlements XML", systemImage: "doc.on.clipboard")
+                }
+                Button {
+                    let out = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("\(current.name).entitlements")
+                    try? Data(xml.utf8).write(to: out, options: .atomic)
+                    shareEntitlementsURL = out
+                } label: {
+                    Label("Export .entitlements File", systemImage: "square.and.arrow.up")
+                }
+            }
             Button {
                 Task { await refreshValidation() }
             } label: {
@@ -338,6 +370,42 @@ struct ProfileDetailView: View {
     }
 
     // MARK: - Behaviour
+
+    private var udidLookupSection: some View {
+        Section {
+            TextField("Paste Device UDID to Check…", text: $udidQuery)
+                .font(ZTypography.codeCaption)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+            let cleaned = udidQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleaned.isEmpty {
+                let matched = provisionedUDIDs.contains { $0.caseInsensitiveCompare(cleaned) == .orderedSame }
+                ZStatusBadge(
+                    matched ? "Device UDID Included" : "UDID Not in Profile",
+                    systemImage: matched ? "checkmark.circle.fill" : "xmark.octagon.fill",
+                    kind: matched ? .success : .error
+                )
+            }
+            DisclosureGroup("Provisioned Devices (\(provisionedUDIDs.count))") {
+                ForEach(provisionedUDIDs, id: \.self) { udid in
+                    Text(udid)
+                        .font(ZTypography.codeCaption)
+                        .textSelection(.enabled)
+                }
+            }
+        } header: {
+            Text("Device UDID Verification")
+        }
+    }
+
+    private func loadStoredProfileDetails() async {
+        guard let bytes = try? await environment.provisioningProfiles?.profileBytes(withID: current.id) else {
+            return
+        }
+        let inspected = CertificateBundleAssistant.inspectStoredProfileDetails(profileBytes: bytes)
+        provisionedUDIDs = inspected.udids
+        entitlementsXML = inspected.entitlementsXML
+    }
 
     private var copyableBundleIdentifier: String? {
         if let bundle = current.bundleIdentifier { return bundle }

@@ -10,13 +10,20 @@ protocol StorePersisting: Sendable {
 actor StoreRepository {
     private let storage: any StorePersisting
     private let client: any StoreFetching
+    private let payloadNormalizer: @Sendable (Data) -> Data
     private var state = StoreSnapshot()
     private var loaded = false
     private var refreshing = Set<UUID>()
     private var adding = Set<URL>()
 
-    init(storage: any StorePersisting, client: any StoreFetching = StoreHTTPClient()) {
-        self.storage = storage; self.client = client
+    init(
+        storage: any StorePersisting,
+        client: any StoreFetching = StoreHTTPClient(),
+        payloadNormalizer: @escaping @Sendable (Data) -> Data = { EncodedCatalogPayloadDecoder.normalizeManifestPayload($0) }
+    ) {
+        self.storage = storage
+        self.client = client
+        self.payloadNormalizer = payloadNormalizer
     }
     func snapshot() throws -> StoreSnapshot {
         if !loaded { state = try storage.load(); loaded = true }
@@ -39,7 +46,7 @@ actor StoreRepository {
         guard state.sources.count + adding.count <= 64 else { throw StoreFailure.invalid("Up to 64 sources can be configured.") }
         let result = try await client.fetch(url, etag: nil, modified: nil, limit: StoreManifestValidator.maximumBytes)
         guard result.status == 200 else { throw StoreFailure.invalid("A new source must return a complete manifest.") }
-        var source = try StoreManifestValidator().parse(result.data, sourceID: UUID(), url: url)
+        var source = try StoreManifestValidator().parse(payloadNormalizer(result.data), sourceID: UUID(), url: url)
         if let identifier = source.identifier, state.sources.contains(where: { $0.identifier == identifier }) {
             throw StoreFailure.invalid("A source with this manifest identifier is already configured.")
         }
@@ -111,7 +118,7 @@ actor StoreRepository {
             var updated: CatalogSource
             if result.status == 304 { updated = source }
             else {
-                updated = try StoreManifestValidator().parse(result.data, sourceID: id, url: source.url)
+                updated = try StoreManifestValidator().parse(payloadNormalizer(result.data), sourceID: id, url: source.url)
                 guard updated.identifier == source.identifier else {
                     throw StoreFailure.invalid("The source identifier changed. Remove and add the source again to accept the new identity.")
                 }

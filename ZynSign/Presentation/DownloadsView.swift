@@ -45,9 +45,11 @@ private struct DownloadCenterScreen: View {
     var embedsNavigationStack: Bool = true
 
     @Environment(\.applicationEnvironment) private var environment
+    @Environment(\.settingsCenter) private var settingsCenter
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var searchText = ""
     @State private var showAdd = false
+    @State private var showLinkScanner = false
     @State private var urlText = ""
     @State private var linkMessage: String?
     @State private var storage = DownloadStorageReport.empty
@@ -180,6 +182,15 @@ private struct DownloadCenterScreen: View {
         }
         .onChange(of: center.jobs.map(DownloadCenterRendering.milestoneToken(for:))) { _, _ in
             announceMilestones()
+            environment.downloadKeepAlive?.setActiveTransferCount(
+                center.activeJobs.count,
+                enabled: settingsCenter.preferences.general.keepDownloadsAliveInBackground
+            )
+        }
+        .sheet(isPresented: $showLinkScanner) {
+            WebLinkExtractorSheet { extractedURL in
+                Task { await addLink(extractedURL) }
+            }
         }
     }
 
@@ -350,7 +361,9 @@ private struct DownloadCenterScreen: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            Button { showLinkScanner = true } label: { Label("Scan Links", systemImage: "safari") }
+                .accessibilityLabel("Scan web page or OTA manifest")
             Button { showAdd = true } label: { Label("Add", systemImage: "plus") }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .accessibilityLabel("Add download")

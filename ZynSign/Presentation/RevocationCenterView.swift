@@ -79,6 +79,7 @@ struct RevocationVerdictBadge: View {
 /// screen measures whether that blocking appears to be in effect.
 struct RevocationCenterView: View {
     @StateObject private var model: RevocationCenterModel
+    @State private var showDNSShieldGenerator = false
 
     init(service: CertificateRevocationService, identityStore: any IdentityStore) {
         _model = StateObject(wrappedValue: RevocationCenterModel(service: service, identityStore: identityStore))
@@ -90,10 +91,16 @@ struct RevocationCenterView: View {
                 Label("Exposure, not verdict", systemImage: "info.circle")
                 Text("Each check probes the revocation endpoints the certificate itself publishes — its OCSP responders and revocation lists — and reports which ones answer from this device right now.")
                     .font(.footnote).foregroundStyle(.secondary)
+                Button {
+                    showDNSShieldGenerator = true
+                } label: {
+                    Label("Generate Encrypted DNS Shield (.mobileconfig)", systemImage: "shield.lefthalf.filled.badge.checkmark")
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                }
             } header: {
                 Text("What This Screen Measures")
             } footer: {
-                Text("ZynSign never changes your network settings. Anti-revoke protection happens at your resolver or DNS profile; a check where every endpoint is unreachable while ordinary browsing works is the pattern that protection produces.")
+                Text("ZynSign never changes your network settings automatically. You can export a system-wide DoH/DoT Encrypted DNS Configuration Profile (.mobileconfig) and install it in iOS Settings.")
             }
 
             if model.identities.isEmpty {
@@ -113,6 +120,9 @@ struct RevocationCenterView: View {
         .navigationTitle("Revocation Center")
         .zThemeTint()
         .refreshable { model.refresh() }
+        .sheet(isPresented: $showDNSShieldGenerator) {
+            DNSRevocationShieldSheet()
+        }
         .alert("Check Failed", isPresented: Binding(
             get: { model.errorMessage != nil },
             set: { if !$0 { model.errorMessage = nil } }

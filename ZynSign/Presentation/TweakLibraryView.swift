@@ -15,7 +15,7 @@ final class TweakLibraryModel: ObservableObject {
     @Published var selection: Set<UUID> = []
     @Published var importResultMessage: String?
 
-    private let service: TweakLibraryService
+    let service: TweakLibraryService
 
     init(service: TweakLibraryService) {
         self.service = service
@@ -28,22 +28,33 @@ final class TweakLibraryModel: ObservableObject {
         selection = Set(tweaks.filter(\.enabledByDefault).map(\.id))
     }
 
-    func importFiles(at urls: [URL]) {
+    func unpackDeb(_ tweak: TweakDescriptor) {
+        guard let bytes = try? service.payload(for: tweak.id) else {
+            errorMessage = "Could not load .deb payload bytes."
+            return
+        }
+        do {
+            let outcome = try service.importUnpackedDebPayloads(bytes, sourceName: tweak.fileName, group: tweak.group)
+            refresh()
+            importResultMessage = "Unpacked \(outcome.imported.count) payload(s) from \(tweak.name)."
+        } catch let err as DebArchiveParser.DebError {
+            errorMessage = err.message
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func importFiles(at urls: [URL]) async {
         errorMessage = nil
         var imported = 0
         for url in urls {
             let accessing = url.startAccessingSecurityScopedResource()
             defer { if accessing { url.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: url) else {
-                errorMessage = "The file could not be read."
-                continue
-            }
             do {
-                switch try service.importPayload(data, fileName: url.lastPathComponent) {
-                case .success:
-                    imported += 1
-                case .failure(let refusal):
-                    errorMessage = refusal.message
+                let summary = try await TweakPackImporter.importItem(at: url, into: service)
+                imported += summary.importedCount
+                if summary.importedCount == 0, let refusal = summary.lastRefusalMessage {
+                    errorMessage = refusal
                 }
             } catch {
                 errorMessage = "The tweak library could not store the import."
@@ -97,8 +108,12 @@ final class TweakLibraryModel: ObservableObject {
 /// signing session can attach. Payloads are kept exactly as imported —
 /// ZynSign never executes, interprets, or modifies them.
 struct TweakLibraryView: View {
+    @Environment(\.applicationEnvironment) private var env
     @StateObject private var model: TweakLibraryModel
     @State private var isImporting = false
+    @State private var showIPAExtractor = false
+    @State private var analyzingTweak: TweakDescriptor?
+    @State private var ruleEditingTweak: TweakDescriptor?
     @State private var renamingTweak: TweakDescriptor?
     @State private var renameText = ""
 
@@ -137,10 +152,19 @@ struct TweakLibraryView: View {
         .navigationTitle("Tweak Library")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button {
-                    isImporting = true
+                Menu {
+                    Button {
+                        isImporting = true
+                    } label: {
+                        Label("Import Tweak / .deb / Bundle…", systemImage: "plus")
+                    }
+                    Button {
+                        showIPAExtractor = true
+                    } label: {
+                        Label("Extract Tweaks from Library IPA…", systemImage: "shippingbox.and.arrow.backward")
+                    }
                 } label: {
-                    Label("Import", systemImage: "plus")
+                    Label("Add Tweaks", systemImage: "plus")
                 }
             }
             if onConfirmSelection != nil {
@@ -154,13 +178,26 @@ struct TweakLibraryView: View {
                 }
             }
         }
+        .sheet(isPresented: $showIPAExtractor) {
+            IPATweakExtractorSheet(service: model.service) {
+                model.refresh()
+            }
+        }
+        .sheet(item: $analyzingTweak) { item in
+            TweakMachOAnalyzerSheet(tweak: item, service: model.service)
+        }
+        .sheet(item: $ruleEditingTweak) { item in
+            if let ruleStore = env.tweakAutoInjectRules {
+                TweakAutoInjectRuleSheet(tweak: item, ruleStore: ruleStore)
+            }
+        }
         .fileImporter(
             isPresented: $isImporting,
-            allowedContentTypes: [.data, .item],
+            allowedContentTypes: [.data, .item, .folder, .zip],
             allowsMultipleSelection: true
         ) { result in
             if case .success(let urls) = result {
-                model.importFiles(at: urls)
+                Task { await model.importFiles(at: urls) }
             }
         }
         .alert("Import", isPresented: Binding(
@@ -234,7 +271,7 @@ struct TweakLibraryView: View {
                     .frame(width: 28)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(tweak.name).font(.body).foregroundStyle(.primary)
-                    Text("\(tweak.kind.displayName) · \(StorageGaugeReading.humanReadable(tweak.byteSize))")
+                    Text("\(tweak.kind.displayName) · \(StorageGaugeReading.humanReadable(tweak.byteSize))\(tweak.enabledByDefault ? " · Default" : "")")
                         .font(.caption).foregroundStyle(.secondary)
                     if let group = tweak.group {
                         Text(group).font(.caption2).foregroundStyle(.tertiary)
@@ -262,24 +299,54 @@ struct TweakLibraryView: View {
             }
             .tint(.indigo)
         }
-        .contextMenu {
+        .contextMenu { tweakContextMenu(for: tweak) }
+    }
+
+    @ViewBuilder
+    private func tweakContextMenu(for tweak: TweakDescriptor) -> some View {
+        Button {
+            model.toggleEnabled(tweak)
+        } label: {
+            Label(
+                tweak.enabledByDefault ? "Disable Global Default" : "Set as Global Default",
+                systemImage: tweak.enabledByDefault ? "star.slash" : "star.fill"
+            )
+        }
+        Button {
+            analyzingTweak = tweak
+        } label: {
+            Label("Analyze Mach-O / .deb", systemImage: "waveform.path.ecg.rectangle")
+        }
+        if env.tweakAutoInjectRules != nil {
             Button {
-                renamingTweak = tweak
-                renameText = tweak.name
+                ruleEditingTweak = tweak
             } label: {
-                Label("Rename", systemImage: "pencil")
+                Label("Auto-Inject Rules…", systemImage: "bolt.badge.automatic")
             }
-            Menu("Group") {
-                Button("No Group") { model.setGroup(tweak, group: nil) }
-                ForEach(model.groups, id: \.self) { group in
-                    Button(group) { model.setGroup(tweak, group: group) }
-                }
-            }
-            Button(role: .destructive) {
-                model.remove(tweak)
+        }
+        if tweak.kind == .debPackage {
+            Button {
+                model.unpackDeb(tweak)
             } label: {
-                Label("Delete", systemImage: "trash")
+                Label("Unpack .deb Payloads into Library", systemImage: "archivebox")
             }
+        }
+        Button {
+            renamingTweak = tweak
+            renameText = tweak.name
+        } label: {
+            Label("Rename", systemImage: "pencil")
+        }
+        Menu("Group") {
+            Button("No Group") { model.setGroup(tweak, group: nil) }
+            ForEach(model.groups, id: \.self) { group in
+                Button(group) { model.setGroup(tweak, group: group) }
+            }
+        }
+        Button(role: .destructive) {
+            model.remove(tweak)
+        } label: {
+            Label("Delete", systemImage: "trash")
         }
     }
 }

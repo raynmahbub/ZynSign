@@ -438,12 +438,12 @@ final class GuestContainerTests: XCTestCase {
                                     name: "Guest", version: "2.0",
                                     executableName: "Guest"))
         let values = assessment.metadata.propertyList()
-        XCTAssertEqual(values["LCGuestPath"] as? String,
+        XCTAssertEqual(values["ZynGuestPath"] as? String,
                        "Applications/com.example.guest/App.app")
-        XCTAssertEqual(values["LCDataPath"] as? String,
+        XCTAssertEqual(values["ZynDataPath"] as? String,
                        "Applications/com.example.guest/Data")
-        XCTAssertEqual(values["LCExecutable"] as? String, "Guest")
-        XCTAssertEqual(values["LCContainerVersion"] as? Int, 1)
+        XCTAssertEqual(values["ZynExecutable"] as? String, "Guest")
+        XCTAssertEqual(values["ZynContainerVersion"] as? Int, 1)
     }
 }
 

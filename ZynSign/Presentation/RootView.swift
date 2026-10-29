@@ -201,6 +201,12 @@ struct RootView: View {
             )
         )
         .onOpenURL { url in acceptIncoming(url) }
+        .onReceive(NotificationCenter.default.publisher(for: .zynSignShortcutNavigate)) { note in
+            if let target = note.object as? String {
+                if target == "library" { select(.library) }
+                else if target == "downloads" { select(.downloads) }
+            }
+        }
         .onReceive(environment.importHub.$items) { items in
             reportOutcomes(of: items)
         }
@@ -425,7 +431,17 @@ struct RootView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            ShellTabBar(tabs: visibleTabs, selection: $selected, badgeCount: badgeCount(for:))
+            VStack(spacing: ZSpacing.xs) {
+                if let lan = environment.lanWebWorkspace, lan.isRunning {
+                    ZStatusBadge(
+                        "LAN & WebDAV · \(lan.endpoint?.displayAddress ?? ":\(lan.port)")",
+                        systemImage: "wifi.circle.fill",
+                        kind: .info
+                    )
+                    .padding(.bottom, ZSpacing.xxs)
+                }
+                ShellTabBar(tabs: visibleTabs, selection: $selected, badgeCount: badgeCount(for:))
+            }
         }
         .onChange(of: selected) { _, section in
             visitedTabs.insert(section)
@@ -513,7 +529,20 @@ struct RootView: View {
     /// follow the release gate, and the ungated ones are always present, so
     /// there is always somewhere to land.
     private var visibleTabs: [ShellSection] {
-        ShellSection.primaryTabs
+        let configured = settings.preferences.general.visibleTabIdentifiers
+        guard !configured.isEmpty else { return ShellSection.primaryTabs }
+        let filtered = ShellSection.primaryTabs.filter { tab in
+            if tab == .home || tab == .settings { return true }
+            let key: String
+            switch tab {
+            case .library: key = "library"
+            case .appStore: key = "appStore"
+            case .downloads: key = "downloads"
+            default: key = ""
+            }
+            return configured.contains(key)
+        }
+        return filtered.isEmpty ? ShellSection.primaryTabs : filtered
     }
 
     /// The root tab to select for a requested section. A destination that is
@@ -796,7 +825,46 @@ struct RootView: View {
     /// A copy the system placed in ZynSign's own inbox came through the
     /// share sheet; anything else was opened in place.
     private func acceptIncoming(_ url: URL) {
-        guard url.isFileURL else { return }
+        if !url.isFileURL {
+            handleDeepLink(url)
+            return
+        }
+        let ext = url.pathExtension.lowercased()
+        if ext == "zcert" || ext == "zyncert" {
+            Task {
+                let accessed = url.startAccessingSecurityScopedResource()
+                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                if let data = try? Data(contentsOf: url) {
+                    _ = try? await CertificateBundleAssistant.importIdentityArchive(
+                        data: data,
+                        pkcs12Importer: environment.pkcs12Importer,
+                        profileImporter: environment.provisioningProfileImporter,
+                        profileLibrary: environment.provisioningProfiles
+                    )
+                    ZHaptics.success()
+                }
+            }
+            return
+        }
+        if ext == "mobiledevicepairing" {
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            if let data = try? Data(contentsOf: url) {
+                _ = try? environment.deviceBridgeController?.importPairingFile(data: data)
+                ZHaptics.success()
+            }
+            return
+        }
+        if ext == "deb" || ext == "dylib" {
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            if let data = try? Data(contentsOf: url),
+               let tweaks = environment.tweakLibrary {
+                _ = try? tweaks.importPayload(data, fileName: url.lastPathComponent)
+                ZHaptics.success()
+            }
+            return
+        }
         switch SigningMaterialFileFormat.kind(for: url) {
         case .identity?:
             presentWhenActive(.certificates(url))
@@ -818,6 +886,44 @@ struct RootView: View {
                 environment.importHub.receive([url], origin: .openIn)
                 presentImportHub()
             }
+        }
+    }
+
+    private func handleDeepLink(_ url: URL) {
+        switch IncomingURLRouter.parse(url) {
+        case .addSource(let repoURL)?:
+            if visibleTabs.contains(.appStore) { selected = .appStore }
+            Task { _ = await environment.storeBrowser?.add(repoURL.absoluteString) }
+            ZHaptics.tap()
+        case .installPackage(let pkgURL)?:
+            if visibleTabs.contains(.downloads) { selected = .downloads }
+            Task { _ = await environment.downloadCenter?.enqueueUserLink(pkgURL.absoluteString) }
+            ZHaptics.tap()
+        case .importCertificateMaterial(let p12Data, let profileData, let password)?:
+            Task {
+                let pkg = ZynCertificateBundle(
+                    name: "DeepLinkIdentity",
+                    password: password,
+                    p12Data: p12Data,
+                    mobileProvisionData: profileData
+                )
+                if let encoded = try? ZynCertificateBundleCodec.encode(pkg) {
+                    _ = try? await CertificateBundleAssistant.importIdentityArchive(
+                        data: encoded,
+                        pkcs12Importer: environment.pkcs12Importer,
+                        profileImporter: environment.provisioningProfileImporter,
+                        profileLibrary: environment.provisioningProfiles
+                    )
+                    ZHaptics.success()
+                }
+            }
+        case .exportPublicCertificateSummary?:
+            presentWhenActive(.certificates(nil))
+        case .launchGuestContainer(let bundleIdentifier, let slotID)?:
+            environment.guestContainerHost?.requestLaunch(bundleIdentifier: bundleIdentifier, slotID: slotID)
+            ZHaptics.tap()
+        case nil:
+            break
         }
     }
 
@@ -850,6 +956,15 @@ struct RootView: View {
                 name: name,
                 succeeded: settlement.kind.bucket != .failed
             )
+            if settlement.kind.bucket == .imported || settlement.kind.bucket == .replaced {
+                if settings.preferences.general.autoMirrorsPortableWorkspace,
+                   let mirror = environment.portableWorkspaceSync {
+                    Task { _ = try? await mirror.exportPortableMirror(environment: environment) }
+                }
+                if settings.preferences.general.autoSignAfterImport {
+                    presentSigningQueue()
+                }
+            }
         }
         // An item that was retried or removed must be reportable again, so
         // the marks are pruned to what the hub still holds settled.

@@ -23,6 +23,8 @@ struct GeneralSettingsSection: View {
     var body: some View {
         List {
             startupSection
+            automationSection
+            tabBarCustomizationSection
             feedbackSection
             motionSection
             languageSection
@@ -78,6 +80,63 @@ struct GeneralSettingsSection: View {
             Text("Startup")
         } footer: {
             Text("Changing this switches tabs now, and ZynSign will open here next time it launches.")
+        }
+    }
+
+    private var automationSection: some View {
+        Section {
+            ZSettingsToggleRow(
+                title: "Open Signing Queue After Import",
+                subtitle: "Jump straight to Signing Queue when a new package settles in Library.",
+                symbol: "bolt.badge.checkmark",
+                isOn: settings.binding(\.general.autoSignAfterImport)
+            )
+            ZSettingsToggleRow(
+                title: "Keep Downloads Alive in Background",
+                subtitle: "Play zero-volume silent audio while active downloads are transferring.",
+                symbol: "arrow.down.circle.dotted",
+                isOn: settings.binding(\.general.keepDownloadsAliveInBackground)
+            )
+        } header: {
+            Text("Workflow & Background Transfers")
+        }
+    }
+
+    private var tabBarCustomizationSection: some View {
+        Section {
+            ForEach([LandingTab.library, .appStore, .downloads], id: \.self) { optionalTab in
+                Toggle(optionalTab.title, isOn: Binding(
+                    get: { isTabEnabled(optionalTab.rawValue) },
+                    set: { setTabEnabled(optionalTab.rawValue, enabled: $0) }
+                ))
+            }
+        } header: {
+            Text("Customizable Tab Bar")
+        } footer: {
+            Text("Home and Settings remain pinned so you can always navigate and adjust tabs.")
+        }
+    }
+
+    private func isTabEnabled(_ rawID: String) -> Bool {
+        let configured = settings.preferences.general.visibleTabIdentifiers
+        if configured.isEmpty { return true }
+        return configured.contains(rawID)
+    }
+
+    private func setTabEnabled(_ rawID: String, enabled: Bool) {
+        settings.update { prefs in
+            var current = prefs.general.visibleTabIdentifiers
+            if current.isEmpty {
+                current = ["home", "library", "appStore", "downloads", "settings"]
+            }
+            if enabled {
+                if !current.contains(rawID) { current.append(rawID) }
+            } else {
+                current.removeAll { $0 == rawID }
+            }
+            if !current.contains("home") { current.insert("home", at: 0) }
+            if !current.contains("settings") { current.append("settings") }
+            prefs.general.visibleTabIdentifiers = current
         }
     }
 

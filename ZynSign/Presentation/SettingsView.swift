@@ -286,6 +286,13 @@ struct SettingsView: View {
                 NavigationLink { StorageManagerSection() } label: {
                     ZSettingsLabel(title: "Storage", subtitle: "Review app storage and manage local data.", symbol: "externaldrive")
                 }
+                NavigationLink { PortableWorkspaceSettingsView() } label: {
+                ZSettingsLabel(
+                    title: "Portable Workspace",
+                    subtitle: "Mirror catalogs and packages to Documents/ZynSignPortable or import an external workspace folder.",
+                    symbol: "folder.badge.gearshape"
+                )
+                }
                 if exportsPresentation.isAvailable {
                     Button {
                         exportsPresentation.present()
@@ -319,6 +326,15 @@ struct SettingsView: View {
             // build that cannot install is exactly the build that must show
             // it. It is registered as `CoreFeature.sideloading`.
             Section("Sideloading") {
+                NavigationLink {
+                    UnifiedSigningHubView()
+                } label: {
+                    ZSettingsLabel(
+                        title: "Unified Signing & Container Hub",
+                        subtitle: "Free 7-day & Paid 365-day Apple ID provisioning, zero-slot Host Container, and wire-free device bridge.",
+                        symbol: "cpu.fill"
+                    )
+                }
                 NavigationLink {
                     SideloadStudioView()
                 } label: {
@@ -395,9 +411,19 @@ struct SettingsView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+                if let lanServer = environment.lanWebWorkspace {
+                    NavigationLink {
+                        LANWebWorkspaceView(service: lanServer)
+                    } label: {
+                        ZSettingsLabel(
+                            title: "Wi-Fi & WebDAV Server",
+                            subtitle: "Foreground browser upload dashboard and macOS Finder / Windows Explorer WebDAV mount.",
+                            symbol: "externaldrive.connected.to.line.below"
+                        )
+                    }
+                }
             }
             Section("Not Available") {
-                Label("WebDAV is not implemented. Local Transfer accepts an upload and nothing else: no listing, no browsing, no remote delete.", systemImage: "externaldrive.badge.questionmark")
                 Label("Remote signing is not implemented. Signing stays on this device.", systemImage: "signature")
             }
         }

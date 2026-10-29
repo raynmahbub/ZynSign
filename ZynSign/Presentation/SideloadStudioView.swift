@@ -474,8 +474,34 @@ private struct SideloadStudioContent: View {
     /// build that never reaches an installer — so the studio links to it rather
     /// than repeating it, and keeps one line of it visible.
     private var containerSection: some View {
-        VStack(alignment: .leading, spacing: ZSpacing.xs) {
-            sectionHeader("Delivery", subtitle: "Pairing, installation, guest containers")
+        let hostedCount = environment.guestContainerHost?.hostedGuests.count ?? 0
+        return VStack(alignment: .leading, spacing: ZSpacing.xs) {
+            sectionHeader("Delivery & Host Container", subtitle: "Dual-mode Free, Paid & zero-slot guest runtime")
+            NavigationLink {
+                UnifiedSigningHubView()
+            } label: {
+                ZCard(variant: .outlined) {
+                    HStack(spacing: ZSpacing.sm) {
+                        Image(systemName: "cpu.fill")
+                            .font(.title3)
+                            .foregroundStyle(theme.accent)
+                        VStack(alignment: .leading, spacing: ZSpacing.xxs) {
+                            Text("Unified Signing & Host Container Hub")
+                                .font(.subheadline.weight(.semibold))
+                            Text("\(hostedCount) hosted container app(s) · Free 7-day & Paid 365-day Apple ID provisioning · Wire-free device bridge.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .buttonStyle(.plain)
             NavigationLink {
                 SideloadingView(embedsNavigationStack: false)
             } label: {
@@ -485,7 +511,7 @@ private struct SideloadStudioContent: View {
                             .font(.title3)
                             .foregroundStyle(theme.accent)
                         VStack(alignment: .leading, spacing: ZSpacing.xxs) {
-                            Text("Delivery and guest container")
+                            Text("Capability readiness & package edits")
                                 .font(.subheadline.weight(.semibold))
                             Text("Pairing, installation, package edits and guest containers — each row names the requirement this build is missing.")
                                 .font(.caption)

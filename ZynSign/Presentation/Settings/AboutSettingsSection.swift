@@ -11,6 +11,9 @@ import SwiftUI
 struct AboutSettingsSection: View {
 
     @Environment(\.applicationEnvironment) private var environment
+    @State private var isCheckingUpdate = false
+    @State private var updateStatus: SelfUpdateChecker.UpdateStatus?
+    @State private var updateError: String?
 
     static let descriptor = SettingsSectionDescriptor(
         identifier: .about,
@@ -66,10 +69,62 @@ struct AboutSettingsSection: View {
                     symbol: "clock.arrow.circlepath"
                 )
             }
+            Button {
+                Task { await checkForAppUpdate() }
+            } label: {
+                HStack {
+                    ZSettingsLabel(
+                        title: isCheckingUpdate ? "Checking GitHub Releases…" : "Check for ZynSign Updates",
+                        subtitle: updateSubtitle,
+                        symbol: "arrow.triangle.2.circlepath.circle"
+                    )
+                    if isCheckingUpdate { ProgressView() }
+                }
+            }
+            .disabled(isCheckingUpdate)
+            if let result = updateStatus, result.isNewerAvailable, let url = result.ipaAssetURL {
+                Button {
+                    Task { _ = await environment.downloadCenter?.enqueueUserLink(url.absoluteString) }
+                } label: {
+                    Label("Queue ZynSign \(result.latestTag) in Downloads", systemImage: "arrow.down.circle.fill")
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                }
+            }
         } header: {
             Text("ZynSign")
         } footer: {
             Text("The mark above is ZynSign's own. Alternate app icons arrive with a later release; this build ships one icon, provided by the build itself.")
+        }
+    }
+
+    private var updateSubtitle: String {
+        if let updateError { return updateError }
+        if let result = updateStatus {
+            return result.isNewerAvailable
+                ? "New version \(result.latestTag) is available!"
+                : "Up to date (latest: \(result.latestTag))."
+        }
+        return "Query GitHub Releases for newer ZynSign .ipa builds."
+    }
+
+    private func checkForAppUpdate() async {
+        guard let checker = environment.selfUpdateChecker else {
+            updateError = "Self-update checker is not composed."
+            return
+        }
+        isCheckingUpdate = true
+        updateError = nil
+        defer { isCheckingUpdate = false }
+        do {
+            updateStatus = try await checker.checkForUpdates(
+                currentVersion: environment.applicationInfo.marketingVersion
+            )
+            if updateStatus == nil {
+                updateError = "No published releases found on GitHub yet."
+            }
+            ZHaptics.tap()
+        } catch {
+            updateError = error.localizedDescription
         }
     }
 

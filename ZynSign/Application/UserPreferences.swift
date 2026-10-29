@@ -166,6 +166,27 @@ struct GeneralPreferences: Equatable, Sendable, Codable {
     /// the only preference that records something the user did rather than
     /// something the user wants.
     var onboardingCompleted: Bool = false
+
+    /// When enabled, `zynsign://install/<url>` deep links queue the HTTPS
+    /// download immediately without an extra confirmation dialog.
+    var skipURLDownloadConfirmation: Bool = false
+
+    /// Mirrors completed Store / URL `.ipa` downloads into `Documents/Downloads/`
+    /// so they remain directly accessible in the iOS Files app.
+    var saveDownloadsToDocuments: Bool = false
+
+    /// Plays an inaudible keep-alive loop while active downloads are running so
+    /// iOS suspends transfers less aggressively when switching apps.
+    var keepDownloadsAliveInBackground: Bool = false
+
+    /// Automatically opens Signing Queue when a new package settles in Library.
+    var autoSignAfterImport: Bool = false
+
+    /// Automatically mirrors workspace catalogs & IPAs to `Documents/ZynSignPortable`.
+    var autoMirrorsPortableWorkspace: Bool = false
+
+    /// Custom visible root tab identifiers (empty = show all primary tabs).
+    var visibleTabIdentifiers: [String] = []
 }
 
 extension GeneralPreferences {
@@ -182,6 +203,12 @@ extension GeneralPreferences {
         hapticFeedbackEnabled = try container.decodeIfPresent(Bool.self, forKey: .hapticFeedbackEnabled) ?? true
         animationPreference = try container.decodeIfPresent(AnimationPreference.self, forKey: .animationPreference) ?? .standard
         onboardingCompleted = try container.decodeIfPresent(Bool.self, forKey: .onboardingCompleted) ?? false
+        skipURLDownloadConfirmation = try container.decodeIfPresent(Bool.self, forKey: .skipURLDownloadConfirmation) ?? false
+        saveDownloadsToDocuments = try container.decodeIfPresent(Bool.self, forKey: .saveDownloadsToDocuments) ?? false
+        keepDownloadsAliveInBackground = try container.decodeIfPresent(Bool.self, forKey: .keepDownloadsAliveInBackground) ?? false
+        autoSignAfterImport = try container.decodeIfPresent(Bool.self, forKey: .autoSignAfterImport) ?? false
+        autoMirrorsPortableWorkspace = try container.decodeIfPresent(Bool.self, forKey: .autoMirrorsPortableWorkspace) ?? false
+        visibleTabIdentifiers = try container.decodeIfPresent([String].self, forKey: .visibleTabIdentifiers) ?? []
     }
 }
 
@@ -197,6 +224,13 @@ extension SigningPreferences {
         preferredProfileName = try container.decodeIfPresent(String.self, forKey: .preferredProfileName)
         rememberSelections = try container.decodeIfPresent(Bool.self, forKey: .rememberSelections) ?? true
         automaticCompatibilityAnalysis = try container.decodeIfPresent(Bool.self, forKey: .automaticCompatibilityAnalysis) ?? true
+        autoSignAfterImport = try container.decodeIfPresent(Bool.self, forKey: .autoSignAfterImport) ?? false
+        defaultPPQMode = try container.decodeIfPresent(PPQProtectionMode.self, forKey: .defaultPPQMode) ?? .disabled
+        defaultPPQToken = try container.decodeIfPresent(String.self, forKey: .defaultPPQToken) ?? ""
+        defaultDynamicPPQ = try container.decodeIfPresent(Bool.self, forKey: .defaultDynamicPPQ) ?? false
+        defaultMergesBinaryEntitlements = try container.decodeIfPresent(Bool.self, forKey: .defaultMergesBinaryEntitlements) ?? false
+        defaultIsolatesKeychainGroup = try container.decodeIfPresent(Bool.self, forKey: .defaultIsolatesKeychainGroup) ?? false
+        defaultDeletesImportedAfterSigning = try container.decodeIfPresent(Bool.self, forKey: .defaultDeletesImportedAfterSigning) ?? false
     }
 }
 
@@ -371,6 +405,28 @@ struct SigningPreferences: Equatable, Sendable, Codable {
     /// Whether ZynSign runs its pre-sign compatibility assessment
     /// automatically when a signing screen opens.
     var automaticCompatibilityAnalysis: Bool = true
+
+    /// Automatically queues newly imported applications for signing when a
+    /// preferred signing identity and provisioning profile are configured.
+    var autoSignAfterImport: Bool = false
+
+    /// Default PPQ bundle-identifier protection mode populated when opening Signing.
+    var defaultPPQMode: PPQProtectionMode = .disabled
+
+    /// Persistent 6-character PPQ token reused across signing runs when PPQ is enabled.
+    var defaultPPQToken: String = ""
+
+    /// Applies PPQ protection conditionally when matching store identifiers.
+    var defaultDynamicPPQ: Bool = false
+
+    /// Pre-enables Mach-O binary entitlement merging when opening Signing.
+    var defaultMergesBinaryEntitlements: Bool = false
+
+    /// Pre-enables Keychain group isolation (`<TeamID>.<BundleID>`) when opening Signing.
+    var defaultIsolatesKeychainGroup: Bool = false
+
+    /// Removes the unsigned source package from Library after a verified export succeeds.
+    var defaultDeletesImportedAfterSigning: Bool = false
 }
 
 // MARK: - Security
