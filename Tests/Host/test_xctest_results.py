@@ -73,7 +73,56 @@ class XCTestResultsTests(unittest.TestCase):
         case["children"] = [{"nodeType": "Repetition", "result": "Failed"}]
         self.assertEqual(evidence.test_results(data, {target})[target], "NOT VERIFIED")
         case["nodeIdentifier"] = "OtherTests/" + method + "()"
-        self.assertEqual(evidence.test_results(data, {target}), {})
+        self.assertEqual(evidence.test_results(data, {target}), {target: "NOT VERIFIED"})
+
+    def test_conflicting_names_and_duplicate_suite_are_not_verified(self):
+        allowed = {"FooTests.testA", "FooTests.testB", "OtherTests.testA"}
+        conflict = {"nodeType": "Test Case", "name": "testB()",
+                    "nodeIdentifier": "FooTests/testA()", "result": "Passed"}
+        data = {"testNodes": [{"nodeType": "Test Suite", "name": "FooTests", "children": [conflict]}]}
+        self.assertEqual(evidence.test_results(data, allowed), {
+            "FooTests.testA": "NOT VERIFIED", "FooTests.testB": "NOT VERIFIED"})
+        passed = {"nodeType": "Test Case", "name": "testA()",
+                  "nodeIdentifier": "FooTests/testA()", "result": "Passed"}
+        failed = {**passed, "result": "Failed"}
+        data = {"testNodes": [
+            {"nodeType": "Test Suite", "name": "FooTests", "children": [passed]},
+            {"nodeType": "Test Suite", "name": "OtherTests", "children": [failed]},
+        ]}
+        self.assertEqual(evidence.test_results(data, allowed), {
+            "FooTests.testA": "NOT VERIFIED", "OtherTests.testA": "NOT VERIFIED"})
+        # Invalid identifiers must not make an otherwise identifiable case pass.
+        passed["nodeIdentifier"] = 5
+        self.assertEqual(evidence.test_results(data, allowed)["FooTests.testA"], "NOT VERIFIED")
+
+    def test_unrecognized_suite_and_explicit_invalid_identity_fail_closed(self):
+        allowed = {"FooTests.testA"}
+        case = {"nodeType": "Test Case", "name": "testA()",
+                "nodeIdentifier": "FooTests/testA()", "result": "Passed"}
+
+        def result(suite, item):
+            nodes = [{"nodeType": "Test Suite", "name": suite, "children": [item]}]
+            return evidence.test_results({"testNodes": nodes}, allowed)
+
+        # A non-*Tests suite still carries identity and must not be discarded.
+        self.assertEqual(result("OtherSuite", case), {"FooTests.testA": "NOT VERIFIED"})
+        self.assertEqual(result(None, case), {"FooTests.testA": "NOT VERIFIED"})
+        for identifier in (None, 7, "bad", "OtherTests/testA()"):
+            with self.subTest(identifier=identifier):
+                self.assertEqual(result("FooTests", {**case, "nodeIdentifier": identifier}),
+                                 {"FooTests.testA": "NOT VERIFIED"})
+        self.assertEqual(result("FooTests", {**case, "name": None}),
+                         {"FooTests.testA": "NOT VERIFIED"})
+        # The supported tree with a matching identifier, and the existing
+        # suite/name form with no identifier field, remain usable.
+        self.assertEqual(result("FooTests", case), {"FooTests.testA": "PASS"})
+        without_id = {key: value for key, value in case.items() if key != "nodeIdentifier"}
+        self.assertEqual(result("FooTests", without_id), {"FooTests.testA": "PASS"})
+        data = {"testNodes": [
+            {"nodeType": "Test Suite", "name": "FooTests", "children": [case]},
+            {"nodeType": "Test Suite", "name": "OtherSuite", "children": [{**case, "result": "Failed"}]},
+        ]}
+        self.assertEqual(evidence.test_results(data, allowed), {"FooTests.testA": "NOT VERIFIED"})
 
     def test_workflow_upload_and_exit_status_contract(self):
         root = Path(evidence.__file__).resolve().parents[2]
@@ -89,6 +138,77 @@ class XCTestResultsTests(unittest.TestCase):
         self.assertIn("if: always()", workflow)
         self.assertIn("if-no-files-found: warn", workflow)
 
+    def test_markdown_renders_all_recognized_cases_in_sorted_order(self):
+        data = tree(("testZ", "Passed"), ("testA", "Failed"), ("testSkip", "Skipped"),
+                    ("testRepeat", "Passed"), ("testRepeat", "Failed"), ("testUnknown", "Running"))
+        allowed = {f"FooTests.test{x}" for x in ("Z", "A", "Skip", "Repeat", "Unknown")}
+        summary = {"passedTests": 1, "failedTests": 1, "skippedTests": 1, "totalTestCount": 3}
+        report = evidence.create_report(data, summary, allowed)
+        md = evidence.markdown(report)
+        self.assertIn("Aggregate: 1 passed, 1 failed, 1 skipped, 3 total", md)
+        self.assertIn("### Recognized per-test results", md)
+        self.assertIn("| `FooTests.testA` | FAIL |", md)
+        self.assertIn("| `FooTests.testSkip` | SKIPPED |", md)
+        self.assertIn("| `FooTests.testZ` | PASS |", md)
+        self.assertIn("| `FooTests.testRepeat` | NOT VERIFIED |", md)
+        self.assertIn("| `FooTests.testUnknown` | NOT VERIFIED |", md)
+        self.assertLess(md.index("`FooTests.testA`"), md.index("`FooTests.testZ`"))
+        for target in evidence.TARGETS:
+            self.assertIn(f"| `{target}` | NOT VERIFIED |", md)
+        self.assertNotIn("Truncated:", md)
+        self.assertEqual(md, evidence.markdown(report))
+
+    def test_markdown_truncates_at_byte_limit_without_altering_json(self):
+        report = evidence.create_report({}, {}, set())
+        report["tests"] = {f"FooTests.testCase{i:04d}": "PASS" for i in range(200)}
+        original_json = json.dumps(report, sort_keys=True)
+        md = evidence.markdown(report, max_bytes=1400)
+        self.assertLessEqual(len(md.encode("utf-8")), 1400)
+        self.assertIn("Truncated:", md)
+        self.assertIn("xctest-results.json", md)
+        self.assertIn("full sanitized report", md)
+        self.assertIn("| `FooTests.testCase0000` | PASS |", md)
+        self.assertNotIn("`FooTests.testCase0199`", md)
+        self.assertEqual(json.dumps(report, sort_keys=True), original_json)
+        self.assertEqual(len(report["tests"]), 200)
+
+    def test_markdown_exact_fit_truncation_and_utf8_boundaries(self):
+        report = evidence.create_report({}, {}, set())
+        report["limitations"] += " Café — 模拟器"
+        report["tests"] = {f"FooTests.testCase{i:04d}": "PASS" for i in range(100)}
+        full = evidence.markdown(report)
+        full_size = len(full.encode("utf-8"))
+        self.assertGreater(full_size, len(full))
+        self.assertEqual(evidence.markdown(report, max_bytes=full_size), full)
+        shortened = evidence.markdown(report, max_bytes=full_size - 1)
+        self.assertLessEqual(len(shortened.encode("utf-8")), full_size - 1)
+        self.assertIn("Truncated:", shortened)
+        # Find the first byte limit that can include the fixed prefix and
+        # notice, and verify both sides of that exact boundary.
+        low, high = 0, full_size - 1
+        while low < high:
+            middle = (low + high) // 2
+            try:
+                evidence.markdown(report, max_bytes=middle)
+                high = middle
+            except ValueError:
+                low = middle + 1
+        with self.assertRaises(ValueError):
+            evidence.markdown(report, max_bytes=low - 1)
+        boundary = evidence.markdown(report, max_bytes=low)
+        self.assertLessEqual(len(boundary.encode("utf-8")), low)
+        self.assertIn("Truncated:", boundary)
+        self.assertIn("xctest-results.json", boundary)
+
+    def test_markdown_rejects_unsafe_names_and_unknown_statuses(self):
+        report = evidence.create_report({}, {}, set())
+        report["tests"] = {"FooTests.testGood": "invented", "FooTests.testUnsafe|secret": "PASS",
+                           "FooTests.testNewline\n::error::secret": "PASS"}
+        md = evidence.markdown(report)
+        self.assertIn("| `FooTests.testGood` | NOT VERIFIED |", md)
+        self.assertNotIn("secret", md.lower())
+        self.assertNotIn("invented", md)
+
     def test_counts_require_unambiguous_top_level_numbers(self):
         good = {"passedTests": 2, "failedTests": 1, "skippedTests": 1, "totalTestCount": 4}
         self.assertEqual(evidence.aggregate(good), good)
@@ -96,6 +216,25 @@ class XCTestResultsTests(unittest.TestCase):
                      {**good, "passedTests": True}, {**good, "expectedFailures": 1}):
             with self.subTest(data=data):
                 self.assertIsNone(evidence.aggregate(data))
+
+    def test_contradictory_aggregate_is_not_verified(self):
+        for raw, key in (("Passed", "passedTests"), ("Failed", "failedTests"),
+                         ("Skipped", "skippedTests")):
+            with self.subTest(status=raw):
+                summary = {"passedTests": 0, "failedTests": 0, "skippedTests": 0, "totalTestCount": 0}
+                report = evidence.create_report(tree(("testA", raw)), summary, {"FooTests.testA"})
+                self.assertIsNone(report["counts"])
+                self.assertEqual(report["tests"]["FooTests.testA"], evidence.STATUSES[raw.lower()])
+                self.assertIn("inconsistent", report["limitations"])
+                self.assertIn("Aggregate: NOT VERIFIED", evidence.markdown(report))
+                self.assertEqual(summary[key], 0)  # Input totals are not modified.
+        summary = {"passedTests": 2, "failedTests": 1, "skippedTests": 0, "totalTestCount": 3}
+        report = evidence.create_report(tree(("testA", "Passed")), summary, {"FooTests.testA"})
+        self.assertEqual(report["counts"], summary)  # Partial coverage is allowed.
+        repeated = evidence.create_report(tree(("testA", "Passed"), ("testA", "Failed")),
+                                          summary, {"FooTests.testA"})
+        self.assertEqual(repeated["tests"]["FooTests.testA"], "NOT VERIFIED")
+        self.assertEqual(repeated["counts"], summary)
 
     def test_invalid_tree_and_unsafe_names_are_omitted(self):
         self.assertEqual(evidence.test_results({"testNodes": "bad"}, {"FooTests.testPass"}), {})

@@ -23,6 +23,8 @@ METHOD = re.compile(r"\bfunc\s+(test[A-Za-z0-9_]*)\s*\(\s*\)")
 IDENTIFIER = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*Tests)\.(test[A-Za-z0-9_]*)$")
 STATUSES = {"passed": "PASS", "failed": "FAIL", "skipped": "SKIPPED"}
 COUNT_KEYS = ("passedTests", "failedTests", "skippedTests", "totalTestCount")
+# Leave room for the other sections written to the same GitHub step summary.
+MAX_REPORT_BYTES = 128 * 1024
 
 
 def source_allowlist(root: Path) -> set[str]:
@@ -46,42 +48,47 @@ def test_results(data: object, allowed: set[str]) -> dict[str, str]:
         return {}
     found: dict[str, list[str]] = {}
 
-    def visit(node: object, suite: str = "") -> None:
+    def visit(node: object, suite: str | None = "") -> None:
         if not isinstance(node, dict):
             return
         node_type, name = node.get("nodeType"), node.get("name")
-        if node_type == "Test Suite" and isinstance(name, str):
-            suite = name if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*Tests", name) else ""
-        if node_type == "Test Case" and isinstance(name, str):
-            method = name[:-2] if name.endswith("()") else name
-            identifier = f"{suite}.{method}"
-            # The modern interface identifies cases as Class/testMethod(),
-            # sometimes with a bundle prefix. Prefer it when present; do not
-            # fall back to a display name if the identifier is inconsistent.
+        if node_type == "Test Suite":
+            # Retain even unrecognized suite names for conflict detection.
+            suite = name if isinstance(name, str) and name else None
+        if node_type == "Test Case":
+            method = (name[:-2] if name.endswith("()") else name) if isinstance(name, str) else ""
+            display_id = f"{suite}.{method}" if suite else ""
+            candidates = {display_id} if IDENTIFIER.fullmatch(display_id) else set()
             raw_identifier = node.get("nodeIdentifier")
-            if raw_identifier is not None:
-                if not isinstance(raw_identifier, str):
-                    return
+            identifier = ""
+            if isinstance(raw_identifier, str):
                 parts = raw_identifier.split("/")
-                if len(parts) < 2:
-                    return
-                cls, method_id = parts[-2:]
-                method_id = method_id[:-2] if method_id.endswith("()") else method_id
-                identifier = f"{cls}.{method_id}"
-                if suite and suite != cls:
-                    return
-            if IDENTIFIER.fullmatch(identifier) and identifier in allowed:
-                raw = node.get("result")
-                status = STATUSES.get(raw.lower(), "NOT VERIFIED") if isinstance(raw, str) else "NOT VERIFIED"
-                # A case with repetitions can represent a retry or multiple
-                # configurations; don't silently select a single outcome.
-                children = node.get("children", [])
-                if isinstance(children, list) and any(
-                    isinstance(child, dict) and child.get("nodeType") == "Repetition"
-                    for child in children
-                ):
-                    status = "NOT VERIFIED"
-                found.setdefault(identifier, []).append(status)
+                if len(parts) >= 2:
+                    cls, method_id = parts[-2:]
+                    method_id = method_id[:-2] if method_id.endswith("()") else method_id
+                    identifier = f"{cls}.{method_id}"
+                    if IDENTIFIER.fullmatch(identifier):
+                        candidates.add(identifier)
+            conflict = (
+                suite is None or not method
+                or ("nodeIdentifier" in node and (
+                    not IDENTIFIER.fullmatch(identifier)
+                    or method != identifier.split(".", 1)[1]
+                    or (suite and suite != identifier.split(".", 1)[0])
+                ))
+            )
+            raw = node.get("result")
+            status = STATUSES.get(raw.lower(), "NOT VERIFIED") if isinstance(raw, str) else "NOT VERIFIED"
+            children = node.get("children", [])
+            if conflict or not isinstance(children, list) or any(
+                isinstance(child, dict) and child.get("nodeType") == "Repetition"
+                for child in children
+            ):
+                status = "NOT VERIFIED"
+            # Keep every recognizable identity from a conflicting record so it
+            # cannot disappear before duplicate/ambiguity detection.
+            for candidate in candidates & allowed:
+                found.setdefault(candidate, []).append(status)
             return
         children = node.get("children", [])
         if isinstance(children, list):
@@ -128,23 +135,60 @@ def xcresult_json(bundle: str, kind: str) -> object:
 
 def create_report(tests: object, summary: object, allowed: set[str]) -> dict:
     results = test_results(tests, allowed)
+    counts = aggregate(summary)
+    limitations = "Only recognized XCTest cases with identifiers found in source are included; missing, unsupported, or repeated cases are not verified."
+    if counts and any(
+        list(results.values()).count(status) > counts[key]
+        for status, key in (("PASS", "passedTests"), ("FAIL", "failedTests"), ("SKIPPED", "skippedTests"))
+    ):
+        counts = None
+        limitations += " Aggregate is inconsistent with recognized per-test results and is not verified."
     return {
-        "counts": aggregate(summary),
+        "counts": counts,
         "named_tests": {name: results.get(name, "NOT VERIFIED") for name in TARGETS},
         "tests": results,
-        "limitations": "Only recognized XCTest cases with identifiers found in source are included; missing, unsupported, or repeated cases are not verified.",
+        "limitations": limitations,
     }
 
 
-def markdown(report: dict) -> str:
+def markdown(report: dict, max_bytes: int = MAX_REPORT_BYTES) -> str:
     counts = report["counts"]
     counts_text = (f"{counts['passedTests']} passed, {counts['failedTests']} failed, "
                    f"{counts['skippedTests']} skipped, {counts['totalTestCount']} total") if counts else "NOT VERIFIED"
     lines = ["## Individual XCTest evidence", "", f"Aggregate: {counts_text}", "",
              "| Test | Status |", "| --- | --- |"]
     lines.extend(f"| `{name}` | {status} |" for name, status in report["named_tests"].items())
-    lines.extend(["", report["limitations"], ""])
-    return "\n".join(lines)
+    lines.extend(["", report["limitations"], "", "### Recognized per-test results", "",
+                  "| Test | Status |", "| --- | --- |"])
+    prefix = "\n".join(lines) + "\n"
+    # Defend the Markdown renderer as well as the parser against unsafe names
+    # and unknown status values. The JSON report is generated by the parser.
+    tests = [(name, status if isinstance(status, str) and status in {"PASS", "FAIL", "SKIPPED", "NOT VERIFIED"} else "NOT VERIFIED")
+             for name, status in report["tests"].items()
+             if isinstance(name, str) and IDENTIFIER.fullmatch(name)]
+    tests.sort(key=lambda item: item[0])
+    rows = [f"| `{name}` | {status} |\n" for name, status in tests]
+    ending = "\n" if rows else "\nNo recognized per-test results available.\n"
+    full = prefix + "".join(rows) + ending
+    if len(full.encode("utf-8")) <= max_bytes:
+        return full
+
+    def truncation_notice(omitted: int) -> str:
+        return (f"\nTruncated: {omitted} per-test result(s) omitted from this summary. "
+                "See `xctest-results.json` in the XCTest evidence artifact for the full sanitized report.\n")
+
+    # Include the largest fitting prefix and its exact notice; this only
+    # bounds our section, not other sections in the GitHub step summary.
+    used = len(prefix.encode("utf-8"))
+    selected = None
+    for count in range(len(rows)):
+        notice = truncation_notice(len(rows) - count)
+        if used + len(notice.encode("utf-8")) <= max_bytes:
+            selected = count
+        used += len(rows[count].encode("utf-8"))
+    if selected is None:
+        raise ValueError("summary byte limit is too small for the fixed report and truncation notice")
+    return prefix + "".join(rows[:selected]) + truncation_notice(len(rows) - selected)
 
 
 def main() -> None:
