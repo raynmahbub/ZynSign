@@ -127,6 +127,13 @@ struct EntitlementsCanonicalSerializer {
     }
 }
 
+extension CodeSigningEntitlements {
+    /// Serializes this entitlement dictionary to canonical UTF-8 XML bytes.
+    func canonicalXMLData() throws -> Data {
+        try EntitlementsCanonicalSerializer().serialize(self)
+    }
+}
+
 extension EntitlementsError {
     /// Maps a canonicalization failure into this boundary's vocabulary.
     /// Kept internal to the file's layer; declared as an extension so the

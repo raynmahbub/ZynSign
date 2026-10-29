@@ -35,6 +35,32 @@ struct SignedApplicationExpectations: Equatable {
     /// The nested executables that must each carry a signature, located
     /// relative to the bundle.
     let nestedExecutablePaths: [BundlePath]
+
+    /// Whether `embedded.mobileprovision` is expected to be embedded (`true`
+    /// by default; `false` when `removesProvisioningProfile` was requested).
+    let embedsProfile: Bool
+
+    init(
+        bundlePath: ArchivePath,
+        bundleIdentifier: BundleIdentifier,
+        executableName: String,
+        executablePath: ArchivePath,
+        profile: Data,
+        sealedCodeResources: Data,
+        entitlements: CodeSigningEntitlements,
+        nestedExecutablePaths: [BundlePath],
+        embedsProfile: Bool = true
+    ) {
+        self.bundlePath = bundlePath
+        self.bundleIdentifier = bundleIdentifier
+        self.executableName = executableName
+        self.executablePath = executablePath
+        self.profile = profile
+        self.sealedCodeResources = sealedCodeResources
+        self.entitlements = entitlements
+        self.nestedExecutablePaths = nestedExecutablePaths
+        self.embedsProfile = embedsProfile
+    }
 }
 
 /// What one independent verification established.
@@ -196,7 +222,11 @@ struct VerifySignedApplication {
     }
 
     private func profileMatches(reader: any ArchiveReader, expectations: SignedApplicationExpectations) throws -> Bool {
-        guard let embedded = try bundleFile(reader: reader, expectations: expectations, components: ["embedded.mobileprovision"]) else {
+        let embedded = try bundleFile(reader: reader, expectations: expectations, components: ["embedded.mobileprovision"])
+        if !expectations.embedsProfile {
+            return embedded == nil
+        }
+        guard let embedded else {
             return false
         }
         return embedded == expectations.profile

@@ -54,14 +54,15 @@ final class StoreDownloadQueue: ObservableObject {
         } catch { problem = "Could not restore downloads: \(error.localizedDescription)" }
     }
     @discardableResult
-    func enqueue(_ app: CatalogApp, sourceName: String) -> UUID? {
+    func enqueue(_ app: CatalogApp, release: CatalogRelease? = nil, sourceName: String) -> UUID? {
         restore()
         guard restored else { return nil }
-        if let job = jobs.first(where: { $0.appID == app.id && $0.release == app.latest && ![.failed, .cancelled].contains($0.state) }) { return job.id }
+        let targetRelease = release ?? app.latest
+        if let job = jobs.first(where: { $0.appID == app.id && $0.release == targetRelease && ![.failed, .cancelled].contains($0.state) }) { return job.id }
         guard jobs.count < 500 else { problem = "Remove finished jobs before adding more downloads."; return nil }
-        guard (try? StoreURLPolicy.validate(app.latest.downloadURL.absoluteString)) != nil else { problem = "Unsafe download URL."; return nil }
+        guard (try? StoreURLPolicy.validate(targetRelease.downloadURL.absoluteString)) != nil else { problem = "Unsafe download URL."; return nil }
         let job = StoreDownloadJob(id: UUID(), appID: app.id, sourceID: app.sourceID, sourceName: sourceName,
-                                   name: app.name, bundleID: app.bundleID, release: app.latest)
+                                   name: app.name, bundleID: app.bundleID, release: targetRelease)
         jobs.append(job)
         guard save() else { jobs.removeAll { $0.id == job.id }; return nil }
         pump(); return job.id

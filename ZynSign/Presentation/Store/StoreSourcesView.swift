@@ -6,6 +6,7 @@ struct StoreSourcesView: View {
     @State private var query = ""
     @State private var add = false
     @State private var removing: CatalogSource?
+    @State private var showExportCopiedToast = false
     private var sources: [CatalogSource] {
         model.snapshot.sources.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.url.absoluteString.localizedCaseInsensitiveContains(query) }
     }
@@ -66,7 +67,22 @@ struct StoreSourcesView: View {
         }
         .navigationTitle("Sources")
         .searchable(text: $query, prompt: "Source name or URL")
-        .toolbar { Button { add = true } label: { Label("Add Repository", systemImage: "plus") }.keyboardShortcut("n", modifiers: .command) }
+        .zToast(isPresented: $showExportCopiedToast, message: "Copied repository URLs.", style: .info)
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if !model.snapshot.sources.isEmpty {
+                    Button {
+                        UIPasteboard.general.string = model.exportSourceURLsText()
+                        ZHaptics.tap()
+                        showExportCopiedToast = true
+                    } label: {
+                        Label("Export URLs", systemImage: "doc.on.doc")
+                    }
+                }
+                Button { add = true } label: { Label("Add Repository", systemImage: "plus") }
+                    .keyboardShortcut("n", modifiers: .command)
+            }
+        }
         .sheet(isPresented: $add) { StoreAddSourceView(model: model) }
         .confirmationDialog("Remove \(removing?.name ?? "source")?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible) {
             Button("Remove Source", role: .destructive) { if let source = removing { Task { await model.remove(source.id) } }; removing = nil }
@@ -82,27 +98,34 @@ private struct StoreAddSourceView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Repository URL") {
-                    TextField("https://example.com/source.json", text: $raw)
-                        .keyboardType(.URL).textContentType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .accessibilityLabel("Repository HTTPS URL")
+                Section {
+                    TextEditor(text: $raw)
+                        .font(ZTypography.codeCaption)
+                        .frame(minHeight: 110)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .accessibilityLabel("Repository HTTPS URLs or encoded catalog token")
                     Button {
                         if let link = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines),
                            !link.isEmpty {
                             raw = link
                         }
                     } label: {
-                        Label("Paste Repository URL", systemImage: "doc.on.clipboard")
+                        Label("Paste URLs or Encoded Token", systemImage: "doc.on.clipboard")
                     }
+                } header: {
+                    Text("Repository URLs or Encoded Feed Token")
+                } footer: {
+                    Text("Supports single HTTPS URLs, newline-separated repository lists, and Base64 / AES-128-CBC encoded catalog tokens.")
                 }
                 Section {
                     Text("ZynSign checks reachability, manifest structure, required fields, and duplicates before saving. Only HTTPS sources and assets are supported.")
                     Text("A successful check does not verify the publisher or establish trust.").font(.callout.weight(.semibold))
                     if let problem = model.problem { Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
                     if model.adding { ProgressView("Validating source…") }
-                    Button("Validate & Add Repository") {
+                    Button("Validate & Add Repositories") {
                         model.problem = nil
-                        Task { if await model.add(raw) { dismiss() } }
+                        Task { if await model.addBatch(raw) > 0 { dismiss() } }
                     }.disabled(model.adding || raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }

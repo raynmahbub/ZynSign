@@ -545,13 +545,18 @@ struct SignApplicationPipeline {
             observer?(.stageCompleted(.integrity))
             try Task.checkCancellation()
 
+            let effectiveMetadata = effectiveSigningMetadata(
+                for: request,
+                original: integrity.metadata
+            )
+
             observer?(.stageStarted(.profile))
-            let profile = try runProfile(request: request, metadata: integrity.metadata)
+            let profile = try runProfile(request: request, metadata: effectiveMetadata)
             observer?(.stageCompleted(.profile))
             try Task.checkCancellation()
 
             observer?(.stageStarted(.discovery))
-            let plan = try runDiscovery(request: request, integrity: integrity)
+            var plan = try runDiscovery(request: request, integrity: integrity)
             observer?(.nestedPlan(Self.nestedTotals(of: plan)))
             observer?(.stageCompleted(.discovery))
             try Task.checkCancellation()
@@ -562,6 +567,14 @@ struct SignApplicationPipeline {
                 integrity: integrity,
                 workingRoot: workingRoot
             )
+            if !request.options.sideload.isEmpty {
+                plan = try runPostEditDiscovery(
+                    workingRoot: workingRoot,
+                    bundlePath: integrity.report.bundlePath,
+                    metadata: effectiveMetadata
+                )
+                observer?(.nestedPlan(Self.nestedTotals(of: plan)))
+            }
             observer?(.stageCompleted(.extraction))
             try Task.checkCancellation()
 
@@ -629,13 +642,14 @@ struct SignApplicationPipeline {
                 ),
                 expectations: SignedApplicationExpectations(
                     bundlePath: integrity.report.bundlePath,
-                    bundleIdentifier: integrity.report.bundleIdentifier,
+                    bundleIdentifier: effectiveMetadata.identity.bundleIdentifier,
                     executableName: integrity.report.executableName,
                     executablePath: integrity.report.executablePath,
                     profile: request.profile,
                     sealedCodeResources: sealing.seal.bytes,
                     entitlements: request.entitlements,
-                    nestedExecutablePaths: plan.items.map { $0.executablePath }
+                    nestedExecutablePaths: plan.items.map { $0.executablePath },
+                    embedsProfile: !request.options.sideload.removesProvisioningProfile
                 )
             )
         } catch {
@@ -888,6 +902,75 @@ struct SignApplicationPipeline {
         }
     }
 
+    private func effectiveSigningMetadata(
+        for request: SignApplicationRequest,
+        original: ApplicationMetadata
+    ) -> ApplicationMetadata {
+        let effectiveIDString = request.options.sideload.resolvedBundleIdentifier(
+            originalBundleID: original.identity.bundleIdentifier.rawValue
+        ) ?? original.identity.bundleIdentifier.rawValue
+        guard effectiveIDString != original.identity.bundleIdentifier.rawValue,
+              let newID = BundleIdentifier(rawValue: effectiveIDString) else {
+            return original
+        }
+        let updatedIdentity = ApplicationIdentity(
+            bundleIdentifier: newID,
+            declaredDisplayName: request.options.sideload.displayName ?? original.identity.declaredDisplayName,
+            declaredBundleName: original.identity.declaredBundleName,
+            shortVersionString: request.options.sideload.shortVersion ?? original.identity.shortVersionString,
+            buildVersion: request.options.sideload.version ?? original.identity.buildVersion
+        )
+        return ApplicationMetadata(
+            identity: updatedIdentity,
+            executableName: original.executableName,
+            minimumOSVersion: request.options.sideload.minimumOSVersion ?? original.minimumOSVersion,
+            deviceFamily: original.deviceFamily,
+            iconName: original.iconName
+        )
+    }
+
+    private func runPostEditDiscovery(
+        workingRoot: URL,
+        bundlePath: ArchivePath,
+        metadata: ApplicationMetadata
+    ) throws -> NestedSigningPlan {
+        let table = try DirectoryNestedCodeInspectionSource.buildEntryTable(
+            at: workingRoot,
+            bundlePath: bundlePath
+        )
+        let source = DirectoryNestedCodeInspectionSource(workingRoot: workingRoot, limits: limits)
+        let discovery = NestedCodeDiscovery.discover(
+            entryTable: table,
+            request: NestedCodeDiscoveryRequest(
+                bundlePath: bundlePath,
+                applicationIdentity: NestedCodeBundleIdentity(metadata: metadata)
+            ),
+            limits: .default,
+            source: source
+        )
+        guard case .plan(let signingPlan) = discovery else {
+            throw ApplicationSigningFailure(
+                stage: .extraction,
+                detail: "Nested code discovery refused the modified working bundle.",
+                category: .invalidInput
+            )
+        }
+        if !signingPlan.unsupportedItems.isEmpty {
+            throw ApplicationSigningFailure(
+                stage: .extraction,
+                detail: "The modified container carries nested code this signing does not support.",
+                category: .unsupportedInput
+            )
+        }
+        do {
+            return try NestedSigningPlanValidator.validate(plan: signingPlan)
+        } catch let failure as NestedSigningFailure {
+            throw ApplicationSigningFailure(stage: .extraction, detail: failure.detail, category: failure.category)
+        } catch {
+            throw map(error, stage: .extraction, detail: "The modified nested signing plan failed validation.")
+        }
+    }
+
     // MARK: - Extraction
 
     private struct ExtractionContext {
@@ -927,11 +1010,6 @@ struct SignApplicationPipeline {
         for component in integrity.report.bundlePath.components {
             bundleDirectory.appendPathComponent(component)
         }
-        do {
-            try request.profile.write(to: bundleDirectory.appendingPathComponent("embedded.mobileprovision"), options: .atomic)
-        } catch {
-            throw map(error, stage: .extraction, detail: "The replacement profile could not be embedded.")
-        }
         // Re-signing starts by removing what is there. The strip runs before
         // the edits because both rewrite the same header, and the signature
         // that must survive is the new one.
@@ -948,6 +1026,20 @@ struct SignApplicationPipeline {
                 throw map(error, stage: .extraction,
                           detail: "An existing signature could not be removed.")
             }
+        }
+        if !request.options.sideload.removesProvisioningProfile {
+            do {
+                try request.profile.write(
+                    to: bundleDirectory.appendingPathComponent("embedded.mobileprovision"),
+                    options: .atomic
+                )
+            } catch {
+                throw map(error, stage: .extraction, detail: "The replacement profile could not be embedded.")
+            }
+        } else {
+            try? FileManager.default.removeItem(
+                at: bundleDirectory.appendingPathComponent("embedded.mobileprovision")
+            )
         }
         // Sideloading edits land here, after extraction and before the first
         // signature: the CodeDirectory hashes the header this step rewrites.

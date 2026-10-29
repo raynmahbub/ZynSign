@@ -58,11 +58,24 @@ struct StoreAppDetailView: View {
                     }
                 }
             }
-            Section("Release Notes") {
+            Section("Release Notes & All Versions") {
                 StoreReleaseRow(release: app.latest)
                 if app.releases.count > 1 {
-                    DisclosureGroup("Version History (\(app.releases.count - 1))", isExpanded: $history) {
-                        ForEach(Array(app.releases.dropFirst())) { release in StoreReleaseRow(release: release) }
+                    DisclosureGroup("All Versions / Downgrade (\(app.releases.count - 1))", isExpanded: $history) {
+                        ForEach(Array(app.releases.dropFirst())) { release in
+                            VStack(alignment: .leading, spacing: ZSpacing.xs) {
+                                StoreReleaseRow(release: release)
+                                Button {
+                                    model.download(app, release: release)
+                                    ZHaptics.tap()
+                                } label: {
+                                    Label("Download v\(release.version)", systemImage: "arrow.down.circle")
+                                        .frame(minHeight: 44)
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(model.source(app)?.enabled != true)
+                            }
+                        }
                     }
                 }
             }

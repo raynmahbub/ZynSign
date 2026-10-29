@@ -297,6 +297,34 @@ struct ApplicationEnvironment {
     /// screen neither constructs nor reaches past it.
     var localTransfer: LocalTransferService? = nil
 
+    /// Auto-inject rule persistence keyed by tweak UUID, pre-selecting matching
+    /// tweaks when opening Signing for an application.
+    var tweakAutoInjectRules: (any TweakAutoInjectRuleStore)? = nil
+
+    /// Unsigned bundle modification & repackaging coordinator (`Only Modify` mode).
+    var packageModifier: PackageModificationService? = nil
+
+    /// Foreground LAN Browser Upload Dashboard & WebDAV Level 1 Server.
+    var lanWebWorkspace: LANWebWorkspaceService? = nil
+
+    /// GitHub Releases self-update checker for ZynSign.
+    var selfUpdateChecker: SelfUpdateChecker? = nil
+
+    /// Files-app portable workspace mirroring & directory import service.
+    var portableWorkspaceSync: PortableWorkspaceSyncService? = nil
+
+    /// Optional silent-audio background download keep-alive controller.
+    var downloadKeepAlive: (any BackgroundDownloadKeepAliveControlling)? = nil
+
+    /// Multi-app zero-slot `MH_DYLIB` Host Container runtime & data-slot manager.
+    var guestContainerHost: GuestContainerHostService? = nil
+
+    /// Dual-mode Free Personal Team & Paid Developer Program provisioning coordinator.
+    var appleAccountProvisioner: AppleAccountProvisioningService? = nil
+
+    /// Keychain-backed `.mobiledevicepairing` & wire-free loopback `lockdownd` / `installation_proxy` bridge.
+    var deviceBridgeController: DeviceBridgeController? = nil
+
     /// The Performance Engine: the background scheduler, thumbnail and
     /// metadata caches, memory manager, cache policies, benchmarks, and
     /// launch timeline behind Settings → Advanced → Performance. `nil` in

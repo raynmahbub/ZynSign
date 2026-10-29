@@ -22,6 +22,10 @@ struct SigningMaterialsView: View {
     @Environment(\.applicationEnvironment) private var environment
     @State private var selection: SigningMaterialsSection
     @Binding private var incomingURL: URL?
+    @State private var showArchiveSheet = false
+    @State private var showP12RecoverySheet = false
+    @State private var showBundledAssetsSheet = false
+    @State private var showAppleAccountHub = false
 
     var embedsNavigationStack: Bool
 
@@ -93,5 +97,40 @@ struct SigningMaterialsView: View {
         }
         .navigationTitle(selection.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button { showAppleAccountHub = true } label: {
+                        Label("Apple ID Provisioning (Free & Paid)", systemImage: "person.badge.key")
+                    }
+                    Button { showArchiveSheet = true } label: {
+                        Label(".zcert Identity Archive Import / Export", systemImage: "shippingbox")
+                    }
+                    Button { showP12RecoverySheet = true } label: {
+                        Label("P12 Password Recovery", systemImage: "key.viewfinder")
+                    }
+                    Button { showBundledAssetsSheet = true } label: {
+                        Label("Bundled signing-assets Import", systemImage: "tray.and.arrow.down")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel("Certificate tools")
+            }
+        }
+        .sheet(isPresented: $showAppleAccountHub) {
+            NavigationStack {
+                UnifiedSigningHubView(initialTab: .appleID)
+            }
+        }
+        .sheet(isPresented: $showArchiveSheet) {
+            ZynIdentityArchiveSheet()
+        }
+        .sheet(isPresented: $showP12RecoverySheet) {
+            P12PasswordRecoverySheet()
+        }
+        .sheet(isPresented: $showBundledAssetsSheet) {
+            BundledSigningAssetsSheet()
+        }
     }
 }

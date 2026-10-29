@@ -24,7 +24,14 @@ struct SideloadingView: View {
     }
 
     private var evidence: SideloadingCapability.Evidence {
-        processEntitlements.sideloadingEvidence(hasPairingRecord: false)
+        let hasPairing = environment.deviceBridgeController?.hasPairingRecord ?? false
+        let transportComposed = environment.deviceBridgeController?.isTransportComposed ?? false
+        let loaderBundled = environment.guestContainerHost?.isBundledLoaderAvailable ?? false
+        return processEntitlements.sideloadingEvidence(
+            hasPairingRecord: hasPairing,
+            transportComposed: transportComposed,
+            loaderBundled: loaderBundled
+        )
     }
 
     private var assessments: [SideloadingCapability.Assessment] {
@@ -43,6 +50,15 @@ struct SideloadingView: View {
 
     private var content: some View {
         List {
+            Section {
+                NavigationLink {
+                    UnifiedSigningHubView()
+                } label: {
+                    Label("Open Unified Signing & Container Hub", systemImage: "cpu")
+                }
+            } footer: {
+                Text("Stage zero-slot Host Container apps, provision Free 7-day or Paid 365-day Apple Developer certificates, and install or refresh over the wire-free device bridge.")
+            }
             capabilitySection
             connectionSection
             optionsSection
@@ -107,11 +123,16 @@ struct SideloadingView: View {
     // MARK: - Connection
 
     private var connectionSection: some View {
-        Section {
+        let recordCount = environment.deviceBridgeController?.pairingRecords.count ?? 0
+        let transportLabel = (environment.deviceBridgeController?.isTransportComposed == true)
+            ? "Composed (usbmuxd over NWConnection)"
+            : "Not composed"
+        let pairingLabel = recordCount == 0 ? "None" : "\(recordCount) stored in Keychain"
+        return Section {
             LabeledContent("This build's signature", value: measurementLabel)
             LabeledContent("Local-tunnel entitlement", value: localTunnelLabel)
-            LabeledContent("Device transport", value: "Not composed")
-            LabeledContent("Pairing records", value: "None")
+            LabeledContent("Device transport", value: transportLabel)
+            LabeledContent("Pairing records", value: pairingLabel)
             Text(processEntitlements.summary)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -226,13 +247,19 @@ struct SideloadingView: View {
     // MARK: - Containers
 
     private var containerSection: some View {
-        Section {
-            let assessment = GuestContainer.assess(.init(
-                bundleIdentifier: "com.example.guest",
-                name: "Example guest",
+        let firstHosted = environment.guestContainerHost?.hostedGuests.first
+        let assessment = firstHosted.flatMap { environment.guestContainerHost?.assessGuest($0.bundleIdentifier) }
+            ?? GuestContainer.assess(.init(
+                bundleIdentifier: "io.zynsign.guest.preview",
+                name: "Unstaged guest template",
                 version: "1.0",
                 executableName: "Guest",
-                loaderBundled: false))
+                loaderBundled: environment.guestContainerHost?.isBundledLoaderAvailable ?? false
+            ))
+        return Section {
+            if let host = environment.guestContainerHost {
+                LabeledContent("Hosted container apps", value: "\(host.hostedGuests.count)")
+            }
             Text(assessment.summary)
                 .font(.footnote)
                 .foregroundStyle(.secondary)

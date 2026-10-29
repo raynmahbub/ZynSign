@@ -76,14 +76,14 @@ class ContainerPreparationTests(unittest.TestCase):
     def test_app_info_plist_describes_the_container(self) -> None:
         result = self.prepare()
         info = plistlib.loads(
-            result.entries["Applications/com.example.demo/LCAppInfo.plist"])
-        self.assertEqual(info["LCBundleId"], "com.example.demo")
-        self.assertEqual(info["LCGuestPath"], "Applications/com.example.demo/App.app")
-        self.assertEqual(info["LCExecutable"], "Demo")
-        self.assertEqual(info["LCSignature"], "adhoc")
-        self.assertEqual(info["LCContainerVersion"], 1)
+            result.entries["Applications/com.example.demo/ZynGuestInfo.plist"])
+        self.assertEqual(info["ZynBundleId"], "com.example.demo")
+        self.assertEqual(info["ZynGuestPath"], "Applications/com.example.demo/App.app")
+        self.assertEqual(info["ZynExecutable"], "Demo")
+        self.assertEqual(info["ZynSignature"], "adhoc")
+        self.assertEqual(info["ZynContainerVersion"], 1)
         manifest = json.loads(
-            result.entries["Applications/com.example.demo/LCContainer.json"])
+            result.entries["Applications/com.example.demo/ZynContainer.json"])
         self.assertEqual(manifest["entryPoint"], "main")
         self.assertEqual(manifest["loader"], "TweakLoader.dylib")
 
@@ -93,8 +93,8 @@ class ContainerPreparationTests(unittest.TestCase):
         path = "Applications/com.example.demo/Tweaks/MyTweak.dylib"
         self.assertIn(path, result.entries)
         info = plistlib.loads(
-            result.entries["Applications/com.example.demo/LCAppInfo.plist"])
-        self.assertEqual(info["LCTweaks"], ["MyTweak.dylib"])
+            result.entries["Applications/com.example.demo/ZynGuestInfo.plist"])
+        self.assertEqual(info["ZynTweaks"], ["MyTweak.dylib"])
 
     def test_data_container_directories_are_created(self) -> None:
         result = self.prepare()
@@ -114,7 +114,7 @@ class ContainerPreparationTests(unittest.TestCase):
             loader=fixtures.build_dylib("@rpath/TweakLoader.dylib"),
             rename=bundle.Overrides(bundle_id="com.example.renamed",
                                     display_name="Renamed"))
-        self.assertIn("Applications/com.example.renamed/LCAppInfo.plist", result.entries)
+        self.assertIn("Applications/com.example.renamed/ZynGuestInfo.plist", result.entries)
         info = plistlib.loads(
             result.entries["Applications/com.example.renamed/App.app/Info.plist"])
         self.assertEqual(info["CFBundleIdentifier"], "com.example.renamed")

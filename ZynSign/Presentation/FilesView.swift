@@ -21,6 +21,13 @@ struct FilesView: View {
     @State private var shareItem: ShareURL?
     @State private var fileToRename: FileItem?
     @State private var renameText = ""
+    @State private var isShowingNewTextFile = false
+    @State private var newTextFileName = ""
+    @State private var plistEditorItem: FileItem?
+    @State private var textEditorItem: FileItem?
+    @State private var hexInspectorItem: FileItem?
+    @State private var clipboardItem: (url: URL, move: Bool)?
+    @State private var archiveStatusMessage: String?
 
     /// When this view is pushed into a navigation stack that already exists
     /// — Settings → Browse, or a `NavigationLink` from another screen — it
@@ -74,6 +81,15 @@ struct FilesView: View {
                     Menu {
                         Button { isShowingImporter = true } label: { Label("Import Files", systemImage: "square.and.arrow.down") }
                         Button { isShowingNewFolder = true } label: { Label("New Folder", systemImage: "folder.badge.plus") }
+                        Button { isShowingNewTextFile = true } label: { Label("New Text / Plist File", systemImage: "doc.badge.plus") }
+                        if let clip = clipboardItem {
+                            Button {
+                                model.pasteClipboard(clip.url, move: clip.move)
+                                if clip.move { clipboardItem = nil }
+                            } label: {
+                                Label(clip.move ? "Move '\(clip.url.lastPathComponent)' Here" : "Paste '\(clip.url.lastPathComponent)' Here", systemImage: "doc.on.clipboard")
+                            }
+                        }
                         Button { model.reload() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
                     } label: {
                         Image(systemName: "plus")
@@ -106,6 +122,26 @@ struct FilesView: View {
                 Button("Create") { model.createFolder(named: newFolderName); newFolderName = "" }
                     .disabled(newFolderName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
+            .alert("New Text File", isPresented: $isShowingNewTextFile) {
+                TextField("notes.txt or config.plist", text: $newTextFileName)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                Button("Cancel", role: .cancel) { newTextFileName = "" }
+                Button("Create") {
+                    if let created = model.createTextFile(named: newTextFileName) {
+                        textEditorItem = created
+                    }
+                    newTextFileName = ""
+                }
+            }
+            .alert("Archive Tools", isPresented: Binding(
+                get: { archiveStatusMessage != nil },
+                set: { if !$0 { archiveStatusMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(archiveStatusMessage ?? "")
+            }
             .alert("Rename", isPresented: Binding(get: { fileToRename != nil }, set: { if !$0 { fileToRename = nil } })) {
                 TextField("Name", text: $renameText)
                 Button("Cancel", role: .cancel) { fileToRename = nil }
@@ -116,6 +152,15 @@ struct FilesView: View {
             }
             .sheet(item: $shareItem) { item in
                 ShareSheet(url: item.url)
+            }
+            .sheet(item: $plistEditorItem) { item in
+                FilePlistEditorSheet(fileURL: item.url) { model.reload() }
+            }
+            .sheet(item: $textEditorItem) { item in
+                FileTextEditorSheet(fileURL: item.url) { model.reload() }
+            }
+            .sheet(item: $hexInspectorItem) { item in
+                FileHexInspectorSheet(fileURL: item.url) { model.reload() }
             }
             .overlay { if model.isLoading { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) } }
             // The listing's own refresh: a fade in and out instead of the
@@ -158,13 +203,34 @@ struct FilesView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            if let pair = FileArchiveTools.detectCertificatePair(in: model.currentDirectory) {
+                Section {
+                    Button {
+                        importDetectedPair(pair)
+                    } label: {
+                        Label("Import Paired Certificate & Profile (\(pair.p12URL.lastPathComponent))", systemImage: "key.radiowaves.forward.fill")
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    }
+                } footer: {
+                    Text("Detected matching .p12 and .mobileprovision files in this folder.")
+                }
+            }
             ForEach(filtered) { item in
                 FileRowView(
                     item: item,
                     onTap: { handleTap(item) },
                     onShare: { shareItem = ShareURL(url: item.url) },
                     onRename: { fileToRename = item; renameText = item.name },
-                    onDelete: { model.delete(item) }
+                    onDelete: { model.delete(item) },
+                    onEditPlist: { plistEditorItem = item },
+                    onEditText: { textEditorItem = item },
+                    onInspectHex: { hexInspectorItem = item },
+                    onExtractArchive: { runExtract(item) },
+                    onPackageAsIPA: { runPackage(item, kind: .ipa) },
+                    onCompressAsZip: { runPackage(item, kind: .zip) },
+                    onCopyItem: { clipboardItem = (item.url, false) },
+                    onMoveItem: { clipboardItem = (item.url, true) },
+                    onImportToZynSign: { importSingleItemToWorkspace(item) }
                 )
             }
         }
@@ -188,8 +254,87 @@ struct FilesView: View {
     private func handleTap(_ item: FileItem) {
         if item.isDirectory {
             model.enter(item)
+        } else if ["plist", "entitlements", "strings", "mobileconfig"].contains(item.ext) {
+            plistEditorItem = item
+        } else if ["txt", "json", "xml", "md", "log", "yaml", "yml"].contains(item.ext) {
+            textEditorItem = item
         } else {
             shareItem = ShareURL(url: item.url)
+        }
+    }
+
+    private func runExtract(_ item: FileItem) {
+        Task {
+            do {
+                let out = try await FileArchiveTools.extractArchive(at: item.url, in: model.currentDirectory)
+                model.reload()
+                ZHaptics.success()
+                archiveStatusMessage = "Extracted into “\(out.lastPathComponent)”."
+            } catch {
+                archiveStatusMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func runPackage(_ item: FileItem, kind: FileArchiveTools.PackageOutputKind) {
+        Task {
+            do {
+                let out = try await FileArchiveTools.packageDirectory(
+                    at: item.url,
+                    as: kind,
+                    in: model.currentDirectory
+                )
+                model.reload()
+                ZHaptics.success()
+                archiveStatusMessage = "Created “\(out.lastPathComponent)”."
+            } catch {
+                archiveStatusMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func importSingleItemToWorkspace(_ item: FileItem) {
+        if item.ext == "ipa" || item.ext == "tipa" {
+            _ = environment.importHub.receive([item.url], origin: .documentPicker)
+            importPresentation.present()
+        } else if item.ext == "mobileprovision" || item.ext == "provisionprofile" {
+            Task {
+                if let importer = environment.provisioningProfileImporter,
+                   let summary = try? await importer.importProfile(at: item.url) {
+                    try? await environment.provisioningProfiles?.upsert(summary)
+                    ZHaptics.success()
+                    archiveStatusMessage = "Imported provisioning profile “\(item.name)”."
+                }
+            }
+        } else if item.ext == "dylib" || item.ext == "deb" {
+            if let data = try? Data(contentsOf: item.url),
+               let tweakLib = environment.tweakLibrary,
+               case .success(let outcome) = (try? tweakLib.importPayload(data, fileName: item.name)) {
+                ZHaptics.success()
+                archiveStatusMessage = "Imported “\(outcome.descriptor.name)” into Tweak Library."
+            }
+        } else {
+            shareItem = ShareURL(url: item.url)
+        }
+    }
+
+    private func importDetectedPair(_ pair: FileArchiveTools.DetectedCertificatePair) {
+        Task {
+            var messages: [String] = []
+            if let importer = environment.provisioningProfileImporter,
+               let summary = try? await importer.importProfile(at: pair.profileURL) {
+                try? await environment.provisioningProfiles?.upsert(summary)
+                messages.append("Imported profile \(pair.profileURL.lastPathComponent).")
+            }
+            if let pw = pair.passwordHint,
+               let p12Bytes = try? Data(contentsOf: pair.p12URL),
+               (try? environment.pkcs12Importer.importPKCS12(data: p12Bytes, password: pw)) != nil {
+                messages.append("Imported identity \(pair.p12URL.lastPathComponent).")
+            } else {
+                messages.append("Open Certificates & Profiles to enter the password for \(pair.p12URL.lastPathComponent).")
+            }
+            ZHaptics.success()
+            archiveStatusMessage = messages.joined(separator: " ")
         }
     }
 }
@@ -282,6 +427,36 @@ final class FilesViewModel: ObservableObject {
         reload()
     }
 
+    func createTextFile(named: String) -> FileItem? {
+        let trimmed = named.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("/") else { return nil }
+        let target = FileArchiveTools.uniqueDestinationURL(baseName: trimmed, pathExtension: nil, in: currentURL)
+        let starter: Data
+        if target.pathExtension.lowercased() == "plist" {
+            starter = (try? PlistDocumentCodec.encode([:], format: .xml)) ?? Data()
+        } else {
+            starter = Data()
+        }
+        try? starter.write(to: target, options: .atomic)
+        reload()
+        return items.first { $0.url == target }
+    }
+
+    func pasteClipboard(_ sourceURL: URL, move: Bool) {
+        let dest = FileArchiveTools.uniqueDestinationURL(
+            baseName: sourceURL.deletingPathExtension().lastPathComponent,
+            pathExtension: sourceURL.pathExtension.isEmpty ? nil : sourceURL.pathExtension,
+            in: currentURL
+        )
+        let fm = FileManager.default
+        if move {
+            try? fm.moveItem(at: sourceURL, to: dest)
+        } else {
+            try? fm.copyItem(at: sourceURL, to: dest)
+        }
+        reload()
+    }
+
     func rename(_ item: FileItem, to newName: String) {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != item.name else { return }
@@ -328,8 +503,22 @@ private struct FileRowView: View {
     let onShare: () -> Void
     let onRename: () -> Void
     let onDelete: () -> Void
+    let onEditPlist: () -> Void
+    let onEditText: () -> Void
+    let onInspectHex: () -> Void
+    let onExtractArchive: () -> Void
+    let onPackageAsIPA: () -> Void
+    let onCompressAsZip: () -> Void
+    let onCopyItem: () -> Void
+    let onMoveItem: () -> Void
+    let onImportToZynSign: () -> Void
+
+    private var isArchive: Bool {
+        ["ipa", "tipa", "zip", "deb"].contains(item.ext)
+    }
+
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: ZSpacing.sm) {
             Image(systemName: item.icon)
                 .foregroundStyle(item.isDirectory ? .blue : .secondary)
                 .frame(width: 28)
@@ -351,6 +540,23 @@ private struct FileRowView: View {
             Button { onRename() } label: { Label("Rename", systemImage: "pencil") }.tint(.orange)
         }
         .contextMenu {
+            if item.isDirectory {
+                Button { onPackageAsIPA() } label: { Label("Package Folder as .ipa", systemImage: "app.badge") }
+                Button { onCompressAsZip() } label: { Label("Compress Folder as .zip", systemImage: "doc.zipper") }
+            } else {
+                if ["ipa", "tipa", "mobileprovision", "provisionprofile", "dylib", "deb"].contains(item.ext) {
+                    Button { onImportToZynSign() } label: { Label("Import into ZynSign", systemImage: "tray.and.arrow.down.fill") }
+                }
+                if isArchive {
+                    Button { onExtractArchive() } label: { Label("Extract Archive", systemImage: "archivebox") }
+                }
+                Button { onEditPlist() } label: { Label("Property List Editor", systemImage: "list.bullet.indent") }
+                Button { onEditText() } label: { Label("Text Editor", systemImage: "doc.plaintext") }
+                Button { onInspectHex() } label: { Label("Hex Inspector & Editor", systemImage: "number.square") }
+            }
+            Divider()
+            Button { onCopyItem() } label: { Label("Copy", systemImage: "doc.on.doc") }
+            Button { onMoveItem() } label: { Label("Cut / Move", systemImage: "folder") }
             Button { onShare() } label: { Label("Share", systemImage: "square.and.arrow.up") }
             Button { onRename() } label: { Label("Rename", systemImage: "pencil") }
             Button(role: .destructive) { onDelete() } label: { Label("Delete", systemImage: "trash") }

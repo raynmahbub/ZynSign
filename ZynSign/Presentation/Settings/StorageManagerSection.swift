@@ -13,9 +13,12 @@ import SwiftUI
 struct StorageManagerSection: View {
 
     @Environment(\.settingsCenter) private var settings
+    @Environment(\.applicationEnvironment) private var environment
     @State private var isConfirmingTemporaryClear = false
     @State private var isConfirmingExportPrune = false
     @State private var isConfirmingHistoryPrune = false
+    @State private var orphanedCount: Int?
+    @State private var orphanStatusMessage: String?
 
     static let descriptor = SettingsSectionDescriptor(
         identifier: .storage,
@@ -151,6 +154,40 @@ struct StorageManagerSection: View {
                 symbol: "list.bullet.rectangle.portrait",
                 action: { isConfirmingHistoryPrune = true }
             )
+            ZSettingsButtonRow(
+                title: orphanedCount.map { "Scan Orphaned Files (\($0) found)" } ?? "Scan for Orphaned Files",
+                subtitle: "Detect unreferenced artifact files left behind by interrupted operations.",
+                symbol: "magnifyingglass.circle",
+                action: {
+                    Task {
+                        let found = (try? await environment.library.orphanedArtifacts()) ?? []
+                        orphanedCount = found.count
+                        orphanStatusMessage = found.isEmpty
+                            ? "No orphaned artifact files were found."
+                            : "Found \(found.count) orphaned artifact file(s)."
+                    }
+                }
+            )
+            if let count = orphanedCount, count > 0 {
+                ZSettingsButtonRow(
+                    title: "Clean \(count) Orphaned File(s)",
+                    subtitle: "Remove unreferenced artifact files without touching any Library entry.",
+                    symbol: "sparkles",
+                    action: {
+                        Task {
+                            let removed = (try? await environment.library.removeOrphanedArtifacts()) ?? []
+                            orphanedCount = 0
+                            orphanStatusMessage = "Removed \(removed.count) orphaned artifact file(s)."
+                            await settings.refreshStorageUsage()
+                        }
+                    }
+                )
+            }
+            if let orphanStatusMessage {
+                Label(orphanStatusMessage, systemImage: "info.circle")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
             if settings.isPerformingMaintenance {
                 HStack(spacing: ZSpacing.xs) {
                     ProgressView()

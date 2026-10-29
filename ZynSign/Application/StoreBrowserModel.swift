@@ -193,11 +193,33 @@ final class StoreBrowserModel: ObservableObject {
     private func mutate(_ action: () async throws -> Void) async {
         do { try await action(); try await reload() } catch { problem = error.localizedDescription }
     }
-    func download(_ app: CatalogApp) {
-        guard source(app)?.enabled == true, apps.contains(where: { $0.id == app.id && $0.latest == app.latest }) else {
+    func download(_ app: CatalogApp, release: CatalogRelease? = nil) {
+        let chosenRelease = release ?? app.latest
+        guard source(app)?.enabled == true,
+              apps.contains(where: { $0.id == app.id && $0.releases.contains(chosenRelease) }) else {
             problem = "This listing changed or its source is no longer enabled. Reopen the app details before downloading."; return
         }
-        _ = downloads.enqueue(app, sourceName: sourceName(app))
+        _ = downloads.enqueue(app, release: chosenRelease, sourceName: sourceName(app))
     }
     func updateAll() { for update in updates { download(update.app) } }
+
+    /// Adds a single URL, a multi-line URL list, or an encoded `source[...]` feed token.
+    func addBatch(_ rawInput: String) async -> Int {
+        let extracted = EncodedCatalogPayloadDecoder.decodeSourceListText(rawInput)
+        let candidates = extracted.isEmpty
+            ? rawInput.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            : extracted
+        var addedCount = 0
+        for urlString in candidates {
+            if await add(urlString) {
+                addedCount += 1
+            }
+        }
+        return addedCount
+    }
+
+    /// Exports all configured repository URLs as newline-separated text.
+    func exportSourceURLsText() -> String {
+        snapshot.sources.map(\.url.absoluteString).sorted().joined(separator: "\n")
+    }
 }

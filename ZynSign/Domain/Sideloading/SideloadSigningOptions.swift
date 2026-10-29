@@ -22,46 +22,76 @@ struct SideloadSigningOptions: Equatable, Sendable {
     var version: String?
     var minimumOSVersion: String?
 
-    /// Nested code the user asked to drop before signing.
+    /// Prefix/suffix and dictionary substring replacements for bundle ID and display name.
+    var bundleIdentifierPrefix: String?
+    var bundleIdentifierSuffix: String?
+    var displayNamePrefix: String?
+    var displayNameSuffix: String?
+    var identifierReplacements: [String: String]
+    var displayNameReplacements: [String: String]
+
+    /// PPQ protection mode (Disabled, Suffix Token, or Stealth Identifier).
+    var ppqProtectionMode: PPQProtectionMode
+    var ppqProtectionToken: String
+    var dynamicPPQProtection: Bool
+
+    /// Nested code and restriction removals before signing.
     var removesPlugIns: Bool
     var removesWatchApps: Bool
     var removesAppExtensions: Bool
     var removesURLSchemes: Bool
+    var removesSupportedDevices: Bool
+    var removesProvisioningProfile: Bool
+    var removedBundlePaths: [String]
 
-    /// Extra entitlements merged over the profile's dictionary. A key the
-    /// profile does not carry is never invented: the device would refuse it.
+    /// Extra entitlements merged over the profile's dictionary, plus keys to drop
+    /// or a full raw XML entitlements override when explicitly authored.
     var entitlementOverrides: [String: EntitlementValue]
+    var removedEntitlementKeys: [String]
+    var rawEntitlementsXMLOverride: String?
+    var mergesBinaryEntitlements: Bool
+    var isolatesKeychainGroup: Bool
 
-    /// Libraries linked into the main executable (and nested code when asked).
+    /// Libraries linked into the main executable (and nested code when asked),
+    /// plus existing load commands to strip (Disinject).
     var injectedLibraries: [InjectedLibrary]
     var injectsIntoNestedCode: Bool
+    var targetedExtensionNames: [String]
+    var disinjectedLibraries: [String]
 
-    /// Tweak payloads copied into `Frameworks` and linked into the main
-    /// executable. Each one is staged inside the working copy before signing,
-    /// so the signature covers the file the load command names.
+    /// Tweak payloads staged into `Frameworks` (or `.app` root) and linked into
+    /// the main executable, plus structured `.framework` / `.bundle` / `.appex` payloads.
     var tweaks: [SideloadStagedTweak]
+    var stagedBundlePayloads: [SideloadStagedBundlePayload]
+    var tweakInjectBase: TweakInjectBase
+    var tweakInjectFolder: TweakInjectFolder
+    var allowsTweakCollisionSuffixing: Bool
 
-    /// Sign with no certificate. The CodeDirectory carries `CS_ADHOC` and no
-    /// CMS blob is written.
+    /// Binary & runtime compatibility patches.
+    var replacesSubstrateWithElleKit: Bool
+    var fixesLegacyArm64eSlice: Bool
+    var liquidGlassMode: LiquidGlassPatchMode
+    var appearanceOverride: AppAppearanceOverride
+    var enablesProMotion: Bool
+    var enablesGameMode: Bool
+    var enablesIPadFullscreen: Bool
+    var enablesITunesFileSharing: Bool
+    var localizesDisplayName: Bool
+
+    /// Custom PNG icon override and arbitrary `Info.plist` key/XML overrides.
+    var customIconPNGData: Data?
+    var customInfoPlistEntries: [String: PlistCustomValue]
+    var customInfoPlistRemovals: [String]
+    var rawInfoPlistXMLOverride: String?
+
+    /// Execution mode flags.
     var adHoc: Bool
-
-    /// Request the hardened-runtime flag (`CS_RUNTIME`).
     var hardenedRuntime: Bool
-
-    /// Let the installed app appear in the Files app and accept documents.
-    /// Two Info.plist keys, both documented: `UIFileSharingEnabled` and
-    /// `LSSupportsOpeningDocumentsInPlace`.
     var enablesFileSharing: Bool
+    var onlyModify: Bool
+    var deletesImportedAfterSigning: Bool
 
-    static let none = SideloadSigningOptions(
-        bundleIdentifier: nil, displayName: nil, name: nil,
-        shortVersion: nil, version: nil, minimumOSVersion: nil,
-        removesPlugIns: false, removesWatchApps: false,
-        removesAppExtensions: false, removesURLSchemes: false,
-        entitlementOverrides: [:], injectedLibraries: [], tweaks: [],
-        injectsIntoNestedCode: false, adHoc: false, hardenedRuntime: false,
-        enablesFileSharing: false
-    )
+    static let none = SideloadSigningOptions()
 
     init(
         bundleIdentifier: String? = nil,
@@ -70,17 +100,54 @@ struct SideloadSigningOptions: Equatable, Sendable {
         shortVersion: String? = nil,
         version: String? = nil,
         minimumOSVersion: String? = nil,
+        bundleIdentifierPrefix: String? = nil,
+        bundleIdentifierSuffix: String? = nil,
+        displayNamePrefix: String? = nil,
+        displayNameSuffix: String? = nil,
+        identifierReplacements: [String: String] = [:],
+        displayNameReplacements: [String: String] = [:],
+        ppqProtectionMode: PPQProtectionMode = .disabled,
+        ppqProtectionToken: String = "",
+        dynamicPPQProtection: Bool = false,
         removesPlugIns: Bool = false,
         removesWatchApps: Bool = false,
         removesAppExtensions: Bool = false,
         removesURLSchemes: Bool = false,
+        removesSupportedDevices: Bool = false,
+        removesProvisioningProfile: Bool = false,
+        removedBundlePaths: [String] = [],
         entitlementOverrides: [String: EntitlementValue] = [:],
+        removedEntitlementKeys: [String] = [],
+        rawEntitlementsXMLOverride: String? = nil,
+        mergesBinaryEntitlements: Bool = false,
+        isolatesKeychainGroup: Bool = false,
         injectedLibraries: [InjectedLibrary] = [],
         tweaks: [SideloadStagedTweak] = [],
+        stagedBundlePayloads: [SideloadStagedBundlePayload] = [],
+        tweakInjectBase: TweakInjectBase = .executablePath,
+        tweakInjectFolder: TweakInjectFolder = .frameworks,
+        allowsTweakCollisionSuffixing: Bool = false,
         injectsIntoNestedCode: Bool = false,
+        targetedExtensionNames: [String] = [],
+        disinjectedLibraries: [String] = [],
+        replacesSubstrateWithElleKit: Bool = false,
+        fixesLegacyArm64eSlice: Bool = false,
+        liquidGlassMode: LiquidGlassPatchMode = .default,
+        appearanceOverride: AppAppearanceOverride = .default,
+        enablesProMotion: Bool = false,
+        enablesGameMode: Bool = false,
+        enablesIPadFullscreen: Bool = false,
+        enablesITunesFileSharing: Bool = false,
+        localizesDisplayName: Bool = false,
+        customIconPNGData: Data? = nil,
+        customInfoPlistEntries: [String: PlistCustomValue] = [:],
+        customInfoPlistRemovals: [String] = [],
+        rawInfoPlistXMLOverride: String? = nil,
         adHoc: Bool = false,
         hardenedRuntime: Bool = false,
-        enablesFileSharing: Bool = false
+        enablesFileSharing: Bool = false,
+        onlyModify: Bool = false,
+        deletesImportedAfterSigning: Bool = false
     ) {
         self.bundleIdentifier = bundleIdentifier
         self.displayName = displayName
@@ -88,26 +155,58 @@ struct SideloadSigningOptions: Equatable, Sendable {
         self.shortVersion = shortVersion
         self.version = version
         self.minimumOSVersion = minimumOSVersion
+        self.bundleIdentifierPrefix = bundleIdentifierPrefix
+        self.bundleIdentifierSuffix = bundleIdentifierSuffix
+        self.displayNamePrefix = displayNamePrefix
+        self.displayNameSuffix = displayNameSuffix
+        self.identifierReplacements = identifierReplacements
+        self.displayNameReplacements = displayNameReplacements
+        self.ppqProtectionMode = ppqProtectionMode
+        self.ppqProtectionToken = ppqProtectionToken
+        self.dynamicPPQProtection = dynamicPPQProtection
         self.removesPlugIns = removesPlugIns
         self.removesWatchApps = removesWatchApps
         self.removesAppExtensions = removesAppExtensions
         self.removesURLSchemes = removesURLSchemes
+        self.removesSupportedDevices = removesSupportedDevices
+        self.removesProvisioningProfile = removesProvisioningProfile
+        self.removedBundlePaths = removedBundlePaths
         self.entitlementOverrides = entitlementOverrides
+        self.removedEntitlementKeys = removedEntitlementKeys
+        self.rawEntitlementsXMLOverride = rawEntitlementsXMLOverride
+        self.mergesBinaryEntitlements = mergesBinaryEntitlements
+        self.isolatesKeychainGroup = isolatesKeychainGroup
         self.injectedLibraries = injectedLibraries
         self.tweaks = tweaks
+        self.stagedBundlePayloads = stagedBundlePayloads
+        self.tweakInjectBase = tweakInjectBase
+        self.tweakInjectFolder = tweakInjectFolder
+        self.allowsTweakCollisionSuffixing = allowsTweakCollisionSuffixing
         self.injectsIntoNestedCode = injectsIntoNestedCode
+        self.targetedExtensionNames = targetedExtensionNames
+        self.disinjectedLibraries = disinjectedLibraries
+        self.replacesSubstrateWithElleKit = replacesSubstrateWithElleKit
+        self.fixesLegacyArm64eSlice = fixesLegacyArm64eSlice
+        self.liquidGlassMode = liquidGlassMode
+        self.appearanceOverride = appearanceOverride
+        self.enablesProMotion = enablesProMotion
+        self.enablesGameMode = enablesGameMode
+        self.enablesIPadFullscreen = enablesIPadFullscreen
+        self.enablesITunesFileSharing = enablesITunesFileSharing
+        self.localizesDisplayName = localizesDisplayName
+        self.customIconPNGData = customIconPNGData
+        self.customInfoPlistEntries = customInfoPlistEntries
+        self.customInfoPlistRemovals = customInfoPlistRemovals
+        self.rawInfoPlistXMLOverride = rawInfoPlistXMLOverride
         self.adHoc = adHoc
         self.hardenedRuntime = hardenedRuntime
         self.enablesFileSharing = enablesFileSharing
+        self.onlyModify = onlyModify
+        self.deletesImportedAfterSigning = deletesImportedAfterSigning
     }
 }
 
 /// A tweak payload the library staged for this package.
-///
-/// The bytes travel with the options because staging and signing are one act:
-/// the file has to be inside the working copy before the executable that loads
-/// it is signed, or the signature would not cover it. The name is the only
-/// thing the load command says — a tweak is loaded from the bundle it ships in.
 struct SideloadStagedTweak: Equatable, Hashable, Sendable {
 
     /// The file name the payload takes inside `Frameworks`. One path component,
@@ -122,7 +221,7 @@ struct SideloadStagedTweak: Equatable, Hashable, Sendable {
         self.bytes = bytes
     }
 
-    /// The install name the injected load command carries.
+    /// The default install name the injected load command carries.
     var installName: String { "@executable_path/Frameworks/\(fileName)" }
 }
 
@@ -142,7 +241,7 @@ struct InjectedLibrary: Equatable, Hashable, Sendable {
 
 /// A typed entitlement value, kept in the shapes a property list allows so
 /// merging cannot silently stringify a boolean.
-indirect enum EntitlementValue: Equatable, Hashable, Sendable {
+indirect enum EntitlementValue: Codable, Equatable, Hashable, Sendable {
     case string(String)
     case boolean(Bool)
     case integer(Int)
@@ -168,6 +267,7 @@ enum SideloadOptionError: Error, Equatable, Hashable, Sendable {
     case duplicateTweakFileName(String)
     case emptyTweakPayload(String)
     case stagedTweaksTooLarge(bytes: Int, limit: Int)
+    case invalidRawPlistXML(String)
 
     var message: String {
         switch self {
@@ -199,26 +299,18 @@ enum SideloadOptionError: Error, Equatable, Hashable, Sendable {
             return "The staged tweak “\(name)” carries no bytes."
         case .stagedTweaksTooLarge(let bytes, let limit):
             return "The staged tweaks total \(bytes) bytes; a package carries at most \(limit / (1024 * 1024)) MiB."
+        case .invalidRawPlistXML(let field):
+            return "The custom \(field) XML is not a valid property list dictionary."
         }
     }
 }
 
 extension SideloadSigningOptions {
 
-    /// ZynSign caps injection because every entry costs header space in the
-    /// binary, and a header is a few hundred bytes, not a list.
     static let maximumInjectedLibraries = 16
-
-    /// The tweak library's own selection limit, restated here so options are
-    /// validated without reaching for the library.
     static let maximumStagedTweaks = 12
-
-    /// The tweak library's own payload budget (64 MiB), restated for the same
-    /// reason.
     static let maximumStagedTweakBytes = 64 * 1_024 * 1_024
 
-    /// A staged tweak is one `.dylib` file name: no directory, no traversal,
-    /// no other extension. Only a dynamic library can be linked in.
     static func isTweakFileName(_ value: String) -> Bool {
         guard !value.isEmpty, value.count <= 128,
               value.lowercased().hasSuffix(".dylib"),
@@ -230,14 +322,47 @@ extension SideloadSigningOptions {
         }
     }
 
-    /// Whether the options change anything. Used to decide whether the plan
-    /// is worth showing and to skip the rewrite entirely.
     var isEmpty: Bool {
         self == SideloadSigningOptions.none
     }
 
+    /// Resolves the effective install name for a staged `.dylib` under this
+    /// option set's `tweakInjectBase` and `tweakInjectFolder`.
+    func resolvedInstallName(for tweak: SideloadStagedTweak) -> String {
+        tweakInjectFolder.installName(base: tweakInjectBase, fileName: tweak.fileName)
+    }
+
+    /// Resolves the effective bundle identifier for `originalBundleID`.
+    func resolvedBundleIdentifier(originalBundleID: String) -> String? {
+        let hasIdentifierChanges = bundleIdentifier != nil
+            || !(bundleIdentifierPrefix ?? "").isEmpty
+            || !(bundleIdentifierSuffix ?? "").isEmpty
+            || !identifierReplacements.isEmpty
+            || ppqProtectionMode != .disabled
+        guard hasIdentifierChanges else { return nil }
+        return PPQProtectionPolicy.resolveBundleIdentifier(
+            original: originalBundleID,
+            explicitReplacement: bundleIdentifier,
+            prefix: bundleIdentifierPrefix,
+            suffix: bundleIdentifierSuffix,
+            replacements: identifierReplacements,
+            ppqMode: ppqProtectionMode,
+            ppqToken: ppqProtectionToken,
+            dynamicProtection: dynamicPPQProtection
+        )
+    }
+
     /// Validate every field before a package is opened.
     func validate(hasCertificate: Bool) throws {
+        try validateIdentityFields()
+        try validateInjectionAndTweaks()
+        try validateCustomXMLOverrides()
+        if adHoc && hasCertificate && !onlyModify {
+            throw SideloadOptionError.adHocWithCertificate
+        }
+    }
+
+    private func validateIdentityFields() throws {
         if let identifier = bundleIdentifier {
             if identifier.isEmpty { throw SideloadOptionError.emptyBundleIdentifier }
             guard Self.isReverseDNS(identifier) else {
@@ -256,6 +381,9 @@ extension SideloadSigningOptions {
         if let minimumOSVersion, !Self.isVersionString(minimumOSVersion) {
             throw SideloadOptionError.malformedMinimumOS(minimumOSVersion)
         }
+    }
+
+    private func validateInjectionAndTweaks() throws {
         guard injectedLibraries.count <= Self.maximumInjectedLibraries else {
             throw SideloadOptionError.tooManyInjectedLibraries(
                 limit: Self.maximumInjectedLibraries)
@@ -269,10 +397,11 @@ extension SideloadSigningOptions {
                 throw SideloadOptionError.duplicateInstallName(library.installName)
             }
         }
-        guard tweaks.count <= Self.maximumStagedTweaks else {
+        let totalTweakItems = tweaks.count + stagedBundlePayloads.count
+        guard totalTweakItems <= Self.maximumStagedTweaks else {
             throw SideloadOptionError.tooManyStagedTweaks(limit: Self.maximumStagedTweaks)
         }
-        var tweakBytes = 0
+        var tweakBytes = stagedBundlePayloads.reduce(0) { $0 + $1.totalBytes }
         var seenTweaks: Set<String> = []
         for tweak in tweaks {
             guard Self.isTweakFileName(tweak.fileName) else {
@@ -282,29 +411,35 @@ extension SideloadSigningOptions {
                 throw SideloadOptionError.emptyTweakPayload(tweak.fileName)
             }
             tweakBytes += tweak.bytes.count
-            // Two distinct collisions, reported as the two facts they are:
-            // a typed library already claims this install name, or another
-            // staged tweak does. Either way one load command would be emitted
-            // twice, and the load command is keyed by the name, so the earlier
-            // declaration is the one that says it.
-            guard !seen.contains(tweak.installName) else {
-                throw SideloadOptionError.duplicateInstallName(tweak.installName)
+            let targetInstallName = resolvedInstallName(for: tweak)
+            guard !seen.contains(targetInstallName) else {
+                throw SideloadOptionError.duplicateInstallName(targetInstallName)
             }
-            guard seenTweaks.insert(tweak.installName).inserted else {
-                throw SideloadOptionError.duplicateTweakFileName(tweak.fileName)
+            if !allowsTweakCollisionSuffixing {
+                guard seenTweaks.insert(targetInstallName).inserted else {
+                    throw SideloadOptionError.duplicateTweakFileName(tweak.fileName)
+                }
             }
         }
         guard tweakBytes <= Self.maximumStagedTweakBytes else {
             throw SideloadOptionError.stagedTweaksTooLarge(
                 bytes: tweakBytes, limit: Self.maximumStagedTweakBytes)
         }
-        if adHoc && hasCertificate {
-            throw SideloadOptionError.adHocWithCertificate
+    }
+
+    private func validateCustomXMLOverrides() throws {
+        if let xml = rawInfoPlistXMLOverride, !xml.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard (try? PlistDocumentCodec.parseXML(xml)) != nil else {
+                throw SideloadOptionError.invalidRawPlistXML("Info.plist")
+            }
+        }
+        if let xml = rawEntitlementsXMLOverride, !xml.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard (try? PlistDocumentCodec.parseXML(xml)) != nil else {
+                throw SideloadOptionError.invalidRawPlistXML("Entitlements")
+            }
         }
     }
 
-    /// A reverse-DNS identifier: at least two dot-separated parts, each made
-    /// of letters, digits and hyphens, and no part empty.
     static func isReverseDNS(_ value: String) -> Bool {
         let parts = value.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count >= 2, value.count <= 155 else { return false }
@@ -315,7 +450,6 @@ extension SideloadSigningOptions {
         }
     }
 
-    /// Published version strings allow one to three numeric components.
     static func isVersionString(_ value: String) -> Bool {
         let parts = value.split(separator: ".", omittingEmptySubsequences: false)
         guard (1...3).contains(parts.count), value.count <= 32 else { return false }
@@ -324,8 +458,6 @@ extension SideloadSigningOptions {
         }
     }
 
-    /// Install names must be absolute or explicitly relative. A bare file
-    /// name would be resolved by dyld against an unrelated working directory.
     static func isInstallName(_ value: String) -> Bool {
         let prefixes = ["@executable_path/", "@rpath/", "@loader_path/", "/System/", "/usr/lib/"]
         guard !value.isEmpty, value.count <= 1_024,
@@ -335,14 +467,10 @@ extension SideloadSigningOptions {
 }
 
 /// What the pipeline will do to one Info.plist, derived from the options.
-///
-/// The plan is value data so it can be shown to the user before anything is
-/// written, and so the tests can pin the exact edits without a package.
 struct InfoPlistOverridePlan: Equatable, Sendable {
     let values: [String: PlistSetting]
     let keysToRemove: [String]
 
-    /// One declared value, typed so a number stays a number.
     enum PlistSetting: Equatable, Sendable {
         case string(String)
         case boolean(Bool)
@@ -354,14 +482,24 @@ struct InfoPlistOverridePlan: Equatable, Sendable {
 
 enum InfoPlistOverrides {
 
-    /// Main application: identity plus the keys the user asked to drop.
-    static func mainApplicationPlan(_ options: SideloadSigningOptions) -> InfoPlistOverridePlan {
+    /// Main application: identity plus runtime flags and keys the user asked to drop.
+    static func mainApplicationPlan(
+        _ options: SideloadSigningOptions,
+        originalBundleIdentifier: String = "",
+        originalDisplayName: String = ""
+    ) -> InfoPlistOverridePlan {
         var values: [String: InfoPlistOverridePlan.PlistSetting] = [:]
-        if let bundleIdentifier = options.bundleIdentifier {
-            values["CFBundleIdentifier"] = .string(bundleIdentifier)
+        if let resolvedID = options.resolvedBundleIdentifier(originalBundleID: originalBundleIdentifier) {
+            values["CFBundleIdentifier"] = .string(resolvedID)
         }
-        if let displayName = options.displayName {
-            values["CFBundleDisplayName"] = .string(displayName)
+        if let resolvedDisplay = PPQProtectionPolicy.resolveDisplayName(
+            original: originalDisplayName,
+            explicitReplacement: options.displayName,
+            prefix: options.displayNamePrefix,
+            suffix: options.displayNameSuffix,
+            replacements: options.displayNameReplacements
+        ) {
+            values["CFBundleDisplayName"] = .string(resolvedDisplay)
         }
         if let name = options.name {
             values["CFBundleName"] = .string(name)
@@ -376,21 +514,41 @@ enum InfoPlistOverrides {
             values["MinimumOSVersion"] = .string(minimumOSVersion)
         }
         if options.enablesFileSharing {
-            // Both keys are needed: the first exposes the Documents folder in
-            // the Files app, the second makes the app open documents in place
-            // instead of copying them into its container.
             values["UIFileSharingEnabled"] = .boolean(true)
             values["LSSupportsOpeningDocumentsInPlace"] = .boolean(true)
+        } else if options.enablesITunesFileSharing {
+            values["UIFileSharingEnabled"] = .boolean(true)
+        }
+        if options.enablesProMotion {
+            values["CADisableMinimumFrameDurationOnPhone"] = .boolean(true)
+        }
+        if options.enablesGameMode {
+            values["GCSupportsGameMode"] = .boolean(true)
+        }
+        if options.enablesIPadFullscreen {
+            values["UIRequiresFullScreen"] = .boolean(true)
+        }
+        if let style = options.appearanceOverride.plistValue {
+            values["UIUserInterfaceStyle"] = .string(style)
         }
         var removed: [String] = []
         if options.removesURLSchemes {
-            removed = ["CFBundleURLTypes", "LSApplicationQueriesSchemes"]
+            removed.append(contentsOf: ["CFBundleURLTypes", "LSApplicationQueriesSchemes"])
+        }
+        if options.removesSupportedDevices {
+            removed.append("UISupportedDevices")
+        }
+        switch options.liquidGlassMode {
+        case .default:
+            break
+        case .disable:
+            values["UIDesignRequiresCompatibility"] = .boolean(true)
+        case .enable:
+            removed.append("UIDesignRequiresCompatibility")
         }
         return InfoPlistOverridePlan(values: values, keysToRemove: removed)
     }
 
-    /// An app extension keeps its own suffix but follows a renamed parent, so
-    /// its identifier can never point at a bundle that no longer exists.
     static func extensionIdentifier(oldIdentifier: String,
                                     oldParentIdentifier: String,
                                     newParentIdentifier: String) -> String? {

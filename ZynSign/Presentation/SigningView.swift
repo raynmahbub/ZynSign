@@ -69,6 +69,16 @@ struct SigningView: View {
     /// validated by the tweak library before it can exist at all.
     @State private var showTweakPicker = false
     @State private var stagedTweakPlan: TweakInjectionPlan?
+    @State private var didSeedDefaults = false
+    @State private var isModifyingOnly = false
+    @State private var modifiedOnlyOutcome: PackageModificationService.Outcome?
+    @State private var modifyOnlyError: String?
+    @State private var isStagingInContainer = false
+    @State private var stagedGuestStatus: String?
+    @State private var isInstallingOverBridge = false
+    @State private var bridgeInstallFeedback: String?
+    @State private var showConsoleLog = false
+    @State private var consoleLogLines: [String] = []
     @State private var health: SigningDiagnosticsAnalysis?
     @State private var analyzedFor: SigningScanKey?
     @State private var isAnalyzing = true
@@ -226,12 +236,27 @@ struct SigningView: View {
         .zBottomSheet(isPresented: $showSigningOptions) {
             NavigationStack { SigningOptionsView(emitDEREntitlements: $emitDEREntitlements).toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { showSigningOptions = false } } } }
         }
+        .sheet(isPresented: $showConsoleLog) {
+            SigningConsoleLogSheet(lines: consoleLogLines)
+        }
+        .onChange(of: model.progress?.detail) { _, detail in
+            if let stage = model.progress?.currentStage?.title {
+                let suffix = (detail?.isEmpty == false) ? " — \(detail ?? "")" : ""
+                appendConsoleLog("[\(stage)]\(suffix)")
+            }
+        }
         .onChange(of: model.result?.status) { _, new in
             guard let new else { return }
             if new == .signed {
+                appendConsoleLog("[Completed] Signed, verified, and delivered.")
                 ZHaptics.success()
                 rememberSelections()
                 writeStagedTweakManifest()
+                if sideloadDraft.deletesImportedAfterSigning {
+                    let recordID = entry.record.id
+                    let lib = env.library
+                    Task { try? await lib.remove(recordWithID: recordID) }
+                }
                 withAnimation(ZMotion.interactive) { successScale = 1.08 }
                 withAnimation(ZMotion.interactive?.delay(0.18)) { successScale = 1 }
                 showSuccessToast = true
@@ -267,6 +292,7 @@ struct SigningView: View {
         .navigationTitle("Sign \(entry.record.displayName ?? "Application")")
         .navigationBarTitleDisplayMode(.inline)
         .task {
+            seedSessionDefaultsIfNeeded()
             await loadIdentities()
             if ReleaseTrain.isAvailable(.entitlementsStudio) {
                 await studio.load(entry: entry, inspection: env.bundleInspection)
@@ -703,7 +729,11 @@ struct SigningView: View {
             }.disabled(isSigning)
             NavigationLink {
                 Form {
-                    SideloadOptionsForm(draft: $sideloadDraft, hasCertificate: selectedIdentityID != nil)
+                    SideloadOptionsForm(
+                        draft: $sideloadDraft,
+                        hasCertificate: selectedIdentityID != nil,
+                        profileSuggestedBundleID: suggestedProfileBundleID
+                    )
                     Section {
                         Toggle("Re-sign an already signed package", isOn: $replacesExistingSignatures)
                     } footer: {
@@ -733,6 +763,78 @@ struct SigningView: View {
 
     private var actionSection: some View {
         Section {
+            if sideloadDraft.onlyModify {
+                Button {
+                    Task { await runModifyOnly() }
+                } label: {
+                    HStack {
+                        Spacer()
+                        if isModifyingOnly {
+                            ProgressView().tint(.white)
+                            Text("Modifying & Repackaging…").foregroundStyle(.white)
+                        } else {
+                            Label("Modify & Repackage (Unsigned)", systemImage: "wand.and.stars")
+                                .fontWeight(.semibold)
+                        }
+                        Spacer()
+                    }
+                    .frame(minHeight: 44)
+                }
+                .listRowBackground(entry.isArtifactAvailable ? Color.accentColor : ZynSignTokens.Color.secondaryGroupedBackground)
+                .foregroundStyle(entry.isArtifactAvailable ? .white : .secondary)
+                .disabled(!entry.isArtifactAvailable || isModifyingOnly)
+                if let modifyOnlyError {
+                    Text(modifyOnlyError).font(.caption).foregroundStyle(.orange)
+                }
+                if let outcome = modifiedOnlyOutcome {
+                    LabeledContent("Modified IPA", value: outcome.outputURL.lastPathComponent)
+                    Text(outcome.editReport.summary).font(.caption).foregroundStyle(.secondary)
+                    Button {
+                        shareItem = ShareURL(url: outcome.outputURL)
+                    } label: {
+                        Label("Export Modified IPA", systemImage: "square.and.arrow.up")
+                    }
+                    Button {
+                        _ = env.importHub.receive([outcome.outputURL], origin: .documentPicker)
+                        ZHaptics.success()
+                    } label: {
+                        Label("Add Modified Copy to Library", systemImage: "plus.rectangle.on.folder")
+                    }
+                }
+            }
+            if env.guestContainerHost != nil {
+                Button {
+                    Task { await stageInHostContainer() }
+                } label: {
+                    HStack {
+                        Label(
+                            isStagingInContainer ? "Staging into Host Container…" : "Stage in Host Container (0 Apple ID Slots)",
+                            systemImage: "square.stack.3d.up.badge.automatic"
+                        )
+                        Spacer()
+                        if isStagingInContainer { ProgressView() }
+                    }
+                    .frame(minHeight: 44)
+                }
+                .disabled(!entry.isArtifactAvailable || isStagingInContainer || isSigning)
+                if let stagedGuestStatus {
+                    Text(stagedGuestStatus)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            NavigationLink {
+                UnifiedSigningHubView()
+            } label: {
+                Label("Free / Paid Apple ID & Host Container Hub", systemImage: "cpu")
+                    .frame(minHeight: 44)
+            }
+            Button {
+                showConsoleLog = true
+            } label: {
+                Label("Signing Console Log (\(consoleLogLines.count))", systemImage: "terminal")
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            }
             Button { startSigning() } label: {
                 HStack {
                     Spacer()
@@ -891,6 +993,28 @@ struct SigningView: View {
                 }
 
                 Button { ZHaptics.tap(); shareItem = ShareURL(url: url) } label: { Label("Export IPA", systemImage: "square.and.arrow.up") }
+                if let bridge = env.deviceBridgeController {
+                    Button {
+                        Task { await installOverDeviceBridge(url: url, bridge: bridge) }
+                    } label: {
+                        HStack {
+                            Label(
+                                isInstallingOverBridge
+                                    ? "Installing via Wire-Free Bridge…"
+                                    : "Install / Refresh on Device (Wire-Free Bridge)",
+                                systemImage: "antenna.radiowaves.left.and.right"
+                            )
+                            Spacer()
+                            if isInstallingOverBridge { ProgressView() }
+                        }
+                    }
+                    .disabled(!bridge.hasPairingRecord || isInstallingOverBridge)
+                    if let bridgeInstallFeedback {
+                        Text(bridgeInstallFeedback)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 if exportsPresentation.isAvailable {
                     Button {
                         ZHaptics.tap()
@@ -1314,20 +1438,31 @@ struct SigningView: View {
         var options = sideloadDraft.options
         if let plan = stagedTweakPlan, let service = env.tweakLibrary {
             do {
-                options.tweaks = try service.stagedTweaks(for: plan)
+                let staged = try service.prepareFullStagingArtifacts(for: plan)
+                options.tweaks = staged.dylibs
+                options.stagedBundlePayloads = staged.bundlePayloads
+                if staged.autoRecommendedSubstrateRewrite {
+                    options.replacesSubstrateWithElleKit = true
+                }
+                if staged.autoRecommendedArm64eFix {
+                    options.fixesLegacyArm64eSlice = true
+                }
             } catch {
-                // A tweak that cannot be re-measured is a refusal, never a
-                // signing run without it: the options show why and the
-                // screen stops before a working copy exists.
                 preflightError = stagingRefusalMessage(for: error)
                 scanRevision += 1
                 return
             }
         }
+        let effectiveEntitlements = resolveEffectiveEntitlements(
+            base: entitlements,
+            sourceURL: sourceURL,
+            profile: profile,
+            options: options
+        )
         model.run(
             SigningEngineModel.makeRequest(
                 entry: entry, sourceURL: sourceURL, profile: profile,
-                identityID: identityID, entitlements: entitlements,
+                identityID: identityID, entitlements: effectiveEntitlements,
                 emitDEREntitlements: requestedKey.emitDER,
                 sideload: options,
                 replacesExistingSignatures: replacesExistingSignatures
@@ -1417,6 +1552,177 @@ struct SigningView: View {
             }
             liveActivity.end(success: model.result?.status == .signed)
         }
+    }
+
+    private var suggestedProfileBundleID: String? {
+        guard let data = profileData,
+              let derived = try? ProfileEntitlementDerivation.entitlements(fromProvisioningProfile: data),
+              let xml = try? derived.canonicalXMLData(),
+              let dict = try? PlistDocumentCodec.decode(xml).root,
+              case .string(let appID)? = dict["application-identifier"] else {
+            return nil
+        }
+        let team = ProfileEntitlementDerivation.displaySummary(fromProvisioningProfile: data)?.teamIdentifier
+        return PPQProtectionPolicy.extractProfileBundleIdentifier(applicationIdentifier: appID, teamID: team)
+    }
+
+    @MainActor private func appendConsoleLog(_ message: String) {
+        let stamp = Date().formatted(date: .omitted, time: .standard)
+        consoleLogLines.append("\(stamp) \(message)")
+        if consoleLogLines.count > 200 {
+            consoleLogLines.removeFirst(consoleLogLines.count - 200)
+        }
+    }
+
+    @MainActor private func seedSessionDefaultsIfNeeded() {
+        guard !didSeedDefaults else { return }
+        didSeedDefaults = true
+        let prefs = settings.preferences.signing
+        sideloadDraft.ppqProtectionMode = prefs.defaultPPQMode
+        if prefs.defaultPPQMode != .disabled {
+            sideloadDraft.ppqProtectionToken = prefs.defaultPPQToken.isEmpty
+                ? PPQProtectionPolicy.generateToken()
+                : prefs.defaultPPQToken
+        }
+        sideloadDraft.dynamicPPQProtection = prefs.defaultDynamicPPQ
+        sideloadDraft.mergesBinaryEntitlements = prefs.defaultMergesBinaryEntitlements
+        sideloadDraft.isolatesKeychainGroup = prefs.defaultIsolatesKeychainGroup
+        sideloadDraft.deletesImportedAfterSigning = prefs.defaultDeletesImportedAfterSigning
+
+        if stagedTweakPlan == nil,
+           let tweakLib = env.tweakLibrary,
+           let allTweaks = try? tweakLib.all() {
+            let bundleID = entry.record.bundleIdentifier.rawValue
+            let rules = (try? env.tweakAutoInjectRules?.allRules()) ?? []
+            let matchedIDs = Set(rules.filter { $0.matches(bundleIdentifier: bundleID) }.map(\.id))
+            let autoSelected = allTweaks.filter { $0.enabledByDefault || matchedIDs.contains($0.id) }
+            if !autoSelected.isEmpty, case .success(let plan) = TweakInjectionPlan.makePlan(selection: autoSelected) {
+                stagedTweakPlan = plan
+            }
+        }
+    }
+
+    @MainActor private func stageInHostContainer() async {
+        guard let host = env.guestContainerHost else { return }
+        let sourceURL = env.artifactFileURL(for: entry.record.artifact.artifactID)
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            stagedGuestStatus = "Stored package file is unavailable."
+            return
+        }
+        isStagingInContainer = true
+        defer { isStagingInContainer = false }
+        var tweakURLs: [URL] = []
+        if let plan = stagedTweakPlan, let service = env.tweakLibrary,
+           let staged = try? service.prepareFullStagingArtifacts(for: plan) {
+            tweakURLs = staged.dylibs.map(\.fileURL)
+        }
+        do {
+            let guest = try await host.stagePackage(
+                from: sourceURL,
+                customDisplayName: sideloadDraft.displayName.isEmpty ? nil : sideloadDraft.displayName,
+                tweakDylibURLs: tweakURLs
+            )
+            stagedGuestStatus = "Staged \(guest.displayName) inside Host Container (\(guest.slots.count) data slot)."
+            ZHaptics.success()
+        } catch {
+            stagedGuestStatus = error.localizedDescription
+        }
+    }
+
+    @MainActor private func installOverDeviceBridge(url: URL, bridge: DeviceBridgeController) async {
+        isInstallingOverBridge = true
+        defer { isInstallingOverBridge = false }
+        let overrideID = sideloadDraft.bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        let targetBundleID = overrideID.isEmpty ? entry.record.bundleIdentifier.rawValue : overrideID
+        do {
+            let outcome = try await bridge.installSignedPackage(at: url, bundleIdentifier: targetBundleID)
+            bridgeInstallFeedback = outcome.isInstalled
+                ? "Installed \(targetBundleID) over local device bridge."
+                : "Device bridge status: \(outcome.finalStatus)."
+            if outcome.isInstalled { ZHaptics.success() }
+        } catch {
+            bridgeInstallFeedback = error.localizedDescription
+        }
+    }
+
+    @MainActor private func runModifyOnly() async {
+        guard let modifier = env.packageModifier else {
+            modifyOnlyError = "Package modification service is not composed."
+            return
+        }
+        let sourceURL = env.artifactFileURL(for: entry.record.artifact.artifactID)
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            modifyOnlyError = "The stored package file is unavailable."
+            return
+        }
+        isModifyingOnly = true
+        modifyOnlyError = nil
+        defer { isModifyingOnly = false }
+
+        var options = sideloadDraft.options
+        options.onlyModify = true
+        if let plan = stagedTweakPlan, let service = env.tweakLibrary {
+            do {
+                let staged = try service.prepareFullStagingArtifacts(for: plan)
+                options.tweaks = staged.dylibs
+                options.stagedBundlePayloads = staged.bundlePayloads
+            } catch {
+                modifyOnlyError = stagingRefusalMessage(for: error)
+                return
+            }
+        }
+        do {
+            let outcome = try await modifier.modifyAndRepackage(
+                sourceURL: sourceURL,
+                options: options,
+                stripSignatures: replacesExistingSignatures
+            )
+            modifiedOnlyOutcome = outcome
+            ZHaptics.success()
+        } catch let err as SideloadEditError {
+            modifyOnlyError = err.message
+        } catch let err as SideloadOptionError {
+            modifyOnlyError = err.message
+        } catch {
+            modifyOnlyError = error.localizedDescription
+        }
+    }
+
+    private func resolveEffectiveEntitlements(
+        base: CodeSigningEntitlements,
+        sourceURL: URL,
+        profile: Data,
+        options: SideloadSigningOptions
+    ) -> CodeSigningEntitlements {
+        let needsCustomMerge = options.mergesBinaryEntitlements
+            || options.isolatesKeychainGroup
+            || !options.entitlementOverrides.isEmpty
+            || !options.removedEntitlementKeys.isEmpty
+            || options.rawEntitlementsXMLOverride != nil
+        guard needsCustomMerge else { return base }
+
+        var binaryXML: Data?
+        if options.mergesBinaryEntitlements {
+            binaryXML = env.packageModifier?.extractMainExecutableEntitlements(from: sourceURL)
+        }
+        let originalID = entry.record.bundleIdentifier.rawValue
+        let effectiveID = options.resolvedBundleIdentifier(originalBundleID: originalID) ?? originalID
+        let teamID = ProfileEntitlementDerivation.displaySummary(fromProvisioningProfile: profile)?.teamIdentifier
+
+        if let resolved = try? BinaryEntitlementMerger.resolve(
+            profileEntitlements: base,
+            binaryEntitlementsXML: binaryXML,
+            resolvedBundleIdentifier: effectiveID,
+            teamIdentifier: teamID,
+            mergesBinaryEntitlements: options.mergesBinaryEntitlements,
+            isolatesKeychainGroup: options.isolatesKeychainGroup,
+            overrides: options.entitlementOverrides,
+            removedKeys: options.removedEntitlementKeys,
+            rawXMLOverride: options.rawEntitlementsXMLOverride
+        ) {
+            return resolved.entitlements
+        }
+        return base
     }
 }
 

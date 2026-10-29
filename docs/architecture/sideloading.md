@@ -268,8 +268,8 @@ the CodeDirectory covers them:
 2. the loader is added as `LC_LOAD_DYLIB`.
 
 The layout is `Applications/<BundleID>/` with `App.app`, `Tweaks/`, `Data/`
-(`Documents`, `Library/Preferences`, `Library/Caches`, `tmp`), `LCAppInfo.plist`
-and `LCContainer.json`.
+(`Documents`, `Library/Preferences`, `Library/Caches`, `tmp`), `ZynGuestInfo.plist`
+and `ZynContainer.json`.
 
 `GuestContainer.assess` blocks a guest for facts, not opinions: FairPlay
 encryption, no position independence, a universal binary, a missing declared
@@ -345,3 +345,25 @@ Not proven here, and named as open:
 - The app installs nothing it did not send, and lists nothing as installed
   without the device reporting `Complete`.
 - OpenSSL remains a host-test binary. It is still not linked into the app.
+
+## 7. Unified dual-mode signing, containerization, and workspace architecture
+
+ZynSign unifies **Paid Certificate Signing** (`.p12` + `.mobileprovision`),
+**Free Apple Account Provisioning & Wire-Free Refresh** (Apple Developer Portal
+personal team provisioning + local/loopback `lockdownd` / `installation_proxy`
+bridge), and **Multi-App Host Containerization** (`MH_EXECUTE` -> `MH_DYLIB`
+in-process `dlopen` runtime with isolated per-profile data slots), alongside
+native tweak, catalog, and workspace tooling:
+
+| Area | Modules |
+| --- | --- |
+| Dual-mode Free + Paid + Host Container engine | `Domain/Containers/GuestContainerRuntime.swift`, `Domain/Sideloading/AppleAccountProvisioningModels.swift`, `Application/AdHocMachOSigner.swift`, `Application/GuestContainerHostService.swift`, `Application/AppleAccountProvisioningService.swift`, `Application/DeviceBridgeController.swift`, `Platform/PosixGuestRuntimeLoader.swift`, `Platform/URLSessionAppleDeveloperPortalClient.swift`, `Platform/KeychainPairingRecordStore.swift`, `Platform/NetworkDeviceBridgeTransport.swift`, `Presentation/UnifiedSigningHubView.swift` |
+| PPQ protection & multi-cloning | `Domain/Sideloading/PPQProtectionPolicy.swift` (`disabled`, `suffixToken`, `stealth` keyword-scrubbed `zyn.` identifier + token, dynamic App Store match gate, display-name & bundle-ID prefix/suffix/replacement maps) |
+| Mach-O binary patching & entitlement merging | `Domain/Sideloading/MachOBinaryPatcher.swift` (`LC_BUILD_VERSION` SDK 26.0 Liquid Glass patch, legacy `arm64e` `0x80000002` normalization, ElleKit `@rpath` install-name rewrites, load-command removal, pre-strip `CSSLOT_ENTITLEMENTS` reader) and `Domain/Sideloading/BinaryEntitlementMerger.swift` (profile-authorized binary entitlement merge + Keychain Isolation) |
+| Extended `Info.plist`, Only Modify & bundle staging | `Domain/Sideloading/SideloadSigningOptions.swift`, `Domain/Sideloading/SideloadStagedBundlePayload.swift`, `Application/SideloadPackageEditor.swift`, `Application/PackageModificationService.swift`, `Presentation/SigningPlistEditorsView.swift` |
+| `.deb` unpacking, Tweak Mach-O Analyzer & Auto-Inject | `Domain/DebArchiveParser.swift`, `Domain/TweakMachOAnalyzer.swift`, `Domain/TweakAutoInjectRule.swift`, `Platform/FileTweakAutoInjectStore.swift`, `Application/TweakStagingResolver.swift` (`TweakPackImporter` + `IPATweakExtractor`), `Presentation/TweakInspectorViews.swift` |
+| `.zcert` identity archives, certificate auto-discovery & DNS shield | `Domain/ZynCertificateBundle.swift`, `Domain/DNSRevocationShieldProfile.swift`, `Application/CertificateBundleAssistant.swift`, `Application/BundledSigningAssetsDiscovery.swift`, `Presentation/CertificateToolsSheets.swift`, `Presentation/RevocationCenterView.swift` |
+| Encoded catalog decoder, Web Link Extractor & Download keep-alive | `Platform/EncodedCatalogPayloadDecoder.swift`, `Domain/DownloadLinkExtractor.swift`, `Presentation/WebLinkExtractorSheet.swift`, `Platform/AVAudioBackgroundDownloadKeepAlive.swift`, `Application/SelfUpdateChecker.swift` |
+| Foreground LAN Web & WebDAV workspace | `Domain/LANWebWorkspace/WebDAVProtocol.swift`, `Application/LANWebWorkspaceService.swift`, `Platform/NetworkLANWebWorkspaceServer.swift`, `Presentation/LANWebWorkspaceView.swift` |
+| Portable `Documents` mirror, workspace import, File Editors & Shortcuts | `Application/PortableWorkspaceSyncService.swift`, `Domain/PlistDocumentCodec.swift`, `Domain/HexDumpFormatter.swift`, `Application/FileArchiveTools.swift`, `Presentation/FileEditorsView.swift`, `Domain/IncomingURLRouter.swift`, `App/ZynSignShortcuts.swift` |
+
