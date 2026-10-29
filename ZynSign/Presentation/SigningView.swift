@@ -1307,12 +1307,29 @@ struct SigningView: View {
             entry: entry, identity: selectedIdentity, profile: profile, startedAt: Date()
         )
         let history = env.signingHistory
+        // The staged tweaks travel with the options, not beside them: the
+        // payloads have to be inside the working copy before the executable
+        // that loads them is signed. A run whose tweaks cannot be re-measured
+        // is refused by the library rather than signed without them.
+        var options = sideloadDraft.options
+        if let plan = stagedTweakPlan, let service = env.tweakLibrary {
+            do {
+                options.tweaks = try service.stagedTweaks(for: plan)
+            } catch {
+                // A tweak that cannot be re-measured is a refusal, never a
+                // signing run without it: the options show why and the
+                // screen stops before a working copy exists.
+                preflightError = stagingRefusalMessage(for: error)
+                scanRevision += 1
+                return
+            }
+        }
         model.run(
             SigningEngineModel.makeRequest(
                 entry: entry, sourceURL: sourceURL, profile: profile,
                 identityID: identityID, entitlements: entitlements,
                 emitDEREntitlements: requestedKey.emitDER,
-                sideload: sideloadDraft.options,
+                sideload: options,
                 replacesExistingSignatures: replacesExistingSignatures
             ),
             environment: env,
@@ -1323,6 +1340,14 @@ struct SigningView: View {
             }
         )
         mirrorProgressToLiveActivity()
+    }
+
+    /// What to tell the user when a staged tweak cannot travel into a run.
+    func stagingRefusalMessage(for error: Error) -> String {
+        if let refusal = error as? TweakLibraryService.StagingRefusal {
+            return "\(refusal.message) Clear the staged tweaks or re-import it, then sign again."
+        }
+        return "\(error.localizedDescription) Remove the staged tweaks and sign again."
     }
 
     /// The identity the user's signing preferences name, when it is still

@@ -36,6 +36,11 @@ struct SideloadSigningOptions: Equatable, Sendable {
     var injectedLibraries: [InjectedLibrary]
     var injectsIntoNestedCode: Bool
 
+    /// Tweak payloads copied into `Frameworks` and linked into the main
+    /// executable. Each one is staged inside the working copy before signing,
+    /// so the signature covers the file the load command names.
+    var tweaks: [SideloadStagedTweak]
+
     /// Sign with no certificate. The CodeDirectory carries `CS_ADHOC` and no
     /// CMS blob is written.
     var adHoc: Bool
@@ -43,13 +48,19 @@ struct SideloadSigningOptions: Equatable, Sendable {
     /// Request the hardened-runtime flag (`CS_RUNTIME`).
     var hardenedRuntime: Bool
 
+    /// Let the installed app appear in the Files app and accept documents.
+    /// Two Info.plist keys, both documented: `UIFileSharingEnabled` and
+    /// `LSSupportsOpeningDocumentsInPlace`.
+    var enablesFileSharing: Bool
+
     static let none = SideloadSigningOptions(
         bundleIdentifier: nil, displayName: nil, name: nil,
         shortVersion: nil, version: nil, minimumOSVersion: nil,
         removesPlugIns: false, removesWatchApps: false,
         removesAppExtensions: false, removesURLSchemes: false,
-        entitlementOverrides: [:], injectedLibraries: [],
-        injectsIntoNestedCode: false, adHoc: false, hardenedRuntime: false
+        entitlementOverrides: [:], injectedLibraries: [], tweaks: [],
+        injectsIntoNestedCode: false, adHoc: false, hardenedRuntime: false,
+        enablesFileSharing: false
     )
 
     init(
@@ -65,9 +76,11 @@ struct SideloadSigningOptions: Equatable, Sendable {
         removesURLSchemes: Bool = false,
         entitlementOverrides: [String: EntitlementValue] = [:],
         injectedLibraries: [InjectedLibrary] = [],
+        tweaks: [SideloadStagedTweak] = [],
         injectsIntoNestedCode: Bool = false,
         adHoc: Bool = false,
-        hardenedRuntime: Bool = false
+        hardenedRuntime: Bool = false,
+        enablesFileSharing: Bool = false
     ) {
         self.bundleIdentifier = bundleIdentifier
         self.displayName = displayName
@@ -81,10 +94,36 @@ struct SideloadSigningOptions: Equatable, Sendable {
         self.removesURLSchemes = removesURLSchemes
         self.entitlementOverrides = entitlementOverrides
         self.injectedLibraries = injectedLibraries
+        self.tweaks = tweaks
         self.injectsIntoNestedCode = injectsIntoNestedCode
         self.adHoc = adHoc
         self.hardenedRuntime = hardenedRuntime
+        self.enablesFileSharing = enablesFileSharing
     }
+}
+
+/// A tweak payload the library staged for this package.
+///
+/// The bytes travel with the options because staging and signing are one act:
+/// the file has to be inside the working copy before the executable that loads
+/// it is signed, or the signature would not cover it. The name is the only
+/// thing the load command says — a tweak is loaded from the bundle it ships in.
+struct SideloadStagedTweak: Equatable, Hashable, Sendable {
+
+    /// The file name the payload takes inside `Frameworks`. One path component,
+    /// ending in `.dylib`.
+    let fileName: String
+
+    /// The payload bytes, exactly as the library stores them.
+    let bytes: Data
+
+    init(fileName: String, bytes: Data) {
+        self.fileName = fileName
+        self.bytes = bytes
+    }
+
+    /// The install name the injected load command carries.
+    var installName: String { "@executable_path/Frameworks/\(fileName)" }
 }
 
 /// One library linked into a binary's load commands.
@@ -124,6 +163,11 @@ enum SideloadOptionError: Error, Equatable, Hashable, Sendable {
     case duplicateInstallName(String)
     case adHocWithCertificate
     case tooManyInjectedLibraries(limit: Int)
+    case tooManyStagedTweaks(limit: Int)
+    case invalidTweakFileName(String)
+    case duplicateTweakFileName(String)
+    case emptyTweakPayload(String)
+    case stagedTweaksTooLarge(bytes: Int, limit: Int)
 
     var message: String {
         switch self {
@@ -145,6 +189,16 @@ enum SideloadOptionError: Error, Equatable, Hashable, Sendable {
             return "An ad-hoc signature cannot be combined with a signing certificate."
         case .tooManyInjectedLibraries(let limit):
             return "Injection is limited to \(limit) libraries per package."
+        case .tooManyStagedTweaks(let limit):
+            return "A package carries at most \(limit) staged tweaks."
+        case .invalidTweakFileName(let name):
+            return "“\(name)” is not a tweak file name (one file, ending in .dylib)."
+        case .duplicateTweakFileName(let name):
+            return "Two staged tweaks are named “\(name)”."
+        case .emptyTweakPayload(let name):
+            return "The staged tweak “\(name)” carries no bytes."
+        case .stagedTweaksTooLarge(let bytes, let limit):
+            return "The staged tweaks total \(bytes) bytes; a package carries at most \(limit / (1024 * 1024)) MiB."
         }
     }
 }
@@ -154,6 +208,27 @@ extension SideloadSigningOptions {
     /// ZynSign caps injection because every entry costs header space in the
     /// binary, and a header is a few hundred bytes, not a list.
     static let maximumInjectedLibraries = 16
+
+    /// The tweak library's own selection limit, restated here so options are
+    /// validated without reaching for the library.
+    static let maximumStagedTweaks = 12
+
+    /// The tweak library's own payload budget (64 MiB), restated for the same
+    /// reason.
+    static let maximumStagedTweakBytes = 64 * 1_024 * 1_024
+
+    /// A staged tweak is one `.dylib` file name: no directory, no traversal,
+    /// no other extension. Only a dynamic library can be linked in.
+    static func isTweakFileName(_ value: String) -> Bool {
+        guard !value.isEmpty, value.count <= 128,
+              value.lowercased().hasSuffix(".dylib"),
+              !value.contains("/"), !value.contains("\\"),
+              !value.hasPrefix("."), value != ".." else { return false }
+        return value.allSatisfy { character in
+            character.isASCII
+                && (character.isLetter || character.isNumber || "-_.+".contains(character))
+        }
+    }
 
     /// Whether the options change anything. Used to decide whether the plan
     /// is worth showing and to skip the rewrite entirely.
@@ -193,6 +268,30 @@ extension SideloadSigningOptions {
             guard seen.insert(library.installName).inserted else {
                 throw SideloadOptionError.duplicateInstallName(library.installName)
             }
+        }
+        guard tweaks.count <= Self.maximumStagedTweaks else {
+            throw SideloadOptionError.tooManyStagedTweaks(limit: Self.maximumStagedTweaks)
+        }
+        var tweakBytes = 0
+        var seenTweaks: Set<String> = []
+        for tweak in tweaks {
+            guard Self.isTweakFileName(tweak.fileName) else {
+                throw SideloadOptionError.invalidTweakFileName(tweak.fileName)
+            }
+            guard !tweak.bytes.isEmpty else {
+                throw SideloadOptionError.emptyTweakPayload(tweak.fileName)
+            }
+            tweakBytes += tweak.bytes.count
+            // A tweak and a typed library that resolve to the same install name
+            // would emit one load command twice; the load command is keyed by
+            // the name, so the earlier declaration is the one that says it.
+            guard !seen.contains(tweak.installName), seenTweaks.insert(tweak.installName).inserted else {
+                throw SideloadOptionError.duplicateInstallName(tweak.installName)
+            }
+        }
+        guard tweakBytes <= Self.maximumStagedTweakBytes else {
+            throw SideloadOptionError.stagedTweaksTooLarge(
+                bytes: tweakBytes, limit: Self.maximumStagedTweakBytes)
         }
         if adHoc && hasCertificate {
             throw SideloadOptionError.adHocWithCertificate
@@ -270,6 +369,13 @@ enum InfoPlistOverrides {
         }
         if let minimumOSVersion = options.minimumOSVersion {
             values["MinimumOSVersion"] = .string(minimumOSVersion)
+        }
+        if options.enablesFileSharing {
+            // Both keys are needed: the first exposes the Documents folder in
+            // the Files app, the second makes the app open documents in place
+            // instead of copying them into its container.
+            values["UIFileSharingEnabled"] = .boolean(true)
+            values["LSSupportsOpeningDocumentsInPlace"] = .boolean(true)
         }
         var removed: [String] = []
         if options.removesURLSchemes {
