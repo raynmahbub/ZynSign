@@ -99,12 +99,46 @@ final class MachOCodeSignatureStripperTests: XCTestCase {
         XCTAssertEqual(try MachOCodeSignatureStripper.stripSignature(from: once), once)
     }
 
-    func testAFatContainerIsRefused() {
+    func testAMalformedFatContainerIsRefusedWithTheStripReason() {
+        // A fat magic with no records is not a container this build can read;
+        // the strip reports its own failure rather than a parser error.
         var fat = [UInt8](repeating: 0, count: 64)
         fat[0] = 0xCA; fat[1] = 0xFE; fat[2] = 0xBA; fat[3] = 0xBE
         XCTAssertThrowsError(try MachOCodeSignatureStripper.stripSignature(from: data(fat))) { error in
-            XCTAssertEqual(error as? MachOCodeSignatureStripper.Failure, .unsupportedForm)
+            XCTAssertEqual(error as? MachOCodeSignatureStripper.Failure, .malformedImage)
         }
+    }
+
+    func testEverySliceOfAFatContainerIsStripped() throws {
+        let payload: [UInt8] = Array(repeating: 0x43, count: 96)
+        let signed = MachOFixtures.signedThin(payload)
+        let unsigned = MachOFixtures.appendableThin()
+        let fat = data(MachOFixtures.fat([
+            (cpu: MachOFixtures.arm64, subtype: 0, bytes: signed),
+            (cpu: MachOFixtures.x86_64, subtype: 3, bytes: unsigned)
+        ]))
+
+        // The bundle walk asks this of every file before deciding to strip, so
+        // a container must answer for its slices, not only for its own header.
+        XCTAssertTrue(MachOCodeSignatureStripper.carriesSignature(fat))
+        let stripped = try MachOCodeSignatureStripper.stripSignature(from: fat)
+        let slices = try MachOUniversalFile.split(stripped).slices
+        XCTAssertEqual(slices.count, 2)
+        XCTAssertFalse(MachOCodeSignatureStripper.carriesSignature(slices[0].bytes))
+        XCTAssertFalse(MachOCodeSignatureStripper.carriesSignature(stripped))
+        // The slice that carried no signature comes back exactly as it was.
+        XCTAssertEqual(slices[1].bytes, data(unsigned))
+        XCTAssertLessThan(slices[0].bytes.count, signed.count)
+    }
+
+    func testStrippingAFatContainerTwiceChangesNothing() throws {
+        let payload: [UInt8] = Array(repeating: 0x43, count: 96)
+        let fat = data(MachOFixtures.fat([
+            (cpu: MachOFixtures.arm64, subtype: 0, bytes: MachOFixtures.signedThin(payload)),
+            (cpu: MachOFixtures.x86_64, subtype: 3, bytes: MachOFixtures.appendableThin())
+        ]))
+        let once = try MachOCodeSignatureStripper.stripSignature(from: fat)
+        XCTAssertEqual(try MachOCodeSignatureStripper.stripSignature(from: once), once)
     }
 
     func testANonMachOFileIsRefused() {

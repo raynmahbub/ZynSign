@@ -173,15 +173,30 @@ without segment remapping.
 Universal Mach-O containers are parsed and inspected per-slice by
 `MachOCodeSignatureInspector`.
 
-However, universal binary mutation involves adjusting fat architecture table
-offsets, slice alignments, and multiple slice payloads simultaneously. Because
-universal container rebuilding is not part of this increment,
-`MachOCodeSignatureWriter` explicitly returns:
+Universal binary mutation involves adjusting fat architecture table offsets,
+slice alignments, and multiple slice payloads simultaneously, so it is never
+performed in place. The container is instead taken apart by
+`MachOUniversalFile.split(_:)`, each slice is handled as a standalone thin
+image, and `MachOUniversalFile.rebuild()` puts the table back together. Three
+properties are preserved because the loader depends on them: record width
+(32-bit for `0xCAFEBABE`, 64-bit for `0xCAFEBABF`), each slice's declared
+alignment exponent, and slice order. Padding bytes are written as zero — what a
+signer does and what the loader expects — so a rebuilt container is byte-valid,
+not accepted by anything.
+
+`MachOCodeSignatureStripper.stripSignature(from:)` uses that pair today: every
+slice of a container is stripped as a thin image, an unsigned slice comes back
+byte-identical, and the table is rebuilt around the new sizes. This is what
+keeps one universal binary in a bundle from aborting the whole strip.
+
+The *writer* still appends to exactly one thin image. Given a container it
+returns:
 
 `.universalImageUnsupported`
 
 Thin binaries are fully supported for safe append mutation. Universal binaries
-must not be silently treated as thin images.
+must not be silently treated as thin images, and a container must not be
+rebuilt from a slice whose mutation failed.
 
 ## Byte preservation
 
