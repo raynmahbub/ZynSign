@@ -200,7 +200,7 @@ rebuilt from a slice whose mutation failed.
 
 ## Byte preservation
 
-When `MachOCodeSignatureWriter` appends a signature region, only five specific
+When `MachOCodeSignatureWriter` appends a signature region, only the following
 byte ranges are modified:
 
 1. `mach_header.ncmds` (incremented by 1);
@@ -208,7 +208,13 @@ byte ranges are modified:
 3. the 16 bytes immediately following existing load commands (populated with
    `LC_CODE_SIGNATURE`);
 4. the `__LINKEDIT` segment command's `filesize` field;
-5. the newly appended region bytes at the end of the file.
+5. the `__LINKEDIT` segment command's `vmsize` field, and only when the
+   reservation already declared cannot hold the region. A stripped binary often
+   ends exactly where `__LINKEDIT` ends, so the reservation grows by whole
+   16 KiB pages — but only while no other segment is mapped inside the space it
+   would claim, and never by so much that the address arithmetic overflows.
+   When the existing reservation is large enough, this range is not written;
+6. the newly appended region bytes at the end of the file.
 
 All other bytes—including executable code, data segments, symbol tables, and
 unrelated load commands—are preserved byte-for-byte. Tests verify this invariant.

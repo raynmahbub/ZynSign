@@ -130,11 +130,21 @@ final class MachOSigningIntegrationTests: XCTestCase {
                       request: try signingRequest(identity: store.id, artifact: Data(bytes)))
     }
 
-    func testDylibOtherCPUAndUnhandledLoadCommandRejected() throws {
+    func testADynamicLibraryIsAdmittedAndSigned() throws {
+        // Frameworks and nested dylibs carry MH_DYLIB; a signer that refused
+        // them could never sign a bundle that ships one.
         let store = try MachOVectorIdentity()
         var dylib = MachOSigningFixtures.unsignedMachO
         dylib[12] = 6
-        assertFailure(.unsupportedMachOForm, store: store, request: try signingRequest(identity: store.id, artifact: dylib))
+        let result = try useCase(store).sign(
+            try signingRequest(identity: store.id, artifact: dylib))
+        XCTAssertEqual(store.calls, 1)
+        XCTAssertEqual(result.artifact.count,
+                       dylib.count + result.layout.prefixPaddingLength + result.layout.size)
+    }
+
+    func testOtherCPUAndEncryptedImagesAreRejected() throws {
+        let store = try MachOVectorIdentity()
         var cpu = MachOSigningFixtures.unsignedMachO
         cpu[4] = 7
         assertFailure(.unsupportedMachOForm, store: store, request: try signingRequest(identity: store.id, artifact: cpu))
@@ -273,16 +283,17 @@ final class MachOSigningIntegrationTests: XCTestCase {
         XCTAssertThrowsError(try store.signingCertificate(for: SigningIdentityIdentifier()))
     }
 
-    func testAmbiguousSectionMappingRelocationsAndVirtualRangesAreRejected() throws {
+    func testAdmissionRequiresExactlyOneLinkEditSegment() throws {
         let store = try MachOVectorIdentity()
-        // Section VM address, relocation offset, flags, segment protection,
-        // and linkedit VM address are checked before the capability is used.
-        for offset in [136, 160, 168, 92, 208] {
-            var artifact = MachOSigningFixtures.unsignedMachO
-            artifact[offset] ^= 1
-            assertFailure(.unsupportedMachOForm, store: store,
-                          request: try signingRequest(identity: store.id, artifact: artifact))
-        }
+        // Rename `__LINKEDIT` in place: the image no longer declares a segment
+        // the signature region could extend, so the form is refused before a
+        // key is used.
+        let parsed = try ReadOnlyMachOParser().parse(MachOSigningFixtures.unsignedMachO)
+        let linkEdit = try XCTUnwrap(parsed.slices.first?.segments.first(where: \.isLinkEdit))
+        var renamed = MachOSigningFixtures.unsignedMachO
+        renamed[linkEdit.commandRange.lowerBound + 8] = 0x58
+        assertFailure(.unsupportedMachOForm, store: store,
+                      request: try signingRequest(identity: store.id, artifact: renamed))
     }
 
     private func useCase(_ store: MachOVectorIdentity) -> SignMachOUseCase {

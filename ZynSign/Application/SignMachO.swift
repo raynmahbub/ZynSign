@@ -283,55 +283,47 @@ struct SignMachOUseCase {
         } catch let error as CodeDirectoryError { throw MachOSigningError.codeDirectoryConstruction(error) }
     }
 
-    /// The exact read-only image admission rule the signer applies before any
-    /// key operation. Diagnostics reuse it instead of guessing support from a
-    /// Mach-O header. This is not a guarantee that later signing will succeed.
-    /// Only a narrow, synthetic two-segment layout is supported today.
+    /// The read-only image admission rule the signer applies before any key
+    /// operation. Diagnostics reuse it instead of guessing support from a
+    /// Mach-O header.
+    ///
+    /// The rule describes *forms this build signs*, not one known byte layout:
+    /// a thin little-endian 64-bit arm64 image that is either an executable or
+    /// a dynamic library, carries no existing signature, is not encrypted, and
+    /// has exactly one `__LINKEDIT` segment. Everything the append actually
+    /// needs — zero load-command padding, a `__LINKEDIT` file range ending at
+    /// the file end, virtual-memory room for the region — is re-checked by
+    /// `MachOCodeSignatureWriter`, which fails before a key is used.
+    ///
+    /// Universal containers are refused here. A container is a table of
+    /// images; signing one means signing each slice and rebuilding the table,
+    /// which is a different code path from this single-image signer.
     static func checkSupportedImage(_ image: MachOImage) throws {
         guard case .thin(let slice) = image.container else { throw MachOSigningError.unsupportedMachOForm }
         if slice.embeddedSignature != nil { throw MachOSigningError.layout(.existingSignatureRejected) }
-        guard slice.header.wordSize == .bits64, slice.header.byteOrder == .littleEndian,
-              slice.header.cpu == .arm64, slice.header.cpuSubtype == 0,
-              slice.header.fileType == 2, slice.header.flags == 0x20,
-              slice.header.reserved == 0,
-              slice.loadCommands.count == 2,
-              slice.loadCommands.allSatisfy({ $0.type == MachOLoadCommandType.segment64 }),
-              slice.segments.count == 2 else { throw MachOSigningError.unsupportedMachOForm }
-        let text = slice.segments[0]
-        let link = slice.segments[1]
-        let textName = Array("__TEXT".utf8) + Array(repeating: UInt8(0), count: 10)
-        guard text.name.rawBytes == textName, link.isLinkEdit,
-              text.fileOffset == 0, text.fileSize > 0,
-              text.fileSize == link.fileOffset,
-              text.fileSize <= text.virtualMemorySize,
-              text.sectionCount == 1, let section = text.sections.first,
-              text.maximumProtection == 7, text.initialProtection == 5, text.flags == 0,
-              link.maximumProtection == 7, link.initialProtection == 1, link.flags == 0,
-              link.sectionCount == 0,
-              text.virtualMemoryAddress % 4096 == 0, link.virtualMemoryAddress % 4096 == 0,
-              text.fileSize % 4096 == 0,
-              section.name == Array("__text".utf8) + Array(repeating: UInt8(0), count: 10),
-              section.segmentName == textName,
-              section.flags == 0x80000400, section.alignmentExponent == 2,
-              section.fileOffset % 4 == 0, section.size > 0,
-              section.relocationOffset == 0, section.relocationCount == 0,
-              section.reserved1 == 0, section.reserved2 == 0, section.reserved3 == 0 else {
+        guard slice.header.wordSize == .bits64,
+              slice.header.byteOrder == .littleEndian,
+              slice.header.cpu == .arm64,
+              slice.header.fileType == Self.executableFileType
+                || slice.header.fileType == Self.dynamicLibraryFileType else {
             throw MachOSigningError.unsupportedMachOForm
         }
-        // The parser already proved section.fileOffset + size fits text's file
-        // extent. Require this single section to cover the rest of text and to
-        // have the same file/VM mapping; no unmodeled relocations are admitted.
-        guard section.size == text.fileSize - section.fileOffset else {
+        // An encrypted image is refused, not signed around: the signature would
+        // describe ciphertext the device rewrites at load time.
+        guard !slice.loadCommands.contains(where: {
+            $0.type == Self.encryptionInfoCommand || $0.type == Self.encryptionInfo64Command
+        }) else {
             throw MachOSigningError.unsupportedMachOForm
         }
-        let (sectionAddress, sectionOverflow) = text.virtualMemoryAddress.addingReportingOverflow(section.fileOffset)
-        guard !sectionOverflow, section.virtualAddress == sectionAddress else {
-            throw MachOSigningError.unsupportedMachOForm
-        }
-        let (textEnd, textOverflow) = text.virtualMemoryAddress.addingReportingOverflow(text.virtualMemorySize)
-        let (_, linkOverflow) = link.virtualMemoryAddress.addingReportingOverflow(link.virtualMemorySize)
-        guard !textOverflow, !linkOverflow, textEnd <= link.virtualMemoryAddress else {
+        guard slice.segments.filter(\.isLinkEdit).count == 1 else {
             throw MachOSigningError.unsupportedMachOForm
         }
     }
+
+    /// `MH_EXECUTE`.
+    private static let executableFileType: UInt32 = 2
+    /// `MH_DYLIB` — frameworks and nested dylibs carry this type.
+    private static let dynamicLibraryFileType: UInt32 = 6
+    private static let encryptionInfoCommand: UInt32 = 0x21
+    private static let encryptionInfo64Command: UInt32 = 0x2C
 }
