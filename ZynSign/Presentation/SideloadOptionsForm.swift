@@ -27,6 +27,7 @@ struct SideloadOptionsDraft: Equatable {
     var injectsIntoNestedCode = false
     var adHoc = false
     var hardenedRuntime = false
+    var enablesFileSharing = false
 
     /// Libraries staged for injection, as the user typed them.
     var libraries: [String] = []
@@ -58,6 +59,8 @@ struct SideloadOptionsDraft: Equatable {
         count += options.injectedLibraries.count
         if options.adHoc { count += 1 }
         if options.hardenedRuntime { count += 1 }
+        if options.enablesFileSharing { count += 1 }
+        if !options.tweaks.isEmpty { count += options.tweaks.count }
         return count
     }
 
@@ -78,7 +81,8 @@ struct SideloadOptionsDraft: Equatable {
             injectedLibraries: libraries.map { InjectedLibrary(installName: $0) },
             injectsIntoNestedCode: injectsIntoNestedCode,
             adHoc: adHoc,
-            hardenedRuntime: hardenedRuntime
+            hardenedRuntime: hardenedRuntime,
+            enablesFileSharing: enablesFileSharing
         )
     }
 
@@ -215,6 +219,7 @@ struct SideloadOptionsForm: View {
             Toggle("Ad-hoc signature", isOn: $draft.adHoc)
                 .disabled(!hasCertificate ? false : false)
             Toggle("Hardened runtime", isOn: $draft.hardenedRuntime)
+            Toggle("Show in the Files app", isOn: $draft.enablesFileSharing)
         } header: {
             Text("Signature")
         } footer: {

@@ -137,6 +137,8 @@ hashes the header the editor rewrites.
 | `removesPlugIns`, `removesWatchApps`, `removesAppExtensions` | Nested code is deleted before anything is signed | `SideloadPackageEditor.apply` |
 | `removesURLSchemes` | `CFBundleURLTypes`, `LSApplicationQueriesSchemes` removed | `InfoPlistOverrides` |
 | `injectedLibraries` | `LC_LOAD_DYLIB` / `LC_LOAD_WEAK_DYLIB` written into header padding | `DylibInjectionPlanner` |
+| `tweaks` | Payload bytes copied into `Frameworks` and linked by install name | `SideloadPackageEditor.stageTweaks` |
+| `enablesFileSharing` | `UIFileSharingEnabled` + `LSSupportsOpeningDocumentsInPlace` | `InfoPlistOverrides` |
 | `injectsIntoNestedCode` | The same commands in every nested thin image | `SideloadPackageEditor` |
 | `adHoc` | `CS_ADHOC` in the CodeDirectory, no CMS slot | `AdHocSignaturePolicy` |
 | `hardenedRuntime` | `CS_RUNTIME` | `AdHocSignaturePolicy` |
@@ -146,6 +148,27 @@ Injection is refused, not half-done: an image with fewer padding bytes than the
 commands need, a universal binary, a non-64-bit slice, or an image that already
 carries a signature is rejected with the arithmetic (`insufficientHeaderSpace`
 reports required vs available).
+
+### Tweak payloads
+
+A tweak the user staged becomes a file and a load command, in that order. The
+payload is copied to `Frameworks/<name>.dylib` first, then
+`@executable_path/Frameworks/<name>.dylib` is injected like any other library,
+so the signature written afterwards covers both the file and the command that
+names it. The bytes travel with the options (`SideloadStagedTweak`) rather than
+being read by the screen, because the editor runs inside the working copy and
+has no access to the library's storage.
+
+Three refusals keep this honest. A staged name that already exists in
+`Frameworks` with different bytes is refused instead of overwritten — the bundle
+may ship its own library under that name. A payload whose bytes no longer hash
+to the fingerprint recorded at import is refused by
+`TweakLibraryService.stagedTweaks(for:)` rather than signed. And only a
+`.dylib` can be linked by install name: a `.framework` or `.bundle` in the
+selection is refused with its reason, not silently skipped. The staging plan's
+manifest (`.tweaks.json`) is still written beside the signed output as the
+record of what a run staged; it is a companion document, never part of the
+signature.
 
 ### The CodeDirectory version fix
 

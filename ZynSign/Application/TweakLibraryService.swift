@@ -189,6 +189,55 @@ struct TweakLibraryService: Sendable {
         return TweakInjectionPlan.makePlan(selection: selected)
     }
 
+    /// Why a plan cannot travel into a signing run.
+    enum StagingRefusal: Error, Equatable, Hashable, Sendable {
+        /// The record's payload bytes are gone.
+        case payloadMissing(String)
+        /// The stored bytes no longer hash to the fingerprint recorded at
+        /// import time.
+        case fingerprintMismatch(String)
+        /// Only a dynamic library can be linked into an executable by install
+        /// name; anything else stays a library record.
+        case notALibrary(String)
+
+        var message: String {
+            switch self {
+            case .payloadMissing(let name):
+                return "“\(name)” has no payload bytes in the library."
+            case .fingerprintMismatch(let name):
+                return "“\(name)” no longer matches the fingerprint recorded when it was imported."
+            case .notALibrary(let name):
+                return "“\(name)” is not a .dylib, so it cannot be linked into an executable."
+            }
+        }
+    }
+
+    /// The plan's payload bytes, ready to travel with the signing options.
+    ///
+    /// Every entry is re-measured before it travels: a record whose bytes are
+    /// missing, or whose bytes no longer hash to the recorded fingerprint, is
+    /// refused rather than signed. Only dynamic libraries are linked; a
+    /// framework or bundle in the selection is refused with the reason instead
+    /// of being silently skipped.
+    func stagedTweaks(for plan: TweakInjectionPlan) throws -> [SideloadStagedTweak] {
+        var staged: [SideloadStagedTweak] = []
+        staged.reserveCapacity(plan.entries.count)
+        for descriptor in plan.entries {
+            guard descriptor.kind == .dynamicLibrary else {
+                throw StagingRefusal.notALibrary(descriptor.name)
+            }
+            guard let bytes = try payloads.payload(for: descriptor.id) else {
+                throw StagingRefusal.payloadMissing(descriptor.name)
+            }
+            let fingerprint = try digest.digest(bytes, algorithm: .sha256).hexString
+            guard fingerprint == descriptor.sha256Hex else {
+                throw StagingRefusal.fingerprintMismatch(descriptor.name)
+            }
+            staged.append(SideloadStagedTweak(fileName: descriptor.fileName, bytes: bytes))
+        }
+        return staged
+    }
+
     /// Writes the plan's manifest as JSON the caller can attach to a signing
     /// session's output. Returns the serialized bytes.
     func manifestData(for plan: TweakInjectionPlan) throws -> Data {
