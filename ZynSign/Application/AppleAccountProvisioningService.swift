@@ -154,9 +154,9 @@ final class AppleAccountProvisioningService: ObservableObject {
         if let saved = try? Data(contentsOf: settingsURL),
            let dict = try? JSONSerialization.jsonObject(with: saved) as? [String: String],
            let urlStr = dict["anisetteServerURL"], !urlStr.isEmpty {
-            self.anisetteServerURLString = urlStr
+            self._anisetteServerURLString = Published(initialValue: urlStr)
         } else {
-            self.anisetteServerURLString = ""
+            self._anisetteServerURLString = Published(initialValue: "")
         }
     }
 
