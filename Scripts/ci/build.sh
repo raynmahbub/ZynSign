@@ -158,6 +158,10 @@ finish() {
     status=$?
     trap - EXIT
     publish_xctest_summary "${RESULT_BUNDLE:-}" || true
+    # Only sanitized, source-allowlisted identifiers and validated counts are
+    # published; raw xcresulttool data remains in the helper's memory.
+    python3 "${CRYSTAL_DIR}/xctest_results.py" \
+        --bundle "${RESULT_BUNDLE:-}" --output-dir "${BUILD_LOGS_DIR}" || true
     exit "${status}"
 }
 trap finish EXIT
