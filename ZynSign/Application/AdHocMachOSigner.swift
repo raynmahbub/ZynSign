@@ -65,7 +65,7 @@ struct AdHocMachOSigner: Sendable {
 
         let cdRequest = CodeDirectoryConstructionRequest(
             version: .v20200,
-            flags: policy.codeDirectoryFlags,
+            flags: CodeDirectoryFlags(rawValue: policy.codeDirectoryFlags),
             identifier: cdIdentifier,
             teamIdentifier: nil,
             platform: 0,

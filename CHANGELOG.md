@@ -19,7 +19,17 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-30
+
 ### Added
+
+- **Unified Free Apple ID & Paid Certificate Provisioning Hub.** `UnifiedSigningHubView` and `AppleAccountProvisioningService` bring Free Apple ID GSA authentication (`URLSessionAppleDeveloperPortalClient` + `AnisetteHeaderBundle` + 2FA verification + automatic Keychain RSA-2048 CSR generation via `KeychainCSRIdentityProvisioner` and `PKCS10CertificateRequestBuilder`, developer certificate issuance, UDID registration, team-scoped App ID + App Group provisioning, and 7-day profile download) alongside Paid `.p12`/`.pfx`, portable `.zcert` (`ZynCertificateBundle`), bounded `.p12` passphrase recovery, and encrypted DNS (`.mobileconfig`) revocation-shield generation in one workspace.
+
+- **Wire-Free Loopback Installer & Zero-Slot Multi-App Container.** `NetworkDeviceBridgeTransport` + `DeviceBridgeController` + `KeychainPairingRecordStore` stream signed IPAs directly over local `lockdownd` (`127.0.0.1:62078` / local tunnel) via `USBMuxProtocol`, `LockdowndProtocol`, `AFCProtocol`, and `InstallationProxyProtocol` when paired, while `GuestContainerHostService` + `GuestMachOPatcher` + `AdHocMachOSigner` + `PosixGuestRuntimeLoader` stage, ad-hoc sign (`CodeDirectory v0x20200` `CS_ADHOC` SHA-256 + XML slot 5), isolate multi-slot sandbox containers (`GuestDataSlot`), and host unlimited guest `.ipa` apps without consuming Apple's 3-app free-account slot limit.
+
+- **Tweak Studio, `.deb` Extractor, & Signing Compatibility Patchers.** `DebArchiveParser` extracts Debian `2.0` (`ar` + `control.tar` + `data.tar.{gz,xz,lzma}`) packages in memory; `TweakStagingResolver`, `TweakMachOAnalyzer`, and `TweakInspectorViews` provide per-binary `LC_LOAD_DYLIB` / `@rpath` inspection, auto-inject rules, framework/plugin stripper, `Info.plist` & Entitlements structured editors (`SigningPlistEditorsView`), Liquid Glass SDK `26.0` (`LC_BUILD_VERSION` / `UIDesignRequiresCompatibility`) patching (`MachOBinaryPatcher`), authorized binary entitlement merging (`BinaryEntitlementMerger`), and PPQ bundle-identifier protection (`PPQProtectionPolicy`).
+
+- **LAN WebDAV Server, Portable Workspace Sync, & Built-in File Editors.** `LANWebWorkspaceService` + `NetworkLANWebWorkspaceServer` (`WebDAVProtocol` `OPTIONS`/`PROPFIND`/`GET`/`HEAD`/`PUT`/`DELETE`/`MKCOL`/`MOVE` + HTML drag-and-drop UI), `PortableWorkspaceSyncService` (`Documents/ZynSignPortable/`), `FileArchiveTools`, `FileEditorsView` (Property List, Hex Dump, and UTF-8 Text editors), `EncodedCatalogPayloadDecoder`, `DownloadLinkExtractor` + `WebLinkExtractorSheet`, `IncomingURLRouter`, `ZynSignShortcuts`, and `AVAudioBackgroundDownloadKeepAlive` round out the on-device workspace.
 
 - **DER entitlements are read, not just written.** `DEREntitlementsSerializer`
   has always been able to emit Apple's slot-7 form; nothing could read it back,
@@ -96,6 +106,8 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   `docs/architecture/sideloading.md`.
 
 ### Fixed
+
+- **Xcode 26.3, Swift 6 concurrency & test-suite hardening.** Resolved Swift 6 strict-concurrency and Xcode 26.3 SDK issues across `Domain`, `Application`, `Platform`, and `Presentation` (`@MainActor` `ObservableObject` `nonisolated init` backing-storage initialization, `Identifiable` conformances, Domain wrapper conversions, `RootView` navigation routing, `LocalTransferHTTP.Method.isReadOnly`, `SelfUpdateChecker`, `TweakStagingResolver`, `FileArchiveTools`, and explicit PKCS#12 `UTType` identifiers), aligned `SideloadOptionsDraft.allowsTweakCollisionSuffixing` with `SideloadSigningOptions.none`, added compact `bundleID` → `bundleIdentifier` normalization in `EncodedCatalogPayloadDecoder`, routed `SyncPortableWorkspaceIntent` through the live `ApplicationEnvironment`, added Xcode 26.3 `xcresulttool` fallback in `Scripts/ci/annotate_test_failures.sh`, and pruned 775 lines of retired scaffolding.
 
 - **A capacity failure no longer looks like a lint failure.** `Lint and format`
   ran on `macos-15` only to `brew install` SwiftLint and SwiftFormat, and when

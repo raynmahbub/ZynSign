@@ -2,10 +2,12 @@ import Foundation
 
 /// How ZynSign transforms an application's bundle identifier to reduce
 /// server-side PPQ signature correlation against App Store identifiers.
-enum PPQProtectionMode: String, Codable, Equatable, Hashable, Sendable, CaseIterable {
+enum PPQProtectionMode: String, Codable, Equatable, Hashable, Sendable, CaseIterable, Identifiable {
     case disabled
     case suffixToken
     case stealth
+
+    var id: String { rawValue }
 
     var title: String {
         switch self {
@@ -28,10 +30,12 @@ enum PPQProtectionMode: String, Codable, Equatable, Hashable, Sendable, CaseIter
 }
 
 /// Overrides the target app's interface appearance (`UIUserInterfaceStyle`).
-enum AppAppearanceOverride: String, Codable, Equatable, Hashable, Sendable, CaseIterable {
+enum AppAppearanceOverride: String, Codable, Equatable, Hashable, Sendable, CaseIterable, Identifiable {
     case `default`
     case light
     case dark
+
+    var id: String { rawValue }
 
     var title: String {
         switch self {
@@ -51,10 +55,12 @@ enum AppAppearanceOverride: String, Codable, Equatable, Hashable, Sendable, Case
 }
 
 /// Controls iOS 26+ Liquid Glass compatibility patching for a target app.
-enum LiquidGlassPatchMode: String, Codable, Equatable, Hashable, Sendable, CaseIterable {
+enum LiquidGlassPatchMode: String, Codable, Equatable, Hashable, Sendable, CaseIterable, Identifiable {
     case `default`
     case enable
     case disable
+
+    var id: String { rawValue }
 
     var title: String {
         switch self {
@@ -66,17 +72,20 @@ enum LiquidGlassPatchMode: String, Codable, Equatable, Hashable, Sendable, CaseI
 }
 
 /// Base dyld prefix written into injected `LC_LOAD_DYLIB` load commands.
-enum TweakInjectBase: String, Codable, Equatable, Hashable, Sendable, CaseIterable {
+enum TweakInjectBase: String, Codable, Equatable, Hashable, Sendable, CaseIterable, Identifiable {
     case executablePath = "@executable_path"
     case rpath = "@rpath"
 
+    var id: String { rawValue }
     var title: String { rawValue }
 }
 
 /// Destination folder inside the `.app` bundle where staged `.dylib` tweaks land.
-enum TweakInjectFolder: String, Codable, Equatable, Hashable, Sendable, CaseIterable {
+enum TweakInjectFolder: String, Codable, Equatable, Hashable, Sendable, CaseIterable, Identifiable {
     case frameworks = "Frameworks"
     case bundleRoot = "/"
+
+    var id: String { rawValue }
 
     var title: String {
         switch self {

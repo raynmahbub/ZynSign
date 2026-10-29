@@ -121,32 +121,6 @@ private struct ZOptionalElevation: ViewModifier {
     }
 }
 
-private struct ZGlassBarChromeModifier: ViewModifier {
-    @Environment(\.appTheme) private var appTheme
-
-    /// Floating glass chrome for bars the shell draws itself (the tab bar).
-    ///
-    /// On iOS 26 the bar floats as a real glass island; on earlier systems it
-    /// keeps the material + specular treatment as a capsule; with glass off
-    /// it is the classic solid `.bar` background.
-    func body(content: Content) -> some View {
-        if appTheme.liquidGlass {
-            if #available(iOS 26.0, *) {
-                content.glassEffect(.regular, in: Capsule())
-            } else {
-                content
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .overlay {
-                        Capsule().strokeBorder(ZGlass.highlight, lineWidth: 0.75)
-                    }
-            }
-        } else {
-            content
-                .background(.bar, in: Rectangle())
-        }
-    }
-}
-
 private struct ZGlassNavigationChromeModifier: ViewModifier {
     @Environment(\.appTheme) private var appTheme
 
@@ -175,11 +149,6 @@ extension View {
     /// through here so one switch turns them all.
     func zGlassSurface(cornerRadius: CGFloat = ZRadius.card, elevation: Bool = true) -> some View {
         modifier(ZGlassSurfaceModifier(cornerRadius: cornerRadius, elevation: elevation))
-    }
-
-    /// Floating glass chrome for bars the shell draws itself.
-    func zGlassBarChrome() -> some View {
-        modifier(ZGlassBarChromeModifier())
     }
 
     /// Glass navigation chrome for the stacks under the shell.

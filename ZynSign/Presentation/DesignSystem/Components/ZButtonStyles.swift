@@ -67,28 +67,6 @@ struct ZCardPressStyle: ButtonStyle {
     }
 }
 
-/// Destructive action button.
-struct ZDestructiveButtonStyle: ButtonStyle {
-    var isFullWidth: Bool = false
-    var cornerRadius: CGFloat = ZRadius.card
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(Color.red)
-            .padding(.horizontal, ZSpacing.md)
-            .padding(.vertical, ZSpacing.sm)
-            .frame(maxWidth: isFullWidth ? .infinity : nil, minHeight: 44)
-            .background(Color.red.opacity(0.12))
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.75), value: configuration.isPressed)
-            .onChange(of: configuration.isPressed) { _, isPressed in
-                if isPressed { ZHaptics.warning() }
-            }
-    }
-}
-
 /// Large prominent button used for primary calls to action (Onboarding, Signing confirm).
 struct ZLargeProminentButtonStyle: ButtonStyle {
     var tint: Color = .accentColor
@@ -107,19 +85,5 @@ struct ZLargeProminentButtonStyle: ButtonStyle {
             .onChange(of: configuration.isPressed) { _, isPressed in
                 if isPressed { ZHaptics.tap() }
             }
-    }
-}
-
-extension View {
-    func zPrimaryButton(isFullWidth: Bool = false) -> some View {
-        buttonStyle(ZPrimaryButtonStyle(isFullWidth: isFullWidth))
-    }
-
-    func zSecondaryButton(isFullWidth: Bool = false) -> some View {
-        buttonStyle(ZSecondaryButtonStyle(isFullWidth: isFullWidth))
-    }
-
-    func zLargeProminentButton(tint: Color = .accentColor) -> some View {
-        buttonStyle(ZLargeProminentButtonStyle(tint: tint))
     }
 }

@@ -45,7 +45,7 @@ final class DeviceBridgeController: ObservableObject {
         }
     }
 
-    @Published private(set) var pairingRecords: [DevicePairingRecord] = []
+    @Published private(set) var pairingRecords: [DevicePairingRecord]
     @Published private(set) var lastConnectedDevice: PairedDevice?
     @Published private(set) var lastInstallOutcome: DeviceInstallOutcome?
     @Published var tunnelHost: String {
@@ -80,14 +80,14 @@ final class DeviceBridgeController: ObservableObject {
         self.endpointConfig = endpointConfig
         self.isTransportComposed = isTransportComposed
         let snap = endpointConfig.snapshot
-        self.tunnelHost = snap.host
-        self.muxPortText = String(snap.port)
+        self._tunnelHost = Published(initialValue: snap.host)
+        self._muxPortText = Published(initialValue: String(snap.port))
         let service = DeviceBridgeService(
             recordStore: recordStore,
             makeTransport: makeTransport
         )
         self.bridgeService = service
-        self.pairingRecords = (try? service.pairingRecords()) ?? []
+        self._pairingRecords = Published(initialValue: (try? service.pairingRecords()) ?? [])
     }
 
     func reloadRecords() {

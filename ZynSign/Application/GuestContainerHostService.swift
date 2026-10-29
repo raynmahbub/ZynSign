@@ -56,7 +56,7 @@ final class GuestContainerHostService: ObservableObject {
         let requestedAt: Date
     }
 
-    @Published private(set) var hostedGuests: [HostedGuestDescriptor] = []
+    @Published private(set) var hostedGuests: [HostedGuestDescriptor]
     @Published var lastLaunchAttempt: PendingLaunch?
     @Published var statusBanner: String?
 
@@ -87,7 +87,7 @@ final class GuestContainerHostService: ObservableObject {
         self.makeReader = makeReader
         self.makeWriter = makeWriter
         let root = documentsDirectory.appendingPathComponent(GuestContainer.Layout.applications, isDirectory: true)
-        self.hostedGuests = Self.discoverHostedGuests(at: root)
+        self._hostedGuests = Published(initialValue: Self.discoverHostedGuests(at: root))
     }
 
     // MARK: - Discovery & Persistence

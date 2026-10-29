@@ -181,23 +181,6 @@ extension CompositionRoot {
         )
     }
 
-    /// Builds the cryptographic signing use case over the given identity
-    /// store.
-    ///
-    /// The engine is the pure capability engine, and the identity store is
-    /// the ZS-016 boundary that owns the key: the use case resolves the
-    /// capability, the engine asks it for a signature, and only signature
-    /// bytes cross. Nothing built here is installed in the application
-    /// environment — the identity store is not composed into the app until
-    /// its device validation completes, and no interface consumes a
-    /// signature result yet.
-    static func makeCryptographicSigningUseCase(
-        identityStore: any IdentityStore,
-        engine: any CryptographicSigningEngine = CapabilitySigningEngine()
-    ) -> CryptographicSigningUseCase {
-        CryptographicSigningUseCase(identityStore: identityStore, engine: engine)
-    }
-
     /// Builds the digest mechanism for this target.
     ///
     /// CryptoKit's hashing primitives are documented for the deployment
@@ -224,43 +207,10 @@ extension CompositionRoot {
         #endif
     }
 
-    /// Builds the nested code signing use case over the given identity store.
-    ///
-    /// Signs nested Mach-O code in dependency-aware order, using the existing
-    /// single Mach-O signing capability and cryptographic verification abstractions.
-    /// Nothing built here is installed in the application environment, because no
-    /// interface consumes nested signing results yet.
-    static func makeNestedCodeSigningUseCase(
-        identityStore: any IdentityStore,
-        digest: any MessageDigest = makeMessageDigest(),
-        verifier: any CryptographicSignatureVerifier = makeCryptographicSignatureVerifier(),
-        parser: any MachOParsing = ReadOnlyMachOParser(),
-        writer: MachOCodeSignatureWriter = MachOCodeSignatureWriter()
-    ) -> SignNestedCodeUseCase {
-        SignNestedCodeUseCase(
-            identities: identityStore,
-            digest: digest,
-            verifier: verifier,
-            parser: parser,
-            writer: writer
-        )
-    }
-
     /// Selects the concrete archive writer: the deterministic stored-only
     /// ZIP writer. Nothing beneath the composition root names the format.
     static func makeArchiveWriter() -> any ArchiveWriter {
         ZipArchiveWriter()
-    }
-
-    /// Builds the signed-application packaging use case over the selected
-    /// writer and the ordinary archive reader. Nothing built here is
-    /// installed in the application environment — no interface packages a
-    /// signed bundle yet.
-    static func makePackageSignedApplication(
-        writer: any ArchiveWriter = makeArchiveWriter(),
-        limits: ArchiveLimits = .default
-    ) -> PackageSignedApplication {
-        PackageSignedApplication(writer: writer, limits: limits)
     }
 
     /// Builds the signed-application verifier over the ordinary archive

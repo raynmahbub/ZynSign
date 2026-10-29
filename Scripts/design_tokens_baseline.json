@@ -1,8 +1,8 @@
 {
   "colour": 0,
   "radius": 3,
-  "spacing": 40,
-  "font": 10,
+  "spacing": 39,
+  "font": 9,
   "shadow": 0,
   "motion": 1,
   "haptics": 0

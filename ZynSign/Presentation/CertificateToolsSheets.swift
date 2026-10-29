@@ -2,6 +2,20 @@ import SwiftUI
 import UniformTypeIdentifiers
 import UIKit
 
+enum PKCS12PickerTypes {
+    static let allowed: [UTType] = {
+        var types: [UTType] = []
+        for ext in ["p12", "pfx"] {
+            if let ut = UTType(filenameExtension: ext), !types.contains(ut) { types.append(ut) }
+        }
+        for id in ["com.rsa.pkcs-12", "com.microsoft.pkcs12"] {
+            if let ut = UTType(id), !types.contains(ut) { types.append(ut) }
+        }
+        types.append(.data)
+        return types
+    }()
+}
+
 /// Import or create portable `.zcert` identity + profile archives.
 struct ZynIdentityArchiveSheet: View {
     @Environment(\.applicationEnvironment) private var environment
@@ -94,7 +108,7 @@ struct ZynIdentityArchiveSheet: View {
                     Task { await importArchive(from: url) }
                 }
             }
-            .fileImporter(isPresented: $isPickingP12, allowedContentTypes: [.pkcs12, .data]) { result in
+            .fileImporter(isPresented: $isPickingP12, allowedContentTypes: PKCS12PickerTypes.allowed) { result in
                 if case .success(let url) = result {
                     selectedP12URL = url
                 }
@@ -227,7 +241,7 @@ struct P12PasswordRecoverySheet: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .fileImporter(isPresented: $isPickingP12, allowedContentTypes: [.pkcs12, .data]) { result in
+            .fileImporter(isPresented: $isPickingP12, allowedContentTypes: PKCS12PickerTypes.allowed) { result in
                 if case .success(let url) = result {
                     selectedURL = url
                     resultMessage = nil

@@ -1612,9 +1612,19 @@ struct SigningView: View {
         isStagingInContainer = true
         defer { isStagingInContainer = false }
         var tweakURLs: [URL] = []
+        let tempTweakDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("zynsign-container-tweaks-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempTweakDir) }
         if let plan = stagedTweakPlan, let service = env.tweakLibrary,
-           let staged = try? service.prepareFullStagingArtifacts(for: plan) {
-            tweakURLs = staged.dylibs.map(\.fileURL)
+           let staged = try? service.prepareFullStagingArtifacts(for: plan),
+           !staged.dylibs.isEmpty {
+            try? FileManager.default.createDirectory(at: tempTweakDir, withIntermediateDirectories: true)
+            for dylib in staged.dylibs {
+                let dylibURL = tempTweakDir.appendingPathComponent(dylib.fileName)
+                if (try? dylib.bytes.write(to: dylibURL, options: .atomic)) != nil {
+                    tweakURLs.append(dylibURL)
+                }
+            }
         }
         do {
             let guest = try await host.stagePackage(

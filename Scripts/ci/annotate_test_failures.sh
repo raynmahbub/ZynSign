@@ -35,9 +35,13 @@ if [[ -n "${RB}" && -d "${RB}" ]]; then
     TESTS_JSON="${WORKDIR}/tests.json"
     SUMMARY_JSON="${WORKDIR}/summary.json"
     if xcrun xcresulttool get test-results tests \
-            --path "${RB}" --format json >"${TESTS_JSON}" 2>/dev/null; then
+            --path "${RB}" --format json >"${TESTS_JSON}" 2>/dev/null \
+            || xcrun xcresulttool get test-results tests \
+            --path "${RB}" >"${TESTS_JSON}" 2>/dev/null; then
         xcrun xcresulttool get test-results summary \
             --path "${RB}" --format json >"${SUMMARY_JSON}" 2>/dev/null \
+            || xcrun xcresulttool get test-results summary \
+            --path "${RB}" >"${SUMMARY_JSON}" 2>/dev/null \
             || : >"${SUMMARY_JSON}"
         python3 - "${SUMMARY_JSON}" "${TESTS_JSON}" \
             "${GITHUB_STEP_SUMMARY:-}" >>"${ANN_FILE}" <<'PYEOF'

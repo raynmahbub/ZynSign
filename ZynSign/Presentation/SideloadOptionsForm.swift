@@ -50,7 +50,7 @@ struct SideloadOptionsDraft: Equatable {
 
     var tweakInjectBase: TweakInjectBase = .executablePath
     var tweakInjectFolder: TweakInjectFolder = .frameworks
-    var allowsTweakCollisionSuffixing = true
+    var allowsTweakCollisionSuffixing = false
     var replacesSubstrateWithElleKit = false
     var fixesLegacyArm64eSlice = false
 

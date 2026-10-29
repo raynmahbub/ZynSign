@@ -203,8 +203,15 @@ struct RootView: View {
         .onOpenURL { url in acceptIncoming(url) }
         .onReceive(NotificationCenter.default.publisher(for: .zynSignShortcutNavigate)) { note in
             if let target = note.object as? String {
-                if target == "library" { select(.library) }
-                else if target == "downloads" { select(.downloads) }
+                if target == "library" {
+                    selected = .library
+                } else if target == "downloads" {
+                    if visibleTabs.contains(.downloads) { selected = .downloads }
+                } else if target == "sync-portable" {
+                    Task {
+                        _ = try? await environment.portableWorkspaceSync?.exportPortableMirror(environment: environment)
+                    }
+                }
             }
         }
         .onReceive(environment.importHub.$items) { items in
@@ -918,7 +925,9 @@ struct RootView: View {
                 }
             }
         case .exportPublicCertificateSummary?:
-            presentWhenActive(.certificates(nil))
+            signingMaterialsSelection = .certificates
+            signingMaterialsImportURL = nil
+            isShowingSigningMaterials = true
         case .launchGuestContainer(let bundleIdentifier, let slotID)?:
             environment.guestContainerHost?.requestLaunch(bundleIdentifier: bundleIdentifier, slotID: slotID)
             ZHaptics.tap()
