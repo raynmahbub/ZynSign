@@ -282,11 +282,16 @@ extension SideloadSigningOptions {
                 throw SideloadOptionError.emptyTweakPayload(tweak.fileName)
             }
             tweakBytes += tweak.bytes.count
-            // A tweak and a typed library that resolve to the same install name
-            // would emit one load command twice; the load command is keyed by
-            // the name, so the earlier declaration is the one that says it.
-            guard !seen.contains(tweak.installName), seenTweaks.insert(tweak.installName).inserted else {
+            // Two distinct collisions, reported as the two facts they are:
+            // a typed library already claims this install name, or another
+            // staged tweak does. Either way one load command would be emitted
+            // twice, and the load command is keyed by the name, so the earlier
+            // declaration is the one that says it.
+            guard !seen.contains(tweak.installName) else {
                 throw SideloadOptionError.duplicateInstallName(tweak.installName)
+            }
+            guard seenTweaks.insert(tweak.installName).inserted else {
+                throw SideloadOptionError.duplicateTweakFileName(tweak.fileName)
             }
         }
         guard tweakBytes <= Self.maximumStagedTweakBytes else {

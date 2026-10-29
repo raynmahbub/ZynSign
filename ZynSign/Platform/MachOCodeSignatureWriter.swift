@@ -398,12 +398,8 @@ struct MachOCodeSignatureWriter {
               virtualSizeField + fieldWidth <= segment.commandRange.upperBound else {
             throw MachOCodeSignatureRegionError.unsafeLinkEditLayout
         }
-        for other in slice.segments where other.commandRange != segment.commandRange {
-            guard other.virtualMemoryAddress < segment.virtualMemoryAddress
-                    || other.virtualMemoryAddress >= grownEnd else {
-                throw MachOCodeSignatureRegionError.unsafeLinkEditLayout
-            }
-        }
+        try Self.rejectGrownReservationOverlappingOtherSegments(
+            in: slice, growing: segment, toEnd: grownEnd)
         return ValidatedLinkEdit(
             segment: segment,
             wordSize: segment.wordSize,
@@ -411,6 +407,43 @@ struct MachOCodeSignatureWriter {
             newVirtualSize: grown,
             virtualSizeFieldRange: virtualSizeField..<(virtualSizeField + fieldWidth)
         )
+    }
+
+    /// Refuses a grown `__LINKEDIT` reservation that any other segment's
+    /// virtual range intersects.
+    ///
+    /// The grown reservation claims the half-open virtual range
+    /// `[segment.virtualMemoryAddress, grownEnd)`. Another segment conflicts
+    /// when its own virtual range intersects that claim — which is not the same
+    /// question as whether its *start address* falls inside it. A segment
+    /// mapped below `__LINKEDIT` whose reservation reaches past `__LINKEDIT`'s
+    /// address overlaps exactly as much as one that starts inside the grown
+    /// range, and comparing start addresses alone lets the first through while
+    /// the loader ends up with two segments claiming the same pages. Both are
+    /// refused, so the test is a range intersection on both sides.
+    ///
+    /// Two boundaries are handled explicitly. A segment that maps no virtual
+    /// memory claims no address and cannot conflict. A range whose end cannot
+    /// be represented cannot be proven disjoint, so it is refused rather than
+    /// assumed safe — the same fail-closed direction as every other check here.
+    private static func rejectGrownReservationOverlappingOtherSegments(
+        in slice: MachOSlice,
+        growing segment: MachOSegment,
+        toEnd grownEnd: UInt64
+    ) throws {
+        for other in slice.segments where other.commandRange != segment.commandRange {
+            guard other.virtualMemorySize > 0 else { continue }
+            let (otherEnd, otherEndOverflow) = other.virtualMemoryAddress
+                .addingReportingOverflow(other.virtualMemorySize)
+            guard !otherEndOverflow else {
+                throw MachOCodeSignatureRegionError.unsafeLinkEditLayout
+            }
+            let intersectsGrownReservation = other.virtualMemoryAddress < grownEnd
+                && segment.virtualMemoryAddress < otherEnd
+            guard !intersectsGrownReservation else {
+                throw MachOCodeSignatureRegionError.unsafeLinkEditLayout
+            }
+        }
     }
 
     private func validateWrittenOutput(

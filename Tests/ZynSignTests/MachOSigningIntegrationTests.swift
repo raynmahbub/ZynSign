@@ -133,7 +133,14 @@ final class MachOSigningIntegrationTests: XCTestCase {
     func testADynamicLibraryIsAdmittedAndSigned() throws {
         // Frameworks and nested dylibs carry MH_DYLIB; a signer that refused
         // them could never sign a bundle that ships one.
-        let store = try MachOVectorIdentity()
+        //
+        // The identity here is the stub, not `MachOVectorIdentity`: flipping
+        // the filetype byte changes the hashed header page, so the CodeDirectory
+        // and its signed attributes differ from the recorded vector, and a
+        // fixture that replays only that one digest cannot sign this image at
+        // all. Admission is what is under test, so the key operation is stubbed
+        // rather than replayed.
+        let store = try MachOStubIdentity()
         var dylib = MachOSigningFixtures.unsignedMachO
         dylib[12] = 6
         let result = try useCase(store).sign(
@@ -141,6 +148,30 @@ final class MachOSigningIntegrationTests: XCTestCase {
         XCTAssertEqual(store.calls, 1)
         XCTAssertEqual(result.artifact.count,
                        dylib.count + result.layout.prefixPaddingLength + result.layout.size)
+        XCTAssertEqual(result.cryptographicSignature, MachOStubIdentity.signature)
+    }
+
+    func testAnExecutableIsStillRefusedWhenTheKeyOperationFails() throws {
+        // The admission relaxation is about the image's form, not about the key
+        // boundary: a capability whose operation fails is still reported as a
+        // signing failure, never signed around and never substituted.
+        let store = try MachOStubIdentity()
+        store.failSigning = true
+        assertStubFailure(.signingCapabilityFailure, store: store,
+                          request: try signingRequest(identity: store.id))
+    }
+
+    func testADynamicLibraryIsRefusedWhenTheCapabilityCannotSignTheAlgorithm() throws {
+        // Fail-closed key checks survive the wider admission: a capability that
+        // does not hold the requested operation is refused before any bytes are
+        // written, and the private-key boundary is never widened to reach it.
+        let store = try MachOStubIdentity()
+        store.supportedAlgorithms = []
+        var dylib = MachOSigningFixtures.unsignedMachO
+        dylib[12] = 6
+        assertStubFailure(.unsupportedSigningAlgorithm, store: store,
+                          request: try signingRequest(identity: store.id, artifact: dylib))
+        XCTAssertEqual(store.calls, 0)
     }
 
     func testOtherCPUAndEncryptedImagesAreRejected() throws {
@@ -307,6 +338,21 @@ final class MachOSigningIntegrationTests: XCTestCase {
         }
         XCTAssertEqual(store.calls, 0, file: file, line: line)
     }
+
+    private func useCase(_ store: MachOStubIdentity) -> SignMachOUseCase {
+        SignMachOUseCase(identities: store, digest: digest, verifier: MachOStubVerifier())
+    }
+
+    /// The stub counterpart of `assertFailure`. It does not assert on the call
+    /// count: a failure *inside* the key operation is a legitimate outcome and
+    /// reaches the capability once, so each caller states the count it means.
+    private func assertStubFailure(_ expected: MachOSigningError, store: MachOStubIdentity,
+                                   request: MachOSigningRequest,
+                                   file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertThrowsError(try useCase(store).sign(request), file: file, line: line) {
+            XCTAssertEqual($0 as? MachOSigningError, expected, file: file, line: line)
+        }
+    }
 }
 
 func signingRequest(identity: SigningIdentityIdentifier?, artifact: Data = MachOSigningFixtures.unsignedMachO,
@@ -364,6 +410,71 @@ struct MachOVectorVerifier: CryptographicSignatureVerifier {
               certificate.derData == MachOSigningFixtures.certificateDER,
               let digest = try? CryptoKitMessageDigest().digest(bytes, algorithm: .sha256),
               digest.bytes == MachOSigningFixtures.signingDigest else { return .invalid }
+        return .valid
+    }
+}
+
+/// Signs any 32-byte SHA-256 digest with a fixed 256-byte value, and accepts
+/// its own signature on verification.
+///
+/// `MachOVectorIdentity` replays exactly one independently produced digest, the
+/// one recorded for the unmodified `unsignedMachO`. That is the right fixture
+/// for proving the golden bytes round-trip, and the wrong one for proving an
+/// image *form* is admitted: any edit to a hashed page — the filetype byte that
+/// makes an executable a dynamic library among them — changes the CodeDirectory,
+/// so the recorded digest no longer matches and the replay refuses. This stub
+/// removes that coupling without touching the key boundary: it still holds no
+/// private key, still returns only signature bytes, and still fails closed when
+/// asked for an operation it does not hold.
+final class MachOStubIdentity: IdentityStore, SigningCapability {
+
+    /// The length `DetachedCodeSignatureCMS` requires for an RSA-2048 signature.
+    static let signature = Data(repeating: 0x5A, count: 256)
+
+    let id = SigningIdentityIdentifier()
+    var identityID: SigningIdentityIdentifier { id }
+    let certificate: Certificate
+    let publicKeyAlgorithm: PublicKeyAlgorithm = .rsa
+    var isAvailable = true
+    var supportedAlgorithms: Set<SigningAlgorithm> = [.rsaPKCS1SHA256Digest]
+    var failSigning = false
+    private(set) var calls = 0
+
+    init() throws {
+        // The same RSA-2048 certificate as the vector fixture, so the CMS
+        // container's own admission rule is satisfied.
+        let data = MachOSigningFixtures.certificateDER
+        certificate = Certificate(
+            metadata: try AppleCertificateParser().parseCertificate(derData: data),
+            derData: data)
+    }
+
+    func listIdentities() throws -> [SigningIdentity] { [] }
+    func identity(withID id: SigningIdentityIdentifier) throws -> SigningIdentity? { nil }
+    func signingCertificate(for id: SigningIdentityIdentifier) throws -> Certificate { certificate }
+    func signingCapability(for id: SigningIdentityIdentifier) throws -> any SigningCapability { self }
+
+    func sign(data: Data, algorithm: SigningAlgorithm) throws -> Data {
+        calls += 1
+        guard !failSigning else { throw ZynSignError.crypto(.signingFailure) }
+        guard algorithm == .rsaPKCS1SHA256Digest, data.count == 32 else {
+            throw ZynSignError.crypto(.invalidInput)
+        }
+        return Self.signature
+    }
+}
+
+/// Accepts exactly the stub's signature, over the message it is handed, for the
+/// fixture certificate. It asserts no cryptographic property — it exists so
+/// post-sign verification can complete for an image whose digest is not the
+/// recorded golden one.
+struct MachOStubVerifier: CryptographicSignatureVerifier {
+    func verify(signature: Data, message: SigningInput, algorithm: SigningAlgorithm,
+                certificate: Certificate) -> SignatureVerificationOutcome {
+        guard case .message = message,
+              algorithm == .rsaPKCS1SHA256Message,
+              signature == MachOStubIdentity.signature,
+              certificate.derData == MachOSigningFixtures.certificateDER else { return .invalid }
         return .valid
     }
 }
