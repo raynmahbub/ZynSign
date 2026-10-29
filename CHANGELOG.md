@@ -66,6 +66,14 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ### Changed
 
+- **Native XCTest evidence stays downloadable after a pass and after a failure.**
+  The Build and Release macOS jobs upload the `.xcresult` bundle and the test
+  logs as `xctest-results-<run-id>-<attempt>`, kept for 14 days. The job
+  summary records the Xcode version, the simulator destination, and a concise
+  count. DerivedData, signing certificates, private keys, and provisioning
+  profiles are not in that artifact. A missing bundle warns and does not fail
+  the job. See `docs/development/continuous-integration.md`.
+
 - **The sideloading rows are measured, not assumed.** `Settings → Sideloading`
   passed `buildCarriesLocalTunnelEntitlement: false` as a constant, so every
   build said the same thing about the entitlement that decides whether a device

@@ -199,7 +199,7 @@ stopped() {
             title="Release Stopped"
             cause="the \`${job}\` gate failed — nothing was published"
             next="Fix what the \`${job}\` log reports, then tag or dispatch again"
-            evidence="the \`${job}\` job's log and the \`release-assets\` / \`release-build-logs\` artifacts"
+            evidence="the \`${job}\` job's log and the \`release-assets\` / \`xctest-results-${GITHUB_RUN_ID:-<run-id>}-${GITHUB_RUN_ATTEMPT:-<attempt>}\` artifacts"
             ;;
         *)
             # A job that was skipped although everything before it succeeded:
