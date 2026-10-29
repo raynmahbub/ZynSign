@@ -107,9 +107,11 @@ for the ZS-024 format contract, opaque boundary, and remaining validation work.
 The Mach-O code-signature region construction increment establishes the domain
 and infrastructure to frame a serialized SuperBlob into a 16-byte-aligned
 region, compute layout arithmetic, gate load-command capacity, reject existing
-signatures by default, leave replacement and universal binary mutation explicitly
-unsupported, and append the region through a narrow writer that preserves all
-unrelated bytes. It does not invoke private keys, generate CMS, or claim platform
+signatures by default, leave replacement unsupported, and append the region
+through a narrow writer that preserves all unrelated bytes. That writer mutates
+one thin image; universal containers are handled outside it by a split/rebuild
+pair (`MachOUniversalFile`) that the stripper uses to remove signatures from
+every slice of a fat binary and put the table back together. It does not invoke private keys, generate CMS, or claim platform
 acceptance. See [macho-signature-region.md](macho-signature-region.md).
 The signing-metadata increment adds the entitlement, requirements, and
 resource-sealing layer the signing pipeline consumes: a typed entitlement model

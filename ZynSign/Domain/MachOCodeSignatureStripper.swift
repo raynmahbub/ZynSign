@@ -21,14 +21,15 @@ import Foundation
 ///   segment that claims more file than the file has is a structural fault, and
 ///   the loader refuses it before any signature is examined.
 ///
-/// Fat (universal) containers are refused rather than half-handled: this build
-/// signs thin images only, and stripping one slice of a universal file would
-/// silently change what the other slices describe.
+/// Fat (universal) containers are handled by taking them apart: every slice is
+/// stripped as a standalone thin image and the container is rebuilt from the
+/// results, because a universal file is a table of offsets and stripping one
+/// slice in place would leave every later slice pointing at the wrong bytes.
 struct MachOCodeSignatureStripper {
 
     /// A strip that cannot be performed on these bytes.
     enum Failure: Error, Equatable {
-        /// A universal (fat) container, or a byte order this build does not read.
+        /// Not a Mach-O image or a fat container in a byte order this build reads.
         case unsupportedForm
         /// A header or load-command table that does not describe a Mach-O image.
         case malformedImage
@@ -52,6 +53,11 @@ struct MachOCodeSignatureStripper {
     static func stripSignature(from image: Data) throws -> Data {
         guard !image.isEmpty else { throw Failure.malformedImage }
         guard image.count <= maximumImageByteCount else { throw Failure.resultingImageTooLarge }
+        // A fat container is a table of slices, not an image: strip each slice
+        // as its own file, then rebuild the table around the new sizes.
+        if isUniversalContainer(image) {
+            return try stripUniversalContainer(image)
+        }
         var bytes = [UInt8](image)
 
         let magic = readUInt32(bytes, at: 0)
@@ -153,24 +159,136 @@ struct MachOCodeSignatureStripper {
         return Data(bytes)
     }
 
-    /// Whether these bytes carry a code-signature command. Cheap enough to call
-    /// on every file in a bundle before deciding to strip.
+    /// Whether these bytes are a fat container.
+    ///
+    /// `readUInt32` here is little-endian and the fat magic is written
+    /// big-endian, so a container spells its magic byte-swapped when read this
+    /// way. A table written in the other order names no format this build
+    /// reads, and is left to the unsupported-form refusal.
+    private static func isUniversalContainer(_ image: Data) -> Bool {
+        isUniversalMagic([UInt8](image.prefix(4)))
+    }
+
+    private static func isUniversalMagic(_ magicBytes: [UInt8]) -> Bool {
+        guard magicBytes.count == 4 else { return false }
+        let magic = readUInt32(magicBytes, at: 0)
+        return magic == MachOUniversalMagic.fat32.rawValue.byteSwapped
+            || magic == MachOUniversalMagic.fat64.rawValue.byteSwapped
+    }
+
+    /// The declared slice ranges of a canonical fat container, or `nil` when
+    /// these bytes are not one. Table fields are big-endian.
+    private static func universalSliceRanges(_ bytes: [UInt8]) -> [Range<Int>]? {
+        guard bytes.count >= 8, isUniversalMagic(Array(bytes.prefix(4))) else { return nil }
+        let magic = readUInt32(Array(bytes.prefix(4)), at: 0)
+        let wide = magic == MachOUniversalMagic.fat64.rawValue.byteSwapped
+        let count = Int(readBigEndianUInt32(bytes, at: 4))
+        let recordWidth = wide ? 32 : 20
+        guard count > 0, count <= MachOUniversalFile.maximumSliceCount,
+              8 + count * recordWidth <= bytes.count else { return nil }
+        var ranges: [Range<Int>] = []
+        ranges.reserveCapacity(count)
+        for index in 0..<count {
+            let record = 8 + index * recordWidth
+            let offset: Int
+            let size: Int
+            if wide {
+                offset = Int(clamping: readBigEndianUInt64(bytes, at: record + 8))
+                size = Int(clamping: readBigEndianUInt64(bytes, at: record + 16))
+            } else {
+                offset = Int(readBigEndianUInt32(bytes, at: record + 8))
+                size = Int(readBigEndianUInt32(bytes, at: record + 12))
+            }
+            guard size > 0, offset >= 8 + count * recordWidth,
+                  size <= bytes.count - offset else { return nil }
+            ranges.append(offset..<(offset + size))
+        }
+        return ranges
+    }
+
+    private static func readBigEndianUInt32(_ bytes: [UInt8], at offset: Int) -> UInt32 {
+        guard offset >= 0, offset + 4 <= bytes.count else { return 0 }
+        return UInt32(bytes[offset]) << 24 | UInt32(bytes[offset + 1]) << 16
+            | UInt32(bytes[offset + 2]) << 8 | UInt32(bytes[offset + 3])
+    }
+
+    private static func readBigEndianUInt64(_ bytes: [UInt8], at offset: Int) -> UInt64 {
+        guard offset >= 0, offset + 8 <= bytes.count else { return 0 }
+        var value: UInt64 = 0
+        for index in 0..<8 { value = value << 8 | UInt64(bytes[offset + index]) }
+        return value
+    }
+
+    /// Strips every slice of a universal container and rebuilds the table.
+    ///
+    /// A slice that carries no signature is left exactly as it was, so the
+    /// rebuilt container is byte-identical for it. A container that cannot be
+    /// taken apart is refused with the reason the split gave, rather than
+    /// half-stripped.
+    private static func stripUniversalContainer(_ image: Data) throws -> Data {
+        let container: MachOUniversalFile
+        do {
+            container = try MachOUniversalFile.split(image)
+        } catch let error as MachOUniversalFile.Failure {
+            switch error {
+            case .resourceLimitExceeded:
+                throw Failure.resultingImageTooLarge
+            default:
+                throw Failure.malformedImage
+            }
+        } catch {
+            throw Failure.malformedImage
+        }
+        var stripped = container
+        do {
+            for slice in container.slices {
+                let bytes = try stripSignature(from: slice.bytes)
+                stripped = try stripped.replacingSlice(for: slice.architectureKey, with: bytes)
+            }
+            return try stripped.rebuild()
+        } catch let error as Failure {
+            throw error
+        } catch let error as MachOUniversalFile.Failure {
+            switch error {
+            case .resourceLimitExceeded, .offsetOverflow:
+                throw Failure.resultingImageTooLarge
+            default:
+                throw Failure.malformedImage
+            }
+        } catch {
+            throw Failure.malformedImage
+        }
+    }
+
+    /// Whether these bytes carry a code-signature command, in the image itself
+    /// or in any slice of a universal container. Cheap enough to call on every
+    /// file in a bundle before deciding to strip.
     static func carriesSignature(_ image: Data) -> Bool {
         guard image.count >= 32 else { return false }
         let bytes = [UInt8](image)
-        let magic = readUInt32(bytes, at: 0)
+        if let ranges = universalSliceRanges(bytes) {
+            return ranges.contains { carriesSignature(bytes, in: $0) }
+        }
+        return carriesSignature(bytes, in: 0..<bytes.count)
+    }
+
+    /// The command table of one image, read at the slice's own start.
+    private static func carriesSignature(_ bytes: [UInt8], in range: Range<Int>) -> Bool {
+        let start = range.lowerBound
+        guard range.count >= 32 else { return false }
+        let magic = readUInt32(bytes, at: start)
         let headerSize: Int
         switch magic {
         case MachOHeaderMagic.mach64.rawValue: headerSize = 32
         case MachOHeaderMagic.mach32.rawValue: headerSize = 28
         default: return false
         }
-        guard bytes.count >= headerSize + 8 else { return false }
-        let commandCount = Int(readUInt32(bytes, at: 16))
-        let commandBytes = Int(readUInt32(bytes, at: 20))
-        guard headerSize + commandBytes <= image.count else { return false }
-        var cursor = headerSize
-        let end = headerSize + commandBytes
+        guard start + headerSize + 8 <= range.upperBound else { return false }
+        let commandCount = Int(readUInt32(bytes, at: start + 16))
+        let commandBytes = Int(readUInt32(bytes, at: start + 20))
+        guard headerSize + commandBytes <= range.count else { return false }
+        var cursor = start + headerSize
+        let end = start + headerSize + commandBytes
         for _ in 0..<commandCount {
             guard cursor + 8 <= end else { return false }
             let command = readUInt32(bytes, at: cursor)
