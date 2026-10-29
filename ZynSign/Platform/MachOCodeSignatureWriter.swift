@@ -40,6 +40,17 @@ struct MachOCodeSignatureWriter {
     /// instead of allowing a hostile request to force an uncontrolled copy.
     static let maximumResultingFileBytes = 512 * 1_024 * 1_024
 
+    /// The granularity a `__LINKEDIT` reservation grows by: the arm64 mapping
+    /// page. A grown size that is not a whole page would describe a mapping the
+    /// loader cannot make.
+    static let virtualMemoryPageBytes: UInt64 = 16 * 1_024
+
+    private static func roundUpToPage(_ value: UInt64) -> UInt64 {
+        guard value > 0 else { return virtualMemoryPageBytes }
+        return (value + virtualMemoryPageBytes - 1) / virtualMemoryPageBytes
+            * virtualMemoryPageBytes
+    }
+
     private let parser: any MachOParsing
 
     init(parser: any MachOParsing = ReadOnlyMachOParser()) {
@@ -97,13 +108,19 @@ struct MachOCodeSignatureWriter {
             linkEdit: linkEdit,
             updatedFields: updatedFields
         )
-        let modifiedRanges = [
+        var modifiedRanges = [
             16..<20,
             20..<24,
             slice.loadCommandsEndOffset..<requiredCommandEnd,
-            linkEdit.segment.fileSizeFieldRange,
-            bytes.count..<appendLayout.layout.resultingFileLength
+            linkEdit.segment.fileSizeFieldRange
         ]
+        // The reservation is written only when the existing one cannot hold the
+        // appended region; a segment already sized for it is left untouched.
+        if let range = linkEdit.virtualSizeFieldRange {
+            modifiedRanges.append(range)
+        }
+        modifiedRanges.append(bytes.count..<appendLayout.layout.resultingFileLength)
+        modifiedRanges.sort { $0.lowerBound < $1.lowerBound }
         return MachOCodeSignaturePreparation(
             prefix: prefix,
             layout: appendLayout.layout,
@@ -217,6 +234,7 @@ struct MachOCodeSignatureWriter {
         }
         try writeLoadCommandFields(updatedFields, at: slice.loadCommandsEndOffset, fields: fields, order: slice.header.byteOrder, into: &output)
         try writeLinkEditFileSize(linkEdit, order: slice.header.byteOrder, into: &output)
+        try writeLinkEditVirtualSize(linkEdit, order: slice.header.byteOrder, into: &output)
         guard requiredCommandEnd <= output.count else {
             throw MachOCodeSignatureRegionError.inconsistentMutation
         }
@@ -236,6 +254,26 @@ struct MachOCodeSignatureWriter {
         try replaceUInt32(16, at: commandOffset + 4, order: order, in: &output)
         try replaceUInt32(fields.dataOffset, at: commandOffset + 8, order: order, in: &output)
         try replaceUInt32(fields.dataSize, at: commandOffset + 12, order: order, in: &output)
+    }
+
+    /// Writes the grown reservation, or nothing when the segment already had
+    /// room for the region.
+    private func writeLinkEditVirtualSize(
+        _ linkEdit: ValidatedLinkEdit,
+        order: MachOByteOrder,
+        into output: inout Data
+    ) throws {
+        guard let newVirtualSize = linkEdit.newVirtualSize,
+              let range = linkEdit.virtualSizeFieldRange else { return }
+        switch linkEdit.wordSize {
+        case .bits32:
+            guard let value = UInt32(exactly: newVirtualSize) else {
+                throw MachOCodeSignatureRegionError.unsafeLinkEditLayout
+            }
+            try replaceUInt32(value, at: range.lowerBound, order: order, in: &output)
+        case .bits64:
+            try replaceUInt64(newVirtualSize, at: range.lowerBound, order: order, in: &output)
+        }
     }
 
     private func writeLinkEditFileSize(
@@ -297,6 +335,11 @@ struct MachOCodeSignatureWriter {
         let segment: MachOSegment
         let wordSize: MachOWordSize
         let newFileSize: Int
+        /// The grown virtual size, when the existing reservation is too small.
+        let newVirtualSize: UInt64?
+        /// Absolute location of the segment command's `vmsize` field, present
+        /// only when `newVirtualSize` is.
+        let virtualSizeFieldRange: Range<Int>?
     }
 
     /// No segment is relocated or resized in virtual memory. The narrow writer
@@ -330,13 +373,43 @@ struct MachOCodeSignatureWriter {
             throw MachOCodeSignatureRegionError.unsafeLinkEditLayout
         }
         let newFileSize = resultingFileLength - fileOffset
-        guard UInt64(newFileSize) <= segment.virtualMemorySize else {
+        let requiredVirtualSize = UInt64(newFileSize)
+        let virtualSizeField = segment.commandRange.lowerBound
+            + (segment.wordSize == .bits64 ? 32 : 28)
+        if requiredVirtualSize <= segment.virtualMemorySize {
+            return ValidatedLinkEdit(
+                segment: segment,
+                wordSize: segment.wordSize,
+                newFileSize: newFileSize,
+                newVirtualSize: nil,
+                virtualSizeFieldRange: nil
+            )
+        }
+        // The reservation cannot hold the appended region, so it grows by whole
+        // pages — the same granularity the loader maps the segment in. Growing
+        // it is only safe while no other segment is mapped inside the space it
+        // would claim.
+        let grown = Self.roundUpToPage(requiredVirtualSize)
+        let (grownEnd, grownOverflow) = segment.virtualMemoryAddress
+            .addingReportingOverflow(grown)
+        let fieldWidth = segment.wordSize == .bits64 ? 8 : 4
+        guard !grownOverflow,
+              grown >= requiredVirtualSize,
+              virtualSizeField + fieldWidth <= segment.commandRange.upperBound else {
             throw MachOCodeSignatureRegionError.unsafeLinkEditLayout
+        }
+        for other in slice.segments where other.commandRange != segment.commandRange {
+            guard other.virtualMemoryAddress < segment.virtualMemoryAddress
+                    || other.virtualMemoryAddress >= grownEnd else {
+                throw MachOCodeSignatureRegionError.unsafeLinkEditLayout
+            }
         }
         return ValidatedLinkEdit(
             segment: segment,
             wordSize: segment.wordSize,
-            newFileSize: newFileSize
+            newFileSize: newFileSize,
+            newVirtualSize: grown,
+            virtualSizeFieldRange: virtualSizeField..<(virtualSizeField + fieldWidth)
         )
     }
 
@@ -355,6 +428,10 @@ struct MachOCodeSignatureWriter {
             throw MachOCodeSignatureRegionError.inconsistentMutation
         }
         guard case .thin(let slice) = image.container,
+              let linkEdit = slice.segments.first(where: \.isLinkEdit),
+              linkEdit.fileOffset <= UInt64(bytes.count),
+              linkEdit.fileSize == UInt64(bytes.count) - linkEdit.fileOffset,
+              linkEdit.virtualMemorySize >= linkEdit.fileSize,
               let signature = slice.embeddedSignature,
               signature.command.dataOffset == Int(expectedFields.dataOffset),
               signature.command.dataSize == Int(expectedFields.dataSize),

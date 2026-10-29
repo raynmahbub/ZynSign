@@ -46,33 +46,32 @@ identifier, team identifier, version, flags, hash configuration, page size,
 code limit, platform field, and special slots. There are no hidden profile or
 bundle defaults and no raw private-key input.
 
-Initial admitted model:
+Admitted model:
 
-- One thin little-endian arm64 image, subtype zero, `MH_EXECUTE`, Mach-O flags
-  `0x20`, reserved header word zero.
-- Exactly two segment64 load commands: `__TEXT` then `__LINKEDIT`.
-- Text begins at file offset zero, ends where linkedit starts at a 4096-byte
-  boundary, and has exactly one nonempty `__text` section. Its file/VM mapping
-  must agree, its offset is four-byte aligned (alignment exponent two), it
-  covers the rest of text, and its flags are `0x80000400`. Relocations and
-  reserved section fields must be zero. It establishes header padding capacity.
-- Segment maximum protection is seven; initial protection is five for text and
-  one for linkedit; segment flags are zero. VM addresses are 4096-byte aligned.
-- Linkedit has no sections and ends at the input file end. Its existing virtual
-  reservation must fit the result. Text and linkedit virtual ranges must not
-  overlap or overflow. ZS-025 checks zero header slack and all mutation bounds.
-- One primary version `0x20200` CodeDirectory; full SHA-256, 4096-byte pages,
-  zero code-signing flags/platform, optional explicit team, empty special slots.
+- One thin little-endian 64-bit arm64 image of type `MH_EXECUTE` or `MH_DYLIB`.
+  The subtype is not restricted: `arm64` and `arm64e` are both arm64 images.
+- No existing signature (the strip removes one first; an explicit replacement
+  request is still refused).
+- No `LC_ENCRYPTION_INFO` or `LC_ENCRYPTION_INFO_64`: a signature over a
+  rewrite-at-load ciphertext would describe bytes the device never executes.
+- Exactly one `__LINKEDIT` segment. ZS-025 re-checks everything the append
+  actually needs: zero bytes in the sixteen-byte command slot,
+  `__LINKEDIT` file range ending at the file end, a file-backed content
+  boundary after the command area, and a virtual reservation that either
+  already fits the result or can grow by whole 16 KiB pages without another
+  segment mapped inside the space it claims.
+- One CodeDirectory; full SHA-256, 4096-byte pages, zero code-signing
+  flags/platform, optional explicit team, metadata-derived special slots.
 - RSA-2048 with PKCS#1 v1.5 SHA-256 digest signing; exactly one attempted private
   operation, never retries or algorithm fallback.
 
-This intentionally synthetic executable model does not establish executable
-behavior. Unsupported forms include universal containers, 32-bit/big-endian
-images, other CPUs/subtypes, dylibs, other segment/load-command layouts,
-encryption commands, alternate CodeDirectories, other hashes/key sizes,
-ECDSA, nonempty special slots, and nonzero code-signing flags. No framework,
-extension, nested-bundle, IPA, or installation orchestration is present. A
-bundle role cannot be inferred from an isolated image's Mach-O file type.
+Admission describes forms this build signs; it is not a byte-layout pin, and it
+is not a guarantee that a later signing step succeeds — the writer re-checks
+its own preconditions and refuses before a key is used. Universal containers
+are refused by this single-image signer: a container is a table of images, so
+signing one means signing each slice and rebuilding the table.
+32-bit images, big-endian images, other CPUs, alternate CodeDirectories, other
+hashes and key sizes, ECDSA, and nonzero code-signing flags remain unsupported.
 Existing signatures are rejected; replacement is explicitly unsupported.
 
 ## Layout, code limit, and page hashes
@@ -125,8 +124,8 @@ emitted. This is standard CMS inside the established Apple wrapper, not a
 custom opaque signature format.
 
 The existing Mach-O parser also retains section and segment mapping/protection
-metadata so admission rejects unmodeled relocations and ambiguous file/VM
-mappings without creating another parser.
+metadata, so the writer and the inspectors reuse one parser instead of creating
+a second.
 
 The existing certificate parser now preserves original issuer and serial DER
 for CMS, and the existing CMS reader preserves issuer DER for comparison. No

@@ -376,12 +376,49 @@ final class MachOCodeSignatureRegionTests: XCTestCase {
             )
         }
 
-        let noVirtualSlack = Data(MachOFixtures.appendableThin(virtualMemorySize: 32))
+    }
+
+    func testAReservationTooSmallForTheRegionGrowsByWholePages() throws {
+        // A stripped binary often ends exactly where `__LINKEDIT` ends, with no
+        // virtual slack left for a signature. The reservation grows instead of
+        // refusing, because `__LINKEDIT` is last and nothing else is mapped in
+        // the space it claims.
+        let source = Data(MachOFixtures.appendableThin(virtualMemorySize: 32))
+        let result = try MachOCodeSignatureWriter().append(
+            try region(),
+            to: source,
+            signedCodeLimit: UInt64(source.count)
+        )
+        let virtualSize = readUInt64(result.bytes, at: 64, order: .littleEndian)
+        let fileSize = readUInt64(result.bytes, at: 80, order: .littleEndian)
+        XCTAssertEqual(virtualSize % MachOCodeSignatureWriter.virtualMemoryPageBytes, 0)
+        XCTAssertGreaterThanOrEqual(virtualSize, fileSize)
+        XCTAssertGreaterThanOrEqual(virtualSize, UInt64(result.layout.resultingFileLength) - 128)
+        XCTAssertTrue(result.modifiedByteRanges.contains(64..<72))
+        assertPreservedOutside(source, in: result.bytes, allowedRanges: result.modifiedByteRanges)
+    }
+
+    func testGrowingTheReservationIsRefusedWhenAnotherSegmentIsMappedInsideIt() throws {
+        // `__DATA` sits 8 KiB above `__LINKEDIT`'s address: inside the page-
+        // aligned space the grown reservation would claim.
+        var data = MachOFixtures.segment64(
+            name: "__DATA", fileOffset: 0, fileSize: 0, virtualMemorySize: 4_096
+        )
+        MachOFixtures.put(8_192, width: 8, at: 24, in: &data)
+        let linkEdit = MachOFixtures.segment64(
+            fileOffset: 200, fileSize: 32, virtualMemorySize: 32
+        )
+        let image = Data(MachOFixtures.thin(
+            commands: [linkEdit, data],
+            headerPadding: Array(repeating: 0, count: 24),
+            payload: Array(repeating: UInt8(0xA5), count: 32)
+        ))
+        XCTAssertEqual(image.count, 232)
         assertRegionError(.unsafeLinkEditLayout) {
             _ = try MachOCodeSignatureWriter().append(
                 try self.region(),
-                to: noVirtualSlack,
-                signedCodeLimit: UInt64(noVirtualSlack.count)
+                to: image,
+                signedCodeLimit: UInt64(image.count)
             )
         }
     }

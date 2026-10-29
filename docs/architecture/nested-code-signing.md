@@ -80,9 +80,15 @@ The nested signing pipeline consists of:
 ## Supported scope and existing signature policy
 
 Admitted nested targets:
-- Thin little-endian arm64 Mach-O images.
+- Thin little-endian 64-bit arm64 Mach-O images, of executable or dynamic
+  library type.
 - Code kinds: `.framework`, `.dynamicLibrary`, `.applicationExtension`.
-- Unsigned binaries with valid two-segment layouts (`__TEXT` and `__LINKEDIT`).
+- Unsigned binaries that carry exactly one `__LINKEDIT` segment whose file
+  range ends at the end of the file, with sixteen zero bytes after the load
+  commands and virtual-memory room (or room to grow one page-aligned
+  reservation) for the signature region.
+- Encrypted images (`LC_ENCRYPTION_INFO`, `LC_ENCRYPTION_INFO_64`) are refused:
+  the signature would describe ciphertext the device rewrites at load time.
 
 Existing signature handling:
 - **Unsigned:** signed via append mutation.
