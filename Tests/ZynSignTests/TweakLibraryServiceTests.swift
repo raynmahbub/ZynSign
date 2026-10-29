@@ -143,4 +143,64 @@ final class TweakLibraryServiceTests: XCTestCase {
         XCTAssertEqual(TweakLibraryService.displayName(forFileName: "noextension"), "noextension")
         XCTAssertEqual(TweakLibraryService.displayName(forFileName: ""), "Tweak")
     }
+
+    // MARK: - Staging into a signing run
+
+    func testStagedTweaksCarryTheRecordedBytesAndAnInstallName() throws {
+        digest.preparedDigest = preparedDigest()
+        guard case .success(let outcome) = try service.importPayload(Data([7, 7, 7]), fileName: "Loader.dylib") else {
+            return XCTFail("Import must succeed.")
+        }
+        guard case .success(let plan) = try service.makePlan(selectionIDs: [outcome.descriptor.id]) else {
+            return XCTFail("A single selection must plan.")
+        }
+        let staged = try service.stagedTweaks(for: plan)
+        XCTAssertEqual(staged.count, 1)
+        XCTAssertEqual(staged.first?.fileName, "Loader.dylib")
+        XCTAssertEqual(staged.first?.bytes, Data([7, 7, 7]))
+        XCTAssertEqual(staged.first?.installName, "@executable_path/Frameworks/Loader.dylib")
+    }
+
+    func testStagedTweaksRefuseAPayloadThatIsNotADylib() throws {
+        digest.preparedDigest = preparedDigest()
+        guard case .success(let outcome) = try service.importPayload(Data([1]), fileName: "Theme.bundle") else {
+            return XCTFail("Import must succeed.")
+        }
+        guard case .success(let plan) = try service.makePlan(selectionIDs: [outcome.descriptor.id]) else {
+            return XCTFail("A single selection must plan.")
+        }
+        XCTAssertThrowsError(try service.stagedTweaks(for: plan)) { error in
+            XCTAssertEqual(error as? TweakLibraryService.StagingRefusal, .notALibrary("Theme"))
+        }
+    }
+
+    func testStagedTweaksRefuseBytesThatNoLongerMatchTheFingerprint() throws {
+        digest.preparedDigest = preparedDigest()
+        guard case .success(let outcome) = try service.importPayload(Data([2, 3]), fileName: "Loader.dylib") else {
+            return XCTFail("Import must succeed.")
+        }
+        guard case .success(let plan) = try service.makePlan(selectionIDs: [outcome.descriptor.id]) else {
+            return XCTFail("A single selection must plan.")
+        }
+        // The stored bytes are replaced behind the record's back.
+        try store.store(Data([9, 9]), id: outcome.descriptor.id)
+        digest.preparedDigest = preparedDigest()
+        XCTAssertThrowsError(try service.stagedTweaks(for: plan)) { error in
+            XCTAssertEqual(error as? TweakLibraryService.StagingRefusal, .fingerprintMismatch("Loader"))
+        }
+    }
+
+    func testStagedTweaksRefuseAQueryWhosePayloadIsGone() throws {
+        digest.preparedDigest = preparedDigest()
+        guard case .success(let outcome) = try service.importPayload(Data([4]), fileName: "Loader.dylib") else {
+            return XCTFail("Import must succeed.")
+        }
+        guard case .success(let plan) = try service.makePlan(selectionIDs: [outcome.descriptor.id]) else {
+            return XCTFail("A single selection must plan.")
+        }
+        try store.removePayload(id: outcome.descriptor.id)
+        XCTAssertThrowsError(try service.stagedTweaks(for: plan)) { error in
+            XCTAssertEqual(error as? TweakLibraryService.StagingRefusal, .payloadMissing("Loader"))
+        }
+    }
 }

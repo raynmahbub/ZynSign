@@ -5,19 +5,21 @@ struct SideloadEditReport: Equatable, Sendable {
     var removedPaths: [String] = []
     var rewrittenInfoPlists: [String] = []
     var injectedLibraries: [String] = []
+    var stagedTweaks: [String] = []
     var patchedBinaries: [String] = []
     var rewrittenExecutableNames: [String] = []
 
     var isEmpty: Bool {
         removedPaths.isEmpty && rewrittenInfoPlists.isEmpty
-            && injectedLibraries.isEmpty && patchedBinaries.isEmpty
-            && rewrittenExecutableNames.isEmpty
+            && injectedLibraries.isEmpty && stagedTweaks.isEmpty
+            && patchedBinaries.isEmpty && rewrittenExecutableNames.isEmpty
     }
 
     var summary: String {
         var parts: [String] = []
         if !removedPaths.isEmpty { parts.append("removed \(removedPaths.count)") }
         if !rewrittenInfoPlists.isEmpty { parts.append("rewrote \(rewrittenInfoPlists.count) Info.plist") }
+        if !stagedTweaks.isEmpty { parts.append("staged \(stagedTweaks.count) tweaks") }
         if !injectedLibraries.isEmpty { parts.append("injected \(injectedLibraries.count)") }
         if !patchedBinaries.isEmpty { parts.append("patched \(patchedBinaries.count)") }
         return parts.isEmpty ? "No package edits." : "Package edits: " + parts.joined(separator: ", ") + "."
@@ -33,6 +35,7 @@ enum SideloadEditError: Error, Equatable, Hashable, Sendable {
     case imageAlreadySigned(String)
     case injectionRefused(String, DylibInjectionError)
     case unsupportedImage(String)
+    case tweakNameConflict(String)
 
     var message: String {
         switch self {
@@ -50,6 +53,8 @@ enum SideloadEditError: Error, Equatable, Hashable, Sendable {
             return "\(path): \(error.message)"
         case .unsupportedImage(let path):
             return "\(path) is not a thin little-endian Mach-O image this app can edit."
+        case .tweakNameConflict(let name):
+            return "\(name) already exists in Frameworks with different bytes; rename or remove the staged tweak."
         }
     }
 }
@@ -119,9 +124,20 @@ struct SideloadPackageEditor {
                                             report: &report)
         }
 
-        // 3. Injection into the main executable, and into nested code when
-        //    the user asked for it.
-        if !options.injectedLibraries.isEmpty {
+        // 3. Tweak payloads, before any load command names them: the files must
+        //    exist inside the bundle before the executables that load them are
+        //    written, so the signature that follows covers both.
+        if !options.tweaks.isEmpty {
+            try stageTweaks(in: bundleDirectory, report: &report)
+        }
+
+        // 4. Injection into the main executable, and into nested code when
+        //    the user asked for it. A staged tweak is a library like any other
+        //    from here on: same load command, same refusal when the header has
+        //    no room.
+        let libraries = options.injectedLibraries
+            + options.tweaks.map { InjectedLibrary(installName: $0.installName) }
+        if !libraries.isEmpty {
             guard let executableName = original["CFBundleExecutable"] as? String else {
                 throw SideloadEditError.unreadableInfoPlist("Info.plist has no CFBundleExecutable")
             }
@@ -129,18 +145,53 @@ struct SideloadPackageEditor {
             guard fileManager.fileExists(atPath: executable.path) else {
                 throw SideloadEditError.executableMissing(executableName)
             }
-            try inject(options.injectedLibraries, into: executable)
+            try inject(libraries, into: executable)
             report.patchedBinaries.append(executableName)
             if options.injectsIntoNestedCode {
                 for candidate in try nestedBinaries(in: bundleDirectory) {
-                    try inject(options.injectedLibraries, into: candidate)
+                    try inject(libraries, into: candidate)
                     report.patchedBinaries.append(candidate.lastPathComponent)
                 }
             }
-            report.injectedLibraries = options.injectedLibraries.map(\.installName)
+            report.injectedLibraries = libraries.map(\.installName)
         }
 
         return report
+    }
+
+    // MARK: - Staged tweaks
+
+    /// Copies every staged payload into `Frameworks`.
+    ///
+    /// A name that already exists with the same bytes is not an error — the
+    /// file a tweak needs is already there — but a name that exists with
+    /// different bytes is refused rather than overwritten: the bundle may ship
+    /// its own library under that name, and silently replacing it would change
+    /// code the user never selected.
+    private func stageTweaks(in bundleDirectory: URL, report: inout SideloadEditReport) throws {
+        let fileManager = FileManager.default
+        let frameworks = bundleDirectory.appendingPathComponent("Frameworks", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: frameworks, withIntermediateDirectories: true)
+        } catch {
+            throw SideloadEditError.unwritableFile("Frameworks")
+        }
+        for tweak in options.tweaks {
+            let destination = frameworks.appendingPathComponent(tweak.fileName)
+            if let existing = try? Data(contentsOf: destination) {
+                guard existing == tweak.bytes else {
+                    throw SideloadEditError.tweakNameConflict(tweak.fileName)
+                }
+                report.stagedTweaks.append(tweak.fileName)
+                continue
+            }
+            do {
+                try tweak.bytes.write(to: destination, options: .atomic)
+            } catch {
+                throw SideloadEditError.unwritableFile(tweak.fileName)
+            }
+            report.stagedTweaks.append(tweak.fileName)
+        }
     }
 
     // MARK: - Binaries

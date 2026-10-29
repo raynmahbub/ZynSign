@@ -1307,12 +1307,21 @@ struct SigningView: View {
             entry: entry, identity: selectedIdentity, profile: profile, startedAt: Date()
         )
         let history = env.signingHistory
+        // The staged tweaks travel with the options, not beside them: the
+        // payloads have to be inside the working copy before the executable
+        // that loads them is signed. A run whose tweaks cannot be re-measured
+        // is refused by the library rather than signed without them.
+        var options = sideloadDraft.options
+        if let plan = stagedTweakPlan, let service = env.tweakLibrary,
+           let staged = try? service.stagedTweaks(for: plan) {
+            options.tweaks = staged
+        }
         model.run(
             SigningEngineModel.makeRequest(
                 entry: entry, sourceURL: sourceURL, profile: profile,
                 identityID: identityID, entitlements: entitlements,
                 emitDEREntitlements: requestedKey.emitDER,
-                sideload: sideloadDraft.options,
+                sideload: options,
                 replacesExistingSignatures: replacesExistingSignatures
             ),
             environment: env,
