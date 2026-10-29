@@ -63,6 +63,63 @@ class XCTestResultsTests(unittest.TestCase):
         self.assertNotIn("testSecret", json.dumps(report))
         self.assertNotIn("secret", evidence.markdown(report).lower().replace("source", ""))
 
+    def test_markdown_complete_at_exact_byte_limit(self):
+        report = evidence.create_report({}, {}, set())
+        complete = evidence.markdown(report)
+        result = evidence.markdown(report, max_bytes=len(complete.encode("utf-8")))
+        self.assertEqual(result, complete)
+        self.assertIn(report["limitations"], result)
+        for name in evidence.TARGETS:
+            self.assertIn(name, result)
+        self.assertNotIn("Markdown report shortened", result)
+
+    def test_markdown_oversize_uses_bounded_json_notice(self):
+        report = evidence.create_report({}, {}, set())
+        report["limitations"] = "x" * (evidence.MARKDOWN_BYTE_LIMIT + 1)
+        result = evidence.markdown(report)
+        self.assertLessEqual(len(result.encode("utf-8")), evidence.MARKDOWN_BYTE_LIMIT)
+        self.assertEqual(result, evidence.MARKDOWN_FALLBACK)
+        self.assertIn("xctest-results.json", result)
+        self.assertIn("shortened", result)
+
+    def test_markdown_limit_counts_utf8_bytes_not_characters(self):
+        report = evidence.create_report({}, {}, set())
+        report["limitations"] = "é" * 300
+        complete = evidence.markdown(report)
+        limit = len(complete)
+        self.assertGreater(len(complete.encode("utf-8")), limit)
+        result = evidence.markdown(report, max_bytes=limit)
+        self.assertEqual(result, evidence.MARKDOWN_FALLBACK)
+        self.assertLessEqual(len(result.encode("utf-8")), limit)
+
+    def test_markdown_limit_too_small_raises(self):
+        report = evidence.create_report({}, {}, set())
+        fallback_size = len(evidence.MARKDOWN_FALLBACK.encode("utf-8"))
+        self.assertEqual(evidence.markdown(report, max_bytes=fallback_size), evidence.MARKDOWN_FALLBACK)
+        for limit in (fallback_size - 1, 0, -1):
+            with self.subTest(limit=limit), self.assertRaisesRegex(ValueError, "too small"):
+                evidence.markdown(report, max_bytes=limit)
+
+    def test_multiple_test_classes_are_not_cross_associated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "Mixed.swift").write_text(
+                "class FooTests: XCTestCase { func testFoo() {} }\n"
+                "class BarTests: XCTestCase { func testBar() {} }\n", encoding="utf-8")
+            (root / "Single.swift").write_text(
+                "class SoloTests: XCTestCase { func testSolo() {} }", encoding="utf-8")
+            allowed = evidence.source_allowlist(root)
+        self.assertEqual(allowed, {"SoloTests.testSolo"})
+        cases = {"testNodes": [
+            {"nodeType": "Test Suite", "name": "FooTests", "children": [
+                {"nodeType": "Test Case", "name": "testBar()", "result": "Passed"}]}]}
+        self.assertEqual(evidence.test_results(cases, allowed), {})
+        self.assertIn("multiple test classes", evidence.create_report(cases, {}, allowed)["limitations"])
+
+    def test_repository_named_targets_remain_allowlisted(self):
+        root = Path(evidence.__file__).resolve().parents[2] / "Tests/ZynSignTests"
+        self.assertTrue(set(evidence.TARGETS).issubset(evidence.source_allowlist(root)))
+
     def test_node_identifier_and_repetition_handling(self):
         target = evidence.TARGETS[1]
         cls, method = target.split(".")
@@ -73,7 +130,40 @@ class XCTestResultsTests(unittest.TestCase):
         case["children"] = [{"nodeType": "Repetition", "result": "Failed"}]
         self.assertEqual(evidence.test_results(data, {target})[target], "NOT VERIFIED")
         case["nodeIdentifier"] = "OtherTests/" + method + "()"
-        self.assertEqual(evidence.test_results(data, {target}), {target: "NOT VERIFIED"})
+        self.assertEqual(evidence.test_results(data, {target})[target], "NOT VERIFIED")
+
+    def test_conflicting_case_identities_cannot_report_pass_or_hide_a_duplicate(self):
+        allowed = {"FooTests.testPass", "FooTests.testOther", "BarTests.testPass"}
+        valid = {"nodeType": "Test Case", "name": "testPass()", "result": "Passed"}
+        conflict = {"nodeType": "Test Case", "name": "testOther()", "result": "Passed",
+                    "nodeIdentifier": "FooTests/testPass()"}
+        data = {"testNodes": [{"nodeType": "Test Suite", "name": "FooTests",
+                               "children": [valid, conflict]}]}
+        self.assertEqual(evidence.test_results(data, allowed), {
+            "FooTests.testPass": "NOT VERIFIED", "FooTests.testOther": "NOT VERIFIED"})
+        conflict.update(name="testPass()", nodeIdentifier="BarTests/testPass()")
+        self.assertEqual(evidence.test_results(data, allowed), {
+            "FooTests.testPass": "NOT VERIFIED", "BarTests.testPass": "NOT VERIFIED"})
+
+    def test_malformed_identifier_cannot_be_hidden_by_valid_duplicate(self):
+        allowed = {"FooTests.testPass"}
+        for malformed in (None, 7, "", "testPass()", [], {}):
+            with self.subTest(identifier=malformed):
+                valid = {"nodeType": "Test Case", "name": "testPass()", "result": "Passed"}
+                bad = {**valid, "nodeIdentifier": malformed}
+                data = {"testNodes": [{"nodeType": "Test Suite", "name": "FooTests",
+                                       "children": [valid, bad]}]}
+                self.assertEqual(evidence.test_results(data, allowed),
+                                 {"FooTests.testPass": "NOT VERIFIED"})
+                data["testNodes"][0]["children"] = [bad]
+                self.assertEqual(evidence.test_results(data, allowed),
+                                 {"FooTests.testPass": "NOT VERIFIED"})
+
+    def test_malformed_case_children_are_not_verified(self):
+        data = tree(("testPass", "Passed"))
+        data["testNodes"][0]["children"][0]["children"] = "unknown schema"
+        self.assertEqual(evidence.test_results(data, {"FooTests.testPass"}),
+                         {"FooTests.testPass": "NOT VERIFIED"})
 
     def test_conflicting_names_and_duplicate_suite_are_not_verified(self):
         allowed = {"FooTests.testA", "FooTests.testB", "OtherTests.testA"}

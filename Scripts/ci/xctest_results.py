@@ -23,12 +23,22 @@ METHOD = re.compile(r"\bfunc\s+(test[A-Za-z0-9_]*)\s*\(\s*\)")
 IDENTIFIER = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*Tests)\.(test[A-Za-z0-9_]*)$")
 STATUSES = {"passed": "PASS", "failed": "FAIL", "skipped": "SKIPPED"}
 COUNT_KEYS = ("passedTests", "failedTests", "skippedTests", "totalTestCount")
-# Leave room for the other sections written to the same GitHub step summary.
-MAX_REPORT_BYTES = 128 * 1024
+MARKDOWN_BYTE_LIMIT = 128 * 1024
+MAX_REPORT_BYTES = MARKDOWN_BYTE_LIMIT
+MARKDOWN_FALLBACK = (
+    "## Individual XCTest evidence\n\n"
+    "Truncated: Markdown report shortened to fit the size limit. "
+    "See `xctest-results.json` in the XCTest results artifact for the full sanitized report.\n"
+)
 
 
 def source_allowlist(root: Path) -> set[str]:
-    """Only publish identifiers already present as source declarations."""
+    """Conservatively allow names from files with one unambiguous test class.
+
+    This is not a Swift parser: multiple class declarations cannot safely be
+    associated with their methods, so omit the whole file instead of creating
+    a cross-product. Extensions and inherited tests are not established here.
+    """
     names: set[str] = set()
     for path in root.rglob("*.swift"):
         if path.is_symlink():
@@ -37,9 +47,11 @@ def source_allowlist(root: Path) -> set[str]:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeError):
             continue
-        for cls in CLASS.findall(text):
-            for method in METHOD.findall(text):
-                names.add(f"{cls}.{method}")
+        classes = CLASS.findall(text)
+        if len(classes) != 1:
+            continue
+        for method in METHOD.findall(text):
+            names.add(f"{classes[0]}.{method}")
     return names
 
 
@@ -136,7 +148,7 @@ def xcresult_json(bundle: str, kind: str) -> object:
 def create_report(tests: object, summary: object, allowed: set[str]) -> dict:
     results = test_results(tests, allowed)
     counts = aggregate(summary)
-    limitations = "Only recognized XCTest cases with identifiers found in source are included; missing, unsupported, or repeated cases are not verified."
+    limitations = "Source names are matched heuristically, not parsed as Swift. Files with multiple test classes are excluded; missing, unsupported, or repeated cases are not verified."
     if counts and any(
         list(results.values()).count(status) > counts[key]
         for status, key in (("PASS", "passedTests"), ("FAIL", "failedTests"), ("SKIPPED", "skippedTests"))
@@ -187,7 +199,9 @@ def markdown(report: dict, max_bytes: int = MAX_REPORT_BYTES) -> str:
             selected = count
         used += len(rows[count].encode("utf-8"))
     if selected is None:
-        raise ValueError("summary byte limit is too small for the fixed report and truncation notice")
+        if len(MARKDOWN_FALLBACK.encode("utf-8")) <= max_bytes:
+            return MARKDOWN_FALLBACK
+        raise ValueError("summary byte limit is too small for the shortened report")
     return prefix + "".join(rows[:selected]) + truncation_notice(len(rows) - selected)
 
 
