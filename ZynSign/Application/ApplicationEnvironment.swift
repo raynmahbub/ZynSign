@@ -289,6 +289,14 @@ struct ApplicationEnvironment {
     /// as read-only after construction.
     var resourceInspection: IPAResourceStudioInspection? = nil
 
+    /// Local transfer: the foreground listener that lets another machine on
+    /// the same network send a file to this device. `nil` in compositions
+    /// that do not install it (most tests), in which case the Settings screen
+    /// says the capability is not composed rather than offering a button that
+    /// cannot work. The service owns its own port, token, and workspace; the
+    /// screen neither constructs nor reaches past it.
+    var localTransfer: LocalTransferService? = nil
+
     /// The Performance Engine: the background scheduler, thumbnail and
     /// metadata caches, memory manager, cache policies, benchmarks, and
     /// launch timeline behind Settings → Advanced → Performance. `nil` in

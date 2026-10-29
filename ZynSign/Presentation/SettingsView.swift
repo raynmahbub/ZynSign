@@ -379,8 +379,25 @@ struct SettingsView: View {
                 Text("Repository feeds are read when you choose to add or refresh them. Their metadata is unverified; adding a source does not establish trust.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
+            Section("File Transfer") {
+                if let localTransfer = environment.localTransfer {
+                    NavigationLink {
+                        LocalTransferView(service: localTransfer, embedsNavigationStack: false)
+                    } label: {
+                        ZSettingsLabel(
+                            title: "Local Transfer",
+                            subtitle: "Let another machine on this network send a file here. Foreground only, and only with the session token.",
+                            symbol: "wifi.router"
+                        )
+                    }
+                } else {
+                    Text("Local transfer is not composed in this build, so nothing can send a file to this device over the network.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
             Section("Not Available") {
-                Label("WebDAV and an always-on file server are not implemented.", systemImage: "externaldrive.badge.questionmark")
+                Label("WebDAV is not implemented. Local Transfer accepts an upload and nothing else: no listing, no browsing, no remote delete.", systemImage: "externaldrive.badge.questionmark")
                 Label("Remote signing is not implemented. Signing stays on this device.", systemImage: "signature")
             }
         }

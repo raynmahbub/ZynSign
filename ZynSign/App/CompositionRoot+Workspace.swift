@@ -53,6 +53,22 @@ extension CompositionRoot {
         StorageGaugeService()
     }
 
+    /// The local transfer service for this launch.
+    ///
+    /// The workspace lives beside the other ZynSign workspaces, so what a
+    /// session received is the same kind of file as everything else the app
+    /// stores — visible to Files, included in the storage gauge, and not
+    /// hidden in a temporary directory the system may reclaim. The listener is
+    /// created per session and torn down with it.
+    static func makeLocalTransferService() -> LocalTransferService {
+        LocalTransferService(
+            stagingDirectory: libraryRootDirectory
+                .appendingPathComponent("LocalTransfer", isDirectory: true),
+            random: SystemSecureRandomSource(),
+            makeTransport: { NetworkLocalTransferServer() }
+        )
+    }
+
     /// Attaches every workspace service to an environment under
     /// construction. Called once by `makeApplicationEnvironment()`.
     static func attachWorkspaceServices(to environment: inout ApplicationEnvironment) {
@@ -61,5 +77,6 @@ extension CompositionRoot {
         environment.releaseFeeds = makeReleaseFeedProvider()
         environment.appProtection = makeAppProtection()
         environment.storageGauge = makeStorageGauge()
+        environment.localTransfer = makeLocalTransferService()
     }
 }
