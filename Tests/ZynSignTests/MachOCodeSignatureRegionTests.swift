@@ -403,7 +403,11 @@ final class MachOCodeSignatureRegionTests: XCTestCase {
         var data = MachOFixtures.segment64(
             name: "__DATA", fileOffset: 0, fileSize: 0, virtualMemorySize: 4_096
         )
-        MachOFixtures.put(8_192, width: 8, at: 24, in: &data)
+        // The image is little-endian, so the address must be written
+        // little-endian: `MachOFixtures.put` defaults to big-endian, and a
+        // big-endian 8 KiB reads back as 2^53 — far above the grown
+        // reservation, which would leave the overlap unexercised.
+        MachOFixtures.put(8_192, width: 8, at: 24, in: &data, order: .littleEndian)
         let linkEdit = MachOFixtures.segment64(
             fileOffset: 200, fileSize: 32, virtualMemorySize: 32
         )
@@ -420,5 +424,67 @@ final class MachOCodeSignatureRegionTests: XCTestCase {
                 signedCodeLimit: UInt64(image.count)
             )
         }
+    }
+
+    func testGrowingTheReservationIsRefusedWhenAnEarlierSegmentExtendsIntoIt() throws {
+        // `__DATA` starts *below* `__LINKEDIT` at address 0 and its reservation
+        // reaches 8 KiB, past `__LINKEDIT`'s own address at 4 KiB. Comparing
+        // start addresses alone would let this through — `0 < 4096` reads as
+        // "mapped before, therefore clear" — but the two virtual ranges do
+        // intersect, so the growth is refused.
+        let data = MachOFixtures.segment64(
+            name: "__DATA", fileOffset: 0, fileSize: 0, virtualMemorySize: 8_192
+        )
+        var linkEdit = MachOFixtures.segment64(
+            fileOffset: 200, fileSize: 32, virtualMemorySize: 32
+        )
+        MachOFixtures.put(4_096, width: 8, at: 24, in: &linkEdit, order: .littleEndian)
+        let image = Data(MachOFixtures.thin(
+            commands: [linkEdit, data],
+            headerPadding: Array(repeating: 0, count: 24),
+            payload: Array(repeating: UInt8(0xA5), count: 32)
+        ))
+        XCTAssertEqual(image.count, 232)
+        assertRegionError(.unsafeLinkEditLayout) {
+            _ = try MachOCodeSignatureWriter().append(
+                try self.region(),
+                to: image,
+                signedCodeLimit: UInt64(image.count)
+            )
+        }
+    }
+
+    func testGrowingTheReservationIsAllowedWhenTheOtherSegmentSitsAboveIt() throws {
+        // The positive control for the two refusals above: a segment mapped
+        // wholly beyond the page-aligned space the grown reservation claims
+        // does not conflict, so the growth proceeds. Without this the refusal
+        // tests could pass on a writer that refuses every growth at all.
+        var data = MachOFixtures.segment64(
+            name: "__DATA", fileOffset: 0, fileSize: 0, virtualMemorySize: 4_096
+        )
+        MachOFixtures.put(1_048_576, width: 8, at: 24, in: &data, order: .littleEndian)
+        let linkEdit = MachOFixtures.segment64(
+            fileOffset: 200, fileSize: 32, virtualMemorySize: 32
+        )
+        let source = Data(MachOFixtures.thin(
+            commands: [linkEdit, data],
+            headerPadding: Array(repeating: 0, count: 24),
+            payload: Array(repeating: UInt8(0xA5), count: 32)
+        ))
+        XCTAssertEqual(source.count, 232)
+        let result = try MachOCodeSignatureWriter().append(
+            try region(),
+            to: source,
+            signedCodeLimit: UInt64(source.count)
+        )
+        let virtualSize = readUInt64(result.bytes, at: 64, order: .littleEndian)
+        let fileSize = readUInt64(result.bytes, at: 80, order: .littleEndian)
+        XCTAssertEqual(virtualSize % MachOCodeSignatureWriter.virtualMemoryPageBytes, 0)
+        XCTAssertGreaterThanOrEqual(virtualSize, fileSize)
+        // `__DATA`'s address is untouched: growing `__LINKEDIT` relocates
+        // nothing.
+        XCTAssertEqual(readUInt64(result.bytes, at: 128, order: .littleEndian), 1_048_576)
+        XCTAssertTrue(result.modifiedByteRanges.contains(64..<72))
+        assertPreservedOutside(source, in: result.bytes, allowedRanges: result.modifiedByteRanges)
     }
 }
