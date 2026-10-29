@@ -23,6 +23,16 @@ It supersedes the "never composed" half of
 composed behind a transport that needs an entitlement, while JIT stays refused
 and OpenSSL stays host-only.
 
+## Local Transfer
+
+A foreground-only, token-gated listener that lets another machine on the same
+network send a file to this device is recorded in
+[local-transfer.md](local-transfer.md). That record states the three routes it
+answers, the complete vocabulary of refusals and the status each one carries,
+the lifecycle it does not claim (no background service, no WebDAV, no
+installer), and which parts are proven by source and host checks rather than
+by a device.
+
 ## Current State
 
 The record below is in decision order, oldest first. Which stop the project

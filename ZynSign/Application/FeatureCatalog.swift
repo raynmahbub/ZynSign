@@ -120,6 +120,11 @@ enum CoreFeature: String, CaseIterable, Sendable {
     /// requirement this build is missing, and a Release build that hid it
     /// would be hiding the reason installation is unavailable.
     case sideloading = "sideloading"
+    /// Settings → Servers → Local Transfer. Always reachable because the
+    /// screen states the lifecycle as plainly as the capability: a
+    /// foreground-only, token-gated listener with one upload route and no
+    /// browsing, which is a smaller claim than the file server it replaces.
+    case localTransfer = "local-transfer"
 
     var catalogEntry: FeatureCatalogEntry {
         FeatureCatalogEntry(
@@ -151,6 +156,7 @@ enum CoreFeature: String, CaseIterable, Sendable {
         case .appearanceAndPreferences: return "Appearance & Preferences"
         case .versionHistory: return "Version History"
         case .sideloading: return "Sideloading & Installation Limits"
+        case .localTransfer: return "Local Transfer"
         }
     }
 
@@ -192,6 +198,8 @@ enum CoreFeature: String, CaseIterable, Sendable {
             return "Review the app's release history and the changes recorded for each version."
         case .sideloading:
             return "See what each sideloading capability is missing — a pairing record, a local-tunnel entitlement, a bundled loader — and preview the package edits a signing run can apply."
+        case .localTransfer:
+            return "Send a file to this device from another machine on the same network: one foreground-only session, one upload route, a token discarded when the session stops, and no WebDAV browsing, background service, or installer."
         }
     }
 
@@ -211,7 +219,7 @@ enum CoreFeature: String, CaseIterable, Sendable {
             return .security
         case .appearanceAndPreferences:
             return .customization
-        case .sideloading:
+        case .sideloading, .localTransfer:
             return .delivery
         }
     }
