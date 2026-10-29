@@ -201,26 +201,6 @@ extension CompositionRoot {
         )
     }
 
-    /// Builds the bundle metadata inspection use case, selecting the
-    /// concrete archive implementation.
-    ///
-    /// It reads the bundle's information file from the same storage
-    /// convention as structural inspection and applies the same resource
-    /// policy, so the two halves of the inspection stage stay consistent
-    /// when the composition root is the only place that changes them.
-    static func makeBundleMetadataInspection(
-        artifactDirectory: URL,
-        limits: ArchiveLimits = .default
-    ) -> IPABundleMetadataInspection {
-        IPABundleMetadataInspection(
-            readerProvider: DirectoryArtifactArchiveReaderProvider(
-                directory: artifactDirectory,
-                limits: limits
-            ),
-            limits: limits
-        )
-    }
-
     /// Builds the package import use case over the given intake and library,
     /// selecting the concrete archive implementation.
     ///
@@ -379,28 +359,6 @@ extension CompositionRoot {
         )
     }
 
-    /// Builds the embedded-profile intake over the given archive boundary,
-    /// selecting the concrete archive implementation the same way the other
-    /// artifact-facing use cases do.
-    ///
-    /// The intake reads one entry of one package through the existing reader
-    /// provider and resource policy and reaches no conclusion about what those
-    /// bytes are; the pipeline it feeds is what classifies them. Nothing built
-    /// here is installed in the application environment, because no interface
-    /// consumes an embedded profile yet.
-    static func makeBundleProvisioningProfileIntake(
-        artifactDirectory: URL,
-        limits: ArchiveLimits = .default
-    ) -> BundleProvisioningProfileIntake {
-        BundleProvisioningProfileIntake(
-            readerProvider: DirectoryArtifactArchiveReaderProvider(
-                directory: artifactDirectory,
-                limits: limits
-            ),
-            limits: limits
-        )
-    }
-
     /// The signature mechanism available on this target.
     static func makeCMSSignatureVerifier() -> any CMSSignatureVerifier {
         #if os(iOS)
@@ -486,43 +444,6 @@ extension CompositionRoot {
             readerProvider: cachingLibraryReaderProvider(fileExtension: intake.fileExtension, limits: readerLimits),
             limits: limits,
             maximumExecutableReadBytes: maximumExecutableReadBytes
-        )
-    }
-
-    /// Builds the nested-code discovery use case over the given library,
-    /// selecting the concrete archive implementation.
-    ///
-    /// The archive boundary reads library storage only — discovery describes an
-    /// application the library holds — under the same file-extension
-    /// convention and the same resource policy as the other artifact-facing use
-    /// cases, and the same read-only parser and signature inspector classify
-    /// the candidates it reads. Discovery reads and concludes nothing about
-    /// trust, and it reaches no signing capability: the plan it returns is
-    /// descriptive data, and nothing built here signs, modifies, or extracts
-    /// anything.
-    ///
-    /// The discovery policy is a separate injection point from the archive
-    /// policy, because the two bound different things: the archive limits bound
-    /// what a container may declare and expand, and the discovery limits bound
-    /// how much of a bundle ZynSign is willing to describe.
-    ///
-    /// Nothing built here is installed in the application environment, because
-    /// no interface consumes a plan yet.
-    static func makeNestedCodeDiscoveryInspection(
-        intake: SecurityScopedArtifactIntake,
-        library: ApplicationLibrary,
-        limits: ArchiveLimits = .default,
-        discoveryLimits: NestedCodeDiscoveryLimits = .default
-    ) -> NestedCodeDiscoveryInspection {
-        NestedCodeDiscoveryInspection(
-            library: library,
-            readerProvider: DirectoryArtifactArchiveReaderProvider(
-                directory: libraryArtifactDirectory,
-                fileExtension: intake.fileExtension,
-                limits: limits
-            ),
-            archiveLimits: limits,
-            limits: discoveryLimits
         )
     }
 }

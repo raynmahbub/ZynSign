@@ -203,8 +203,15 @@ struct RootView: View {
         .onOpenURL { url in acceptIncoming(url) }
         .onReceive(NotificationCenter.default.publisher(for: .zynSignShortcutNavigate)) { note in
             if let target = note.object as? String {
-                if target == "library" { select(.library) }
-                else if target == "downloads" { select(.downloads) }
+                if target == "library" {
+                    select(.library)
+                } else if target == "downloads" {
+                    select(.downloads)
+                } else if target == "sync-portable" {
+                    Task {
+                        _ = try? await environment.portableWorkspaceSync?.exportPortableMirror(environment: environment)
+                    }
+                }
             }
         }
         .onReceive(environment.importHub.$items) { items in

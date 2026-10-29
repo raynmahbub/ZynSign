@@ -8,7 +8,7 @@ The release train in [`ZynSign/Application/ReleaseTrain.swift`](../../ZynSign/Ap
 python3 Scripts/release_train.py status
 ```
 
-At this checkout the current stop is **`v3.0.0-nova.1`** (stage `.nova1`, marketing version `3.0.0`, build `11`). It is the first stop that switches on every staged feature the train has ever carried — eighteen of eighteen — because the stop scheduled between it and `1.0.0` (`v2.0.0`) introduces no `ReleaseFeature` of its own. The command is authoritative if this page and the source ever disagree, and the current stop is not evidence that a release has been published or device-verified.
+At this checkout the current stop is **`v3.0.0`** (stage `.nova`, marketing version `3.0.0`, build `12`) — the final stop on the release train, carrying all eighteen staged features plus the unified Free/Paid signing, loopback bridge, multi-app container, and workspace tooling. The command is authoritative if this page and the source ever disagree, and the current stop is not evidence that a release has been published or device-verified.
 
 ## Ordered stops
 

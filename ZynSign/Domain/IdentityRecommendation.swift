@@ -51,24 +51,6 @@ enum IdentityRecommendationReasonKind: String, CaseIterable, Equatable, Hashable
     }
 }
 
-/// One reason behind a recommendation.
-struct IdentityRecommendationReason: Equatable, Hashable, Sendable {
-
-    /// Which observation the reason records.
-    let kind: IdentityRecommendationReasonKind
-
-    /// Creates a reason.
-    init(kind: IdentityRecommendationReasonKind) {
-        self.kind = kind
-    }
-
-    /// The sentence the recommendation card shows, composed with the
-    /// subject names.
-    func text(certificateName: String, profileName: String?) -> String {
-        kind.text(certificateName: certificateName, profileName: profileName)
-    }
-}
-
 /// The signing identity the engine recommends for one application, with
 /// the reasons it earned the recommendation.
 ///

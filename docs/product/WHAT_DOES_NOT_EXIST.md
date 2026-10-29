@@ -1,6 +1,6 @@
 # What Does Not Exist — Honest Limitations
 
-> ZynSign `v3.0.0-nova.1` (market `3.0.0`, build `11`) — **18 staged · 18 on · 0 still ahead · 3 never**.
+> ZynSign `v3.0.0` (market `3.0.0`, build `12`) — **18 staged · 18 on · 0 still ahead · 3 never**.
 >
 > **Wired** means the capability is compiled into the app and reachable. A Release
 > build of `v1.0.0` switches on every feature up to and including that stop on the

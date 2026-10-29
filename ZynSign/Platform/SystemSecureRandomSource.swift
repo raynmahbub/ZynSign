@@ -48,19 +48,6 @@ extension ZynSignError {
             underlyingError: underlyingError
         )
     }
-
-    /// The transfer workspace could not be created or written.
-    static func localTransferStorageFailure(
-        diagnosticDetail: String? = nil,
-        underlyingError: (any Error)? = nil
-    ) -> ZynSignError {
-        ZynSignError(
-            category: .storageFailure,
-            userMessage: "ZynSign could not store the received file.",
-            diagnosticDetail: diagnosticDetail,
-            underlyingError: underlyingError
-        )
-    }
 }
 
 /// Session entropy from the platform's secure random source.

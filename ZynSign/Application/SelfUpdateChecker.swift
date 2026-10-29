@@ -11,7 +11,6 @@ struct SelfUpdateChecker: Sendable {
         let currentVersion: String
         let latestTag: String
         let releaseTitle: String
-        let releaseNotes: String?
         let publishedAt: Date?
         let ipaAssetURL: URL?
         let isNewerAvailable: Bool
@@ -42,25 +41,14 @@ struct SelfUpdateChecker: Sendable {
         guard let latest = releases.first(where: { !$0.isDraft }) ?? releases.first else {
             return nil
         }
-        let cleanLatest = stripLeadingV(latest.bareVersion)
-        let cleanCurrent = stripLeadingV(currentVersion)
-        let newer = AppVersionComparison.isNewer(candidate: cleanLatest, than: cleanCurrent)
+        let newer = AppVersionComparison.isUpdate(latest.bareVersion, over: currentVersion)
         return UpdateStatus(
             currentVersion: currentVersion,
             latestTag: latest.tag,
             releaseTitle: latest.title,
-            releaseNotes: nil,
             publishedAt: latest.publishedAt,
             ipaAssetURL: latest.packageAsset?.downloadURL,
             isNewerAvailable: newer
         )
-    }
-
-    private func stripLeadingV(_ version: String) -> String {
-        let trimmed = version.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.lowercased().hasPrefix("v") {
-            return String(trimmed.dropFirst())
-        }
-        return trimmed
     }
 }

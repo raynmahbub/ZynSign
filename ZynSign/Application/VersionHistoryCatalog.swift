@@ -28,6 +28,20 @@ enum VersionHistoryCatalog {
     /// Every entry, newest first.
     static let entries: [VersionHistoryEntry] = [
         VersionHistoryEntry(
+            tag: "v3.0.0",
+            marketingVersion: "3.0.0",
+            buildNumber: 12,
+            releasedAt: DateComponents(year: 2026, month: 10, day: 30),
+            headline: "3.0.0 completes the Nova release train with unified Free Apple ID and Paid Certificate signing, wire-free loopback device installation, the zero-slot multi-app container, and full package/tweak/WebDAV workspace tooling.",
+            highlights: [
+                "Unified Signing & Provisioning Hub: choose Free Apple ID (SRP-6a + 2FA + automatic CSR, certificate, Wildcard App ID, App Group, and 7-day profile renewal) or Paid .p12/.zcert Certificates in one workflow.",
+                "Wire-Free On-Device Installer & Multi-App Container: stream signed IPAs over loopback lockdownd + AFC + mobile.installation_proxy with a pairing record, or install unlimited ad-hoc signed guest apps inside ZynSign's zero-slot host container.",
+                "Tweak & Binary Studio: .deb (ar + gzip/xz/lzma tar) extraction, Mach-O load-command and rpath inspector, per-dylib injection toggles, Liquid Glass SDK v26 patcher, and PPQ protection.",
+                "LAN WebDAV & Portable Workspace: browser drag-and-drop plus Finder/Windows Explorer WebDAV server, Documents/ZynSignPortable mirror, Plist/Hex/Text file editors, and encrypted DNS shield generator.",
+                "Build & Hygiene Hardening: resolved Xcode 26.3 API mismatches across local transfer, version comparison, archive permissions, tweak bundle staging, and PKCS#12 file pickers, and removed retired scaffolding.",
+            ]
+        ),
+        VersionHistoryEntry(
             tag: "v3.0.0-nova.1",
             marketingVersion: "3.0.0",
             buildNumber: 11,

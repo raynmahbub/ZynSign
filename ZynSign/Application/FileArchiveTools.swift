@@ -155,7 +155,7 @@ struct FileArchiveTools: Sendable {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: folderURL,
-            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .posixPermissionsKey],
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .isExecutableKey],
             options: [.skipsHiddenFiles]
         ) else { return [] }
         let rootPath = folderURL.standardizedFileURL.path
@@ -168,15 +168,15 @@ struct FileArchiveTools: Sendable {
             let sub = String(stdPath.dropFirst(rootPath.count + 1))
             let combined = topPrefix.isEmpty ? sub : "\(topPrefix)/\(sub)"
             guard let archPath = ArchivePath(rawValue: combined) else { continue }
-            let values = try itemURL.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey, .posixPermissionsKey])
+            let values = try itemURL.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey, .isExecutableKey])
             if values.isDirectory == true {
                 entries.append(ArchiveWriteEntry(path: archPath, kind: .directory))
             } else if values.isRegularFile == true {
-                let perms = values.posixPermissions ?? 0o644
+                let isExecutable = values.isExecutable ?? false
                 let content = try Data(contentsOf: itemURL)
                 entries.append(ArchiveWriteEntry(
                     path: archPath,
-                    kind: .regularFile(isExecutable: (perms & 0o111) != 0),
+                    kind: .regularFile(isExecutable: isExecutable),
                     content: content
                 ))
             }

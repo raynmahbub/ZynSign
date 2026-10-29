@@ -192,36 +192,6 @@ struct ZSkeletonProfileRow: View {
     }
 }
 
-/// Shimmering grid of application cards.
-struct ZSkeletonAppGrid: View {
-    let count: Int
-
-    init(count: Int = 6) { self.count = count }
-
-    var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: ZSpacing.sm)], spacing: ZSpacing.sm) {
-            ForEach(0..<count, id: \.self) { _ in
-                VStack(spacing: ZSpacing.xs) {
-                    RoundedRectangle(cornerRadius: ZRadius.icon, style: .continuous)
-                        .fill(Color(.tertiarySystemFill))
-                        .frame(width: 64, height: 64)
-
-                    RoundedRectangle(cornerRadius: ZRadius.xs)
-                        .fill(Color(.tertiarySystemFill))
-                        .frame(width: 70, height: 12)
-
-                    RoundedRectangle(cornerRadius: ZRadius.xs)
-                        .fill(Color(.tertiarySystemFill))
-                        .frame(width: 45, height: 10)
-                }
-                .padding(ZSpacing.sm)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: ZRadius.card))
-            }
-        }
-        .redacted(reason: .placeholder)
-    }
-}
-
 /// Card-wrapped skeleton for empty `List` replacements.
 struct ZSkeletonCard: View {
     var body: some View {

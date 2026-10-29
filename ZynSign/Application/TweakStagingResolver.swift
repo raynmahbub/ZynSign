@@ -257,7 +257,7 @@ enum TweakPackImporter {
 
     private static func importDirectory(at url: URL, into service: TweakLibraryService) async throws -> ImportSummary {
         let fm = FileManager.default
-        if TweakKind.classify(fileName: url.lastPathComponent) != nil {
+        if TweakKind.infer(fromFileName: url.lastPathComponent).isDirectoryBundle {
             let tempDir = fm.temporaryDirectory.appendingPathComponent("ZynTweakDir-\(UUID().uuidString)", isDirectory: true)
             try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
             defer { try? fm.removeItem(at: tempDir) }

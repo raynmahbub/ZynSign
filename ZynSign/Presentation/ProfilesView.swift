@@ -668,30 +668,6 @@ struct ProvisioningProfileCard: View {
     }
 }
 
-// MARK: - Empty-state illustration
-
-/// A friendly, asset-free illustration for the empty library: the profile
-/// symbol on a soft disc, dressed with a sparkle. SF Symbols keep the empty
-/// state crisp at every Dynamic Type size and in Dark Mode without adding
-/// image assets to the bundle.
-struct ProfilesEmptyIllustration: View {
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(Color.accentColor.opacity(0.12))
-                .frame(width: 120, height: 120)
-            Image(systemName: "person.text.rectangle.fill")
-                .font(.system(size: 52))
-                .foregroundStyle(Color.accentColor)
-            Image(systemName: "sparkles")
-                .font(.title3)
-                .foregroundStyle(.orange)
-                .offset(x: 38, y: -34)
-        }
-        .accessibilityHidden(true)
-    }
-}
-
 // MARK: - Import summary
 
 /// The import summary sheet: what ZynSign read from the file just imported,

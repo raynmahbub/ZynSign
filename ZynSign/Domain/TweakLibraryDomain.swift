@@ -42,6 +42,16 @@ enum TweakKind: String, CaseIterable, Hashable, Sendable, Codable {
         return .other
     }
 
+    /// Whether this tweak kind represents a directory bundle (`.framework`, `.bundle`, or `.appex`).
+    var isDirectoryBundle: Bool {
+        switch self {
+        case .framework, .resourceBundle, .appExtension:
+            return true
+        case .dynamicLibrary, .debPackage, .other:
+            return false
+        }
+    }
+
     /// A short human-facing description of the kind.
     var displayName: String {
         switch self {

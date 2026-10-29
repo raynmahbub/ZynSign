@@ -63,20 +63,6 @@ enum InstallationPresentation {
         return "Not ready"
     }
 
-    /// What the workspace can offer for a report, in fixed language.
-    static func readinessExplanation(for report: InstallationReadinessReport) -> String {
-        if report.isReady {
-            return "ZynSign's checks passed. Delivering is your step — acceptance is the platform's."
-        }
-        return "ZynSign's checks are not all clear. Resolve the blocked ones before delivering."
-    }
-
-    /// The one-sentence row the dashboard's "Ready to Install" line shows.
-    static func readinessSummary(for reports: [InstallationReadinessReport]) -> String {
-        let ready = reports.filter(\.isReady).count
-        return "\(ready) of \(reports.count) ready"
-    }
-
     // MARK: - Update state
 
     /// The badge kind an update state renders as.

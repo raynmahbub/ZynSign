@@ -34,24 +34,3 @@ extension View {
         }
     }
 }
-
-/// ZynSign “smart sheet” header — consistent grabber + title + close
-struct ZSheetHeader: View {
-    let title: String
-    var onClose: (() -> Void)? = nil
-
-    var body: some View {
-        HStack {
-            Text(title).font(.headline)
-            Spacer()
-            if let onClose {
-                Button { onClose(); ZHaptics.tap() } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary).font(.title3)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, ZSpacing.md)
-        .padding(.vertical, ZSpacing.sm)
-    }
-}

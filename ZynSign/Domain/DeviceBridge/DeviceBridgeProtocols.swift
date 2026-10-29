@@ -205,11 +205,6 @@ enum LockdownProtocol {
         }
     }
 
-    struct ServicePort: Equatable, Sendable {
-        let port: Int
-        let requiresTLS: Bool
-    }
-
     struct DeviceValues: Equatable, Sendable {
         let uniqueDeviceID: String
         let deviceName: String

@@ -38,6 +38,11 @@ enum LocalTransferHTTP {
         case head = "HEAD"
         case put = "PUT"
         case post = "POST"
+
+        /// Whether the method reads session metadata without carrying an upload body.
+        var isReadOnly: Bool {
+            self == .get || self == .head
+        }
     }
 
     /// A parsed request head plus the number of bytes it consumed.
