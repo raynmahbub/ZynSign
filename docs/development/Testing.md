@@ -42,8 +42,11 @@ proposed merge commit; the Quality workflow separately runs static checks on
    scan and release-train consistency check run in `02-quality.yml`; manual
    Build runs retain the secret scan and the release-metadata self-test also
    exercises the current-stop validation.
-2. **Build and test** — the application target builds and the unit-test
-   target passes on an iPhone simulator.
+2. **Build and test** — the application target builds and the full unit-test
+   target passes on an iPhone simulator. The native `.xcresult` and test logs
+   are uploaded on success and on failure
+   (`xctest-results-<run-id>-<attempt>`, 14 days). How to download them is
+   in [continuous-integration.md](continuous-integration.md#retrieving-native-xctest-evidence).
 3. **External validation** — the job reports Apple's verdicts on
    ZynSign-signed artifacts; a `codesign` rejection is a *finding recorded
    in the report*, not a failed build. The job fails only when the harness

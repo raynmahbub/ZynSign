@@ -4,7 +4,8 @@
 #
 # Resolves packages, cleans DerivedData, builds every target, builds the
 # test targets, and runs the unit tests. Every xcodebuild invocation is
-# logged under build/logs/ so a failing run can upload its evidence.
+# logged under build/logs/ so the workflow can upload the result bundle
+# and the logs after a pass and after a failure.
 #
 # Workflows call this script; CI logic lives here, never in YAML.
 #
@@ -82,6 +83,86 @@ run_logged() {
     fi
 }
 
+# Record the toolchain and the destination the test invocation will use.
+# The workflow uploads this file; it is not a second test run.
+write_xctest_context() {
+    local destination="$1"
+    local xcode_version="unavailable"
+    if command -v xcodebuild >/dev/null 2>&1; then
+        xcode_version="$(xcodebuild -version 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)"
+        if [[ -z "${xcode_version}" ]]; then
+            xcode_version="unavailable"
+        fi
+    fi
+    {
+        printf 'xcode_version=%s\n' "${xcode_version}"
+        printf 'simulator_destination=%s\n' "${destination}"
+        printf 'scheme=%s\n' "${SCHEME}"
+        printf 'project=%s\n' "${PROJECT}"
+        printf 'run_tests=%s\n' "${RUN_TESTS}"
+        printf 'result_bundle=%s\n' "${BUILD_LOGS_DIR}/ZynSignTests.xcresult"
+    } > "${BUILD_LOGS_DIR}/xctest-context.txt"
+    crystal_info "Xcode: ${xcode_version}"
+    crystal_info "Simulator destination: ${destination}"
+}
+
+# Concise counts for the job log and the step summary. Must not change the
+# script's exit status — finish() saves that before calling this.
+publish_xctest_summary() {
+    local bundle="${1:-}"
+    local summary_json="${BUILD_LOGS_DIR}/xctest-summary.json"
+    local summary_txt="${BUILD_LOGS_DIR}/xctest-summary.txt"
+    local summary_md="${BUILD_LOGS_DIR}/xctest-summary.md"
+    local artifact_name="xctest-results-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}"
+    local run_url=""
+
+    if [[ ! -d "${BUILD_LOGS_DIR}" ]]; then
+        return 0
+    fi
+    if [[ -n "${bundle}" && -d "${bundle}" ]] && command -v xcrun >/dev/null 2>&1; then
+        if ! xcrun xcresulttool get test-results summary \
+                --path "${bundle}" --format json >"${summary_json}" 2>/dev/null; then
+            rm -f "${summary_json}"
+        fi
+    fi
+    if [[ -n "${GITHUB_SERVER_URL:-}" && -n "${GITHUB_REPOSITORY:-}" && -n "${GITHUB_RUN_ID:-}" ]]; then
+        run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+    fi
+    python3 "${CRYSTAL_DIR}/xctest_evidence.py" summarize \
+        --json "${summary_json}" \
+        --log "${BUILD_LOGS_DIR}/test.log" \
+        --context "${BUILD_LOGS_DIR}/xctest-context.txt" \
+        --bundle "${bundle}" \
+        --artifact "${artifact_name}" \
+        --retention-days 14 \
+        --run-url "${run_url}" \
+        --output "${summary_txt}" \
+        --markdown "${summary_md}" || true
+    if [[ -s "${summary_txt}" ]]; then
+        printf '\n=== XCTest summary ===\n'
+        cat "${summary_txt}"
+        if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+            local one_line
+            one_line="$(head -n 1 "${summary_txt}" | cut -c 1-500 || true)"
+            printf '::notice title=XCTest summary::%s\n' "$(crystal_escape "${one_line}")"
+        fi
+    fi
+    if [[ -s "${summary_md}" && -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+        cat "${summary_md}" >> "${GITHUB_STEP_SUMMARY}"
+    fi
+}
+
+# Runs on every exit, including a failing xcodebuild, so a red run still
+# leaves the summary next to the logs the workflow uploads.
+finish() {
+    status=$?
+    trap - EXIT
+    publish_xctest_summary "${RESULT_BUNDLE:-}" || true
+    exit "${status}"
+}
+trap finish EXIT
+write_xctest_context "not selected"
+
 # 1. Clean DerivedData so stale module state can never mask a breakage.
 if [[ "${SKIP_CLEAN}" != "1" ]]; then
     log "Cleaning DerivedData"
@@ -109,6 +190,7 @@ run_logged "${BUILD_LOGS_DIR}/build.log" "Building all targets" \
         -quiet
 
 if [[ "${RUN_TESTS}" != "1" ]]; then
+    write_xctest_context "skipped (RUN_TESTS=0)"
     log "RUN_TESTS=0 — skipping the test run"
     exit 0
 fi
@@ -119,6 +201,7 @@ if [[ -z "${SIMULATOR}" ]]; then
     log "Selecting an available iPhone simulator"
     SIMULATOR="$("$(dirname "$0")/select_simulator.sh")"
 fi
+write_xctest_context "platform=iOS Simulator,name=${SIMULATOR},OS=latest"
 
 # 4. Build the test targets explicitly, then 5. run the unit tests.
 run_logged "${BUILD_LOGS_DIR}/build-for-testing.log" "Building test targets" \

@@ -27,7 +27,7 @@ Before publish, the workflow runs:
 
 - Release-train/tag and version consistency checks (`Scripts/release_train.py`, `Scripts/ci/release_validate.sh`).
 - Documentation and release-note validation.
-- The macOS build and available unit tests (`Scripts/ci/build.sh`).
+- The macOS build and available unit tests (`Scripts/ci/build.sh`). The job keeps the native XCTest result bundle and test logs for 14 days on success and on failure (`xctest-results-<run-id>-<attempt>`). Retrieval is described in [continuous integration](../development/continuous-integration.md#retrieving-native-xctest-evidence).
 - SwiftLint, SwiftFormat, architecture-boundary, dependency-allowlist, and security checks.
 - Host-side changelog tooling tests (`Tests/Host/test_generate_changelog.py`), also run in `01-build.yml`.
 

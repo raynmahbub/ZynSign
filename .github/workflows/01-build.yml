@@ -8,7 +8,7 @@
 #                          host vectors, RC audits, hardening report   (ubuntu)
 #   build-and-test       — Scripts/ci/build.sh: resolve, clean, build every
 #                          target, build the test targets, run unit tests,
-#                          annotate failures                           (macOS)
+#                          annotate failures, keep the .xcresult         (macOS)
 #   lint-and-format      — SwiftLint errors block; SwiftFormat checks and
 #                          Scripts/ci/format.sh apply repairs drift   (ubuntu)
 #   external-validation  — ZynSign-signed artifacts judged by Apple's own
@@ -58,8 +58,9 @@ on:
         type: string
         default: ""
 
-# Every job reads; the hardening report, the external-validation artifacts and
-# the private IPA are the workflow's only outputs. Superseded pull-request
+# Every job reads; the hardening report, the XCTest evidence, the
+# external-validation artifacts and the private IPA are the workflow's
+# outputs. Superseded pull-request
 # updates to the same ref are cancelled — the newest commit is the one whose
 # verdict matters. Manual runs are never cancelled and never cancel anything:
 # a dispatch is deliberate, and a 45-minute archive should not die because
@@ -226,9 +227,11 @@ jobs:
 
       # One build-and-test run per commit, not two. Scripts/ci/build.sh
       # resolves packages, cleans DerivedData, builds every target, builds
-      # the test targets, runs the unit tests on a resolved simulator, and
-      # annotates each failing case from the result bundle — the whole gate
-      # lives in the script, so the workflow cannot drift from it. The
+      # the test targets, runs the unit tests on a resolved simulator,
+      # annotates each failing case from the result bundle, and records the
+      # Xcode version, simulator destination, and a concise XCTest summary.
+      # The gate lives in the script, so the workflow cannot drift from it.
+      # The steps below upload that evidence on success and on failure. The
       # manual `run_unit_tests: false` switch turns the run into a
       # compile-only check; every pull request keeps the tests.
       - name: Build every target and run the unit tests
@@ -236,15 +239,54 @@ jobs:
           RUN_TESTS: ${{ (github.event_name != 'workflow_dispatch' || inputs.run_unit_tests) && '1' || '0' }}
         run: Scripts/ci/build.sh
 
-      - name: Upload build and test logs on failure
-        if: failure()
+      # Preserve the native result bundle after a pass and after a failure.
+      # The name carries the run id and attempt so a re-run cannot hide the
+      # previous bundle. Paths are an allowlist plus signing-material
+      # exclusions — DerivedData, certificates, keys, and profiles are not
+      # uploaded. A missing bundle warns and does not fail the job.
+      # Retrieval: docs/development/continuous-integration.md
+      - name: Keep signing material out of the XCTest evidence
+        if: always()
+        run: |
+          if [[ -f Scripts/ci/xctest_evidence.py ]]; then
+            python3 Scripts/ci/xctest_evidence.py prepare
+          else
+            echo "XCTest evidence script is not in the workspace; skipping."
+          fi
+
+      - name: Upload native XCTest evidence
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: build-test-logs
+          name: xctest-results-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             build/logs/*.log
+            build/logs/xctest-context.txt
+            build/logs/xctest-summary.txt
+            build/logs/xctest-summary.json
+            build/logs/xctest-summary.md
             build/logs/ZynSignTests.xcresult
+            !build/logs/**/*.p12
+            !build/logs/**/*.pfx
+            !build/logs/**/*.pem
+            !build/logs/**/*.key
+            !build/logs/**/*.p8
+            !build/logs/**/*.cer
+            !build/logs/**/*.crt
+            !build/logs/**/*.certsigningrequest
+            !build/logs/**/*.certSigningRequest
+            !build/logs/**/*.mobileprovision
+            !build/logs/**/*.provisionprofile
+            !build/logs/**/*.xcuserstate
+            !build/logs/**/.netrc
+            !build/logs/**/credentials
+            !build/logs/**/credentials.*
+            !build/logs/**/id_rsa
+            !build/logs/**/id_dsa
+            !build/logs/**/id_ecdsa
+            !build/logs/**/id_ed25519
           if-no-files-found: warn
+          include-hidden-files: false
           retention-days: 14
 
   # SwiftLint and SwiftFormat in one job. Lint errors block; the format check

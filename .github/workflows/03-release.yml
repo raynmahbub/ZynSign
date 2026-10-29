@@ -22,7 +22,8 @@
 #                   refused here, before any build starts.
 #   1. validate   — release-train stage, MARKETING_VERSION, changelog,
 #                   notes, architecture, dependencies, docs, secrets
-#   2. build      — full build and unit-test run (Scripts/ci/build.sh)
+#   2. build      — full build and unit-test run (Scripts/ci/build.sh);
+#                   the .xcresult and logs are kept for 14 days
 #   3. assets     — Scripts/ci/release_assets.sh: the version-stamped
 #                   unsigned IPA, its SHA256, the Build Passport, MANIFEST.md
 #                   and ReleaseNotes.md, all derived from the tag
@@ -154,13 +155,51 @@ jobs:
       - name: Build and test
         run: Scripts/ci/build.sh
 
-      - name: Upload build and test logs on failure
-        if: failure()
+      # Same evidence contract as 01-build.yml: the bundle and logs survive
+      # a pass and a failure, named by run id and attempt. A missing bundle
+      # warns and does not fail the job. Signing material is excluded.
+      - name: Keep signing material out of the XCTest evidence
+        if: always()
+        run: |
+          if [[ -f Scripts/ci/xctest_evidence.py ]]; then
+            python3 Scripts/ci/xctest_evidence.py prepare
+          else
+            echo "XCTest evidence script is not in the workspace; skipping."
+          fi
+
+      - name: Upload native XCTest evidence
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: release-build-logs
-          path: build/logs/
+          name: xctest-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/logs/*.log
+            build/logs/xctest-context.txt
+            build/logs/xctest-summary.txt
+            build/logs/xctest-summary.json
+            build/logs/xctest-summary.md
+            build/logs/ZynSignTests.xcresult
+            !build/logs/**/*.p12
+            !build/logs/**/*.pfx
+            !build/logs/**/*.pem
+            !build/logs/**/*.key
+            !build/logs/**/*.p8
+            !build/logs/**/*.cer
+            !build/logs/**/*.crt
+            !build/logs/**/*.certsigningrequest
+            !build/logs/**/*.certSigningRequest
+            !build/logs/**/*.mobileprovision
+            !build/logs/**/*.provisionprofile
+            !build/logs/**/*.xcuserstate
+            !build/logs/**/.netrc
+            !build/logs/**/credentials
+            !build/logs/**/credentials.*
+            !build/logs/**/id_rsa
+            !build/logs/**/id_dsa
+            !build/logs/**/id_ecdsa
+            !build/logs/**/id_ed25519
           if-no-files-found: warn
+          include-hidden-files: false
           retention-days: 14
 
   # --- Assets: IPA, checksum, BuildInfo.json, ReleaseNotes.md ------------------
