@@ -67,8 +67,11 @@ COUNT_KEYS = (
     "skippedTests",
     "expectedFailures",
 )
-EXECUTED_LINE = re.compile(
-    r"Executed (\d+) tests?, with (\d+) failures?(?: \((\d+) unexpected\))?"
+ALL_TESTS_END = re.compile(r"^\s*Test Suite 'All tests' (?:passed|failed)\b", re.MULTILINE)
+ALL_TESTS_RESULT = re.compile(
+    r"^\s*Test Suite 'All tests' (?:passed|failed)\b[^\n]*\n"
+    r"\s*Executed (\d+) tests?, with (\d+) failures?\b",
+    re.MULTILINE,
 )
 LOG_FAILURE = re.compile(r"Test Case '([^']+)' failed")
 LOG_SKIPPED = re.compile(r"^\s*Test Case '.*' skipped", re.MULTILINE)
@@ -180,15 +183,21 @@ def first_int(node: object, key: str, depth: int = 0) -> int | None:
 
 
 def counts_from_log(text: str) -> dict[str, int]:
+    # A nested suite's execution line is not a run total. Multiple All tests
+    # summaries can represent separate test processes, not a single aggregate.
+    matches = list(ALL_TESTS_RESULT.finditer(text))
+    if len(matches) != 1 or len(ALL_TESTS_END.findall(text)) != 1:
+        return {}
+    total, failures = map(int, matches[0].groups())
     counts: dict[str, int] = {}
-    match = EXECUTED_LINE.search(text)
-    if match:
-        counts["totalTestCount"] = int(match.group(1))
-        counts["failedTests"] = int(match.group(2))
-        counts["passedTests"] = max(0, counts["totalTestCount"] - counts["failedTests"])
-    skipped = len(LOG_SKIPPED.findall(text))
-    if skipped:
-        counts["skippedTests"] = skipped
+    # The log does not reliably establish whether skipped cases are included
+    # in the executed total, or whether their case lines are complete.
+    if not LOG_SKIPPED.search(text):
+        counts["totalTestCount"] = total
+    # XCTest counts failure events, which need not equal failed test cases.
+    if failures == 0:
+        counts["failedTests"] = 0
+    # Never infer passed or skipped counts from an incomplete log.
     return counts
 
 

@@ -101,8 +101,9 @@ class XCTestSummaryTests(unittest.TestCase):
         log = "\n".join(
             [
                 "Test Case '-[ZynSignTests.FooTests testBar]' failed (0.001 seconds).",
-                "** TEST FAILED **",
+                "Test Suite 'All tests' failed at 2026-01-01 00:00:00.000.",
                 "Executed 3 tests, with 1 failure (0 unexpected) in 0.010 (0.012) seconds",
+                "** TEST FAILED **",
             ]
         )
         context = {
@@ -115,8 +116,47 @@ class XCTestSummaryTests(unittest.TestCase):
         names = xctest_evidence.failure_names_from_log(log)
         self.assertEqual(result, "Failed")
         self.assertEqual(counts["totalTestCount"], 3)
-        self.assertEqual(counts["failedTests"], 1)
+        # The aggregate counts failure events, not necessarily failed cases.
+        self.assertIsNone(counts["failedTests"])
         self.assertEqual(names, ["-[ZynSignTests.FooTests testBar]"])
+
+    def test_log_uses_all_tests_aggregate_not_nested_suite(self) -> None:
+        log = "\n".join([
+            "Test Suite 'FooTests' passed at 2026-01-01.",
+            "Executed 2 tests, with 0 failures in 0.1 seconds",
+            "Test Suite 'All tests' passed at 2026-01-01.",
+            "Executed 10 tests, with 0 failures in 0.2 seconds",
+        ])
+        self.assertEqual(xctest_evidence.counts_from_log(log), {
+            "totalTestCount": 10, "failedTests": 0,
+        })
+
+    def test_log_skipped_cases_do_not_invent_counts(self) -> None:
+        log = "\n".join([
+            "Test Case '-[Foo testSkipped]' skipped (0.001 seconds).",
+            "Test Suite 'All tests' passed at 2026-01-01.",
+            "Executed 3 tests, with 0 failures in 0.1 seconds",
+        ])
+        self.assertEqual(xctest_evidence.counts_from_log(log), {"failedTests": 0})
+
+    def test_log_missing_or_ambiguous_aggregate_is_unavailable(self) -> None:
+        aggregate = ("Test Suite 'All tests' failed at 2026-01-01.\n"
+                     "Executed 3 tests, with 1 failure in 0.1 seconds\n")
+        for log in ("", "Executed 3 tests, with 1 failure", aggregate + aggregate,
+                    aggregate + "Test Suite 'All tests' failed at 2026-01-01.\n"):
+            with self.subTest(log=log):
+                self.assertEqual(xctest_evidence.counts_from_log(log), {})
+
+    def test_json_counts_remain_preferred_over_log(self) -> None:
+        log = ("Test Suite 'All tests' passed at 2026-01-01.\n"
+               "Executed 10 tests, with 0 failures in 0.1 seconds\n")
+        counts = xctest_evidence.merge_counts(
+            {"totalTestCount": 4, "passedTests": 2, "failedTests": 1, "skippedTests": 1}, log
+        )
+        self.assertEqual(counts["totalTestCount"], 4)
+        self.assertEqual(counts["passedTests"], 2)
+        self.assertEqual(counts["failedTests"], 1)
+        self.assertEqual(counts["skippedTests"], 1)
 
     def test_skipped_run_does_not_claim_a_passing_suite(self) -> None:
         context = {

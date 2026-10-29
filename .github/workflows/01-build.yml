@@ -265,6 +265,8 @@ jobs:
             build/logs/xctest-summary.txt
             build/logs/xctest-summary.json
             build/logs/xctest-summary.md
+            build/logs/xctest-results.json
+            build/logs/xctest-results.md
             build/logs/ZynSignTests.xcresult
             !build/logs/**/*.p12
             !build/logs/**/*.pfx
