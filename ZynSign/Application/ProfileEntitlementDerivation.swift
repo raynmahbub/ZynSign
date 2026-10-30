@@ -78,7 +78,7 @@ enum ProfileEntitlementDerivation {
             }
         }
         if case .array(let groups)? = updated["keychain-access-groups"] {
-            let rewrittenGroups = groups.map { element -> ProvisioningEntitlementValue in
+            let rewrittenGroups = groups.map { element -> ProvisioningProfileValue in
                 if case .string(let group) = element, group.hasSuffix(".*") {
                     let prefix = String(group.dropLast(2))
                     if concreteAppID.hasPrefix(prefix + ".") {

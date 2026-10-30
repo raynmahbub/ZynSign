@@ -244,17 +244,17 @@ final class GuestContainerHostService: ObservableObject {
             let dest = tweaksDir.appendingPathComponent(tweakURL.lastPathComponent)
             if var tweakBytes = try? Data(contentsOf: tweakURL) {
                 if tweakBytes.count >= 32 {
-                    if let arm64 = try? GuestMachOPatcher.extractArm64Slice(from: tweakBytes) {
+                    if let arm64 = try? GuestMachOPatcher.extractArm64Slice(tweakBytes) {
                         tweakBytes = arm64
                     }
                     if let stripped = try? MachOCodeSignatureStripper.stripSignature(from: tweakBytes) {
-                        tweakBytes = stripped.binary
+                        tweakBytes = stripped
                     }
-                    if let adHocSigned = try? adHocSigner.signBinary(
+                    if let adHocSigned = try? adHocSigner.signMachO(
                         tweakBytes,
                         identifier: tweakURL.deletingPathExtension().lastPathComponent
                     ) {
-                        tweakBytes = adHocSigned
+                        tweakBytes = adHocSigned.signedBytes
                     }
                 }
                 try? tweakBytes.write(to: dest, options: .atomic)
@@ -310,12 +310,12 @@ final class GuestContainerHostService: ObservableObject {
                   data.count >= 32 else { continue }
             var current = data
             var changed = false
-            if let arm64 = try? GuestMachOPatcher.extractArm64Slice(from: current), arm64 != current {
+            if let arm64 = try? GuestMachOPatcher.extractArm64Slice(current), arm64 != current {
                 current = arm64
                 changed = true
             }
-            if let stripped = try? MachOCodeSignatureStripper.stripSignature(from: current), stripped.didStrip {
-                current = stripped.binary
+            if let stripped = try? MachOCodeSignatureStripper.stripSignature(from: current), stripped != current {
+                current = stripped
                 changed = true
             }
             if changed {
