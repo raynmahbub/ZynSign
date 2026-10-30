@@ -218,6 +218,21 @@ final class SigningMetadataIntegrationTests: XCTestCase {
         XCTAssertThrowsError(try engine.verify(artifact: malformed, request: request, certificate: store.certificate)) {
             XCTAssertEqual($0 as? MachOSigningError, .entitlements(.malformedDEREncoding))
         }
+        var unsupported = result.artifact
+        unsupported[entry.fileRange.upperBound - 3] = 0x09 // REAL tag, outside the supported grammar
+        XCTAssertThrowsError(try engine.verify(artifact: unsupported, request: request, certificate: store.certificate)) {
+            XCTAssertEqual($0 as? MachOSigningError, .entitlements(.unsupportedValueType))
+        }
+        var invalidMagic = result.artifact
+        invalidMagic[entry.fileRange.lowerBound] ^= 1
+        XCTAssertThrowsError(try engine.verify(artifact: invalidMagic, request: request, certificate: store.certificate)) {
+            XCTAssertEqual($0 as? MachOSigningError, .entitlements(.invalidDERMagic))
+        }
+        var invalidLength = result.artifact
+        invalidLength[entry.fileRange.lowerBound + 4] = 0xff
+        XCTAssertThrowsError(try engine.verify(artifact: invalidLength, request: request, certificate: store.certificate)) {
+            XCTAssertEqual($0 as? MachOSigningError, .entitlements(.invalidBlobFraming))
+        }
         var wrongDigest = result.artifact
         wrongDigest[slot.hashRange.lowerBound] ^= 1
         XCTAssertThrowsError(try engine.verify(artifact: wrongDigest, request: request, certificate: store.certificate)) {
@@ -238,7 +253,9 @@ final class SigningMetadataIntegrationTests: XCTestCase {
         let entry = superBlob.entries[index]
         var missing = result.artifact
         missing[superBlob.fileRange.lowerBound + 12 + index * 8 + 3] = 6
-        XCTAssertThrowsError(try engine.verify(artifact: missing, request: request, certificate: store.certificate))
+        XCTAssertThrowsError(try engine.verify(artifact: missing, request: request, certificate: store.certificate)) {
+            XCTAssertEqual($0 as? MachOSigningError, .entitlements(.missingDEREntitlements))
+        }
         var unsorted = result.artifact
         let payload = entry.fileRange.lowerBound + 8
         unsorted.replaceSubrange((payload + 2)..<(payload + 19), with: Data([
@@ -248,6 +265,36 @@ final class SigningMetadataIntegrationTests: XCTestCase {
         XCTAssertThrowsError(try engine.verify(artifact: unsorted, request: request, certificate: store.certificate)) {
             XCTAssertEqual($0 as? MachOSigningError, .entitlements(.malformedDEREncoding))
         }
+    }
+
+    func testDERAndXMLPreserveNestedStringsAndValues() throws {
+        let claims = try CodeSigningEntitlements(values: [
+            "nested": .dictionary(["array": .array([
+                .string("a\rb\nc\td é 日本語"), .boolean(true), .integer(-129), .data(Data([0, 255]))
+            ])])
+        ])
+        let prepared = try SigningMetadataPreparation.prepare(
+            MachOSigningMetadata(entitlements: claims, emitDEREntitlements: true),
+            hashConfiguration: try CodeDirectoryHashConfiguration(hashType: .sha256), messageDigest: digest)
+        let xml = try XCTUnwrap(prepared.entitlementsBlob)
+        let der = try XCTUnwrap(prepared.derEntitlementsBlob)
+        XCTAssertTrue(String(decoding: xml.payload, as: UTF8.self).contains("&#xD;"))
+        XCTAssertTrue(try EntitlementsPlistParser.parse(xml.payload).hasSameSerializedClaims(as: claims))
+        XCTAssertTrue(try DEREntitlementsDecoder().decode(blob: der.bytes).hasSameSerializedClaims(as: claims))
+    }
+
+    func testInvalidXMLValuesFailBeforePrivateSigning() throws {
+        let store = try NestedSigningTestIdentityStore()
+        let engine = useCase(store, verifier: NestedSigningTestVerifier())
+        for value in ["a\u{0}b", "a\u{1}b", "a\u{b}b", "a\u{fffe}b"] {
+            let claims = try CodeSigningEntitlements(values: ["nested": .array([.string(value)])])
+            let request = try request(metadata: MachOSigningMetadata(entitlements: claims, emitDEREntitlements: true),
+                                      identity: store.id, version: .v20400)
+            XCTAssertThrowsError(try engine.sign(request)) {
+                XCTAssertEqual($0 as? MachOSigningError, .entitlements(.invalidXMLString))
+            }
+        }
+        XCTAssertEqual(store.signCalls, 0)
     }
 
     func testDERInvalidInputsFailBeforePrivateSigning() throws {
@@ -263,7 +310,7 @@ final class SigningMetadataIntegrationTests: XCTestCase {
         }
         let valid = MachOSigningMetadata(entitlements: try makeEntitlements(), emitDEREntitlements: true)
         XCTAssertThrowsError(try engine.sign(request(metadata: valid, identity: store.id))) {
-            XCTAssertEqual($0 as? MachOSigningError, .unsupportedConfiguration)
+            XCTAssertEqual($0 as? MachOSigningError, .entitlements(.unsupportedDERCodeDirectoryVersion))
         }
         XCTAssertEqual(store.signCalls, 0)
     }

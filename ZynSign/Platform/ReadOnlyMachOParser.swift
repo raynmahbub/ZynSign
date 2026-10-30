@@ -386,25 +386,18 @@ struct ReadOnlyMachOParser: MachOParsing {
         guard seenSlots.insert(slot).inserted else {
             throw MachOParsingError(.malformedSuperBlob, at: .superBlob)
         }
+        let boundary: MachOParsingError.Boundary = slot == 7 ? .derEntitlements : .signatureBlob
         guard offset >= tableEnd else {
-            throw MachOParsingError(.invalidOffset, at: .signatureBlob)
+            throw MachOParsingError(.invalidOffset, at: boundary)
         }
-        let header = try blob.view(at: offset, length: 8, boundary: .signatureBlob)
-        let typeMagic = try header.uint32(at: 0, order: .bigEndian, boundary: .signatureBlob)
+        let header = try blob.view(at: offset, length: 8, boundary: boundary)
+        let typeMagic = try header.uint32(at: 0, order: .bigEndian, boundary: boundary)
         let blobLength = try header.uint32AsInt(
-            at: 4,
-            order: .bigEndian,
-            boundary: .signatureBlob,
-            ifUnrepresentable: .invalidLength
+            at: 4, order: .bigEndian, boundary: boundary, ifUnrepresentable: .invalidLength
         )
-        guard blobLength >= 8 else {
-            throw MachOParsingError(.invalidLength, at: .signatureBlob)
-        }
+        guard blobLength >= 8 else { throw MachOParsingError(.invalidLength, at: boundary) }
         let range = try blob.checkedRange(
-            at: offset,
-            length: blobLength,
-            boundary: .signatureBlob,
-            ifTooLong: .invalidLength
+            at: offset, length: blobLength, boundary: boundary, ifTooLong: .invalidLength
         )
         return IndexedBlob(
             slotNumber: slot,
@@ -448,7 +441,8 @@ struct ReadOnlyMachOParser: MachOParsing {
         slot: CodeSignatureBlobType
     ) throws {
         guard let expectedMagic = slot.expectedMagic, item.magic != expectedMagic else { return }
-        throw MachOParsingError(.malformedSignatureBlob, at: .signatureBlob)
+        throw MachOParsingError(.malformedSignatureBlob,
+                                at: slot == .derEntitlements ? .derEntitlements : .signatureBlob)
     }
 
     private static func codeDirectoryIfPresent(

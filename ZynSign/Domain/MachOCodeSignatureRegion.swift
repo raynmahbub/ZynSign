@@ -174,7 +174,7 @@ enum MachOExistingCodeSignatureState: Equatable {
             default:
                 return .invalidRegionSize(error)
             }
-        case .superBlob, .signatureBlob, .codeDirectory, .identifier,
+        case .superBlob, .signatureBlob, .derEntitlements, .codeDirectory, .identifier,
              .teamIdentifier, .hashSlots, .scatter, .preEncryptHashes, .linkage:
             return .malformedRegion(error)
         default:

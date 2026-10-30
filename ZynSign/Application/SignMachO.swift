@@ -265,6 +265,9 @@ struct SignMachOUseCase {
             let cms = try DetachedCodeSignatureCMS(certificate: certificate)
             try cms.verify(signatureBytes, codeDirectory: directoryBytes, digest: digest, verifier: verifier)
             return try sha256(directoryBytes)
+        } catch let error as MachOParsingError where error.boundary == .derEntitlements && request.metadata?.emitDEREntitlements == true {
+            if error.reason == .malformedSignatureBlob { throw MachOSigningError.entitlements(.invalidDERMagic) }
+            throw MachOSigningError.entitlements(.invalidBlobFraming)
         } catch let error as MachOSigningError {
             if case .entitlements = error, request.metadata?.emitDEREntitlements == true { throw error }
             throw MachOSigningError.postSignVerification

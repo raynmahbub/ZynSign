@@ -21,6 +21,8 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ### Changed
 
+- Hardened experimental single-image DER signing with XML/DER semantic round trips, bounded decoding and additional cryptographic regression coverage; Xcode and Apple interoperability validation remain pending.
+
 - Added experimental opt-in DER entitlement slot 7 binding to the single-image signer, with same-claim and canonical-byte checks. Application signing still refuses DER; Apple-platform and device validation are pending.
 
 - Tightened pairing-record BUID validation and refuse device service TLS requirements that the transport cannot satisfy. Scoped device connections now close on success or failure, and installation progress is bounded. Device transport remains blocked and unverified.

@@ -7,15 +7,19 @@ import Foundation
 struct DEREntitlementsBlob: Equatable, Hashable {
     static let magic: UInt32 = 0xFADE7172
     static let headerLength = 8
+    /// Project resource policy; includes the eight-byte blob header.
+    static let maximumPayloadLength = EntitlementsBlob.maximumPayloadByteCount
+    static let maximumFramedLength = maximumPayloadLength + headerLength
     let payload: Data
     let bytes: Data
 
     init(derPayload payload: Data) throws {
         guard !payload.isEmpty else { throw EntitlementsError.emptyPayload }
-        guard payload.count <= EntitlementsBlob.maximumPayloadByteCount else {
+        guard payload.count <= Self.maximumPayloadLength else {
             throw EntitlementsError.payloadTooLarge
         }
-        let total = Self.headerLength + payload.count
+        let (total, overflow) = Self.headerLength.addingReportingOverflow(payload.count)
+        guard !overflow, total <= Self.maximumFramedLength else { throw EntitlementsError.payloadTooLarge }
         guard let encoded = UInt32(exactly: total) else { throw EntitlementsError.payloadTooLarge }
         var w = CheckedBinaryWriter(maximumLength: total)
         try w.appendUInt32BigEndian(Self.magic)
@@ -27,6 +31,7 @@ struct DEREntitlementsBlob: Equatable, Hashable {
 
     init(existingBlob bytes: Data) throws {
         guard bytes.count >= Self.headerLength else { throw EntitlementsError.invalidBlobFraming }
+        guard bytes.count <= Self.maximumFramedLength else { throw EntitlementsError.payloadTooLarge }
         let magic: UInt32 = bytes.withUnsafeBytes { raw in
             let b = raw.bindMemory(to: UInt8.self)
             return UInt32(b[0]) << 24 | UInt32(b[1]) << 16 | UInt32(b[2]) << 8 | UInt32(b[3])
@@ -35,8 +40,9 @@ struct DEREntitlementsBlob: Equatable, Hashable {
             let b = raw.bindMemory(to: UInt8.self)
             return Int(b[4]) << 24 | Int(b[5]) << 16 | Int(b[6]) << 8 | Int(b[7])
         }
-        guard magic == Self.magic else { throw EntitlementsError.invalidBlobFraming }
-        guard declared == bytes.count else { throw EntitlementsError.invalidBlobFraming }
+        guard magic == Self.magic else { throw EntitlementsError.invalidDERMagic }
+        guard declared <= Self.maximumFramedLength else { throw EntitlementsError.payloadTooLarge }
+        guard declared >= Self.headerLength, declared == bytes.count else { throw EntitlementsError.invalidBlobFraming }
         self.payload = Data(bytes.dropFirst(Self.headerLength))
         self.bytes = bytes
     }
