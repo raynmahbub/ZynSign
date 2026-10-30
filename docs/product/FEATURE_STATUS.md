@@ -1,19 +1,19 @@
 # Feature Status — source inventory, not device evidence
 
-This snapshot follows the source-controlled train at `v0.1.0-alpha.2` (`.alpha2`, marketing `0.1.0`, build `8`). Confirm the active value with `python3 Scripts/release_train.py status`; the source remains authoritative. The capability catalogue is at **Settings → Features** and is generated from `CoreFeature.allCases`, `ReleaseFeature.allCases`, and `UnsupportedFeature.allCases` in [`FeatureCatalog.swift`](../../ZynSign/Application/FeatureCatalog.swift). Tests assert that each registry is represented once and that staged statuses follow the train.
+This snapshot follows the source-controlled train at `v0.1.0-alpha.3` (`.alpha3`, marketing `0.1.0`, build `9`). Confirm the active value with `python3 Scripts/release_train.py status`; the source remains authoritative. The capability catalogue is at **Settings → Features** and is generated from `CoreFeature.allCases`, `ReleaseFeature.allCases`, and `UnsupportedFeature.allCases` in [`FeatureCatalog.swift`](../../ZynSign/Application/FeatureCatalog.swift). Tests assert that each registry is represented once and that staged statuses follow the train.
 
 A source entry means code and a presentation surface exist; it does **not** mean the feature has passed physical-device verification on hardware.
 
 ## Release-gated capabilities
 
-`ReleaseTrain.current` is `.alpha2`. Eight staged `ReleaseFeature` flags are active in Release builds at `v0.1.0-alpha.2`, and ten remain staged for later stops along the train (`0.1.0-alpha.3` → `0.9.0-beta.1..4` → `1.0.0-rc.1..3` → `1.0.0` → `2.0.0` → `3.0.0-nova.1` → `3.0.0`):
+`ReleaseTrain.current` is `.alpha3`. Ten staged `ReleaseFeature` flags are active in Release builds at `v0.1.0-alpha.3`, and eight remain staged for later stops along the train (`0.9.0-beta.1..4` → `1.0.0-rc.1..3` → `1.0.0` → `2.0.0` → `3.0.0-nova.1` → `3.0.0`):
 
 | Introduced stop | Features |
 |---|---|
 | `v0.0.1` (`.horizon`) | Certificate Studio, Provisioning Profile Manager, App Store, Downloads |
 | `v0.1.0-alpha.1` | Library Power Features |
-| `v0.1.0-alpha.2` (current) | Smart Sign, Signing Queue, Signing Presets |
-| `v0.1.0-alpha.3` | Entitlements Studio, Developer Identity Center |
+| `v0.1.0-alpha.2` | Smart Sign, Signing Queue, Signing Presets |
+| `v0.1.0-alpha.3` (current) | Entitlements Studio, Developer Identity Center |
 | `v0.9.0-beta.1` | Mission Control, Delivery Hand-off, Activity Journal |
 | `v0.9.0-beta.2` | Installation Workspace, Performance Dashboard |
 | `v0.9.0-beta.4` | Export Center, Signing History |

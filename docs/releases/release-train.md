@@ -8,7 +8,7 @@ The release train in [`ZynSign/Application/ReleaseTrain.swift`](../../ZynSign/Ap
 python3 Scripts/release_train.py status
 ```
 
-At this checkout the current stop is **`v3.0.0`** (stage `.nova`, marketing version `3.0.0`, build `12`) — the final stop on the release train, carrying all eighteen staged features plus the unified Free/Paid signing, loopback bridge, multi-app container, and workspace tooling. The command is authoritative if this page and the source ever disagree, and the current stop is not evidence that a release has been published or device-verified.
+At this checkout the current stop is **`v0.1.0-alpha.3`** (stage `.alpha3`, marketing version `0.1.0`, build `9`) — ten of the eighteen staged features are active in Release builds (`Certificate Studio`, `Provisioning Profile Manager`, `App Store`, `Downloads`, `Library Power Features`, `Smart Sign`, `Signing Queue`, `Signing Presets`, `Entitlements Studio`, and `Developer Identity Center`). The command is authoritative if this page and the source ever disagree, and the current stop is not evidence that a release has been published or device-verified.
 
 ## Ordered stops
 

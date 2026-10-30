@@ -19,6 +19,8 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+## [0.1.0-alpha.3] - 2026-10-30
+
 ### Added
 
 - **Unified Free Apple ID & Paid Certificate Provisioning Hub.** `UnifiedSigningHubView` and `AppleAccountProvisioningService` bring Free Apple ID GSA authentication (`URLSessionAppleDeveloperPortalClient` + `AnisetteHeaderBundle` + 2FA verification + automatic Keychain RSA-2048 CSR generation via `KeychainCSRIdentityProvisioner` and `PKCS10CertificateRequestBuilder`, developer certificate issuance, UDID registration, team-scoped App ID + App Group provisioning, and 7-day profile download) alongside Paid `.p12`/`.pfx`, portable `.zcert` (`ZynCertificateBundle`), bounded `.p12` passphrase recovery, and encrypted DNS (`.mobileconfig`) revocation-shield generation in one workspace.
@@ -467,6 +469,9 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   the honest page's "N on · M ahead" header was computed from a short list. The
   line comment is stripped before matching, and the reason is recorded in the
   code.
+- **Real-device wildcard entitlement concretization, universal Mach-O thinning, and signature stripping.** `ProfileEntitlementDerivation.concreteProfileEntitlements` materializes wildcard `TEAMID.*` `application-identifier` and `keychain-access-groups` claims to `TEAMID.<bundleID>` across Smart Sign, presets, and the signing queue; `SignApplicationPipeline`, `SigningEngineBundleValidator`, and `SideloadPackageEditor` thin universal (`arm64` + `x86_64`) binaries to `arm64`, strip existing `LC_CODE_SIGNATURE` regions when re-signing, enumerate loose `.dylib` libraries, propagate `CodeDirectory` `teamID` (`0x00020200`), and preserve deferred UDID device coverage through the queue.
+- **Native 2048-bit SRP-6a GrandSlam authentication and `QH65B2` portal requests.** `AppleGSASRP6a` and `URLSessionAppleDeveloperPortalClient` implement RFC 5054 2048-bit SRP-6a (`init` → PBKDF2 `s2k`/`s2k_fo` → `complete` → AES-256-CBC `spd` → trusted-device 2FA → AES-256-GCM `apptokens` exchange) and Xcode `QH65B2` plist actions including automatic `group.*` App Group creation and assignment.
+- **Community repository feed normalization, transfer integrity, and canonical UUID pairing records.** `EncodedCatalogPayloadDecoder` normalizes AltStore/Feather/ESign/Ksign feed quirks (`apps[].versions[]` flattening, array-wrapped catalogs, numeric versions/sizes), `StorePackageTransfer` verifies `expectedContentLength` and ZIP magic headers before admitting downloads, and `PairingRecordCoding` accepts canonical 36-character RFC 4122 UUID `HostID`s alongside 40-hex SHA-1 digests.
 
 ## [0.1.0-alpha.2] - 2026-10-05
 
