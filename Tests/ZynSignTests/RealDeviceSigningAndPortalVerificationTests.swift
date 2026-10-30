@@ -198,18 +198,19 @@ final class RealDeviceSigningAndPortalVerificationTests: XCTestCase {
             identityID: identities.id,
             entitlements: try CodeSigningEntitlements(values: [:]),
             outputURL: outputURL,
-            teamIdentifier: teamID,
             options: SignApplicationOptions(
-                deviceContext: .unspecified,
-                allowDeferredDeviceCoverage: true,
-                replacesExistingSignatures: true
+                teamIdentifier: teamID,
+                deviceContext: .unavailable,
+                replacesExistingSignatures: true,
+                allowDeferredDeviceCoverage: true
             )
         ))
 
-        XCTAssertEqual(result.status, .signed, "Expected signing to succeed with deferred device coverage; got \(String(describing: result.failure))")
+        XCTAssertEqual(result.status, ApplicationSigningStatus.signed)
+        XCTAssertNil(result.failure)
         XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
 
-        let reader = ZipArchiveReader(url: outputURL)
+        let reader = ZipArchiveReader(location: outputURL)
         defer { reader.close() }
         let signedMainBytes = try reader.readEntryData(
             at: try XCTUnwrap(ArchivePath(rawValue: "Payload/Synthetic.app/Synthetic")),
@@ -218,12 +219,11 @@ final class RealDeviceSigningAndPortalVerificationTests: XCTestCase {
         let parsedMain = try ReadOnlyMachOParser().parse(signedMainBytes)
         guard case .thin(let slice) = parsedMain.container,
               let embedded = slice.embeddedSignature,
-              let cdEntry = embedded.superBlob.entries.first(where: { $0.slot == .codeDirectory }),
-              let cd = cdEntry.codeDirectory else {
+              let cd = embedded.superBlob.entries.compactMap(\.codeDirectory).first else {
             return XCTFail("Expected thin arm64 signed Mach-O with CodeDirectory")
         }
         XCTAssertEqual(cd.identifier, ProvisioningPolicyFixtures.bundleIdentifier)
-        XCTAssertEqual(cd.teamID, "TEAM123456")
+        XCTAssertEqual(cd.teamIdentifier, "TEAM123456")
         XCTAssertGreaterThanOrEqual(cd.version, 0x0002_0400)
     }
 
