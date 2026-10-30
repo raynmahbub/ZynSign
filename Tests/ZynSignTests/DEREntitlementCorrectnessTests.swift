@@ -32,8 +32,10 @@ final class DEREntitlementCorrectnessTests: XCTestCase {
             "a\u{0C}b",          // Form feed
             "a\u{FFFE}b",        // Noncharacter
             "a\u{FFFF}b",
-            "\u{D800}",          // Lone surrogate high
-            "\u{DFFF}",          // Lone surrogate low
+            // A lone surrogate is not a case that can be written here: Swift's
+            // `String` cannot hold one, so the model is never handed one. It is
+            // the DER and XML decode boundaries that must refuse the encoding,
+            // and that is where the surrogate case belongs.
         ]
         for text in invalidStrings {
             XCTAssertThrowsError(try CodeSigningEntitlements(values: ["k": .string(text)]),
