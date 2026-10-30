@@ -352,19 +352,41 @@ struct SigningMetadataPreparation: Equatable {
                 blob = try EntitlementsCanonicalSerializer().blob(entitlements)
             } catch let error as EntitlementsError {
                 throw SigningMetadataError.entitlements(error)
+            } catch let error as CanonicalPropertyListError {
+                throw SigningMetadataError.entitlements(EntitlementsError.canonicalizationError(error))
+            }
+            // Canonical round-trip validation: XML bytes must parse back to
+            // the same normalized claims, and re-serializing those claims must
+            // reproduce the same canonical bytes. This ensures the single
+            // canonical entitlement representation is self-consistent before
+            // any private-key operation.
+            do {
+                let xmlClaims = try EntitlementsPlistParser.parse(blob.payload)
+                guard xmlClaims.hasSameSerializedClaims(as: entitlements) else {
+                    throw EntitlementsError.derXMLSemanticMismatch
+                }
+                let reserialized = try EntitlementsCanonicalSerializer().serialize(xmlClaims)
+                guard reserialized == blob.payload else {
+                    throw EntitlementsError.derXMLSemanticMismatch
+                }
+            } catch let error as EntitlementsError {
+                throw SigningMetadataError.entitlements(error)
             }
             entitlementsBlob = blob
             let digest = try slotDigest(blob.bytes, hashConfiguration: hashConfiguration, messageDigest: messageDigest)
             entitlementsDigest = digest
             if metadata.emitDEREntitlements {
                 do {
-                    let xmlClaims: CodeSigningEntitlements
-                    do { xmlClaims = try EntitlementsPlistParser.parse(blob.payload) }
-                    catch { throw EntitlementsError.derXMLSemanticMismatch }
+                    // Re-derive XML claims from the already validated blob for
+                    // the cross-format equivalence check.
+                    let xmlClaims = try EntitlementsPlistParser.parse(blob.payload)
                     guard xmlClaims.hasSameSerializedClaims(as: entitlements) else {
                         throw EntitlementsError.derXMLSemanticMismatch
                     }
                     let candidate = try DEREntitlementsSerializer().blob(entitlements)
+                    // Validate candidate framing before decoding: total length,
+                    // declared length and magic are checked inside the blob
+                    // init, and payload bounds before allocation inside decode.
                     let derClaims = try DEREntitlementsDecoder().decode(blob: candidate.bytes)
                     // Reject unsupported or lossy representations before key access.
                     guard derClaims.hasSameSerializedClaims(as: entitlements) else {
@@ -372,6 +394,14 @@ struct SigningMetadataPreparation: Equatable {
                     }
                     guard derClaims.hasSameSerializedClaims(as: xmlClaims) else {
                         throw EntitlementsError.derXMLSemanticMismatch
+                    }
+                    // Canonical DER bytes round-trip: re-encoding the decoded
+                    // claims must reproduce the same bytes, proving the SET OF
+                    // ordering and value encodings are canonical and that the
+                    // decoder's structural validation matches the encoder's.
+                    let reencoded = try DEREntitlementsSerializer().blob(derClaims)
+                    guard reencoded.bytes == candidate.bytes else {
+                        throw EntitlementsError.malformedDEREncoding
                     }
                     derBlob = candidate
                     derDigest = try slotDigest(candidate.bytes, hashConfiguration: hashConfiguration, messageDigest: messageDigest)

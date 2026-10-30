@@ -159,12 +159,22 @@ struct CanonicalPropertyListXMLSerializer {
             // No deterministic canonical date encoding is established.
             throw CanonicalPropertyListError.unsupportedValueType
         case .array(let elements):
+            // Collection bound is part of the canonical node-budget policy so
+            // XML and DER enforce the same limit. The model already rejects
+            // oversized collections on construction, but the serializer
+            // enforces it again as a second gate before hashing.
+            guard elements.count <= 10_000 else {
+                throw CanonicalPropertyListError.resourceLimitExceeded
+            }
             context.appendLine("<array>", depth: depth)
             for element in elements {
                 try serializeValue(element, depth: depth + 1, context: &context)
             }
             context.appendLine("</array>", depth: depth)
         case .dictionary(let entries):
+            guard entries.count <= 10_000 else {
+                throw CanonicalPropertyListError.resourceLimitExceeded
+            }
             context.appendLine("<dict>", depth: depth)
             for key in entries.keys.sorted(by: Self.utf8Ascending) {
                 try validateKey(key)

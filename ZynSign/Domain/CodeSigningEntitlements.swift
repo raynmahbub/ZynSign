@@ -85,6 +85,11 @@ struct CodeSigningEntitlements: Equatable, Hashable {
 
     /// Creates an entitlement set from typed claims, validating structure.
     ///
+    /// Validation is the single canonical policy shared by XML and DER: string
+    /// values must be valid XML character data, node depth/count/collection
+    /// bounds are enforced identically, and both serializers derive from the
+    /// same validated model. See `EntitlementCanonicalValidator`.
+    ///
     /// - Throws: `EntitlementsError` when a key is unusable, a value carries
     ///   an excluded type, or a bound is exceeded. The caller's dictionary is
     ///   never mutated.
@@ -96,9 +101,30 @@ struct CodeSigningEntitlements: Equatable, Hashable {
         }
         var nodeCount = 0
         for key in values.keys.sorted(by: CanonicalPropertyListXMLSerializer.utf8Ascending) {
-            try Self.validateKey(key)
+            try EntitlementCanonicalValidator.validateKey(key, limits: Self.limits)
             guard let value = values[key] else { throw EntitlementsError.invalidKey }
-            try Self.validateValue(value, depth: 0, nodeCount: &nodeCount)
+            try EntitlementCanonicalValidator.validateValue(value, depth: 0, nodeCount: &nodeCount, limits: Self.limits)
+            validated[key] = value
+        }
+        self.values = validated
+    }
+
+    /// Creates an entitlement set from typed claims with explicit limits.
+    ///
+    /// Test-only overload for bounded-limit regression: the public path uses
+    /// `Self.limits`. Both XML and DER decoding validate through this same
+    /// shared policy, so limits are applied consistently.
+    init(values: [String: ProvisioningProfileValue], limits: ProvisioningProfileParsingLimits) throws {
+        var validated: [String: ProvisioningProfileValue] = [:]
+        validated.reserveCapacity(values.count)
+        guard values.count <= limits.maximumCollectionCount else {
+            throw EntitlementsError.resourceLimitExceeded
+        }
+        var nodeCount = 0
+        for key in values.keys.sorted(by: CanonicalPropertyListXMLSerializer.utf8Ascending) {
+            try EntitlementCanonicalValidator.validateKey(key, limits: limits)
+            guard let value = values[key] else { throw EntitlementsError.invalidKey }
+            try EntitlementCanonicalValidator.validateValue(value, depth: 0, nodeCount: &nodeCount, limits: limits)
             validated[key] = value
         }
         self.values = validated
@@ -167,69 +193,20 @@ struct CodeSigningEntitlements: Equatable, Hashable {
 
     // MARK: - Structural validation
 
-    /// Key rules mirror the profile parser's entitlement-key rules: non-empty,
-    /// bounded, and free of control characters. This is input validation, not
-    /// a statement about which keys the platform honors.
+    // Validation is implemented once in `EntitlementCanonicalValidator` so XML
+    // and DER share exactly the same string, depth, node-count and collection
+    // policy. The two private helpers below remain as thin forwarders for
+    // existing call sites but delegate to the canonical validator.
     private static func validateKey(_ key: String) throws {
-        guard !key.isEmpty,
-              key.utf8.count <= limits.maximumStringByteCount,
-              !key.contains(where: { $0.isControl }) else {
-            throw EntitlementsError.invalidKey
-        }
+        try EntitlementCanonicalValidator.validateKey(key, limits: limits)
     }
 
-    /// Walks one value tree enforcing the model's bounds and type set.
-    ///
-    /// Dates are excluded by ZynSign policy: no deterministic canonical
-    /// serialization for dates is established (see
-    /// `CanonicalPropertyListXMLSerializer`), and a silent format choice here
-    /// would become a hashing boundary by accident.
     private static func validateValue(
         _ value: ProvisioningProfileValue,
         depth: Int,
         nodeCount: inout Int
     ) throws {
-        guard depth <= limits.maximumNestingDepth else {
-            throw EntitlementsError.resourceLimitExceeded
-        }
-        nodeCount += 1
-        guard nodeCount <= limits.maximumValueNodeCount else {
-            throw EntitlementsError.resourceLimitExceeded
-        }
-        switch value {
-        case .string(let text):
-            guard text.utf8.count <= limits.maximumStringByteCount else {
-                throw EntitlementsError.resourceLimitExceeded
-            }
-        case .boolean:
-            break
-        case .integer:
-            break
-        case .real(let number):
-            guard number.isFinite else { throw EntitlementsError.nonFiniteNumber }
-        case .data(let bytes):
-            guard bytes.count <= limits.maximumDataByteCount else {
-                throw EntitlementsError.resourceLimitExceeded
-            }
-        case .date:
-            throw EntitlementsError.unsupportedValueType
-        case .array(let elements):
-            guard elements.count <= limits.maximumCollectionCount else {
-                throw EntitlementsError.resourceLimitExceeded
-            }
-            for element in elements {
-                try validateValue(element, depth: depth + 1, nodeCount: &nodeCount)
-            }
-        case .dictionary(let entries):
-            guard entries.count <= limits.maximumCollectionCount else {
-                throw EntitlementsError.resourceLimitExceeded
-            }
-            for key in entries.keys {
-                try validateKey(key)
-                guard let entry = entries[key] else { throw EntitlementsError.invalidKey }
-                try validateValue(entry, depth: depth + 1, nodeCount: &nodeCount)
-            }
-        }
+        try EntitlementCanonicalValidator.validateValue(value, depth: depth, nodeCount: &nodeCount, limits: limits)
     }
 }
 
