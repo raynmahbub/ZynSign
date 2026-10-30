@@ -424,7 +424,7 @@ struct RootView: View {
             ForEach(visibleTabs) { section in
                 tabContent(section)
                     .tabItem {
-                        Label(section.title, systemImage: section.systemImage)
+                        Label(section.title, systemImage: section.symbolName)
                     }
                     .badge(badgeCount(for: section))
                     .tag(section)

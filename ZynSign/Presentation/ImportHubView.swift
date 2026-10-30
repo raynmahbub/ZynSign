@@ -715,7 +715,7 @@ struct ImportHubView: View {
               !hub.isPaused,
               !hub.isBusy,
               !hub.items.contains(where: \.isAwaitingSelection),
-              hub.conflictCount == 0,
+              hub.conflictItems.isEmpty,
               hub.canImportSelected else { return }
         importSelected()
     }

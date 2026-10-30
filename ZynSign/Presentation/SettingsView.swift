@@ -83,7 +83,7 @@ struct SettingsView: View {
     private var headerSection: some View {
         Section {
             HStack(spacing: ZSpacing.md) {
-                ZynSignMark(size: ZSpacing.xxxl, animated: false)
+                ZynSignMark(size: ZSpacing.xxxl)
                 VStack(alignment: .leading, spacing: ZSpacing.xxs) {
                     HStack(spacing: ZSpacing.xs) {
                         Text("ZynSign")
