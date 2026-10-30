@@ -33,6 +33,7 @@ struct ProfilesView: View {
     @Environment(\.applicationEnvironment) private var env
 
     @AppStorage("zynsign.profiles.showsGrid") private var showsGrid = false
+    @State private var pickedProfileURLs: [URL] = []
 
     /// Creates the tab over the profile library, importer, compatibility
     /// use case, and selection store the composition root supplied. `nil`
@@ -84,16 +85,24 @@ struct ProfilesView: View {
         .onChange(of: initialImportURL) { _, url in
             if let url { handleIncomingImport(url) }
         }
-        .fileImporter(
+        .sheet(
             isPresented: Binding(
                 get: { model.isShowingImporter },
                 set: { model.isShowingImporter = $0 }
             ),
-            allowedContentTypes: ProvisioningProfilesModel.importableTypes,
-            allowsMultipleSelection: false
-        ) { result in
-            model.isShowingImporter = false
-            handlePickerResultAfterDismissal(result)
+            onDismiss: { consumePickedProfilesIfNeeded() }
+        ) {
+            ZDocumentPicker(
+                contentTypes: ImportablePackage.profileContentTypes,
+                allowsMultipleSelection: false,
+                onPick: { urls in
+                    pickedProfileURLs = urls
+                    model.isShowingImporter = false
+                },
+                onCancel: {
+                    model.isShowingImporter = false
+                }
+            )
         }
         .sheet(item: $model.importedProfile) { summary in
             ProfileImportSummaryView(
@@ -148,49 +157,23 @@ struct ProfilesView: View {
         guard handledIncomingURL != url else { return }
         handledIncomingURL = url
         onInitialImportConsumed?()
-        handlePickerResultAfterDismissal(.success([url]))
-    }
-
-    /// Imports only after the system picker (or the shell sheet that delivered
-    /// an Open In URL) has finished its transition. A quick profile parse can
-    /// otherwise ask for the result sheet in the same frame the picker closes.
-    private func handlePickerResultAfterDismissal(_ result: Result<[URL], any Error>) {
-        switch result {
-        case .success(let urls):
-            Task { @MainActor in
-                guard await PresentationSettle.waitForIdle() else {
-                    model.toast("The document picker is still closing. Wait a moment, then try again.", style: .warning)
-                    return
-                }
-                model.handlePickerResult(.success(urls))
-            }
-        case .failure(let error):
-            let cocoaError = error as NSError
-            guard !(cocoaError.domain == NSCocoaErrorDomain && cocoaError.code == NSUserCancelledError),
-                  !(error is CancellationError) else { return }
-            let message = (error as? ZynSignError)?.userMessage
-                ?? "The selected profile could not be opened. Save it to Files and try again."
-            Task { @MainActor in
-                _ = await PresentationSettle.waitForIdle()
-                model.toast(message, style: .error)
-            }
+        let stabilized = PickedDocumentStaging.stabilize(url)
+        Task { @MainActor in
+            _ = await PresentationSettle.waitForIdle(cap: .milliseconds(350))
+            model.handlePickerResult(.success([stabilized]))
         }
     }
 
-    /// Presents the profile picker through the SwiftUI file-importer binding.
-    ///
-    /// Unlike a sheet, a document picker is owned by `.fileImporter`; querying
-    /// UIKit for a presented-controller identity and resetting the binding when
-    /// that query does not change can suppress a valid system presentation.
+    private func consumePickedProfilesIfNeeded() {
+        guard !pickedProfileURLs.isEmpty else { return }
+        let urls = pickedProfileURLs
+        pickedProfileURLs = []
+        model.handlePickerResult(.success(urls))
+    }
+
     private func requestProfilePicker() {
         guard model.canImport, !model.isImporting, !isOpeningProfilePicker else { return }
-        isOpeningProfilePicker = true
-        Task { @MainActor in
-            defer { isOpeningProfilePicker = false }
-            _ = await PresentationSettle.waitForIdle()
-            guard !Task.isCancelled else { return }
-            model.showImporter()
-        }
+        model.showImporter()
     }
 
     /// The profile library's content, with no navigation container of its own,

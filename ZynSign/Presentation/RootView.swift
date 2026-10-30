@@ -50,12 +50,6 @@ struct RootView: View {
 
     @State private var selected: ShellSection
 
-    /// The tabs that have been opened at least once. A destination is built
-    /// when it is first selected and kept alive afterwards, so state the user
-    /// expects to persist — a scroll position, a push, an in-flight import —
-    /// survives leaving a tab and coming back to it.
-    @State private var visitedTabs: Set<ShellSection>
-
     @State private var isShowingImport = false
     @State private var hubRequest: ImportHubRequest = .none
 
@@ -94,11 +88,6 @@ struct RootView: View {
     /// until the next render pass, so this closes the small window in which
     /// two same-frame requests could both try to present.
     @State private var isPreparingShellPresentation = false
-
-    /// Set by the sheet's own appearance report, so a presentation that the
-    /// platform refused is a fact rather than a guess. Only one attempt is in
-    /// flight at a time, so one flag is enough.
-    @State private var hasConfirmedShellPresentation = false
 
     /// The items whose outcome has already been recorded, so an import is
     /// reported exactly once however many times the item list changes.
@@ -152,7 +141,6 @@ struct RootView: View {
             for: model.preferences.general.landingTab.selectable.shellSection
         )
         _selected = State(initialValue: landing)
-        _visitedTabs = State(initialValue: [landing])
         _thumbnailPipeline = StateObject(wrappedValue: ThumbnailPipeline(
             engine: environment.performanceEngine,
             icons: environment.appIcons
@@ -261,7 +249,6 @@ struct RootView: View {
                 },
                 onDone: { isShowingImport = false }
             )
-            .background { shellAppearanceReporter() }
         }
         .sheet(
             isPresented: $isShowingExports,
@@ -279,7 +266,6 @@ struct RootView: View {
                 initialSelection: exportsSelection,
                 onRevealInLibrary: { recordID in revealInLibrary(recordID) }
             )
-            .background { shellAppearanceReporter() }
         }
         .sheet(
             isPresented: $isShowingSigningMaterials,
@@ -294,9 +280,13 @@ struct RootView: View {
                     incomingURL: $signingMaterialsImportURL,
                     embedsNavigationStack: false
                 )
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { isShowingSigningMaterials = false }
+                    }
+                }
             }
             .id(signingMaterialsSelection)
-            .background { shellAppearanceReporter() }
         }
         .environment(
             \.signingQueuePresentation,
@@ -425,35 +415,31 @@ struct RootView: View {
     /// built the first time it is selected and kept alive afterwards, so each
     /// area keeps its scroll position, push state, and in-flight work: the
     /// lifetime a `TabView` gives, without the ceiling.
+    /// Native UIKit-backed tab bar over the five primary destinations
+    /// (`visibleTabs.count <= ShellSection.nativeTabBarItemLimit`), giving
+    /// each tab its own isolated navigation controller and native system
+    /// bar translucency without creating a `More` overflow stack.
     private var rootTabs: some View {
-        ZStack {
+        TabView(selection: $selected) {
             ForEach(visibleTabs) { section in
-                if visitedTabs.contains(section) {
-                    tabContent(section)
-                        .opacity(section == selected ? 1 : 0)
-                        .zIndex(section == selected ? 1 : 0)
-                        .allowsHitTesting(section == selected)
-                        .accessibilityHidden(section != selected)
-                }
+                tabContent(section)
+                    .tabItem {
+                        Label(section.title, systemImage: section.systemImage)
+                    }
+                    .badge(badgeCount(for: section))
+                    .tag(section)
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: ZSpacing.xs) {
-                if let lan = environment.lanWebWorkspace, lan.isRunning {
-                    ZStatusBadge(
-                        "LAN & WebDAV · \(lan.endpoint?.displayAddress ?? ":\(lan.port)")",
-                        systemImage: "wifi.circle.fill",
-                        kind: .info
-                    )
-                    .padding(.bottom, ZSpacing.xxs)
-                }
-                ShellTabBar(tabs: visibleTabs, selection: $selected, badgeCount: badgeCount(for:))
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let lan = environment.lanWebWorkspace, lan.isRunning {
+                ZStatusBadge(
+                    "LAN & WebDAV · \(lan.endpoint?.displayAddress ?? ":\(lan.port)")",
+                    systemImage: "wifi.circle.fill",
+                    kind: .info
+                )
+                .padding(.vertical, ZSpacing.xxs)
             }
         }
-        .onChange(of: selected) { _, section in
-            visitedTabs.insert(section)
-        }
-        .animation(motion.fast, value: selected)
     }
 
     // MARK: - Launch
@@ -688,10 +674,7 @@ struct RootView: View {
         isPreparingShellPresentation = true
         Task { @MainActor in
             defer { isPreparingShellPresentation = false }
-            // Best effort, not a gate: a share sheet or another app's
-            // controller gets a short window to leave the screen, and then the
-            // surface is presented regardless.
-            _ = await PresentationSettle.waitForIdle(cap: .milliseconds(800))
+            _ = await PresentationSettle.waitForIdle(cap: .milliseconds(250))
             guard scenePhase == .active else {
                 pendingShellPresentations.enqueue(surface, atFront: true)
                 return
@@ -704,27 +687,7 @@ struct RootView: View {
                 pendingShellPresentations.enqueue(surface, atFront: true)
                 return
             }
-
-            // Ask, then wait for the sheet's own appearance report. A binding
-            // the platform refused is worse than no request at all: it leaves
-            // the shell looking occupied while nothing is on screen, so every
-            // later import waits for a dismissal that never comes. One retry
-            // with the binding cleared is what turns that into a second
-            // attempt instead of a dead screen.
-            for _ in 0..<2 {
-                hasConfirmedShellPresentation = false
-                present(surface)
-                let appeared = await PresentationSettle.waitUntil(cap: .milliseconds(2500)) {
-                    hasConfirmedShellPresentation
-                }
-                if appeared { return }
-                clearShellSurface(surface)
-                await Task.yield()
-            }
-            // Neither attempt appeared. Keep the request rather than losing
-            // it: a dismissal, an activation, or the next import action
-            // presents it.
-            pendingShellPresentations.enqueue(surface, atFront: true)
+            present(surface)
         }
     }
 
@@ -756,34 +719,6 @@ struct RootView: View {
         exportsSelection = nil
         pendingLibraryRecord = recordID
         selected = .library
-        visitedTabs.insert(.library)
-    }
-
-    /// Reports when a shell sheet has finished appearing.
-    ///
-    /// The report is UIKit's own answer to "is it on screen", so a presentation
-    /// the platform dropped is detected instead of assumed successful.
-    private func shellAppearanceReporter() -> some View {
-        SheetPresentationReporter { hasConfirmedShellPresentation = true }
-            .frame(width: 0, height: 0)
-            .accessibilityHidden(true)
-    }
-
-    /// Undoes the state of a presentation that never appeared.
-    ///
-    /// Called only after the surface's own appearance report failed to arrive,
-    /// so a sheet that is genuinely coming is never dismissed here.
-    private func clearShellSurface(_ surface: ShellPresentation) {
-        switch surface {
-        case .importHub:
-            isShowingImport = false
-        case .profiles, .certificates:
-            isShowingSigningMaterials = false
-            signingMaterialsImportURL = nil
-        case .exports:
-            isShowingExports = false
-            exportsSelection = nil
-        }
     }
 
     private func isShowingSameSurface(as surface: ShellPresentation) -> Bool {
@@ -836,12 +771,12 @@ struct RootView: View {
             handleDeepLink(url)
             return
         }
-        let ext = url.pathExtension.lowercased()
+        let wasShareSheetCopy = Self.isShareSheetCopy(url)
+        let localURL = PickedDocumentStaging.stabilize(url)
+        let ext = localURL.pathExtension.lowercased()
         if ext == "zcert" || ext == "zyncert" {
             Task {
-                let accessed = url.startAccessingSecurityScopedResource()
-                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-                if let data = try? Data(contentsOf: url) {
+                if let data = try? Data(contentsOf: localURL) {
                     _ = try? await CertificateBundleAssistant.importIdentityArchive(
                         data: data,
                         pkcs12Importer: environment.pkcs12Importer,
@@ -854,45 +789,31 @@ struct RootView: View {
             return
         }
         if ext == "mobiledevicepairing" {
-            let accessed = url.startAccessingSecurityScopedResource()
-            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-            if let data = try? Data(contentsOf: url) {
+            if let data = try? Data(contentsOf: localURL) {
                 _ = try? environment.deviceBridgeController?.importPairingFile(data: data)
                 ZHaptics.success()
             }
             return
         }
         if ext == "deb" || ext == "dylib" {
-            let accessed = url.startAccessingSecurityScopedResource()
-            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-            if let data = try? Data(contentsOf: url),
+            if let data = try? Data(contentsOf: localURL),
                let tweaks = environment.tweakLibrary {
-                _ = try? tweaks.importPayload(data, fileName: url.lastPathComponent)
+                _ = try? tweaks.importPayload(data, fileName: localURL.lastPathComponent)
                 ZHaptics.success()
             }
             return
         }
-        switch SigningMaterialFileFormat.kind(for: url) {
+        switch SigningMaterialFileFormat.kind(for: localURL) {
         case .identity?:
-            presentWhenActive(.certificates(url))
+            presentWhenActive(.certificates(localURL))
             ZHaptics.tap()
         case .profile?:
-            presentWhenActive(.profiles(url))
+            presentWhenActive(.profiles(localURL))
             ZHaptics.tap()
         case nil:
-            if IPAFileFormat.acceptsForImport(url) {
-                let origin: ImportOrigin = Self.isShareSheetCopy(url) ? .shareSheet : .openIn
-                environment.importHub.receive([url], origin: origin)
-                presentImportHub()
-            } else {
-                // A handed-over file ZynSign has no dedicated route for still has
-                // to be answered. The hub's preflight refuses it with the reason
-                // and the sheet shows that refusal; dropping the file in silence
-                // is what made Open In look broken for anything that was not a
-                // package.
-                environment.importHub.receive([url], origin: .openIn)
-                presentImportHub()
-            }
+            let origin: ImportOrigin = wasShareSheetCopy ? .shareSheet : .openIn
+            environment.importHub.receive([localURL], origin: origin)
+            presentImportHub()
         }
     }
 

@@ -89,7 +89,17 @@ struct EntitlementsStudioView: View {
             catch { inputError = "Certificates could not be read. Open Certificates to check secure storage." }
             await studio.load(entry: entry, inspection: env.bundleInspection)
         }
-        .fileImporter(isPresented: $showProfileImporter, allowedContentTypes: [.data, .item], allowsMultipleSelection: false, onCompletion: importProfile)
+        .sheet(isPresented: $showProfileImporter) {
+            ZDocumentPicker(
+                contentTypes: ImportablePackage.profileContentTypes,
+                allowsMultipleSelection: false,
+                onPick: { urls in
+                    showProfileImporter = false
+                    importProfile(.success(urls))
+                },
+                onCancel: { showProfileImporter = false }
+            )
+        }
         .fileExporter(isPresented: $showExporter, document: exportDocument, contentType: .json, defaultFilename: "ZynSign-Entitlements-Report") { result in
             if case .failure = result { exportError = "The report could not be saved. Choose a writable location and try again." }
         }

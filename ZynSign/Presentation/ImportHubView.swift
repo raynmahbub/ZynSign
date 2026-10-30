@@ -68,6 +68,7 @@ struct ImportHubView: View {
     @State private var openedEntry: LibraryEntry?
     @State private var missingRecordName: String?
     @State private var availableCapacity: Int?
+    @AppStorage("zynsign.import.autoAddClean") private var autoAddCleanImports = true
 
     /// Identifies an item for a sheet, so the sheet always reads the item's
     /// live state from the hub.
@@ -98,12 +99,18 @@ struct ImportHubView: View {
                     )
                 }
         }
-        .fileImporter(
-            isPresented: $isShowingPicker,
-            allowedContentTypes: ImportablePackage.contentTypes,
-            allowsMultipleSelection: true
-        ) { result in
-            handlePickerResult(result)
+        .sheet(isPresented: $isShowingPicker) {
+            ZDocumentPicker(
+                contentTypes: ImportablePackage.contentTypes,
+                allowsMultipleSelection: true,
+                onPick: { urls in
+                    handlePickerResult(.success(urls))
+                },
+                onCancel: {
+                    isShowingPicker = false
+                    wantsFilePickerOnAppear = false
+                }
+            )
         }
         .alert(
             "Couldn't Open Files",
@@ -176,6 +183,9 @@ struct ImportHubView: View {
                     .frame(width: 0, height: 0)
                     .accessibilityHidden(true)
             }
+        .onChange(of: hub.items) { _, _ in
+            autoImportCleanReadyItemsIfNeeded()
+        }
         .onChange(of: hub.lastFinishedBatch) { _, entry in
             announce(entry)
         }
@@ -218,6 +228,14 @@ struct ImportHubView: View {
                 if hub.items.isEmpty {
                     howItWorks
                 }
+            }
+
+            Section {
+                Toggle(isOn: $autoAddCleanImports) {
+                    Label("Automatically Add Verified Packages", systemImage: "bolt.badge.checkmark")
+                }
+            } footer: {
+                Text("Adds clean .ipa and .tipa packages directly to Library once preflight completes. Duplicate bundles and multi-app archives still pause for your choice.")
             }
 
             if hub.isPaused {
@@ -692,38 +710,27 @@ struct ImportHubView: View {
     ///   animating in. When it may, the sheet's own appearance report is
     ///   awaited — the platform's answer to "the hub is up", not a duration
     ///   that is usually long enough.
+    private func autoImportCleanReadyItemsIfNeeded() {
+        guard autoAddCleanImports,
+              !hub.isPaused,
+              !hub.isBusy,
+              !hub.items.contains(where: \.isAwaitingSelection),
+              hub.conflictCount == 0,
+              hub.canImportSelected else { return }
+        importSelected()
+    }
+
     private func presentPendingFilePick(waitingForSheet: Bool) async {
         guard wantsFilePickerOnAppear, !isPresentingFilePicker else { return }
         isPresentingFilePicker = true
         defer { isPresentingFilePicker = false }
 
         if waitingForSheet {
-            _ = await PresentationSettle.waitUntil { hasSettled }
+            _ = await PresentationSettle.waitUntil(cap: .milliseconds(350)) { hasSettled }
         }
         guard wantsFilePickerOnAppear, !Task.isCancelled else { return }
         wantsFilePickerOnAppear = false
-        if isShowingPicker {
-            // Left armed by a dropped presentation: clear it first, so the
-            // request below is a new presentation rather than a no-op.
-            isShowingPicker = false
-            await Task.yield()
-        }
-
-        // Two attempts, each with a short settle window: a picker the person
-        // just asked for should not spend seconds waiting out an unrelated
-        // transition, and an unconfirmed attempt is reset before the next.
-        for _ in 0..<2 {
-            let appeared = await PresentationSettle.presentAndConfirm(
-                cap: .milliseconds(2500),
-                waiting: .milliseconds(400)
-            ) {
-                isShowingPicker = true
-            }
-            if appeared { return }
-            isShowingPicker = false
-            await Task.yield()
-        }
-        pickerFailure = "The system file picker could not be opened. Tap Add Files to try again."
+        isShowingPicker = true
     }
 
     private func openRecord(_ record: ApplicationRecord) {

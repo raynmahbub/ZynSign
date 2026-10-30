@@ -280,13 +280,25 @@ private struct RestoreBuilderView: View {
         }
         .navigationTitle("Restore Backup")
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.data]) { result in
-            switch result {
-            case .success(let url):
-                Task { do { file = try await store.importFile(url); manifest = nil; step = 0 }
-                       catch { self.error = error.localizedDescription } }
-            case .failure(let error): self.error = error.localizedDescription
-            }
+        .sheet(isPresented: $importing) {
+            ZDocumentPicker(
+                contentTypes: [.data, .item],
+                allowsMultipleSelection: false,
+                onPick: { urls in
+                    importing = false
+                    guard let url = urls.first else { return }
+                    Task {
+                        do {
+                            file = try await store.importFile(url)
+                            manifest = nil
+                            step = 0
+                        } catch {
+                            self.error = error.localizedDescription
+                        }
+                    }
+                },
+                onCancel: { importing = false }
+            )
         }
         .task {
             if let localItem { file = await store.url(for: localItem) }

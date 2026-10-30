@@ -24,6 +24,3 @@ If publication succeeds but the changelog-sync job fails, the release is already
 - [Historical release notes](notes-v0.0.1.md) — notes for the first stable train stop.
 - [Alpha 1 release notes](notes-v0.1.0-alpha.1.md) — notes for the Alpha 1 release.
 - [Alpha 2 release notes](notes-v0.1.0-alpha.2.md) — notes for the Alpha 2 release: the signing workflow opens on the Storefront shell.
-- [1.0.0 release notes](notes-v1.0.0.md) — the stable stop: the Export Center, the signing history, and every staged feature but the Nova Assistant switched on.
-- [3.0.0-nova.1 release notes](notes-v3.0.0-nova.1.md) — the last staged feature: the Nova Assistant, and every gated feature the train has carried now visible.
-- [3.0.0 release notes](notes-v3.0.0.md) — Nova complete: unified Free & Paid signing, loopback device bridge, zero-slot multi-app container, tweak/WebDAV studio, and Xcode 26.3 release hardening.

@@ -248,14 +248,15 @@ struct SideloadOptionsForm: View {
         .sheet(isPresented: $showEntitlementsEditor) {
             SigningEntitlementsOverridesSheet(draft: $draft)
         }
-        .fileImporter(
-            isPresented: $showIconImporter,
-            allowedContentTypes: [.png, .jpeg, .image]
-        ) { result in
-            if case .success(let url) = result {
-                let scoped = url.startAccessingSecurityScopedResource()
-                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                if let raw = try? Data(contentsOf: url), !raw.isEmpty {
+        .sheet(isPresented: $showIconImporter) {
+            ZDocumentPicker(
+                contentTypes: [.png, .jpeg, .image],
+                allowsMultipleSelection: false,
+                onPick: { urls in
+                    showIconImporter = false
+                    guard let url = urls.first,
+                          let raw = try? Data(contentsOf: url),
+                          !raw.isEmpty else { return }
                     #if canImport(UIKit)
                     if let uiImage = UIImage(data: raw), let png = uiImage.pngData() {
                         draft.customIconPNGData = png
@@ -266,8 +267,9 @@ struct SideloadOptionsForm: View {
                     draft.customIconPNGData = raw
                     #endif
                     draft.customIconName = url.lastPathComponent
-                }
-            }
+                },
+                onCancel: { showIconImporter = false }
+            )
         }
     }
 

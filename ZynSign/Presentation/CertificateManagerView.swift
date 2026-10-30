@@ -59,6 +59,7 @@ struct CertificateManagerView: View {
     @State private var showToast = false
     @State private var toastMessage = ""
     @State private var toastStyle: ZToast.Style = .success
+    @State private var pickedCertificateURL: URL?
 
     /// Creates the screen over the identity store, the local annotation
     /// store, and the importer the composition root supplied. The model
@@ -134,11 +135,22 @@ struct CertificateManagerView: View {
             .onChange(of: initialImportURL) { _, url in
                 if let url { handleIncomingImport(url) }
             }
-            .fileImporter(
+            .sheet(
                 isPresented: $showImporter,
-                allowedContentTypes: Self.importableContentTypes,
-                allowsMultipleSelection: false
-            ) { result in handlePicker(result) }
+                onDismiss: { consumePickedCertificateIfNeeded() }
+            ) {
+                ZDocumentPicker(
+                    contentTypes: Self.importableContentTypes,
+                    allowsMultipleSelection: false,
+                    onPick: { urls in
+                        pickedCertificateURL = urls.first
+                        showImporter = false
+                    },
+                    onCancel: {
+                        showImporter = false
+                    }
+                )
+            }
             .sheet(isPresented: $showPasswordSheet, onDismiss: { passwordSheetDidDismiss() }) {
                 if let data = pendingData, let fileName = pendingFileName {
                     ImportIdentityPasswordSheet(
@@ -620,44 +632,13 @@ struct CertificateManagerView: View {
             presentPasswordSheetAfterPickerSettles()
             return
         }
-        isOpeningCertificatePicker = true
-        Task { @MainActor in
-            defer { isOpeningCertificatePicker = false }
-            for _ in 0..<2 {
-                let appeared = await PresentationSettle.presentAndConfirm(
-                    cap: .milliseconds(2500),
-                    waiting: .milliseconds(400)
-                ) {
-                    showImporter = true
-                }
-                if appeared { return }
-                showImporter = false
-                await Task.yield()
-            }
-            presentToast(
-                "The system file picker could not be opened. Tap Import Certificate… to try again.",
-                style: .error
-            )
-        }
+        showImporter = true
     }
 
-    private func handlePicker(_ result: Result<[URL], any Error>) {
-        showImporter = false
-        switch result {
-        case .success(let urls):
-            guard let url = urls.first else { return }
-            if urls.count > 1 {
-                // One identity at a time is the model's rule, and a picker that
-                // let the person tick three files has to say what happened to
-                // the other two instead of quietly dropping them.
-                presentToast("ZynSign imports one certificate file at a time. The other selected files were not read — choose one again when this import is finished.", style: .warning)
-            }
-            beginReadingSelectedFile(at: url)
-        case .failure(let error):
-            let ns = error as NSError
-            if ns.domain == NSCocoaErrorDomain && ns.code == NSUserCancelledError { return }
-            presentToast("The file picker could not provide the selected file.", style: .error)
-        }
+    private func consumePickedCertificateIfNeeded() {
+        guard let url = pickedCertificateURL else { return }
+        pickedCertificateURL = nil
+        beginReadingSelectedFile(at: url)
     }
 
     /// Starts the same coordinated read for picker-selected and Open In files.
@@ -722,7 +703,7 @@ struct CertificateManagerView: View {
         guard handledIncomingURL != url else { return }
         handledIncomingURL = url
         onInitialImportConsumed?()
-        beginReadingSelectedFile(at: url)
+        beginReadingSelectedFile(at: PickedDocumentStaging.stabilize(url))
     }
 
     /// What to say when the chosen file never reached the importer.
@@ -760,28 +741,10 @@ struct CertificateManagerView: View {
         isPresentingPasswordSheet = true
         Task { @MainActor in
             defer { isPresentingPasswordSheet = false }
-            for _ in 0..<2 {
-                if showPasswordSheet {
-                    showPasswordSheet = false
-                    await Task.yield()
-                }
-                let appeared = await PresentationSettle.presentAndConfirm(
-                    cap: .milliseconds(2000),
-                    waiting: .milliseconds(600)
-                ) {
-                    withAnimation(ZMotion.interactive) {
-                        showPasswordSheet = true
-                    }
-                }
-                if appeared { return }
-                showPasswordSheet = false
-                await Task.yield()
+            _ = await PresentationSettle.waitForIdle(cap: .milliseconds(350))
+            withAnimation(ZMotion.interactive) {
+                showPasswordSheet = true
             }
-
-            presentToast(
-                "The certificate was read. Tap Import Certificate… again to enter its password.",
-                style: .warning
-            )
         }
     }
 
