@@ -33,6 +33,16 @@ the lifecycle it does not claim (no background service, no WebDAV, no
 installer), and which parts are proven by source and host checks rather than
 by a device.
 
+## LAN Web Workspace
+
+The foreground listener that puts a browser dashboard and a WebDAV drive on the
+local network is recorded in [lan-web-workspace.md](lan-web-workspace.md). That
+record states why authentication is a precondition rather than an option, the
+complete rule set a request target must satisfy, the methods and mutations it
+refuses and the status each carries, the connection and body bounds, and what it
+still does not claim — TLS, race-free file access, transactional overwrite, and
+validation against a real client.
+
 ## Current State
 
 The record below is in decision order, oldest first. Which stop the project

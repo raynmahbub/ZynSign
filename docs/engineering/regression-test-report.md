@@ -17,7 +17,7 @@ Guest staging and probe regressions have been added for existing-data preservati
 
 A controlled stale-download-callback test and Debian malformed, duplicate and failed-extraction regressions were added; all are **not run** without Xcode. The latest host suite passed 165 tests in 13.723 seconds with `ResourceWarning` treated as an error; these tests do not execute Swift.
 
-LAN workspace tests were added for ambiguous HTTP framing, empty-password refusal, preservation of existing files, symlink paths and dashboard filename rendering. **Not run:** XCTest / Apple-platform transport and WebDAV client tests. Host suite: 165 tests passed in 12.504 seconds with ResourceWarning treated as an error.
+LAN workspace coverage now pins target parsing (origin and absolute forms, traversal however encoded, ambiguous and over-long names), mandatory authentication for every method, foreign-origin refusal, protection of the workspace root and its category folders, mutation refusal with WebDAV off, refusal to publish a truncated upload, the served-download bound, symlink containment for read/write/delete/listing, ambiguous HTTP framing, and dashboard filename rendering. The connection budget and idle clock are source-only: `NWConnection` cannot be exercised on the host. **Not run:** XCTest / Apple-platform transport and WebDAV client tests. Host suite: 165 tests passed in 12.504 seconds with ResourceWarning treated as an error.
 
 The installation handoff has an additional hostless/embedded-credentials XCTest; it is **not run** without Xcode.
 
