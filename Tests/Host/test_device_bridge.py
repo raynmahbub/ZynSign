@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import plistlib
+import socket
+import ssl
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from zynsim import (bundle, codesign, device, fixtures, macho, pairing, profile,
@@ -94,6 +97,58 @@ class PairingTests(DeviceTestCase):
 
 
 class SessionTests(DeviceTestCase):
+    def test_connection_setup_failure_closes_the_socket(self) -> None:
+        client, peer = socket.socketpair()
+        self.addCleanup(peer.close)
+        with mock.patch.object(device.socket, "create_connection", return_value=client), \
+             mock.patch.object(device.protocol, "send_usbmux", side_effect=OSError("test failure")):
+            with self.assertRaises(OSError):
+                self.bridge._open(self.device.port)
+        self.assertEqual(client.fileno(), -1)
+
+    def test_failed_lockdown_handshake_closes_the_session(self) -> None:
+        client, peer = socket.socketpair()
+        self.addCleanup(peer.close)
+        with mock.patch.object(self.bridge, "_open", return_value=client), \
+             mock.patch.object(self.bridge, "_request", return_value={"Type": "unexpected"}):
+            with self.assertRaises(device.DeviceError):
+                self.bridge.connect(self.record)
+        self.assertEqual(client.fileno(), -1)
+        self.assertIsNone(self.bridge._lockdown)
+
+    def test_client_identity_files_are_removed_after_context_load(self) -> None:
+        self.bridge.record = self.record
+        original = tempfile.TemporaryDirectory
+        directories = []
+
+        def make_directory(*args, **kwargs):
+            directory = original(*args, **kwargs)
+            directories.append(Path(directory.name))
+            return directory
+
+        with mock.patch.object(device.tempfile, "TemporaryDirectory", side_effect=make_directory):
+            self.bridge._client_context()
+        self.assertEqual(len(directories), 1)
+        self.assertFalse(directories[0].exists())
+
+    def test_client_identity_files_are_removed_if_context_load_fails(self) -> None:
+        self.bridge.record = mock.Mock(
+            host_certificate=b"invalid", host_private_key=b"invalid", root_certificate=b"invalid"
+        )
+        original = tempfile.TemporaryDirectory
+        directories = []
+
+        def make_directory(*args, **kwargs):
+            directory = original(*args, **kwargs)
+            directories.append(Path(directory.name))
+            return directory
+
+        with mock.patch.object(device.tempfile, "TemporaryDirectory", side_effect=make_directory):
+            with self.assertRaises(ssl.SSLError):
+                self.bridge._client_context()
+        self.assertEqual(len(directories), 1)
+        self.assertFalse(directories[0].exists())
+
     def test_a_session_reports_the_device_it_reached(self) -> None:
         info = self.bridge.connect(self.record)
         self.assertEqual(info.product_type, "iPhone15,3")

@@ -15,20 +15,22 @@ final class SigningOperationExecutorTests: XCTestCase {
 
     private let entry = LibraryOrganizationFixtures.entry(name: "Example")
     private let sourceURL = URL(fileURLWithPath: "/synthetic/source.ipa")
+    private let profileBytes = Data("<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict/></plist>".utf8)
 
-    private func request(emitDER: Bool = true) -> SigningJobExecutionRequest {
+    private func request(emitDER: Bool = true, options: SideloadSigningOptions = .none, profile: Data? = nil) -> SigningJobExecutionRequest {
         SigningJobExecutionRequest(
             jobID: SigningJobIdentifier(),
             attempt: 1,
             recordID: entry.record.id,
             sourceURL: sourceURL,
-            profile: SigningQueueFixtures.profileBytes,
+            profile: profile ?? profileBytes,
             identityID: SigningIdentityIdentifier(),
             emitDEREntitlements: emitDER,
             applicationName: "Example",
             bundleIdentifier: "com.example.synthetic",
             identityDisplayName: "Synthetic Identity",
-            profileDisplayName: "Synthetic Profile"
+            profileDisplayName: "Synthetic Profile",
+            sideloadOptions: options
         )
     }
 
@@ -88,6 +90,45 @@ final class SigningOperationExecutorTests: XCTestCase {
             lock.lock(); defer { lock.unlock() }
             _request = request
         }
+    }
+
+    func testQueuedEntitlementOverrideIsPassedToOperation() async throws {
+        let box = RequestBox()
+        let executor = executor { request, _ in
+            box.keep(request)
+            throw ZynSignError(category: .internalFailure, userMessage: "synthetic")
+        }
+        var options = SideloadSigningOptions.none
+        options.entitlementOverrides = ["example.test": .boolean(true)]
+        _ = try await executor.execute(request(options: options), reporting: nil)
+        let handed = try XCTUnwrap(box.request)
+        XCTAssertEqual(handed.entitlements.values["example.test"], .boolean(true))
+    }
+
+    func testUnreadableProfileStopsBeforeOperation() async throws {
+        let box = RequestBox()
+        let executor = executor { request, _ in
+            box.keep(request)
+            throw ZynSignError(category: .internalFailure, userMessage: "unexpected run")
+        }
+        let outcome = try await executor.execute(request(profile: Data("invalid".utf8)), reporting: nil)
+        guard case .failed(let failure) = outcome else { return XCTFail("Expected refusal") }
+        XCTAssertEqual(failure.stage, .preparing)
+        XCTAssertNil(box.request)
+    }
+
+    func testQueuedBinaryMergeStopsWhenSourceCannotBeRead() async throws {
+        let box = RequestBox()
+        let executor = executor { request, _ in
+            box.keep(request)
+            throw ZynSignError(category: .internalFailure, userMessage: "unexpected run")
+        }
+        var options = SideloadSigningOptions.none
+        options.mergesBinaryEntitlements = true
+        let outcome = try await executor.execute(request(options: options), reporting: nil)
+        guard case .failed(let failure) = outcome else { return XCTFail("Expected refusal") }
+        XCTAssertEqual(failure.stage, .preparing)
+        XCTAssertNil(box.request)
     }
 
     // MARK: - Stage mapping
@@ -166,7 +207,7 @@ final class SigningOperationExecutorTests: XCTestCase {
         let handed = try XCTUnwrap(box.request)
         XCTAssertEqual(handed.entry.record.id, entry.record.id)
         XCTAssertEqual(handed.sourceURL, sourceURL)
-        XCTAssertEqual(handed.profile, SigningQueueFixtures.profileBytes)
+        XCTAssertEqual(handed.profile, profileBytes)
         XCTAssertEqual(handed.provisioningProfileName, "Synthetic Profile")
         XCTAssertEqual(handed.certificateDisplayName, "Synthetic Identity")
         XCTAssertTrue(handed.options.emitDEREntitlements)

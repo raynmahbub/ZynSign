@@ -57,7 +57,7 @@ struct SideloadingView: View {
                     Label("Open Unified Signing & Container Hub", systemImage: "cpu")
                 }
             } footer: {
-                Text("Stage zero-slot Host Container apps, provision Free 7-day or Paid 365-day Apple Developer certificates, and install or refresh over the wire-free device bridge.")
+                Text("Explore signing and experimental container tools. Direct device sessions and installation are unavailable until authenticated transport is verified.")
             }
             capabilitySection
             connectionSection
@@ -102,10 +102,7 @@ struct SideloadingView: View {
         } header: {
             Text("Capabilities")
         } footer: {
-            Text("A requirement is a fact about this build or this device, not a setting. "
-                 + "Importing a pairing record satisfies the first one; the entitlement "
-                 + "requirements are read from the signature that signed this copy of "
-                 + "ZynSign, so an entitled build lights these rows up on its own.")
+            Text("Requirements are facts about this build or device, not settings. An entitlement or pairing record alone does not establish an authenticated, interoperable device transport.")
         }
     }
 
@@ -125,8 +122,8 @@ struct SideloadingView: View {
     private var connectionSection: some View {
         let recordCount = environment.deviceBridgeController?.pairingRecords.count ?? 0
         let transportLabel = (environment.deviceBridgeController?.isTransportComposed == true)
-            ? "Composed (usbmuxd over NWConnection)"
-            : "Not composed"
+            ? "Available"
+            : "Unavailable — authenticated transport not verified"
         let pairingLabel = recordCount == 0 ? "None" : "\(recordCount) stored in Keychain"
         return Section {
             LabeledContent("This build's signature", value: measurementLabel)

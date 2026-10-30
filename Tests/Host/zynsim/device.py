@@ -68,65 +68,71 @@ class DeviceBridge:
         self.record = None
         self._lockdown: ssl.SSLSocket | None = None
         self._info: DeviceInfo | None = None
-        self._tls_directory = None
         self._service_ports: dict[str, int] = {}
 
     # MARK: - Connections
 
     def _open(self, port: int) -> ssl.SSLSocket:
         raw = socket.create_connection((self.host, port), timeout=self.timeout)
-        raw.settimeout(self.timeout)
-        protocol.send_usbmux(raw, protocol.USBMUX_CONNECT, 1,
-                             protocol.connect_message(protocol.LOCKDOWN_PORT))
-        message, _tag, payload = protocol.receive_usbmux(raw)
-        if message != protocol.USBMUX_RESULT:
-            raw.close()
-            raise DeviceError("the multiplexer did not answer the connect request", "MuxConnectFailed")
-        result = plistlib.loads(payload) if payload else {}
-        if int(result.get("Number", 1)) != 0:
-            raw.close()
-            raise DeviceError("the multiplexer refused to open the device port", "MuxConnectRefused")
-        context = self._client_context()
         try:
+            raw.settimeout(self.timeout)
+            protocol.send_usbmux(raw, protocol.USBMUX_CONNECT, 1,
+                                 protocol.connect_message(protocol.LOCKDOWN_PORT))
+            message, _tag, payload = protocol.receive_usbmux(raw)
+            if message != protocol.USBMUX_RESULT:
+                raise DeviceError("the multiplexer did not answer the connect request", "MuxConnectFailed")
+            result = plistlib.loads(payload) if payload else {}
+            if int(result.get("Number", 1)) != 0:
+                raise DeviceError("the multiplexer refused to open the device port", "MuxConnectRefused")
+            context = self._client_context()
             return context.wrap_socket(raw, server_hostname="zynsim.device")
         except ssl.SSLError as error:
             raw.close()
             raise DeviceError(f"the TLS handshake with the device failed: {error}", "TLSHandshakeFailed") from error
+        except BaseException:
+            raw.close()
+            raise
 
     def _client_context(self) -> ssl.SSLContext:
         if self.record is None:
             raise DeviceError("no pairing record is loaded", "NoPairingRecord")
-        directory = Path(tempfile.mkdtemp(prefix="zynsign-pairing-"))
-        self._tls_directory = directory
-        certificate = directory / "host.crt"
-        key = directory / "host.key"
-        certificate.write_bytes(_pem(self.record.host_certificate))
-        key.write_bytes(self.record.host_private_key)
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_REQUIRED
-        context.load_verify_locations(cadata=_pem(self.record.root_certificate).decode())
-        context.load_cert_chain(str(certificate), str(key))
-        return context
+        # SSLContext loads the identity before this private temporary directory
+        # is removed; no pairing key is left on disk for the session's lifetime.
+        with tempfile.TemporaryDirectory(prefix="zynsign-pairing-") as name:
+            directory = Path(name)
+            certificate = directory / "host.crt"
+            key = directory / "host.key"
+            certificate.write_bytes(_pem(self.record.host_certificate))
+            key.write_bytes(self.record.host_private_key)
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_REQUIRED
+            context.load_verify_locations(cadata=_pem(self.record.root_certificate).decode())
+            context.load_cert_chain(str(certificate), str(key))
+            return context
 
     # MARK: - Session
 
     def connect(self, record) -> DeviceInfo:
         self.record = record
         self._lockdown = self._open(self.port)
-        reply = self._request("QueryType")
-        if reply.get("Type") != "com.apple.mobile.lockdown":
-            raise DeviceError("the service is not lockdownd", "WrongService")
-        values = self._request("GetValue")
-        value = values.get("Value", {})
-        self._info = DeviceInfo(
-            udid=str(value.get("UniqueDeviceID", record.udid)),
-            product_type=str(value.get("ProductType", "")),
-            product_version=str(value.get("ProductVersion", "")),
-            build_version=str(value.get("BuildVersion", "")),
-            device_name=str(value.get("DeviceName", "")),
-        )
-        return self._info
+        try:
+            reply = self._request("QueryType")
+            if reply.get("Type") != "com.apple.mobile.lockdown":
+                raise DeviceError("the service is not lockdownd", "WrongService")
+            values = self._request("GetValue")
+            value = values.get("Value", {})
+            self._info = DeviceInfo(
+                udid=str(value.get("UniqueDeviceID", record.udid)),
+                product_type=str(value.get("ProductType", "")),
+                product_version=str(value.get("ProductVersion", "")),
+                build_version=str(value.get("BuildVersion", "")),
+                device_name=str(value.get("DeviceName", "")),
+            )
+            return self._info
+        except BaseException:
+            self.close()
+            raise
 
     def pair(self) -> bool:
         """Offer the record's own data. A device that is already paired ignores it."""

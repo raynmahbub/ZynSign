@@ -128,3 +128,40 @@ enum ProfileEntitlementDerivation {
         return data
     }
 }
+
+/// Shared entitlement preparation for interactive and queued signing.
+/// The result is still subject to the pipeline's profile validation.
+enum SigningEntitlementPreparation {
+    enum PreparationError: Error {
+        case binaryEntitlementsUnavailable
+    }
+
+    static func resolve(
+        base: CodeSigningEntitlements,
+        options: SideloadSigningOptions,
+        bundleIdentifier: String,
+        teamIdentifier: String?,
+        readBinaryEntitlements: () -> Data?
+    ) throws -> CodeSigningEntitlements {
+        let rawOverride = options.rawEntitlementsXMLOverride
+        let hasRawOverride = rawOverride.map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false
+        let needsCustomMerge = options.mergesBinaryEntitlements || options.isolatesKeychainGroup
+            || !options.entitlementOverrides.isEmpty || !options.removedEntitlementKeys.isEmpty || hasRawOverride
+        guard needsCustomMerge else { return base }
+        var binary: Data?
+        if options.mergesBinaryEntitlements && !hasRawOverride {
+            guard let extracted = readBinaryEntitlements() else {
+                throw PreparationError.binaryEntitlementsUnavailable
+            }
+            binary = extracted
+        }
+        return try BinaryEntitlementMerger.resolve(
+            profileEntitlements: base, binaryEntitlementsXML: binary,
+            resolvedBundleIdentifier: bundleIdentifier, teamIdentifier: teamIdentifier,
+            mergesBinaryEntitlements: options.mergesBinaryEntitlements,
+            isolatesKeychainGroup: options.isolatesKeychainGroup,
+            overrides: options.entitlementOverrides, removedKeys: options.removedEntitlementKeys,
+            rawXMLOverride: rawOverride
+        ).entitlements
+    }
+}

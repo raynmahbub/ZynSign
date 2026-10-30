@@ -12,12 +12,14 @@
 > Executable specification and suite: `Tests/Host/zynsim`,
 > `Scripts/sim/run_unified_suite.py`.
 
-This record covers four capabilities: reading the refresh lease a signature
-carries, rewriting a package while it is signed, delivering a signed package to
-a device's own installer through `lockdownd`, and running a guest application
-inside the host instead of installing it. All four are implemented here, each
-with the requirements it actually has — stated per capability rather than as a
-single disclaimer.
+**Current status: Partially implemented / Experimental / Blocked.** This record
+covers refresh-lease inspection, package editing, experimental device delivery,
+and guest loading. The production device transport is blocked: it does not
+implement the TLS promised by its interface, and higher-level reads are not yet
+correctly framed. A local-tunnel entitlement and pairing record do not establish
+working or secure installation. Guest loading is experimental; `dlopen` does not
+prove complete application execution or isolation. Historical descriptions below
+are design context, not evidence of physical-device interoperability.
 
 **Availability.** The area is `CoreFeature.sideloading` — always reachable, in
 every release — and not a `ReleaseFeature`. A release gate controls what a
@@ -191,14 +193,16 @@ behind `DeviceTransport` in the platform layer.
 | --- | --- | --- |
 | usbmuxd | 16-byte little-endian header: `length`, `version`, `message`, `tag` + property list | `Connect`, `ListDevices`, `Result` |
 | lockdownd (62078) | 4-byte **big-endian** length + property list | `QueryType`, `GetValue`, `Pair`, `StartSession`, `StartService`, `StopSession` |
-| AFC | 40-byte little-endian header: `CFA6LPAA` + entry, operation, transaction, size | `HELLO`, `MAKE_DIR`, `FILE_OPEN`, `FILE_WRITE`, `FILE_CLOSE`, `GET_INFO` |
+| AFC | 40-byte little-endian header: `CFA6LPAA` + total length, this length, transaction, operation | `MAKE_DIR`, `FILE_OPEN`, `FILE_WRITE`, `FILE_CLOSE` (unverified) |
 | installation_proxy | lockdownd framing | `Install`, `Upgrade`, `Uninstall`, `ListApps`, then a progress stream |
 
-Transport security is the pairing record, not a pinned certificate: the host
-presents `HostCertificate` + `HostPrivateKey`, and accepts the device only when
-its certificate chains to `RootCertificate`. `HostID` is uppercase hex SHA-1 of
-the host certificate; `PairingRecordCoding.decode` recomputes it and refuses a
-record that disagrees with itself.
+The intended transport security would use the pairing record: the host
+would present `HostCertificate` + `HostPrivateKey` and validate the device
+against `RootCertificate`. **This authentication is not implemented**, and
+production connections remain blocked. Pairing import accepts either a canonical
+UUID host identifier or a supported certificate-digest form. Import does not
+validate that the certificates and private key match, establish device trust,
+or authenticate a session.
 
 Installation is evidence, not a claim. `DeviceInstallOutcome.isInstalled` is
 true only when the device's last message is `Complete`; a stream that ends early
@@ -363,7 +367,7 @@ native tweak, catalog, and workspace tooling:
 | Extended `Info.plist`, Only Modify & bundle staging | `Domain/Sideloading/SideloadSigningOptions.swift`, `Domain/Sideloading/SideloadStagedBundlePayload.swift`, `Application/SideloadPackageEditor.swift`, `Application/PackageModificationService.swift`, `Presentation/SigningPlistEditorsView.swift` |
 | `.deb` unpacking, Tweak Mach-O Analyzer & Auto-Inject | `Domain/DebArchiveParser.swift`, `Domain/TweakMachOAnalyzer.swift`, `Domain/TweakAutoInjectRule.swift`, `Platform/FileTweakAutoInjectStore.swift`, `Application/TweakStagingResolver.swift` (`TweakPackImporter` + `IPATweakExtractor`), `Presentation/TweakInspectorViews.swift` |
 | `.zcert` identity archives, certificate auto-discovery & DNS shield | `Domain/ZynCertificateBundle.swift`, `Domain/DNSRevocationShieldProfile.swift`, `Application/CertificateBundleAssistant.swift`, `Application/BundledSigningAssetsDiscovery.swift`, `Presentation/CertificateToolsSheets.swift`, `Presentation/RevocationCenterView.swift` |
-| Encoded catalog decoder, Web Link Extractor & Download keep-alive | `Platform/EncodedCatalogPayloadDecoder.swift`, `Domain/DownloadLinkExtractor.swift`, `Presentation/WebLinkExtractorSheet.swift`, `Platform/AVAudioBackgroundDownloadKeepAlive.swift`, `Application/SelfUpdateChecker.swift` |
+| Encoded catalog decoder & Web Link Extractor | `Platform/EncodedCatalogPayloadDecoder.swift`, `Domain/DownloadLinkExtractor.swift`, `Presentation/WebLinkExtractorSheet.swift`, `Application/SelfUpdateChecker.swift` |
 | Foreground LAN Web & WebDAV workspace | `Domain/LANWebWorkspace/WebDAVProtocol.swift`, `Application/LANWebWorkspaceService.swift`, `Platform/NetworkLANWebWorkspaceServer.swift`, `Presentation/LANWebWorkspaceView.swift` |
 | Portable `Documents` mirror, workspace import, File Editors & Shortcuts | `Application/PortableWorkspaceSyncService.swift`, `Domain/PlistDocumentCodec.swift`, `Domain/HexDumpFormatter.swift`, `Application/FileArchiveTools.swift`, `Presentation/FileEditorsView.swift`, `Domain/IncomingURLRouter.swift`, `App/ZynSignShortcuts.swift` |
 

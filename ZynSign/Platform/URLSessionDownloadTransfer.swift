@@ -23,27 +23,32 @@ final class URLSessionDownloadTransfer: NSObject, URLSessionDownloadDelegate, Do
     private var tasks: [String: URLSessionDownloadTask] = [:]
     private var destinations: [String: URL] = [:]
     private var pauseRequested: Set<String> = []
-    private var cancelRequested: Set<String> = []
     private var finished: Set<String> = []
     private var lastProgressReport: [String: Date] = [:]
     private weak var observer: DownloadTransferObserver?
     private let maximumBytes: Int64
     private let progressInterval: TimeInterval = 0.25
 
-    init(maximumBytes: Int64 = DownloadURLPolicy.maximumArtifactBytes) {
+    init(
+        maximumBytes: Int64 = DownloadURLPolicy.maximumArtifactBytes,
+        configuration: URLSessionConfiguration? = nil,
+        makeSession: (URLSessionConfiguration, URLSessionDownloadDelegate, OperationQueue) -> URLSession = {
+            URLSession(configuration: $0, delegate: $1, delegateQueue: $2)
+        }
+    ) {
         let queue = OperationQueue()
         queue.maxConcurrentOperationCount = 1
         queue.name = "zynsign.download.transfer"
         self.callbackQueue = queue
         self.maximumBytes = maximumBytes
         super.init()
-        let configuration = URLSessionConfiguration.default
-        configuration.waitsForConnectivity = true
-        configuration.timeoutIntervalForRequest = 60
-        configuration.timeoutIntervalForResource = 60 * 60 * 4
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        configuration.urlCache = nil
-        session = URLSession(configuration: configuration, delegate: self, delegateQueue: queue)
+        let sessionConfiguration = configuration ?? URLSessionConfiguration.default
+        sessionConfiguration.waitsForConnectivity = true
+        sessionConfiguration.timeoutIntervalForRequest = 60
+        sessionConfiguration.timeoutIntervalForResource = 60 * 60 * 4
+        sessionConfiguration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        sessionConfiguration.urlCache = nil
+        session = makeSession(sessionConfiguration, self, queue)
     }
 
     func setObserver(_ observer: DownloadTransferObserver?) {
@@ -72,15 +77,32 @@ final class URLSessionDownloadTransfer: NSObject, URLSessionDownloadDelegate, Do
 
     func urlSession(
         _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        HTTPSRedirectPolicy().urlSession(
+            session,
+            task: task,
+            willPerformHTTPRedirection: response,
+            newRequest: request,
+            completionHandler: completionHandler
+        )
+    }
+
+    func urlSession(
+        _ session: URLSession,
         downloadTask: URLSessionDownloadTask,
         didWriteData bytesWritten: Int64,
         totalBytesWritten: Int64,
         totalBytesExpectedToWrite: Int64
     ) {
-        guard let jobID = jobID(of: downloadTask) else { return }
+        guard let jobID = activeJobID(of: downloadTask) else { return }
         let key = jobID.rawValue
+        guard !pauseRequested.contains(key) else { return }
         if totalBytesExpectedToWrite > maximumBytes || totalBytesWritten > maximumBytes {
-            cancelOnQueue(jobID)
+            downloadTask.cancel()
             finish(jobID, .failed(
                 summary: "The download is larger than ZynSign will accept.",
                 detail: nil,
@@ -107,14 +129,25 @@ final class URLSessionDownloadTransfer: NSObject, URLSessionDownloadDelegate, Do
         downloadTask: URLSessionDownloadTask,
         didFinishDownloadingTo location: URL
     ) {
-        guard let jobID = jobID(of: downloadTask) else { return }
+        guard let jobID = activeJobID(of: downloadTask) else { return }
         let key = jobID.rawValue
+        guard !pauseRequested.contains(key) else { return }
         guard let directory = destinations[key] else {
             finish(jobID, .failed(summary: "The download finished without a destination.", detail: nil, retryable: true, resumeData: nil))
             return
         }
-        if let response = downloadTask.response as? HTTPURLResponse,
-           !(200...299).contains(response.statusCode) {
+        guard let response = downloadTask.response as? HTTPURLResponse,
+              let responseURL = response.url,
+              case .success = DownloadURLPolicy.validateHTTPS(responseURL) else {
+            finish(jobID, .failed(
+                summary: "The download did not finish over an accepted HTTPS connection.",
+                detail: nil,
+                retryable: false,
+                resumeData: nil
+            ))
+            return
+        }
+        guard (200...299).contains(response.statusCode) else {
             finish(jobID, .failed(
                 summary: "The server refused the download (\(response.statusCode)).",
                 detail: nil,
@@ -155,16 +188,18 @@ final class URLSessionDownloadTransfer: NSObject, URLSessionDownloadDelegate, Do
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard let jobID = jobID(of: task) else { return }
+        guard let jobID = activeJobID(of: task) else { return }
         let key = jobID.rawValue
-        tasks.removeValue(forKey: key)
-        // Pause reports its own outcome, including resume data, from the
-        // cancel-by-producing-resume-data callback. Completing here first
-        // would discard that data.
+        // Keep the task associated with this attempt until the resume-data
+        // callback arrives, so an older callback cannot finish a newer task.
         if pauseRequested.contains(key) { return }
-        guard let error else { return }
-        if cancelRequested.contains(key) {
-            finish(jobID, .cancelled)
+        guard let error else {
+            finish(jobID, .failed(
+                summary: "The download completed without a saved file.",
+                detail: nil,
+                retryable: true,
+                resumeData: nil
+            ))
             return
         }
         let nsError = error as NSError
@@ -186,12 +221,25 @@ final class URLSessionDownloadTransfer: NSObject, URLSessionDownloadDelegate, Do
 
     private func startOnQueue(_ request: DownloadTransferRequest) {
         let key = request.jobID.rawValue
+        // Invalidate the old attempt before starting or rejecting its replacement.
+        tasks.removeValue(forKey: key)?.cancel()
         destinations[key] = request.destinationDirectory
         finished.remove(key)
         pauseRequested.remove(key)
-        cancelRequested.remove(key)
         lastProgressReport[key] = nil
-        guard let session else { return }
+        guard case .success = DownloadURLPolicy.validateHTTPS(request.url) else {
+            finish(request.jobID, .failed(
+                summary: "The download address must be HTTPS and must not contain credentials.",
+                detail: nil,
+                retryable: false,
+                resumeData: nil
+            ))
+            return
+        }
+        guard let session else {
+            finish(request.jobID, .failed(summary: "The download session is unavailable.", detail: nil, retryable: true, resumeData: nil))
+            return
+        }
         let task: URLSessionDownloadTask
         if let resumeData = request.resumeData, !resumeData.isEmpty {
             task = session.downloadTask(withResumeData: resumeData)
@@ -209,33 +257,34 @@ final class URLSessionDownloadTransfer: NSObject, URLSessionDownloadDelegate, Do
             finish(jobID, .paused(resumeData: nil))
             return
         }
-        pauseRequested.insert(key)
+        guard pauseRequested.insert(key).inserted else { return }
         task.cancel(byProducingResumeData: { [weak self] data in
             self?.callbackQueue.addOperation {
-                self?.finish(jobID, .paused(resumeData: data))
+                guard let self, self.activeJobID(of: task) == jobID,
+                      self.pauseRequested.contains(key) else { return }
+                self.finish(jobID, .paused(resumeData: data))
             }
         })
     }
 
     private func cancelOnQueue(_ jobID: DownloadJobIdentifier) {
         let key = jobID.rawValue
-        cancelRequested.insert(key)
-        guard let task = tasks.removeValue(forKey: key) else {
-            finish(jobID, .cancelled)
-            return
-        }
-        task.cancel()
+        tasks[key]?.cancel()
+        finish(jobID, .cancelled)
     }
 
-    private func jobID(of task: URLSessionTask) -> DownloadJobIdentifier? {
-        task.taskDescription.flatMap(DownloadJobIdentifier.init(rawValue:))
+    /// A job can be restarted while URLSession still has callbacks queued for
+    /// its previous task. Only the currently registered task may mutate it.
+    private func activeJobID(of task: URLSessionTask) -> DownloadJobIdentifier? {
+        guard let jobID = task.taskDescription.flatMap(DownloadJobIdentifier.init(rawValue:)),
+              let current = tasks[jobID.rawValue], current === task else { return nil }
+        return jobID
     }
 
     private func finish(_ jobID: DownloadJobIdentifier, _ result: DownloadTransferFinish) {
         let key = jobID.rawValue
         guard finished.insert(key).inserted else { return }
         pauseRequested.remove(key)
-        cancelRequested.remove(key)
         destinations.removeValue(forKey: key)
         lastProgressReport[key] = nil
         tasks.removeValue(forKey: key)

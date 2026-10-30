@@ -91,12 +91,6 @@ struct GeneralSettingsSection: View {
                 symbol: "bolt.badge.checkmark",
                 isOn: settings.binding(\.general.autoSignAfterImport)
             )
-            ZSettingsToggleRow(
-                title: "Keep Downloads Alive in Background",
-                subtitle: "Play zero-volume silent audio while active downloads are transferring.",
-                symbol: "arrow.down.circle.dotted",
-                isOn: settings.binding(\.general.keepDownloadsAliveInBackground)
-            )
         } header: {
             Text("Workflow & Background Transfers")
         }

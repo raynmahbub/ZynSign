@@ -25,21 +25,41 @@ struct PosixGuestRuntimeLoader: GuestRuntimeLoading {
         return false
     }
 
-    func activateSandboxEnvironment(
+    // The host process shares its environment across all threads. This lock
+    // serializes ZynSign probes, but cannot isolate guest code or other writers.
+    private static let environmentLock = NSRecursiveLock()
+
+    func probeGuestExecutable(
+        at executableURL: URL,
+        entrySymbol: String,
         guest: HostedGuestDescriptor,
         containerRoot: URL,
         guestBundleURL: URL,
         activeDataDirectory: URL
-    ) throws {
-        let tmpPath = activeDataDirectory.appendingPathComponent("tmp", isDirectory: true).path
-        setenv("ZYNSIGN_GUEST_BUNDLE_ID", guest.bundleIdentifier, 1)
-        setenv("ZYNSIGN_GUEST_BUNDLE_PATH", guestBundleURL.path, 1)
-        setenv("ZYNSIGN_GUEST_CONTAINER_ROOT", containerRoot.path, 1)
-        setenv("ZYNSIGN_GUEST_DATA_ROOT", activeDataDirectory.path, 1)
-        setenv("ZYNSIGN_GUEST_TMPDIR", tmpPath, 1)
-    }
-
-    func probeGuestExecutable(at executableURL: URL, entrySymbol: String) -> GuestRuntimeProbeReport {
+    ) throws -> GuestRuntimeProbeReport {
+        Self.environmentLock.lock()
+        defer { Self.environmentLock.unlock() }
+        let values = [
+            ("ZYNSIGN_GUEST_BUNDLE_ID", guest.bundleIdentifier),
+            ("ZYNSIGN_GUEST_BUNDLE_PATH", guestBundleURL.path),
+            ("ZYNSIGN_GUEST_CONTAINER_ROOT", containerRoot.path),
+            ("ZYNSIGN_GUEST_DATA_ROOT", activeDataDirectory.path),
+            ("ZYNSIGN_GUEST_TMPDIR", activeDataDirectory.appendingPathComponent("tmp", isDirectory: true).path),
+        ]
+        let previous: [(String, String?)] = values.map { key, _ in
+            (key, getenv(key).map { String(cString: $0) })
+        }
+        defer {
+            for (key, value) in previous {
+                if let value { _ = setenv(key, value, 1) }
+                else { _ = unsetenv(key) }
+            }
+        }
+        for (key, value) in values {
+            guard setenv(key, value, 1) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        }
         guard FileManager.default.fileExists(atPath: executableURL.path) else {
             return GuestRuntimeProbeReport(
                 imageLoadable: false,
@@ -75,7 +95,7 @@ struct PosixGuestRuntimeLoader: GuestRuntimeLoading {
             entrySymbolFound: sym != nil,
             diagnosticMessage: sym != nil
                 ? "Guest MH_DYLIB mapped cleanly and entry symbol '\(entrySymbol)' resolved."
-                : "Guest MH_DYLIB mapped cleanly; entry symbol '\(entrySymbol)' uses LC_MAIN offset."
+                : "Guest MH_DYLIB mapped, but entry symbol '\(entrySymbol)' was not found; no launch was performed."
         )
     }
 

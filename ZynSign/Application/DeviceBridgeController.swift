@@ -122,6 +122,11 @@ final class DeviceBridgeController: ObservableObject {
 
     @discardableResult
     func probeDeviceConnection(using explicitRecord: DevicePairingRecord? = nil) async throws -> PairedDevice {
+        guard isTransportComposed else {
+            let error = DeviceProtocolError.authenticatedTransportUnavailable
+            errorMessage = error.message
+            throw error
+        }
         guard let record = explicitRecord ?? pairingRecords.first else {
             throw ControllerError.noPairingRecordImported
         }
@@ -146,6 +151,11 @@ final class DeviceBridgeController: ObservableObject {
         bundleIdentifier: String,
         using explicitRecord: DevicePairingRecord? = nil
     ) async throws -> DeviceInstallOutcome {
+        guard isTransportComposed else {
+            let error = DeviceProtocolError.authenticatedTransportUnavailable
+            errorMessage = error.message
+            throw error
+        }
         guard let record = explicitRecord ?? pairingRecords.first else {
             throw ControllerError.noPairingRecordImported
         }

@@ -1,5 +1,12 @@
 import Foundation
 
+/// Composes the pure Debian parser with the bounded platform decoder.
+enum DebArchiveReader {
+    static func unpack(_ data: Data) throws -> DebArchiveParser.UnpackedDeb {
+        try DebArchiveParser.unpack(data, decoder: BoundedDebTarDecoder.decode)
+    }
+}
+
 /// Resolved staging artifacts from a `TweakInjectionPlan`, supporting `.dylib`,
 /// `.deb` (unpacked via `DebArchiveParser`), and zipped `.framework`, `.bundle`,
 /// and `.appex` entries without altering legacy `.dylib`-only `stagedTweaks(for:)`.
@@ -80,7 +87,7 @@ extension TweakLibraryService {
         sourceName: String,
         group: String? = nil
     ) throws -> (control: DebArchiveParser.ControlMetadata, imported: [TweakDescriptor]) {
-        let unpacked = try DebArchiveParser.unpack(debBytes)
+        let unpacked = try DebArchiveReader.unpack(debBytes)
         let effectiveGroup = group ?? unpacked.control.name ?? Self.displayName(forFileName: sourceName)
         var imported: [TweakDescriptor] = []
 
@@ -109,7 +116,7 @@ extension TweakLibraryService {
     private func unpackDebForStaging(
         _ debBytes: Data
     ) throws -> (dylibs: [SideloadStagedTweak], bundles: [SideloadStagedBundlePayload]) {
-        let unpacked = try DebArchiveParser.unpack(debBytes)
+        let unpacked = try DebArchiveReader.unpack(debBytes)
         var dylibs: [SideloadStagedTweak] = []
         var grouped: [String: (DebArchiveParser.ExtractedPayload.PayloadKind, [SideloadStagedBundlePayload.StagedBundleFile])] = [:]
 
@@ -246,7 +253,9 @@ enum TweakPackImporter {
         if url.pathExtension.lowercased() == "zip" {
             return try await importZipArchive(at: url, into: service)
         }
-        let data = try Data(contentsOf: url)
+        let data = try url.pathExtension.lowercased() == "deb"
+            ? FileArchiveTools.readDebArchive(at: url)
+            : Data(contentsOf: url)
         switch try service.importPayload(data, fileName: url.lastPathComponent) {
         case .success:
             return ImportSummary(importedCount: 1, lastRefusalMessage: nil)

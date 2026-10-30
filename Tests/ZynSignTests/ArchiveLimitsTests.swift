@@ -40,6 +40,15 @@ final class ArchiveLimitsTests: XCTestCase {
         XCTAssertFalse(limits.exceedsCompressionRatio(uncompressedSize: 100, compressedSize: 100))
     }
 
+    func testFractionAboveCompressionRatioLimitIsRejected() {
+        let limits = ArchiveLimits.default
+        let compressed = 100
+        let exact = limits.maximumCompressionRatio * compressed
+        XCTAssertFalse(limits.exceedsCompressionRatio(uncompressedSize: exact, compressedSize: compressed))
+        XCTAssertTrue(limits.exceedsCompressionRatio(uncompressedSize: exact + 1, compressedSize: compressed))
+        XCTAssertFalse(limits.exceedsCompressionRatio(uncompressedSize: exact - 1, compressedSize: compressed))
+    }
+
     func testCompressionRatioOfStoredContentIsNotAViolation() {
         let limits = ArchiveLimits.default
         XCTAssertFalse(limits.exceedsCompressionRatio(uncompressedSize: 64, compressedSize: 64))

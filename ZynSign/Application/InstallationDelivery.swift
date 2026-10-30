@@ -162,6 +162,8 @@ struct InstallationDeliveryManifest: Equatable {
     var installLink: URL? {
         var components = URLComponents()
         components.scheme = "itms-services"
+        // Apple's handoff uses an empty authority: itms-services://?...
+        components.host = ""
         components.queryItems = [
             URLQueryItem(name: "action", value: "download-manifest"),
             URLQueryItem(name: "url", value: manifestURL.absoluteString)
@@ -195,6 +197,11 @@ struct InstallationDeliveryService {
         guard url.scheme?.lowercased() == "https" else {
             throw InstallationDeliveryError.hostingURLMustBeHTTPS
         }
+        // Do not put embedded credentials or a hostless address into a
+        // shareable manifest or install link.
+        guard case .success = DownloadURLPolicy.validateHTTPS(url) else {
+            throw InstallationDeliveryError.hostingURLUnparsable
+        }
         return url
     }
 
@@ -225,6 +232,7 @@ struct InstallationDeliveryService {
         let data = try manifest.xmlData()
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ZynSign-Delivery", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let url = directory.appendingPathComponent("manifest.plist", isDirectory: false)

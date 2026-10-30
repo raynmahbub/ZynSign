@@ -83,6 +83,46 @@ final class ZynSigningPoliciesTests: XCTestCase {
         )
     }
 
+    func testBinaryMergeDoesNotExpandFalseOrOtherWildcardScopes() throws {
+        let profile = try CodeSigningEntitlements(values: [
+            "application-identifier": .string("TEAM123456.com.allowed.*"),
+            "com.apple.developer.team-identifier": .string("TEAM123456"),
+            "keychain-access-groups": .array([.string("OTHERTEAM.*")]),
+            "get-task-allow": .boolean(false),
+            "example.groups": .array([.string("TEAM123456.allowed.*")])
+        ])
+        let data = try PropertyListSerialization.data(fromPropertyList: [
+            "get-task-allow": true,
+            "keychain-access-groups": ["OLDTEAM.secret"],
+            "example.groups": ["TEAM123456.allowed.one", "TEAM123456.other.two"]
+        ], format: .xml, options: 0)
+        let result = try BinaryEntitlementMerger.resolve(profileEntitlements: profile,
+            binaryEntitlementsXML: data, resolvedBundleIdentifier: "com.outside.app",
+            teamIdentifier: "TEAM123456", mergesBinaryEntitlements: true, isolatesKeychainGroup: false)
+        XCTAssertEqual(result.entitlements.values["get-task-allow"], .boolean(false))
+        XCTAssertEqual(result.entitlements.values["application-identifier"], .string("TEAM123456.com.allowed.*"))
+        XCTAssertEqual(result.entitlements.values["keychain-access-groups"], .array([.string("OTHERTEAM.*")]))
+        XCTAssertEqual(result.entitlements.values["example.groups"], .array([.string("TEAM123456.allowed.one")]))
+    }
+
+    func testIsolationRequiresProfileAuthorization() throws {
+        let profile = try CodeSigningEntitlements(values: [
+            "keychain-access-groups": .array([.string("OTHERTEAM.*")])
+        ])
+        XCTAssertThrowsError(try BinaryEntitlementMerger.resolve(profileEntitlements: profile,
+            binaryEntitlementsXML: nil, resolvedBundleIdentifier: "com.example.app",
+            teamIdentifier: "TEAM123456", mergesBinaryEntitlements: false, isolatesKeychainGroup: true)) {
+            XCTAssertEqual($0 as? BinaryEntitlementMerger.MergeError, .keychainIsolationNotAuthorized)
+        }
+    }
+
+    func testBinaryMergeRejectsMalformedEntitlements() throws {
+        let profile = try CodeSigningEntitlements(values: [:])
+        XCTAssertThrowsError(try BinaryEntitlementMerger.resolve(profileEntitlements: profile,
+            binaryEntitlementsXML: Data("not a plist".utf8), resolvedBundleIdentifier: "com.example.app",
+            teamIdentifier: "TEAM123456", mergesBinaryEntitlements: true, isolatesKeychainGroup: false))
+    }
+
     private static func makeSyntheticArm64MachO(fileType: UInt32, installName: String) -> Data {
         var bytes = Data(count: 4096)
         func put32(_ o: Int, _ v: UInt32) {

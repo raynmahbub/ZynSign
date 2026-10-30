@@ -109,37 +109,45 @@ struct SigningOperationExecutor: SigningQueueExecuting {
         }
         try Task.checkCancellation()
 
-        // Derive the entitlement set from the job's own profile bytes. A
-        // profile whose entitlements cannot be derived falls back to the
-        // empty set: the pipeline's profile stage holds whatever set arrives
-        // against the profile's policy and refuses when the profile requires
-        // claims the set does not carry.
+        // Do not replace an unreadable profile with an empty entitlement set:
+        // doing so silently discards the user's signing configuration.
         let resolvedBundleIDString = request.sideloadOptions.resolvedBundleIdentifier(
             originalBundleID: entry.record.bundleIdentifier.rawValue
         ) ?? entry.record.bundleIdentifier.rawValue
         let resolvedBundleID = BundleIdentifier(rawValue: resolvedBundleIDString) ?? entry.record.bundleIdentifier
-        let entitlements: CodeSigningEntitlements
-        if let derived = try? ProfileEntitlementDerivation.entitlements(
-            fromProvisioningProfile: request.profile,
-            forBundleIdentifier: resolvedBundleID
-        ) {
-            entitlements = derived
-        } else if let empty = try? CodeSigningEntitlements(values: [:]) {
-            entitlements = empty
-        } else {
+        let baseEntitlements: CodeSigningEntitlements
+        do {
+            baseEntitlements = try ProfileEntitlementDerivation.entitlements(
+                fromProvisioningProfile: request.profile, forBundleIdentifier: resolvedBundleID
+            )
+        } catch {
             return .failed(SigningJobFailure(
                 stage: .preparing,
-                summary: "The entitlement set could not be created, so the run stopped before signing.",
-                detail: "Neither the profile's entitlements nor the empty fallback set could be constructed.",
-                category: .internalFailure,
-                isRetryable: true,
-                occurredAt: now()
+                summary: "The profile entitlements could not be read, so the run stopped before signing.",
+                detail: "Choose a readable provisioning profile and queue the job again.",
+                category: .invalidInput, isRetryable: false, occurredAt: now()
             ))
         }
 
         let teamString = request.profileTeamIdentifier
             ?? ProfileEntitlementDerivation.displaySummary(fromProvisioningProfile: request.profile)?.teamIdentifier
         let teamID = teamString.flatMap { try? CodeDirectoryTeamIdentifier(rawValue: $0) }
+        let entitlements: CodeSigningEntitlements
+        do {
+            entitlements = try SigningEntitlementPreparation.resolve(
+                base: baseEntitlements, options: request.sideloadOptions,
+                bundleIdentifier: resolvedBundleIDString, teamIdentifier: teamString
+            ) {
+                PackageModificationService().extractMainExecutableEntitlements(from: request.sourceURL)
+            }
+        } catch {
+            return .failed(SigningJobFailure(
+                stage: .preparing,
+                summary: "The entitlement options could not be prepared, so the run stopped before signing.",
+                detail: "Check the selected profile and entitlement options, or re-import the source package.",
+                category: .invalidInput, isRetryable: false, occurredAt: now()
+            ))
+        }
         let options = SignApplicationOptions(
             teamIdentifier: teamID,
             emitDEREntitlements: request.emitDEREntitlements,

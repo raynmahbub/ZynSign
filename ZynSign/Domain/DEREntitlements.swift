@@ -1,28 +1,9 @@
 import Foundation
 
-/// DER-encoded entitlements for iOS 15+ (`0x20400`).
-///
-/// iOS 15 introduced a DER representation of the entitlement dictionary,
-/// carried alongside the legacy XML plist, with CodeDirectory version
-/// `0x20400` (82048) and `CSSLOT_DER_ENTITLEMENTS = 7` whose content is a
-/// DER-encoded `Entitlements` SET. Apple's headers define `CSMAGIC_DER_ENTITLEMENTS`
-/// and the version; the exact DER schema is not published in the open
-/// headers but is observable in `codesign -d --der-entitlements` output.
-///
-/// ZynSign policy:
-///
-/// - DER payload is a deterministic DER encoding of the same entitlement
-///   dictionary that the XML serializer produces. Keys are sorted by UTF-8,
-///   values are typed (string, bool, integer, data, array, dictionary) and
-///   encoded as DER primitives. Dates remain unsupported (same as XML path).
-/// - The DER bytes are framed with `0xFADE7172` (`CSMAGIC_DER_ENTITLEMENTS`)
-///   and length, parallel to `EntitlementsBlob` (`0xFADE7171`), so the slot-7
-///   digest is the hash of those exact bytes.
-/// - `CodeDirectoryVersion.v20400` is the minimum version that carries the
-///   DER slot; the constructor refuses a DER slot on older versions.
-/// - The DER slot is advisory: iOS evaluates the XML slot on older systems
-///   and the DER slot on 15+. ZynSign never claims the DER form is trusted
-///   — validation is recorded in `docs/architecture/external-validation.md`.
+/// Framed DER entitlements. Slot 7 and magic 0xFADE7172 are defined in
+/// Apple's cs_blobs.h. This project requires CodeDirectory v20400 for slot 7;
+/// that header names v20400 for exec-segment fields, not as a DER minimum.
+/// Platform acceptance and the entitlement schema require independent validation.
 struct DEREntitlementsBlob: Equatable, Hashable {
     static let magic: UInt32 = 0xFADE7172
     static let headerLength = 8
@@ -63,10 +44,10 @@ struct DEREntitlementsBlob: Equatable, Hashable {
 
 /// Deterministic DER serialization of entitlements.
 ///
-/// This encoder produces a canonical DER `SET` of `SEQUENCE { key OCTET STRING, value }`
+/// This encoder produces a canonical DER `SET` of `SEQUENCE { key UTF8String, value }`
 /// where values are mapped as: string→UTF8String, bool→BOOLEAN, integer→INTEGER,
 /// data→OCTET STRING, array→SEQUENCE, dictionary→SET (recursive). Ordering is
-/// UTF-8 ascending at every dictionary level, matching the XML serializer.
+/// lexicographic over complete DER-encoded pairs at every dictionary level.
 struct DEREntitlementsSerializer {
     let limits: ProvisioningProfileParsingLimits
 
@@ -76,15 +57,7 @@ struct DEREntitlementsSerializer {
 
     func serialize(_ entitlements: CodeSigningEntitlements) throws -> Data {
         var writer = DEREWriter()
-        try writer.writeSet { set in
-            for key in entitlements.keys {
-                guard let value = entitlements[key] else { continue }
-                try set.writeSequence { seq in
-                    try seq.writeUTF8String(key)
-                    try write(value: value, to: seq)
-                }
-            }
-        }
+        try writeDictionary(entitlements.values, to: writer)
         return writer.data
     }
 
@@ -102,7 +75,7 @@ struct DEREntitlementsSerializer {
         case .integer(let i):
             try writer.writeInteger(i)
         case .real(let r):
-            // DER has no REAL; encode as UTF8 for determinism (same as Apple's fallback)
+            // Legacy serializer behavior; the signing boundary rejects this lossy mapping.
             try writer.writeUTF8String(String(describing: r))
         case .data(let d):
             try writer.writeOctetString(d)
@@ -113,17 +86,27 @@ struct DEREntitlementsSerializer {
                 for el in arr { try write(value: el, to: seq) }
             }
         case .dictionary(let dict):
-            try writer.writeSet { set in
-                for k in dict.keys.sorted(by: CanonicalPropertyListXMLSerializer.utf8Ascending) {
-                    guard let v = dict[k] else { continue }
-                    try set.writeSequence { seq in
-                        try seq.writeUTF8String(k)
-                        try write(value: v, to: seq)
-                    }
-                }
-            }
+            try writeDictionary(dict, to: writer)
         }
     }
+
+    private func writeDictionary(_ values: [String: ProvisioningProfileValue], to writer: DEREWriter) throws {
+        var pairs: [Data] = []
+        for key in values.keys {
+            guard let value = values[key] else { continue }
+            let pair = DEREWriter()
+            try pair.writeSequence { seq in
+                try seq.writeUTF8String(key)
+                try write(value: value, to: seq)
+            }
+            pairs.append(pair.data)
+        }
+        // DER SET OF ordering is lexicographic over complete encoded elements,
+        // not lexical key ordering (element lengths affect that ordering).
+        pairs.sort { $0.lexicographicallyPrecedes($1) }
+        writer.writeSetElements(pairs)
+    }
+
 }
 
 /// Minimal DER writer — definite length only, no indefinite.
@@ -132,6 +115,12 @@ private final class DEREWriter {
 
     var data: Data { buffer }
 
+    func writeSetElements(_ elements: [Data]) {
+        let length = elements.reduce(0) { $0 + $1.count }
+        buffer.append(0x31)
+        appendLength(length)
+        for element in elements { buffer.append(element) }
+    }
     func writeSet(_ content: (DEREWriter) throws -> Void) throws {
         try writeConstructed(tag: 0x31, content)
     }

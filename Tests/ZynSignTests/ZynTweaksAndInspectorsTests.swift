@@ -55,6 +55,28 @@ final class ZynTweaksAndInspectorsTests: XCTestCase {
         XCTAssertFalse(reloaded[0].matches(bundleIdentifier: "org.other.app"))
     }
 
+    func testBoundedDebDeflateRejectsOversizedAndTruncatedStreams() throws {
+        let small = try XCTUnwrap(Data(base64Encoded: "80jNyclXSMovzUtJTVFISU3OT0ktAgA="))
+        XCTAssertEqual(try BoundedDebTarDecoder.decode(small, kind: .deflate, limit: 21), Data("Hello bounded decoder".utf8))
+        XCTAssertThrowsError(try BoundedDebTarDecoder.decode(small, kind: .deflate, limit: 20))
+        XCTAssertThrowsError(try BoundedDebTarDecoder.decode(Data(small.dropLast()), kind: .deflate, limit: 100))
+        let bomb = try XCTUnwrap(Data(base64Encoded: "7cEBDQAAAMKgbO9fyhxuQAEAAAAAAAAA7wY="))
+        XCTAssertThrowsError(try BoundedDebTarDecoder.decode(bomb, kind: .deflate, limit: 1024)) { error in
+            XCTAssertEqual(error as? DebArchiveParser.DebError, .archiveTooLarge(limit: 1024))
+        }
+    }
+
+    func testDebArchiveUsesBoundedGzipDecoderAndChecksTrailer() throws {
+        let encoded = "H4sIAAAAAAACA+3NMQrCQBQE0H8UT5BkYYO1mtJLJGgRUIRVi9zexUqsRRDfa2aYZpp2P09lLEs7HM+X5rCc5ik+rKvWff/M6j2r/NLrnlJOOVZdfMH9ehtLvY//tNnuhgAAAAAAAAAAAODnPABH6wD8ACgAAA=="
+        let gzip = try XCTUnwrap(Data(base64Encoded: encoded))
+        let archive = Self.makeArArchive(entries: [("data.tar.gz", gzip)])
+        XCTAssertEqual(try DebArchiveReader.unpack(archive).payloads.first?.bytes, Data("ABCD".utf8))
+        var damaged = gzip
+        damaged[damaged.count - 8] ^= 1
+        XCTAssertThrowsError(try DebArchiveReader.unpack(Self.makeArArchive(entries: [("data.tar.gz", damaged)])))
+        XCTAssertThrowsError(try DebArchiveParser.unpack(archive), "Compressed members require a bounded decoder")
+    }
+
     func testDebArchiveParserUnpacksUncompressedDataTarPayload() throws {
         let tarPayload = Self.makeSingleFileUSTar(
             path: "./Library/MobileSubstrate/DynamicLibraries/DemoTweak.dylib",
@@ -69,6 +91,47 @@ final class ZynTweaksAndInspectorsTests: XCTestCase {
         XCTAssertEqual(unpacked.payloads.count, 1)
         XCTAssertEqual(unpacked.payloads.first?.kind, .dylib)
         XCTAssertEqual(unpacked.payloads.first?.topLevelName, "DemoTweak.dylib")
+    }
+
+    func testDebRejectsMalformedTarInsteadOfReturningPartialPayloads() throws {
+        let valid = Self.makeSingleFileUSTar(path: "./Library/Demo.dylib", content: Data([1]))
+        var corrupt = valid
+        corrupt[0] ^= 1 // invalidates the header checksum
+        let incomplete = Data(valid.dropLast(1024))
+        let unsafe = Self.makeSingleFileUSTar(path: "../../Demo.dylib", content: Data([1]))
+        for tar in [corrupt, incomplete, unsafe] {
+            let archive = Self.makeArArchive(entries: [("data.tar", tar)])
+            XCTAssertThrowsError(try DebArchiveParser.unpack(archive))
+        }
+    }
+
+    func testDebRejectsCollidingFlattenedPayloadsAndDuplicateDataMembers() throws {
+        let first = Self.makeSingleFileUSTar(path: "./one/Demo.dylib", content: Data([1]))
+        let second = Self.makeSingleFileUSTar(path: "./two/demo.dylib", content: Data([2]))
+        var combined = Data(first.dropLast(1024))
+        combined.append(second)
+        let collision = Self.makeArArchive(entries: [("data.tar", combined)])
+        XCTAssertThrowsError(try DebArchiveParser.unpack(collision)) { error in
+            XCTAssertEqual(error as? DebArchiveParser.DebError, .duplicatePayload)
+        }
+        let duplicate = Self.makeArArchive(entries: [("data.tar", first), ("data.tar", second)])
+        XCTAssertThrowsError(try DebArchiveParser.unpack(duplicate))
+        var trailing = Self.makeArArchive(entries: [("data.tar", first)])
+        trailing.append(0)
+        XCTAssertThrowsError(try DebArchiveParser.unpack(trailing))
+    }
+
+    func testFailedArchiveExtractionDoesNotLeaveDestination() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let archive = root.appendingPathComponent("bad.deb")
+        try Data("not a deb".utf8).write(to: archive)
+        do {
+            _ = try await FileArchiveTools.extractArchive(at: archive, in: root)
+            XCTFail("Malformed archive should fail")
+        } catch {}
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), ["bad.deb"])
     }
 
     private static func makeArArchive(entries: [(String, Data)]) -> Data {

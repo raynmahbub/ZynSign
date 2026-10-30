@@ -12,6 +12,31 @@ protocol DeviceTransport: AnyObject, Sendable {
     func close() async
 }
 
+extension DeviceTransport {
+    /// Network receives may return any non-empty prefix, not a complete frame.
+    /// The caller supplies a protocol-specific maximum before allocating.
+    func receiveExactly(_ count: Int, maximum: Int) async throws -> Data {
+        guard count >= 0, maximum >= 0, count <= maximum else {
+            throw DeviceProtocolError.invalidFrameLength(count)
+        }
+        var result = Data()
+        result.reserveCapacity(count)
+        while result.count < count {
+            try Task.checkCancellation()
+            let remaining = count - result.count
+            let chunk = try await receive(maximumBytes: remaining)
+            guard !chunk.isEmpty else {
+                throw DeviceProtocolError.truncatedFrame(needed: count, received: result.count)
+            }
+            guard chunk.count <= remaining else {
+                throw DeviceProtocolError.invalidFrameLength(chunk.count)
+            }
+            result.append(chunk)
+        }
+        return result
+    }
+}
+
 /// What the bridge can report about one device.
 struct PairedDevice: Equatable, Sendable {
     let hostIdentifier: String
@@ -93,12 +118,6 @@ final class DeviceBridgeService: @unchecked Sendable {
             }
             let deviceValues = LockdownProtocol.DeviceValues(
                 values: message["Value"] as? [String: Any] ?? [:])
-            let session = try await stream.request(.startSession(
-                hostID: record.hostIdentifier, systemBUID: record.systemBUID))
-            guard case .success(let sessionAnswer) = session,
-                  (sessionAnswer["EnableSessionID"] as? Bool) == true else {
-                throw DeviceProtocolError.deviceRefused(code: "SessionRefused")
-            }
             return deviceValues
         }
         return PairedDevice(
@@ -121,6 +140,11 @@ final class DeviceBridgeService: @unchecked Sendable {
         fileName: String,
         record: DevicePairingRecord
     ) async throws -> DeviceInstallOutcome {
+        guard BundleIdentifier(rawValue: bundleIdentifier) != nil,
+              let safeName = ArchivePath(rawValue: fileName),
+              safeName.rawValue == fileName, safeName.components.count == 1 else {
+            throw DeviceProtocolError.deviceRefused(code: "InvalidPackageMetadata")
+        }
         let remotePath = "/PublicStaging/\(fileName)"
         try await upload(package: package, to: remotePath, record: record)
         let progress = try await installStagedPackage(
@@ -135,104 +159,143 @@ final class DeviceBridgeService: @unchecked Sendable {
 
     private func upload(package: Data, to remotePath: String,
                         record: DevicePairingRecord) async throws {
-        let (port, _) = try await servicePort(LockdownProtocol.afcService, record: record)
-        let transport = makeTransport()
-        try await transport.connect(pairing: record, port: port)
-        defer { Task { await transport.close() } }
-
-        var transaction: UInt64 = 0
-        func exchange(_ operation: AFCProtocol.Operation, payload: Data) async throws
-            -> (status: UInt64, body: Data) {
-            transaction += 1
-            let header = AFCProtocol.Header(entryType: 0, operation: operation,
-                                            operationRaw: operation.rawValue,
-                                            transaction: transaction,
-                                            payloadSize: UInt64(payload.count))
-            try await transport.send(header.serialized() + payload)
-            let headerBytes = try await transport.receive(
-                maximumBytes: AFCProtocol.headerLength)
-            let decoded = try AFCProtocol.Header.decode(headerBytes)
-            let body = decoded.payloadSize > 0
-                ? try await transport.receive(maximumBytes: Int(decoded.payloadSize))
-                : Data()
-            if decoded.operation == .status, body.count >= 8 {
-                return (body.littleEndianUInt64(at: 0), Data(body.dropFirst(8)))
+        let port = try await servicePort(LockdownProtocol.afcService, record: record)
+        try await withDeviceTransport(record: record, port: port) { transport in
+            var transaction: UInt64 = 0
+            func exchange(_ operation: AFCProtocol.Operation, arguments: Data, body: Data = Data()) async throws
+                -> (operation: AFCProtocol.Operation, body: Data) {
+                transaction += 1
+                let argumentLength = AFCProtocol.headerLength + arguments.count
+                let totalLength = argumentLength + body.count
+                guard totalLength <= AFCProtocol.headerLength + PropertyListFraming.maximumMessageBytes else {
+                    throw DeviceProtocolError.invalidFrameLength(totalLength)
+                }
+                let header = AFCProtocol.Header(entireLength: UInt64(totalLength), thisLength: UInt64(argumentLength),
+                                                transaction: transaction, operationRaw: operation.rawValue)
+                try await transport.send(header.serialized() + arguments + body)
+                let headerBytes = try await transport.receiveExactly(AFCProtocol.headerLength, maximum: AFCProtocol.headerLength)
+                let response = try AFCProtocol.Header.decode(headerBytes)
+                guard response.transaction == transaction, let responseOperation = response.operation,
+                      let size = Int(exactly: response.payloadSize) else {
+                    throw DeviceProtocolError.deviceRefused(code: "InvalidAFCResponse")
+                }
+                let responseBody = try await transport.receiveExactly(size, maximum: PropertyListFraming.maximumMessageBytes)
+                return (responseOperation, responseBody)
             }
-            return (0, body)
-        }
+            func status(_ response: (operation: AFCProtocol.Operation, body: Data)) throws -> UInt64 {
+                guard response.operation == .status, response.body.count == 8 else {
+                    throw DeviceProtocolError.deviceRefused(code: "InvalidAFCStatus")
+                }
+                return response.body.littleEndianUInt64(at: 0)
+            }
 
-        // The hello exchange names the protocol before any operation.
-        let hello = try await exchange(.hello, payload: AFCProtocol.magic)
-        guard hello.status == 0 else {
-            throw DeviceProtocolError.deviceRefused(code: "AFCHello")
+            let directoryReply = try await exchange(.makeDirectory, arguments: Data("/PublicStaging".utf8) + Data([0]))
+            let directoryStatus = try status(directoryReply)
+            guard directoryStatus == 0 || directoryStatus == AFCProtocol.alreadyExistsStatus else {
+                throw DeviceProtocolError.deviceRefused(code: "AFCMakeDirectory(\(directoryStatus))")
+            }
+            var openArguments = Data()
+            openArguments.appendLittleEndian(UInt64(3)) // write-only, create and truncate
+            openArguments.append(Data(remotePath.utf8))
+            openArguments.append(0)
+            let opened = try await exchange(.fileOpen, arguments: openArguments)
+            guard opened.operation == .fileOpenResult, opened.body.count == 8 else {
+                throw DeviceProtocolError.deviceRefused(code: "AFCOpen")
+            }
+            let handle = opened.body.littleEndianUInt64(at: 0)
+            guard handle != 0 else { throw DeviceProtocolError.deviceRefused(code: "AFCOpen") }
+            var handleBytes = Data()
+            handleBytes.appendLittleEndian(handle)
+            do {
+                var offset = 0
+                while offset < package.count {
+                    try Task.checkCancellation()
+                    let end = min(offset + 256 * 1024, package.count)
+                    let response = try await exchange(.fileWrite, arguments: handleBytes, body: package.subdata(in: offset..<end))
+                    let writeStatus = try status(response)
+                    guard writeStatus == 0 else { throw DeviceProtocolError.deviceRefused(code: "AFCWrite(\(writeStatus))") }
+                    offset = end
+                }
+                let closeReply = try await exchange(.fileClose, arguments: handleBytes)
+                let closeStatus = try status(closeReply)
+                guard closeStatus == 0 else { throw DeviceProtocolError.deviceRefused(code: "AFCClose(\(closeStatus))") }
+            } catch {
+                // Closing the connection below releases the remote handle.
+                // Do not start another unbounded exchange after an interruption.
+                throw error
+            }
         }
-        _ = try await exchange(.makeDirectory,
-                               payload: Data("/PublicStaging".utf8) + Data([0]))
-        let opened = try await exchange(
-            .fileOpen, payload: Data(remotePath.utf8) + Data([0]) + Data(count: 8))
-        guard opened.status == 0, opened.body.count >= 8 else {
-            throw DeviceProtocolError.deviceRefused(code: "AFCOpen")
-        }
-        let handle = opened.body.littleEndianUInt64(at: 0)
-        var writeHeader = Data()
-        writeHeader.appendLittleEndian(handle)
-        let written = try await exchange(.fileWrite, payload: writeHeader + package)
-        guard written.status == 0 else {
-            throw DeviceProtocolError.deviceRefused(code: "AFCWrite")
-        }
-        var closeHeader = Data()
-        closeHeader.appendLittleEndian(handle)
-        _ = try await exchange(.fileClose, payload: closeHeader)
     }
 
     private func installStagedPackage(
         remotePath: String, bundleIdentifier: String,
         record: DevicePairingRecord
     ) async throws -> [InstallationProxyProtocol.Progress] {
-        let (port, _) = try await servicePort(
+        let port = try await servicePort(
             LockdownProtocol.installationProxyService, record: record)
-        let transport = makeTransport()
-        try await transport.connect(pairing: record, port: port)
-        defer { Task { await transport.close() } }
+        return try await withDeviceTransport(record: record, port: port) { transport in
+            let command = InstallationProxyProtocol.Command.install(
+                packagePath: remotePath, bundleIdentifier: bundleIdentifier, isUpgrade: false)
+            let framed = try PropertyListFraming.encodedMessage(command.message())
+            try await transport.send(framed)
 
-        let command = InstallationProxyProtocol.Command.install(
-            packagePath: remotePath, bundleIdentifier: bundleIdentifier, isUpgrade: false)
-        let framed = try PropertyListFraming.encodedMessage(command.message())
-        try await transport.send(framed)
-
-        var progress: [InstallationProxyProtocol.Progress] = []
-        while true {
-            let prefix = try await transport.receive(
-                maximumBytes: PropertyListFraming.lengthPrefixBytes)
-            let length = try PropertyListFraming.declaredLength(prefix: prefix)
-            let payload = try await transport.receive(maximumBytes: length)
-            let message = try PropertyListFraming.decode(payload)
-            switch InstallationProxyProtocol.Update.decode(message) {
-            case .progress(let step):
-                progress.append(step)
-                if step.isTerminal { return progress }
-            case .failure(let code, let description):
-                throw DeviceProtocolError.deviceRefused(
-                    code: description.isEmpty ? code : "\(code): \(description)")
-            case .listing:
-                throw DeviceProtocolError.deviceRefused(code: "UnexpectedListing")
+            var progress: [InstallationProxyProtocol.Progress] = []
+            while progress.count < 4_096 {
+                try Task.checkCancellation()
+                let prefix = try await transport.receiveExactly(
+                    PropertyListFraming.lengthPrefixBytes, maximum: PropertyListFraming.lengthPrefixBytes)
+                let length = try PropertyListFraming.declaredLength(prefix: prefix)
+                let payload = try await transport.receiveExactly(length, maximum: PropertyListFraming.maximumMessageBytes)
+                let message = try PropertyListFraming.decode(payload)
+                switch InstallationProxyProtocol.Update.decode(message) {
+                case .progress(let step):
+                    progress.append(step)
+                    if step.isTerminal { return progress }
+                case .failure(let code, let description):
+                    throw DeviceProtocolError.deviceRefused(
+                        code: description.isEmpty ? code : "\(code): \(description)")
+                case .listing:
+                    throw DeviceProtocolError.deviceRefused(code: "UnexpectedListing")
+                }
             }
+            throw DeviceProtocolError.deviceRefused(code: "InstallationProgressLimit")
+        }
+    }
+
+    private func withDeviceTransport<T>(record: DevicePairingRecord, port: Int,
+                                        body: (any DeviceTransport) async throws -> T) async throws -> T {
+        let transport = makeTransport()
+        do {
+            try await transport.connect(pairing: record, port: port)
+            let result = try await body(transport)
+            await transport.close()
+            return result
+        } catch {
+            await transport.close()
+            throw error
         }
     }
 
     /// Ask lockdownd to start a service and return its port. The device
     /// decides whether the service exists at all.
     private func servicePort(_ name: String,
-                             record: DevicePairingRecord) async throws -> (Int, Bool) {
+                             record: DevicePairingRecord) async throws -> Int {
         try await withLockdown(record) { stream in
             let response = try await stream.request(.startService(name: name))
             guard case .success(let message) = response else {
                 throw DeviceProtocolError.deviceRefused(code: "StartService")
             }
-            guard let port = message["Port"] as? Int else {
+            guard let port = message["Port"] as? Int, (1...65_535).contains(port) else {
                 throw DeviceProtocolError.deviceRefused(code: "NoServicePort")
             }
-            return (port, message["EnableServiceSSL"] as? Bool ?? false)
+            if let ssl = message["EnableServiceSSL"] {
+                guard let requiresSSL = ssl as? Bool else {
+                    throw DeviceProtocolError.deviceRefused(code: "InvalidServiceSSL")
+                }
+                // The current transport does not negotiate service-specific TLS.
+                if requiresSSL { throw DeviceProtocolError.authenticatedTransportUnavailable }
+            }
+            return port
         }
     }
 
@@ -241,9 +304,31 @@ final class DeviceBridgeService: @unchecked Sendable {
         _ body: (LockdownStream) async throws -> T
     ) async throws -> T {
         let transport = makeTransport()
-        try await transport.connect(pairing: record, port: LockdownProtocol.defaultPort)
-        defer { Task { await transport.close() } }
-        return try await body(LockdownStream(transport: transport))
+        do {
+            try await transport.connect(pairing: record, port: LockdownProtocol.defaultPort)
+            let stream = LockdownStream(transport: transport)
+            let response = try await stream.request(.startSession(
+                hostID: record.hostIdentifier, systemBUID: record.systemBUID))
+            guard case .success(let message) = response,
+                  let sessionID = message["SessionID"] as? String, !sessionID.isEmpty else {
+                throw DeviceProtocolError.deviceRefused(code: "SessionRefused")
+            }
+            // lockdownd requests a TLS upgrade on the existing connection.
+            // The current transport has no upgrade operation: never continue
+            // a session that requests one over an unverified channel.
+            if let ssl = message["EnableSessionSSL"] {
+                guard let requiresSSL = ssl as? Bool else {
+                    throw DeviceProtocolError.deviceRefused(code: "InvalidSessionSSL")
+                }
+                if requiresSSL { throw DeviceProtocolError.authenticatedTransportUnavailable }
+            }
+            let result = try await body(stream)
+            await transport.close()
+            return result
+        } catch {
+            await transport.close()
+            throw error
+        }
     }
 }
 
@@ -256,11 +341,11 @@ struct LockdownStream {
         -> LockdownProtocol.Response {
         let message = request.message(label: DeviceBridgeService.clientLabel)
         try await transport.send(try PropertyListFraming.encodedMessage(message))
-        let prefix = try await transport.receive(
-            maximumBytes: PropertyListFraming.lengthPrefixBytes)
+        let prefix = try await transport.receiveExactly(
+            PropertyListFraming.lengthPrefixBytes, maximum: PropertyListFraming.lengthPrefixBytes)
         let length = try PropertyListFraming.declaredLength(prefix: prefix)
-        let payload = try await transport.receive(maximumBytes: length)
-        return LockdownProtocol.Response.decode(try PropertyListFraming.decode(payload))
+        let payload = try await transport.receiveExactly(length, maximum: PropertyListFraming.maximumMessageBytes)
+        return LockdownProtocol.Response.decode(try PropertyListFraming.decode(payload), expectedRequest: request.verb)
     }
 }
 

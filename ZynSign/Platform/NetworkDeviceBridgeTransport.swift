@@ -3,10 +3,14 @@ import Foundation
 import Network
 #endif
 
-/// `NWConnection`-backed `DeviceTransport` speaking `usbmuxd` (`ListDevices` +
-/// `Connect`) over a local loopback tunnel (`10.7.0.1:27015` / `127.0.0.1:27015`)
-/// to reach `lockdownd`, `AFC`, and `installation_proxy` wire-free on device.
+/// Experimental usbmux tunnel transport. Device sessions are blocked: the
+/// current TCP implementation does not authenticate with the pairing identity
+/// or establish the TLS required by `DeviceTransport`.
 final class NetworkDeviceBridgeTransport: DeviceTransport, @unchecked Sendable {
+
+    /// This must remain false until TLS, framed reads, cancellation, and real
+    /// device interoperability have been implemented and independently verified.
+    static let supportsAuthenticatedSessions = false
 
     private let endpointConfig: DeviceBridgeEndpointConfig
     private let queue = DispatchQueue(label: "io.zynsign.device-bridge.transport")
@@ -19,6 +23,9 @@ final class NetworkDeviceBridgeTransport: DeviceTransport, @unchecked Sendable {
     }
 
     func connect(pairing: DevicePairingRecord, port: Int) async throws {
+        guard Self.supportsAuthenticatedSessions else {
+            throw DeviceProtocolError.authenticatedTransportUnavailable
+        }
         guard (1...65_535).contains(port) else {
             throw DeviceProtocolError.invalidPort(port)
         }
@@ -40,9 +47,8 @@ final class NetworkDeviceBridgeTransport: DeviceTransport, @unchecked Sendable {
         try await waitReady(conn)
         self.connection = conn
 
-        let networkOrderPort = Int(UInt16(port).bigEndian)
         let connectPayload = try PropertyListSerialization.data(
-            fromPropertyList: try USBMuxProtocol.Request.connect(deviceID: deviceID, port: networkOrderPort).payload(),
+            fromPropertyList: try USBMuxProtocol.Request.connect(deviceID: deviceID, port: port).payload(),
             format: .xml,
             options: 0
         )

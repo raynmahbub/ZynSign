@@ -32,20 +32,26 @@ struct FileArchiveTools: Sendable {
             in: destinationParent
         )
         let fm = FileManager.default
-        try fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
+        // Extract privately beside the destination so an error or cancellation
+        // does not leave a partially populated user-visible result.
+        let stagingDir = destinationParent.appendingPathComponent(".zynsign-extract-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: stagingDir, withIntermediateDirectories: false)
+        defer { try? fm.removeItem(at: stagingDir) }
 
         let ext = archiveURL.pathExtension.lowercased()
         if ext == "deb" {
-            let bytes = try Data(contentsOf: archiveURL)
-            let unpacked = try DebArchiveParser.unpack(bytes)
+            let bytes = try readDebArchive(at: archiveURL)
+            let unpacked = try DebArchiveReader.unpack(bytes)
             for item in unpacked.payloads {
-                let fileURL = targetDir.appendingPathComponent(item.relativePath)
+                let fileURL = stagingDir.appendingPathComponent(item.relativePath)
                 try fm.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try item.bytes.write(to: fileURL, options: .atomic)
                 if item.isExecutable {
                     try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fileURL.path)
                 }
             }
+            try Task.checkCancellation()
+            try fm.moveItem(at: stagingDir, to: targetDir)
             return targetDir
         }
 
@@ -57,11 +63,29 @@ struct FileArchiveTools: Sendable {
             symlinkPolicy: .recreateWithinRoot
         )
         _ = try await DirectoryArchiveExtractor(
-            destination: targetDir,
+            destination: stagingDir,
             policy: policy,
             readBound: ArchiveLimits.default.maximumEntryBytes
         ).extract(reader: reader)
+        try Task.checkCancellation()
+        try fm.moveItem(at: stagingDir, to: targetDir)
         return targetDir
+    }
+
+    /// Read at most the supported compressed .deb size plus one byte, even if
+    /// the provider's advertised file size is missing or changes while reading.
+    static func readDebArchive(at url: URL) throws -> Data {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var data = Data()
+        let limit = DebArchiveParser.maximumArchiveBytes
+        while data.count <= limit {
+            let remaining = limit + 1 - data.count
+            guard let chunk = try handle.read(upToCount: min(remaining, 1_048_576)), !chunk.isEmpty else { break }
+            data.append(chunk)
+        }
+        guard data.count <= limit else { throw DebArchiveParser.DebError.archiveTooLarge(limit: limit) }
+        return data
     }
 
     /// Packages a directory into either a valid `Payload/<Name>.app` `.ipa` or a `.zip`.

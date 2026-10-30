@@ -10,27 +10,27 @@ struct GuestRuntimeProbeReport: Equatable, Sendable {
 
 protocol GuestRuntimeLoading: Sendable {
     var isBundledLoaderPresent: Bool { get }
-    func activateSandboxEnvironment(
+    func probeGuestExecutable(
+        at executableURL: URL,
+        entrySymbol: String,
         guest: HostedGuestDescriptor,
         containerRoot: URL,
         guestBundleURL: URL,
         activeDataDirectory: URL
-    ) throws
-    func probeGuestExecutable(at executableURL: URL, entrySymbol: String) -> GuestRuntimeProbeReport
+    ) throws -> GuestRuntimeProbeReport
 }
 
-/// Manages ZynSign's zero-slot Multi-App Host Container (`Documents/Applications/`):
-/// stages decrypted `.ipa` packages as `MH_DYLIB` + `CS_ADHOC` guest bundles,
-/// manages isolated multi-account `GuestDataSlot` sandboxes, exports/restores
-/// container data `.zip` archives, converts hosted guests back to standalone
-/// `.ipa` packages, generates Home-Screen WebClip `.mobileconfig` launchers,
-/// and coordinates runtime launch handoff.
+/// Experimental guest staging and inspection in `Documents/Applications/`.
+/// Separate data directories are not sandbox isolation; staging or a successful
+/// loader probe does not establish full application execution or compatibility.
 @MainActor
 final class GuestContainerHostService: ObservableObject {
 
     enum HostError: Error, LocalizedError {
         case guestNotFound(String)
         case missingBundleMetadata
+        case invalidBundleMetadata
+        case guestAlreadyExists(String)
         case cannotDeletePrimarySlot
         case slotNotFound(String)
 
@@ -40,6 +40,10 @@ final class GuestContainerHostService: ObservableObject {
                 return "No hosted guest container found for \(id)."
             case .missingBundleMetadata:
                 return "The package is missing Info.plist, CFBundleIdentifier, or CFBundleExecutable."
+            case .invalidBundleMetadata:
+                return "The bundle identifier or executable name is not safe for container storage."
+            case .guestAlreadyExists(let id):
+                return "A container for \(id) already exists. Existing data was not replaced."
             case .cannotDeletePrimarySlot:
                 return "The primary data profile cannot be deleted."
             case .slotNotFound(let id):
@@ -132,13 +136,31 @@ final class GuestContainerHostService: ObservableObject {
         defer { try? fm.removeItem(at: tempWork) }
 
         let extractedApp = try await extractSingleAppBundle(from: ipaURL, into: tempWork)
+        let appValues = try extractedApp.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard appValues.isDirectory == true, appValues.isSymbolicLink != true else { throw HostError.invalidBundleMetadata }
         let infoURL = extractedApp.appendingPathComponent("Info.plist")
+        let infoValues = try infoURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard infoValues.isRegularFile == true, infoValues.isSymbolicLink != true else { throw HostError.invalidBundleMetadata }
         guard let infoData = try? Data(contentsOf: infoURL),
               var infoPlist = try? PropertyListSerialization.propertyList(from: infoData, options: [], format: nil) as? [String: Any],
               let bundleID = infoPlist["CFBundleIdentifier"] as? String,
               let execName = infoPlist["CFBundleExecutable"] as? String,
               !bundleID.isEmpty, !execName.isEmpty else {
             throw HostError.missingBundleMetadata
+        }
+
+        guard BundleIdentifier(rawValue: bundleID) != nil,
+              let executablePath = ArchivePath(rawValue: execName),
+              executablePath.rawValue == execName,
+              executablePath.components.count == 1 else {
+            throw HostError.invalidBundleMetadata
+        }
+        let execValues = try extractedApp.appendingPathComponent(execName)
+            .resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard execValues.isRegularFile == true, execValues.isSymbolicLink != true else { throw HostError.invalidBundleMetadata }
+        let finalContainerDir = applicationsRoot.appendingPathComponent(bundleID, isDirectory: true)
+        guard !fm.fileExists(atPath: finalContainerDir.path) else {
+            throw HostError.guestAlreadyExists(bundleID)
         }
 
         let resolvedName = customDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmptyValue
@@ -155,9 +177,12 @@ final class GuestContainerHostService: ObservableObject {
             try rewritten.write(to: infoURL, options: .atomic)
         }
 
-        let containerDir = applicationsRoot.appendingPathComponent(bundleID, isDirectory: true)
-        if fm.fileExists(atPath: containerDir.path) { try fm.removeItem(at: containerDir) }
-        try fm.createDirectory(at: containerDir, withIntermediateDirectories: true)
+        // Build beside the final destination, so publication does not require
+        // a cross-volume copy. Failed preparation is cleaned up separately.
+        try fm.createDirectory(at: applicationsRoot, withIntermediateDirectories: true)
+        let containerDir = applicationsRoot.appendingPathComponent(".zynsign-stage-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: containerDir, withIntermediateDirectories: false)
+        defer { try? fm.removeItem(at: containerDir) }
 
         let (stagedTweakNames, injectedInstallNames) = try stageContainerTweaks(
             tweakDylibURLs,
@@ -172,7 +197,11 @@ final class GuestContainerHostService: ObservableObject {
         )
 
         let primarySlot = GuestDataSlot.primary()
-        try ensureSandboxDirectories(for: bundleID, slot: primarySlot)
+        let stagedData = containerDir.appendingPathComponent(GuestContainer.Layout.data, isDirectory: true)
+        for subdirectory in GuestContainer.Layout.dataDirectories {
+            try fm.createDirectory(at: stagedData.appendingPathComponent(subdirectory, isDirectory: true),
+                                   withIntermediateDirectories: true)
+        }
         let requiresJIT = detectJITHint(in: infoPlist)
         let descriptor = HostedGuestDescriptor(
             bundleIdentifier: bundleID,
@@ -191,8 +220,11 @@ final class GuestContainerHostService: ObservableObject {
             lastLaunchedAt: nil
         )
         try writeDescriptor(descriptor, in: containerDir)
+        try Task.checkCancellation()
+        // moveItem refuses an existing destination, including a concurrent one.
+        try fm.moveItem(at: containerDir, to: finalContainerDir)
         reload()
-        statusBanner = "Staged \(resolvedName) inside Host Container (0 Apple ID slots used)."
+        statusBanner = "Staged \(resolvedName) for experimental guest inspection; execution is not guaranteed."
         return descriptor
     }
 
@@ -364,7 +396,9 @@ final class GuestContainerHostService: ObservableObject {
             throw HostError.slotNotFound(slotID)
         }
         let slotDir = documentsDirectory.appendingPathComponent(slot.relativeDataPath(bundleIdentifier: bundleIdentifier), isDirectory: true)
-        try? FileManager.default.removeItem(at: slotDir)
+        if FileManager.default.fileExists(atPath: slotDir.path) {
+            try FileManager.default.removeItem(at: slotDir)
+        }
         guest.slots.removeAll { $0.id == slotID }
         if guest.activeSlotID == slotID {
             guest.activeSlotID = "primary"
@@ -441,6 +475,10 @@ final class GuestContainerHostService: ObservableObject {
     }
 
     func removeHostedGuest(_ bundleIdentifier: String) throws {
+        guard BundleIdentifier(rawValue: bundleIdentifier) != nil,
+              hostedGuests.contains(where: { $0.bundleIdentifier == bundleIdentifier }) else {
+            throw HostError.guestNotFound(bundleIdentifier)
+        }
         let dir = applicationsRoot.appendingPathComponent(bundleIdentifier, isDirectory: true)
         if FileManager.default.fileExists(atPath: dir.path) {
             try FileManager.default.removeItem(at: dir)
@@ -480,13 +518,19 @@ final class GuestContainerHostService: ObservableObject {
     }
 
     func requestLaunch(bundleIdentifier: String, slotID: String? = nil) {
+        lastLaunchAttempt = nil
         guard var guest = hostedGuests.first(where: { $0.bundleIdentifier == bundleIdentifier }) else {
             statusBanner = "Container app \(bundleIdentifier) is not staged."
             return
         }
-        if let slotID, guest.slots.contains(where: { $0.id == slotID }) {
-            try? switchActiveSlot(for: bundleIdentifier, to: slotID)
-            guest = hostedGuests.first(where: { $0.bundleIdentifier == bundleIdentifier }) ?? guest
+        if let slotID {
+            do {
+                try switchActiveSlot(for: bundleIdentifier, to: slotID)
+                guest = hostedGuests.first(where: { $0.bundleIdentifier == bundleIdentifier }) ?? guest
+            } catch {
+                statusBanner = "Unable to select data profile: \(error.localizedDescription)"
+                return
+            }
         }
         let containerDir = applicationsRoot.appendingPathComponent(bundleIdentifier, isDirectory: true)
         let guestBundleURL = containerDir.appendingPathComponent(GuestContainer.Layout.appBundle, isDirectory: true)
@@ -495,22 +539,24 @@ final class GuestContainerHostService: ObservableObject {
             activeSlot.relativeDataPath(bundleIdentifier: bundleIdentifier),
             isDirectory: true
         )
-        try? ensureSandboxDirectories(for: bundleIdentifier, slot: activeSlot)
-        try? runtimeLoader.activateSandboxEnvironment(
-            guest: guest,
-            containerRoot: containerDir,
-            guestBundleURL: guestBundleURL,
-            activeDataDirectory: dataDir
-        )
-        let execURL = guestBundleURL.appendingPathComponent(guest.executableName)
-        let probe = runtimeLoader.probeGuestExecutable(
-            at: execURL,
-            entrySymbol: GuestContainer.Layout.entryPoint
-        )
-        guest.lastLaunchedAt = Date()
-        try? writeDescriptor(guest, in: containerDir)
-        reload()
-
+        let probe: GuestRuntimeProbeReport
+        do {
+            try ensureSandboxDirectories(for: bundleIdentifier, slot: activeSlot)
+            let execURL = guestBundleURL.appendingPathComponent(guest.executableName)
+            probe = try runtimeLoader.probeGuestExecutable(
+                at: execURL,
+                entrySymbol: GuestContainer.Layout.entryPoint,
+                guest: guest,
+                containerRoot: containerDir,
+                guestBundleURL: guestBundleURL,
+                activeDataDirectory: dataDir
+            )
+        } catch {
+            statusBanner = "Unable to prepare executable probe: \(error.localizedDescription)"
+            return
+        }
+        // Mapping a dynamic library is a probe, not a launched application.
+        // Do not update the persisted last-launch timestamp.
         lastLaunchAttempt = PendingLaunch(
             bundleIdentifier: bundleIdentifier,
             slotID: activeSlot.id,
@@ -569,7 +615,8 @@ final class GuestContainerHostService: ObservableObject {
            let nestedData = try? JSONSerialization.data(withJSONObject: nested) {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            if let decoded = try? decoder.decode(HostedGuestDescriptor.self, from: nestedData) {
+            if let decoded = try? decoder.decode(HostedGuestDescriptor.self, from: nestedData),
+               isSafeDescriptor(decoded, in: containerDir) {
                 return decoded
             }
         }
@@ -586,7 +633,7 @@ final class GuestContainerHostService: ObservableObject {
         let slotID = (dict["ZynDataUUID"] as? String) ?? "primary"
         let slot = GuestDataSlot(id: slotID, label: slotID == "primary" ? "Primary Profile" : slotID, createdAt: Date())
         let needsJIT = (dict["ZynRequiresJIT"] as? Bool) ?? false
-        return HostedGuestDescriptor(
+        let descriptor = HostedGuestDescriptor(
             bundleIdentifier: bundleID,
             displayName: name,
             shortVersion: ver,
@@ -602,6 +649,19 @@ final class GuestContainerHostService: ObservableObject {
             stagedAt: Date(),
             lastLaunchedAt: nil
         )
+        return isSafeDescriptor(descriptor, in: containerDir) ? descriptor : nil
+    }
+
+    private nonisolated static func isSafeDescriptor(_ descriptor: HostedGuestDescriptor, in directory: URL) -> Bool {
+        func isSingleComponent(_ value: String) -> Bool {
+            guard let path = ArchivePath(rawValue: value) else { return false }
+            return path.rawValue == value && path.components.count == 1
+        }
+        return BundleIdentifier(rawValue: descriptor.bundleIdentifier) != nil
+            && descriptor.bundleIdentifier == directory.lastPathComponent
+            && isSingleComponent(descriptor.executableName)
+            && isSingleComponent(descriptor.activeSlotID)
+            && descriptor.slots.allSatisfy { isSingleComponent($0.id) }
     }
 
     private func packDirectory(at directoryURL: URL, rootPrefix: String, to outputURL: URL) throws {

@@ -21,8 +21,11 @@ struct ZipCentralDirectoryRecord: Equatable {
     /// The checksum the container records for the entry's expanded content.
     let checksum: UInt32
 
+    /// General-purpose flags, compared with the local header before reading.
+    let flags: UInt16
+
     /// Whether the container marks the entry as encrypted.
-    let isEncrypted: Bool
+    var isEncrypted: Bool { (flags & 0x0001) != 0 }
 }
 
 /// Reads the entry table of a ZIP container without expanding any of it.
@@ -74,7 +77,15 @@ enum ZipCentralDirectoryScanner {
         }
         guard let endOffset = locateEndOfCentralDirectory(in: tail) else {
             throw ZynSignError.unreadableArtifact(
-                diagnosticDetail: "No ZIP end-of-central-directory record was found."
+                diagnosticDetail: "The ZIP end-of-central-directory record is missing, invalid, or ambiguous."
+            )
+        }
+
+        guard ZipField.uint16(tail, endOffset + 4) == 0,
+              ZipField.uint16(tail, endOffset + 6) == 0,
+              ZipField.uint16(tail, endOffset + 8) == ZipField.uint16(tail, endOffset + 10) else {
+            throw ZynSignError.unsupportedArchiveFeature(
+                diagnosticDetail: "Multi-disk ZIP archives are not supported."
             )
         }
 
@@ -86,6 +97,14 @@ enum ZipCentralDirectoryScanner {
             fileSize: fileSize,
             read: read
         )
+
+        let endRecordOffset = searchStart + endOffset
+        guard location.offset <= endRecordOffset,
+              location.size <= endRecordOffset - location.offset else {
+            throw ZynSignError.unreadableArtifact(
+                diagnosticDetail: "The archive's central directory overlaps its end record."
+            )
+        }
 
         return try readCentralDirectory(
             location: location,
@@ -111,18 +130,21 @@ enum ZipCentralDirectoryScanner {
 
     // MARK: - Structure location
 
-    /// Finds the end-of-central-directory signature, scanning backwards so
-    /// that a trailing comment cannot hide it and a stray occurrence inside a
-    /// comment is preferred only when nothing later exists.
+    /// Accept only a unique end record whose comment reaches the end of the
+    /// file. Multiple plausible records are ambiguous and are refused rather
+    /// than allowing a signature in a comment to select a different table.
     private static func locateEndOfCentralDirectory(in tail: [UInt8]) -> Int? {
+        var match: Int?
         var offset = tail.count - endOfCentralDirectorySize
         while offset >= 0 {
-            if ZipField.uint32(tail, offset) == endOfCentralDirectorySignature {
-                return offset
+            if ZipField.uint32(tail, offset) == endOfCentralDirectorySignature,
+               Int(ZipField.uint16(tail, offset + 20)) == tail.count - offset - endOfCentralDirectorySize {
+                guard match == nil else { return nil }
+                match = offset
             }
             offset -= 1
         }
-        return nil
+        return match
     }
 
     private struct DirectoryLocation {
@@ -160,9 +182,16 @@ enum ZipCentralDirectoryScanner {
               ZipField.uint32(locator, 0) == zip64EndLocatorSignature else {
             return try validatedLocation(ordinaryLocation, fileSize: fileSize)
         }
+        guard ZipField.uint32(locator, 4) == 0, ZipField.uint32(locator, 16) == 1 else {
+            throw ZynSignError.unsupportedArchiveFeature(
+                diagnosticDetail: "Multi-disk ZIP64 archives are not supported."
+            )
+        }
+        let locatorOffset = endRecordOffsetInFile - zip64LocatorSize
         guard let recordOffset = Int(exactly: ZipField.uint64(locator, 8)),
               recordOffset >= 0,
-              recordOffset + zip64RecordSize <= fileSize else {
+              recordOffset <= locatorOffset,
+              zip64RecordSize <= locatorOffset - recordOffset else {
             throw ZynSignError.unreadableArtifact(
                 diagnosticDetail: "The archive's ZIP64 record lies outside the file."
             )
@@ -174,6 +203,20 @@ enum ZipCentralDirectoryScanner {
                 diagnosticDetail: "The archive's ZIP64 record is not readable."
             )
         }
+        guard let payloadSize = Int(exactly: ZipField.uint64(record, 4)),
+              payloadSize >= 44,
+              payloadSize <= locatorOffset - recordOffset - 12 else {
+            throw ZynSignError.unreadableArtifact(
+                diagnosticDetail: "The ZIP64 end record has an invalid size or overlaps its locator."
+            )
+        }
+        guard ZipField.uint32(record, 16) == 0,
+              ZipField.uint32(record, 20) == 0,
+              ZipField.uint64(record, 24) == ZipField.uint64(record, 32) else {
+            throw ZynSignError.unsupportedArchiveFeature(
+                diagnosticDetail: "Multi-disk ZIP64 archives are not supported."
+            )
+        }
         guard let extendedRecordCount = Int(exactly: ZipField.uint64(record, 32)),
               let extendedSize = Int(exactly: ZipField.uint64(record, 40)),
               let extendedOffset = Int(exactly: ZipField.uint64(record, 48)) else {
@@ -181,7 +224,7 @@ enum ZipCentralDirectoryScanner {
                 diagnosticDetail: "The archive's ZIP64 record declares sizes this platform cannot address."
             )
         }
-        return try validatedLocation(
+        let location = try validatedLocation(
             DirectoryLocation(
                 recordCount: extendedRecordCount,
                 offset: extendedOffset,
@@ -189,6 +232,12 @@ enum ZipCentralDirectoryScanner {
             ),
             fileSize: fileSize
         )
+        guard location.offset <= recordOffset, location.size <= recordOffset - location.offset else {
+            throw ZynSignError.unreadableArtifact(
+                diagnosticDetail: "The central directory overlaps the ZIP64 end record."
+            )
+        }
+        return location
     }
 
     private static func validatedLocation(
@@ -198,7 +247,8 @@ enum ZipCentralDirectoryScanner {
         guard location.recordCount >= 0,
               location.offset >= 0,
               location.size >= 0,
-              location.offset + location.size <= fileSize else {
+              location.offset <= fileSize,
+              location.size <= fileSize - location.offset else {
             throw ZynSignError.unreadableArtifact(
                 diagnosticDetail: "The archive's central directory does not lie within the file."
             )
@@ -221,7 +271,7 @@ enum ZipCentralDirectoryScanner {
         var records: [ZipCentralDirectoryRecord] = []
         var position = location.offset
         let end = location.offset + location.size
-        while position + centralDirectoryRecordSize <= end {
+        while end - position >= centralDirectoryRecordSize {
             let parsed = try readCentralDirectoryRecord(
                 at: position,
                 end: end,
@@ -231,8 +281,15 @@ enum ZipCentralDirectoryScanner {
             records.append(parsed.record)
             position = parsed.nextPosition
             if records.count > limits.maximumEntryCount {
-                break
+                // Preserve the inspection contract: one excess entry signals
+                // the limit without requiring a scan of an unbounded table.
+                return records
             }
+        }
+        guard position == end, records.count == location.recordCount else {
+            throw ZynSignError.unreadableArtifact(
+                diagnosticDetail: "The archive's central directory size or entry count is inconsistent."
+            )
         }
         return records
     }
@@ -330,7 +387,7 @@ enum ZipCentralDirectoryScanner {
             compressionMethod: fields.compressionMethod,
             localHeaderOffset: sizes.localHeaderOffset,
             checksum: fields.checksum,
-            isEncrypted: (fields.flags & 0x0001) != 0
+            flags: fields.flags
         )
     }
 
@@ -521,6 +578,60 @@ enum ZipCentralDirectoryScanner {
             return .directory
         }
         return nameEndsWithSeparator ? .directory : .regularFile
+    }
+}
+
+/// Validates the local header against the selected central-directory record.
+/// ZIP64 size placeholders and data-descriptor entries are checked through the
+/// central record and the eventual content checks, not the 32-bit local fields.
+enum ZipLocalHeader {
+    private static let size = 30
+    private static let signature: UInt32 = 0x0403_4B50
+    private static let zip64Placeholder: UInt32 = 0xFFFF_FFFF
+
+    static func contentOffset(
+        for record: ZipCentralDirectoryRecord,
+        path: ArchivePath,
+        fileSize: Int,
+        read: (Int, Int) throws -> [UInt8]
+    ) throws -> Int {
+        let offset = record.localHeaderOffset
+        guard offset >= 0, offset <= fileSize, size <= fileSize - offset else {
+            throw ZynSignError.archiveEntryUnreadable(diagnosticDetail: "The entry header lies outside the archive.")
+        }
+        let header = try read(offset, size)
+        guard header.count == size,
+              ZipField.uint32(header, 0) == signature,
+              ZipField.uint16(header, 6) == record.flags,
+              ZipField.uint16(header, 8) == record.compressionMethod else {
+            throw ZynSignError.archiveEntryUnreadable(
+                diagnosticDetail: "The local header for '\(path.rawValue)' disagrees with the archive's directory."
+            )
+        }
+        let nameLength = Int(ZipField.uint16(header, 26))
+        let extraLength = Int(ZipField.uint16(header, 28))
+        let nameStart = offset + size
+        let variableLength = nameLength + extraLength
+        guard variableLength <= fileSize - nameStart,
+              nameLength == record.entry.rawName.utf8.count else {
+            throw ZynSignError.archiveEntryUnreadable(diagnosticDetail: "The local entry name or extra field is invalid.")
+        }
+        let name = try read(nameStart, nameLength)
+        guard name.elementsEqual(record.entry.rawName.utf8) else {
+            throw ZynSignError.archiveEntryUnreadable(diagnosticDetail: "The local entry name disagrees with the directory.")
+        }
+        if (record.flags & 0x0008) == 0 {
+            let compressed = ZipField.uint32(header, 18)
+            let expanded = ZipField.uint32(header, 22)
+            guard ZipField.uint32(header, 14) == record.checksum,
+                  (compressed == zip64Placeholder || Int(compressed) == record.entry.compressedSize),
+                  (expanded == zip64Placeholder || Int(expanded) == record.entry.uncompressedSize) else {
+                throw ZynSignError.archiveEntryUnreadable(
+                    diagnosticDetail: "The local entry sizes or checksum disagree with the directory."
+                )
+            }
+        }
+        return nameStart + variableLength
     }
 }
 

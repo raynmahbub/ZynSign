@@ -1,11 +1,21 @@
 # Pairing / JIT / Mux / OpenSSL Linkage — Feasibility Record
 
-> **Status: Revised — pairing composed behind an entitled transport; JIT still
-> refused; OpenSSL still host-only** · Scope: every release on the train ·
+> **Status: Blocked — authenticated device transport is not implemented;
+> JIT still refused; OpenSSL still host-only** · Scope: every release on the train ·
 > Code boundary: `ZynSign/Application/SideloadingCapability.swift`,
 > `ZynSign/Domain/DeviceBridge` ·
 > Product statement: [`docs/product/WHAT_DOES_NOT_EXIST.md`](../product/WHAT_DOES_NOT_EXIST.md) ·
 > Full record: [sideloading.md](sideloading.md)
+
+## Current safety gate
+
+The production `NetworkDeviceBridgeTransport` opens TCP but does not perform
+pairing-identity TLS. The application now assembles bounded fragmented reads,
+but these changes have not been validated on Apple platforms. The production
+transport refuses connection attempts. Pairing-record
+import remains available, but an imported record or an entitlement does not
+establish a secure session. The material below describes earlier feasibility
+assumptions, not verified physical-device behavior.
 
 ## Revision (2026-10)
 

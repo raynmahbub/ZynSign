@@ -61,6 +61,15 @@ final class InstallationDeliveryTests: XCTestCase {
         }
     }
 
+    func testHostingURLRejectsCredentialsAndMissingHost() {
+        let service = InstallationDeliveryService()
+        for address in ["https://user:password@example.com/app.ipa", "https:///app.ipa"] {
+            XCTAssertThrowsError(try service.validateHostingURL(address), address) { error in
+                XCTAssertEqual(error as? InstallationDeliveryError, .hostingURLUnparsable)
+            }
+        }
+    }
+
     func testErrorMessagesCarryNoURL() {
         for error in [InstallationDeliveryError.hostingURLMustBeHTTPS, .hostingURLUnparsable, .manifestSerializationFailed, .manifestWriteFailed] {
             XCTAssertFalse(error.userMessage.contains("http"), "Error text must not echo URLs.")
@@ -131,6 +140,7 @@ final class InstallationDeliveryTests: XCTestCase {
         )
         let link = try XCTUnwrap(manifest.installLink)
         XCTAssertEqual(link.scheme, "itms-services")
+        XCTAssertTrue(link.absoluteString.hasPrefix("itms-services://?"))
         let components = try XCTUnwrap(URLComponents(url: link, resolvingAgainstBaseURL: false))
         let query = try XCTUnwrap(components.queryItems)
         XCTAssertEqual(query.first(where: { $0.name == "action" })?.value, "download-manifest")
@@ -148,13 +158,32 @@ final class InstallationDeliveryTests: XCTestCase {
             manifestURL: try service.validateHostingURL("https://example.com/manifest.plist")
         )
         let url = try service.writeManifest(manifest)
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         XCTAssertEqual(url.lastPathComponent, "manifest.plist")
         let data = try Data(contentsOf: url)
         let roundTripped = try XCTUnwrap(
             PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
         )
         XCTAssertNotNil(roundTripped["items"])
+    }
+
+    func testWritingAnotherManifestDoesNotReplaceTheFirst() throws {
+        let service = InstallationDeliveryService()
+        let package = try makePackage()
+        let first = try service.manifest(for: package,
+            packageURL: try service.validateHostingURL("https://example.com/first.ipa"),
+            manifestURL: try service.validateHostingURL("https://example.com/first.plist"))
+        let second = try service.manifest(for: package,
+            packageURL: try service.validateHostingURL("https://example.com/second.ipa"),
+            manifestURL: try service.validateHostingURL("https://example.com/second.plist"))
+        let firstURL = try service.writeManifest(first)
+        defer { try? FileManager.default.removeItem(at: firstURL.deletingLastPathComponent()) }
+        let firstBytes = try Data(contentsOf: firstURL)
+        let secondURL = try service.writeManifest(second)
+        defer { try? FileManager.default.removeItem(at: secondURL.deletingLastPathComponent()) }
+        XCTAssertNotEqual(firstURL, secondURL)
+        XCTAssertEqual(try Data(contentsOf: firstURL), firstBytes)
+        XCTAssertNotEqual(try Data(contentsOf: secondURL), firstBytes)
     }
 
     // MARK: - Channels
