@@ -16,6 +16,7 @@ enum CanonicalPropertyListError: Error, Equatable {
     case nonFiniteNumber
     /// A key failed the safety rules: empty, oversized, or control characters.
     case invalidKey
+    case invalidString
     /// The tree exceeded the configured depth, node, or collection bounds.
     case resourceLimitExceeded
     /// A checked arithmetic step overflowed while planning the output.
@@ -90,7 +91,7 @@ struct CanonicalPropertyListLimits: Equatable, Hashable {
 ///    non-finite real is an error rather than a written value.
 /// 5. Data emits base64 (standard alphabet, padded) wrapped at 76 characters
 ///    per line, each continuation line indented one level deeper.
-/// 6. Keys and string values are XML-escaped for `&`, `<`, and `>`. No other
+/// 6. Keys and string values are XML-escaped for `&`, `<`, `>`, and CR. No other
 ///    transformation is applied to any text: values are never normalized,
 ///    trimmed, or re-typed.
 ///
@@ -134,12 +135,14 @@ struct CanonicalPropertyListXMLSerializer {
         depth: Int,
         context: inout SerializationContext
     ) throws {
-        guard depth <= limits.maximumNestingDepth else {
+        // The document root is not a claim node; claim values begin at depth zero.
+        guard depth == 0 || depth - 1 <= limits.maximumNestingDepth else {
             throw CanonicalPropertyListError.resourceLimitExceeded
         }
-        try context.countNode()
+        if depth > 0 { try context.countNode() }
         switch value {
         case .string(let text):
+            guard Self.isValidXMLText(text) else { throw CanonicalPropertyListError.invalidString }
             context.appendLine("<string>\(Self.escaped(text))</string>", depth: depth)
         case .boolean(let flag):
             context.appendLine(flag ? "<true/>" : "<false/>", depth: depth)
@@ -165,7 +168,6 @@ struct CanonicalPropertyListXMLSerializer {
             context.appendLine("<dict>", depth: depth)
             for key in entries.keys.sorted(by: Self.utf8Ascending) {
                 try validateKey(key)
-                try context.countNode()
                 context.appendLine("<key>\(Self.escaped(key))</key>", depth: depth + 1)
                 guard let entry = entries[key] else {
                     throw CanonicalPropertyListError.invalidKey
@@ -195,17 +197,28 @@ struct CanonicalPropertyListXMLSerializer {
     private func validateKey(_ key: String) throws {
         guard !key.isEmpty,
               key.utf8.count <= limits.maximumStringByteCount,
-              !key.contains(where: { $0.isControl }) else {
+              !key.contains(where: { $0.isControl }), Self.isValidXMLText(key) else {
             throw CanonicalPropertyListError.invalidKey
         }
     }
 
     // MARK: - Text forms
 
+    /// XML 1.0 Char production; CR is emitted as a character reference so
+    /// XML line-ending normalization cannot change the claim.
+    static func isValidXMLText(_ text: String) -> Bool {
+        text.unicodeScalars.allSatisfy { scalar in
+            let value = scalar.value
+            return value == 0x09 || value == 0x0A || value == 0x0D ||
+                (0x20...0xD7FF).contains(value) || (0xE000...0xFFFD).contains(value) ||
+                (0x10000...0x10FFFF).contains(value)
+        }
+    }
+
     /// XML text escaping for element content. Only the three characters that
     /// terminate element content are replaced; no other normalization occurs.
     static func escaped(_ text: String) -> String {
-        guard text.contains("&") || text.contains("<") || text.contains(">") else {
+        guard text.contains("&") || text.contains("<") || text.contains(">") || text.contains("\r") else {
             return text
         }
         var result = ""
@@ -215,6 +228,7 @@ struct CanonicalPropertyListXMLSerializer {
             case "&": result += "&amp;"
             case "<": result += "&lt;"
             case ">": result += "&gt;"
+            case "\r": result += "&#xD;"
             default: result.unicodeScalars.append(scalar)
             }
         }

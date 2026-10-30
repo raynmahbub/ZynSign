@@ -23,6 +23,10 @@ enum EntitlementsError: Error, Equatable {
     case unsupportedValueType
     /// A key was empty, oversized, or contained a control character.
     case invalidKey
+    case invalidXMLString
+    case invalidDERMagic
+    case derXMLSemanticMismatch
+    case unsupportedDERCodeDirectoryVersion
     /// A numeric value was not finite.
     case nonFiniteNumber
     /// The tree exceeded the configured depth, node, or collection bounds.
@@ -130,6 +134,35 @@ struct CodeSigningEntitlements: Equatable, Hashable {
     /// signing form excludes (date) fails closed instead of being coerced.
     init(profileEntitlements: ProvisioningProfileEntitlements) throws {
         try self.init(values: profileEntitlements.values)
+    }
+
+    /// Exact typed equality, including UTF-8 spelling (Swift String equality
+    /// otherwise treats canonically equivalent Unicode sequences as equal).
+    func hasSameSerializedClaims(as other: CodeSigningEntitlements) -> Bool {
+        Self.identical(.dictionary(values), .dictionary(other.values))
+    }
+
+    private static func identical(_ lhs: ProvisioningProfileValue, _ rhs: ProvisioningProfileValue) -> Bool {
+        switch (lhs, rhs) {
+        case let (.string(a), .string(b)): return a.utf8.elementsEqual(b.utf8)
+        case let (.boolean(a), .boolean(b)): return a == b
+        case let (.integer(a), .integer(b)): return a == b
+        case let (.real(a), .real(b)): return a == b
+        case let (.data(a), .data(b)): return a == b
+        case let (.date(a), .date(b)): return a == b
+        case let (.array(a), .array(b)):
+            return a.count == b.count && zip(a, b).allSatisfy { identical($0.0, $0.1) }
+        case let (.dictionary(a), .dictionary(b)):
+            let left = a.keys.sorted(by: CanonicalPropertyListXMLSerializer.utf8Ascending)
+            let right = b.keys.sorted(by: CanonicalPropertyListXMLSerializer.utf8Ascending)
+            guard left.count == right.count else { return false }
+            return zip(left, right).allSatisfy { pair in
+                let (x, y) = pair
+                guard x.utf8.elementsEqual(y.utf8), let av = a[x], let bv = b[y] else { return false }
+                return identical(av, bv)
+            }
+        default: return false
+        }
     }
 
     // MARK: - Structural validation
@@ -259,7 +292,7 @@ enum EntitlementsPlistParser {
         // reasons are translated so this boundary owns its own vocabulary.
         let decoded: ProvisioningProfileValue
         do {
-            decoded = try ProvisioningProfileValue.decode(dictionary, limits: limits)
+            decoded = .dictionary(try ProvisioningProfileValue.decodeEntitlementDictionary(dictionary, limits: limits))
         } catch let error as ZynSignError {
             throw translate(error)
         }

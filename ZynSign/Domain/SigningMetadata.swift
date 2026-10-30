@@ -358,10 +358,20 @@ struct SigningMetadataPreparation: Equatable {
             entitlementsDigest = digest
             if metadata.emitDEREntitlements {
                 do {
+                    let xmlClaims: CodeSigningEntitlements
+                    do { xmlClaims = try EntitlementsPlistParser.parse(blob.payload) }
+                    catch { throw EntitlementsError.derXMLSemanticMismatch }
+                    guard xmlClaims.hasSameSerializedClaims(as: entitlements) else {
+                        throw EntitlementsError.derXMLSemanticMismatch
+                    }
                     let candidate = try DEREntitlementsSerializer().blob(entitlements)
-                    // Reject values whose DER representation changes their type.
-                    guard try DEREntitlementsDecoder().decode(blob: candidate.bytes) == entitlements else {
+                    let derClaims = try DEREntitlementsDecoder().decode(blob: candidate.bytes)
+                    // Reject unsupported or lossy representations before key access.
+                    guard derClaims.hasSameSerializedClaims(as: entitlements) else {
                         throw EntitlementsError.notRepresentable
+                    }
+                    guard derClaims.hasSameSerializedClaims(as: xmlClaims) else {
+                        throw EntitlementsError.derXMLSemanticMismatch
                     }
                     derBlob = candidate
                     derDigest = try slotDigest(candidate.bytes, hashConfiguration: hashConfiguration, messageDigest: messageDigest)

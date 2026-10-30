@@ -144,6 +144,7 @@ extension EntitlementsError {
         case .unsupportedValueType: return .unsupportedValueType
         case .nonFiniteNumber: return .nonFiniteNumber
         case .invalidKey: return .invalidKey
+        case .invalidString: return .invalidXMLString
         case .resourceLimitExceeded: return .resourceLimitExceeded
         case .integerOverflow: return .resourceLimitExceeded
         case .outputTooLarge: return .payloadTooLarge

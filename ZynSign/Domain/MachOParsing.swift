@@ -29,6 +29,7 @@ struct MachOParsingError: Error, Equatable {
         case signatureRegion
         case superBlob
         case signatureBlob
+        case derEntitlements
         case codeDirectory
         case identifier
         case teamIdentifier

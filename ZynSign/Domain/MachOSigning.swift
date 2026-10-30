@@ -58,7 +58,10 @@ struct MachOSigningRequest {
             throw MachOSigningError.unsupportedHashType
         }
         let emitsDER = metadata?.emitDEREntitlements == true
-        guard (emitsDER ? codeDirectory.version == .v20400 : codeDirectory.version == .v20200),
+        if emitsDER && codeDirectory.version != .v20400 {
+            throw MachOSigningError.entitlements(.unsupportedDERCodeDirectoryVersion)
+        }
+        guard (emitsDER || codeDirectory.version == .v20200),
               codeDirectory.flags.rawValue == 0, codeDirectory.platform == 0,
               codeDirectory.pageSize == .exponent(12),
               codeDirectory.specialSlots.isEmpty else {

@@ -12,8 +12,8 @@ struct ProvisioningProfileParsingLimits: Equatable, Hashable {
     /// Maximum recursive depth of an entitlement value.
     let maximumNestingDepth: Int
 
-    /// Maximum number of scalar/container nodes converted in one entitlement
-    /// tree.
+    /// Maximum number of scalar/container value nodes in one entitlement tree.
+    /// Dictionary keys and the implicit root entitlement dictionary do not count.
     let maximumValueNodeCount: Int
 
     /// Maximum UTF-8 byte count of one profile string value.
@@ -74,6 +74,26 @@ indirect enum ProvisioningProfileValue: Equatable, Hashable {
     ) throws -> ProvisioningProfileValue {
         var nodeCount = 0
         return try decode(value, depth: 0, limits: limits, nodeCount: &nodeCount)
+    }
+
+    /// Decode root claims with a shared value-node budget. The root dictionary
+    /// and dictionary keys are not nodes; root claim values begin at depth 0.
+    static func decodeEntitlementDictionary(
+        _ dictionary: [String: Any], limits: ProvisioningProfileParsingLimits
+    ) throws -> [String: ProvisioningProfileValue] {
+        guard dictionary.count <= limits.maximumCollectionCount else {
+            throw ZynSignError.provisioningProfile(.resourceLimitExceeded, diagnosticDetail: "Entitlement collection limit exceeded.")
+        }
+        var count = 0
+        var result: [String: ProvisioningProfileValue] = [:]
+        for (key, value) in dictionary {
+            guard !key.isEmpty, key.utf8.count <= limits.maximumStringByteCount,
+                  !key.contains(where: { $0.isControl }) else {
+                throw ZynSignError.provisioningProfile(.invalidFieldValue, diagnosticDetail: "Invalid entitlement key.")
+            }
+            result[key] = try decode(value, depth: 0, limits: limits, nodeCount: &count)
+        }
+        return result
     }
 
     private static func decode(

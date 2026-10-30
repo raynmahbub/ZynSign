@@ -20,6 +20,43 @@ final class MachOSigningAppleTests: XCTestCase {
         XCTAssertThrowsError(try engine.verify(artifact: tampered, request: request, certificate: identity.certificate))
     }
 
+    func testRealKeyBindsDERAndRejectsTampering() throws {
+        let identity = try EphemeralMachOIdentity()
+        let digest = CryptoKitMessageDigest()
+        let engine = SignMachOUseCase(identities: identity, digest: digest, verifier: AppleSignatureVerifier())
+        let claims = try CodeSigningEntitlements(values: ["get-task-allow": .boolean(true)])
+        let request = MachOSigningRequest(artifact: MachOSigningFixtures.unsignedMachO,
+            identityID: identity.identityID,
+            codeDirectory: CodeDirectoryConstructionRequest(version: .v20400, flags: [],
+                identifier: try CodeDirectoryIdentifier(rawValue: "com.example.single"),
+                teamIdentifier: try CodeDirectoryTeamIdentifier(rawValue: "TESTTEAM"),
+                hashConfiguration: try CodeDirectoryHashConfiguration(hashType: .sha256),
+                pageSize: .exponent(12), codeLimit: 4144, specialSlots: []),
+            algorithm: .rsaPKCS1SHA256Digest, existingSignaturePolicy: .rejectExistingSignature,
+            policy: .singleImageCryptographicExperiment,
+            metadata: MachOSigningMetadata(entitlements: claims, emitDEREntitlements: true))
+        let result = try engine.sign(request)
+        XCTAssertEqual(identity.calls, 1)
+        XCTAssertEqual(try engine.verify(artifact: result.artifact, request: request, certificate: identity.certificate),
+                       result.codeDirectoryDigest)
+        let image = try ReadOnlyMachOParser().parse(result.artifact)
+        guard case .thin(let slice) = image.container else { return XCTFail("Expected thin image") }
+        let embedded = try XCTUnwrap(slice.embeddedSignature)
+        let entry = try XCTUnwrap(embedded.superBlob.entries.first { $0.slot == .derEntitlements })
+        let directory = try XCTUnwrap(embedded.superBlob.entries.first { $0.slot == .codeDirectory }?.codeDirectory)
+        let slot = try XCTUnwrap(directory.specialSlots.first { $0.kind == .derEntitlements })
+        XCTAssertEqual(slot.hash, try digest.digest(result.artifact.subdata(in: entry.fileRange), algorithm: .sha256).bytes)
+        var modifiedDER = result.artifact
+        modifiedDER[entry.fileRange.upperBound - 1] = 0
+        XCTAssertThrowsError(try engine.verify(artifact: modifiedDER, request: request, certificate: identity.certificate))
+        var modifiedCode = result.artifact
+        modifiedCode[512] ^= 1
+        XCTAssertThrowsError(try engine.verify(artifact: modifiedCode, request: request, certificate: identity.certificate))
+        let other = try EphemeralMachOIdentity()
+        XCTAssertThrowsError(try engine.verify(artifact: result.artifact, request: request, certificate: other.certificate))
+        XCTAssertEqual(identity.calls, 1)
+    }
+
     func testEphemeralIdentitySignsOnceAndVerifiesCompleteArtifact() throws {
         let identity = try EphemeralMachOIdentity()
         let engine = SignMachOUseCase(identities: identity, digest: CryptoKitMessageDigest(),

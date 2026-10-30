@@ -47,6 +47,80 @@ final class DEREntitlementsDecodingTests: XCTestCase {
         try decoder.decode(data)
     }
 
+    func testFramingLimitsAndMalformedLengths() throws {
+        let maximum = DEREntitlementsBlob.maximumFramedLength
+        XCTAssertThrowsError(try decoder.decode(blob: Data(repeating: 0, count: maximum + 1))) {
+            XCTAssertEqual($0 as? EntitlementsError, .payloadTooLarge)
+        }
+        let invalid: [[UInt8]] = [[], [0xfa, 0xde, 0x71],
+                              [0xfa, 0xde, 0x71, 0x72, 0, 0, 0, 10, 0x31],
+                              [0xfa, 0xde, 0x71, 0x72, 0, 0, 0, 8, 0]]
+        for bytes in invalid {
+            XCTAssertThrowsError(try decoder.decode(blob: Data(bytes))) {
+                XCTAssertEqual($0 as? EntitlementsError, .invalidBlobFraming)
+            }
+        }
+        let hugeDeclared = Data([0xfa, 0xde, 0x71, 0x72, 0xff, 0xff, 0xff, 0xff])
+        XCTAssertThrowsError(try decoder.decode(blob: hugeDeclared)) {
+            XCTAssertEqual($0 as? EntitlementsError, .payloadTooLarge)
+        }
+        XCTAssertThrowsError(try decoder.decode(Data([0x31, 0x84, 0xff, 0xff, 0xff, 0xff])))
+    }
+
+    func testSharedValueNodeBudgetAndDepth() throws {
+        let limits = ProvisioningProfileParsingLimits(maximumNestingDepth: 2, maximumValueNodeCount: 3,
+            maximumStringByteCount: 100, maximumDataByteCount: 100, maximumCollectionCount: 4)
+        let bounded = DEREntitlementsDecoder(limits: limits)
+        let valid = try CodeSigningEntitlements(values: ["k": .dictionary(["a": .array([.boolean(true)])])])
+        let bytes = try DEREntitlementsSerializer().serialize(valid)
+        XCTAssertEqual(try bounded.decode(bytes), valid)
+        let xml = try EntitlementsCanonicalSerializer().serialize(valid)
+        XCTAssertEqual(try EntitlementsPlistParser.parse(xml, limits: limits), valid)
+        let above = try CodeSigningEntitlements(values: ["k": .dictionary(["a": .array([.boolean(true), .boolean(false)])])])
+        XCTAssertThrowsError(try bounded.decode(DEREntitlementsSerializer().serialize(above))) {
+            XCTAssertEqual($0 as? EntitlementsError, .resourceLimitExceeded)
+        }
+        XCTAssertThrowsError(try EntitlementsPlistParser.parse(EntitlementsCanonicalSerializer().serialize(above), limits: limits)) {
+            XCTAssertEqual($0 as? EntitlementsError, .resourceLimitExceeded)
+        }
+        let tooDeep = try CodeSigningEntitlements(values: ["k": .array([.array([.array([.boolean(true)])])])])
+        XCTAssertThrowsError(try bounded.decode(DEREntitlementsSerializer().serialize(tooDeep)))
+        let tooMany = try CodeSigningEntitlements(values: ["k": .array([.integer(1), .integer(2), .integer(3), .integer(4), .integer(5)])])
+        XCTAssertThrowsError(try bounded.decode(DEREntitlementsSerializer().serialize(tooMany)))
+    }
+
+    func testDefaultNodeBoundaryAcrossModelXMLAndDER() throws {
+        let leaf = ProvisioningProfileValue.boolean(true)
+        var groups = (0..<4).map { _ in ProvisioningProfileValue.array(Array(repeating: leaf, count: 9_999)) }
+        groups.append(.array(Array(repeating: leaf, count: 9_998)))
+        // One outer array + five inner arrays + 49,994 leaves = 50,000.
+        let claims = try CodeSigningEntitlements(values: ["k": .array(groups)])
+        let der = try DEREntitlementsSerializer().serialize(claims)
+        XCTAssertEqual(try decoder.decode(der), claims)
+        let xml = try EntitlementsCanonicalSerializer().serialize(claims)
+        XCTAssertEqual(try EntitlementsPlistParser.parse(xml), claims)
+        groups[4] = .array(Array(repeating: leaf, count: 9_999))
+        XCTAssertThrowsError(try CodeSigningEntitlements(values: ["k": .array(groups)])) {
+            XCTAssertEqual($0 as? EntitlementsError, .resourceLimitExceeded)
+        }
+    }
+
+    func testDictionaryCollectionBoundary() throws {
+        let limits = ProvisioningProfileParsingLimits(maximumNestingDepth: 4, maximumValueNodeCount: 100,
+            maximumStringByteCount: 100, maximumDataByteCount: 100, maximumCollectionCount: 4)
+        let allowed = try CodeSigningEntitlements(values: ["k": .dictionary([
+            "a": .integer(1), "b": .integer(2), "c": .integer(3), "d": .integer(4)
+        ])])
+        let bounded = DEREntitlementsDecoder(limits: limits)
+        XCTAssertEqual(try bounded.decode(DEREntitlementsSerializer().serialize(allowed)), allowed)
+        XCTAssertEqual(try EntitlementsPlistParser.parse(EntitlementsCanonicalSerializer().serialize(allowed), limits: limits), allowed)
+        let tooMany = try CodeSigningEntitlements(values: ["k": .dictionary([
+            "a": .integer(1), "b": .integer(2), "c": .integer(3), "d": .integer(4), "e": .integer(5)
+        ])])
+        XCTAssertThrowsError(try bounded.decode(DEREntitlementsSerializer().serialize(tooMany)))
+        XCTAssertThrowsError(try EntitlementsPlistParser.parse(EntitlementsCanonicalSerializer().serialize(tooMany), limits: limits))
+    }
+
     // MARK: - Round trips through the production encoder
 
     /// An empty claim set is representable: the DER SET is empty, and the
@@ -117,7 +191,7 @@ final class DEREntitlementsDecodingTests: XCTestCase {
         var wrongMagic = blob.bytes
         wrongMagic[0] = blob.bytes[0] &+ 1
         XCTAssertThrowsError(try decoder.decode(blob: wrongMagic)) { error in
-            XCTAssertEqual(error as? EntitlementsError, .invalidBlobFraming)
+            XCTAssertEqual(error as? EntitlementsError, .invalidDERMagic)
         }
     }
 

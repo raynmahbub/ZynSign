@@ -37,6 +37,7 @@ struct DEREntitlementsDecoder {
     /// `DEREntitlementsBlob`, without its 8-byte framing).
     func decode(_ payload: Data) throws -> CodeSigningEntitlements {
         guard !payload.isEmpty else { throw EntitlementsError.emptyPayload }
+        guard payload.count <= DEREntitlementsBlob.maximumPayloadLength else { throw EntitlementsError.payloadTooLarge }
         var reader = DEREReader(bytes: [UInt8](payload), limits: limits)
         let set = try reader.readElement(expected: DERETag.set)
         var values: [String: ProvisioningProfileValue] = [:]
@@ -49,10 +50,6 @@ struct DEREntitlementsDecoder {
             let pair = try pairReader.readElement(expected: DERETag.sequence)
             var fieldReader = DEREReader(bytes: pair.content, limits: limits)
             let key = try fieldReader.readString(limits: limits)
-            nodeCount += 1
-            guard nodeCount <= limits.maximumValueNodeCount else {
-                throw EntitlementsError.resourceLimitExceeded
-            }
             let value = try DEREntitlementsDecoder.readValue(
                 from: &fieldReader,
                 depth: 0,
@@ -140,10 +137,6 @@ struct DEREntitlementsDecoder {
                 let pair = try pairReader.readElement(expected: DERETag.sequence)
                 var fieldReader = DEREReader(bytes: pair.content, limits: limits)
                 let key = try fieldReader.readString(limits: limits)
-                nodeCount += 1
-                guard nodeCount <= limits.maximumValueNodeCount else {
-                    throw EntitlementsError.resourceLimitExceeded
-                }
                 let value = try DEREntitlementsDecoder.readValue(
                     from: &fieldReader,
                     depth: depth + 1,
