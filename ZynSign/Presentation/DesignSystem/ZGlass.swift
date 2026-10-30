@@ -45,7 +45,7 @@ enum ZGlass {
             .background(ZColors.cardBackground, in: shape)
             .overlay {
                 shape.strokeBorder(
-                    glass ? Color.primary.opacity(0.08) : ZColors.hairline,
+                    glass ? Color.primary.opacity(0.08) : ZColors.subtleBorder,
                     lineWidth: 0.5
                 )
             }
@@ -79,13 +79,13 @@ struct ZGlassBarModifier: ViewModifier {
             content
                 .background(.thinMaterial, in: shape)
                 .overlay {
-                    shape.strokeBorder(ZColors.hairline, lineWidth: 0.5)
+                    shape.strokeBorder(ZColors.subtleBorder, lineWidth: 0.5)
                 }
         } else {
             content
                 .background(ZColors.secondaryGroupedBackground, in: shape)
                 .overlay {
-                    shape.strokeBorder(ZColors.hairline, lineWidth: 0.5)
+                    shape.strokeBorder(ZColors.subtleBorder, lineWidth: 0.5)
                 }
         }
     }
@@ -126,7 +126,7 @@ extension View {
 
     /// Surface fill without inner padding, for rows that manage their own insets.
     func zGlassSurface(
-        cornerRadius: CGFloat = ZRadius.md,
+        cornerRadius: CGFloat = ZRadius.card,
         elevation: Bool = false
     ) -> some View {
         modifier(ZGlassCardModifier(padding: 0, cornerRadius: cornerRadius, elevation: elevation))

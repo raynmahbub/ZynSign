@@ -84,7 +84,7 @@ struct SettingsView: View {
         Section {
             HStack(spacing: ZSpacing.md) {
                 ZynSignMark(size: ZSpacing.xxxl, animated: false)
-                VStack(alignment: .leading, spacing: ZSpacing.xxxs) {
+                VStack(alignment: .leading, spacing: ZSpacing.xxs) {
                     HStack(spacing: ZSpacing.xs) {
                         Text("ZynSign")
                             .font(.headline)
