@@ -35,14 +35,29 @@ struct DEREntitlementsDecoder {
 
     /// Decodes one DER entitlement payload (the bytes inside
     /// `DEREntitlementsBlob`, without its 8-byte framing).
+    ///
+    /// Total payload size, declared lengths and collection counts are validated
+    /// before any value allocation. Integer overflow on length fields is
+    /// treated as malformed, and trailing bytes after the outer SET are
+    /// refused. Node depth and count share the single canonical policy with
+    /// the model validation so XML, DER and the canonical model consume the
+    /// same budget.
     func decode(_ payload: Data) throws -> CodeSigningEntitlements {
         guard !payload.isEmpty else { throw EntitlementsError.emptyPayload }
         guard payload.count <= DEREntitlementsBlob.maximumPayloadLength else { throw EntitlementsError.payloadTooLarge }
+        // Validate outer framing before allocating the working buffer:
+        // a payload that claims a length past the total buffer is truncated,
+        // and a payload whose declared outer length would overflow the budget
+        // is refused before the [UInt8] copy. The copy size was already proved
+        // to be within 1 MiB.
+        guard payload.count >= 2 else { throw EntitlementsError.malformedDEREncoding }
         var reader = DEREReader(bytes: [UInt8](payload), limits: limits)
         let set = try reader.readElement(expected: DERETag.set)
         var values: [String: ProvisioningProfileValue] = [:]
         var nodeCount = 0
         var pairReader = DEREReader(bytes: set.content, limits: limits)
+        // Collection count for the outer SET is enforced before each pair is
+        // materialized, bounding the number of allocations from untrusted input.
         while pairReader.hasMore {
             guard values.count < limits.maximumCollectionCount else {
                 throw EntitlementsError.resourceLimitExceeded
@@ -50,6 +65,12 @@ struct DEREntitlementsDecoder {
             let pair = try pairReader.readElement(expected: DERETag.sequence)
             var fieldReader = DEREReader(bytes: pair.content, limits: limits)
             let key = try fieldReader.readString(limits: limits)
+            // Keys are validated by the shared canonical string policy; a
+            // DER string that would fail the XML check is rejected here rather
+            // than diverging from the XML representation.
+            guard EntitlementCanonicalValidator.isValidEntitlementString(key) else {
+                throw EntitlementsError.invalidXMLString
+            }
             let value = try DEREntitlementsDecoder.readValue(
                 from: &fieldReader,
                 depth: 0,
@@ -61,7 +82,13 @@ struct DEREntitlementsDecoder {
             values[key] = value
         }
         guard !reader.hasMore else { throw EntitlementsError.malformedDEREncoding }
-        return try CodeSigningEntitlements(values: values)
+        // The constructed values are validated through the same canonical
+        // validator via `CodeSigningEntitlements` so the node budget counted
+        // during decoding matches the budget counted during model validation;
+        // the model construction also re-enforces the shared string and
+        // collection policy, closing any gap between reader limits and model
+        // limits.
+        return try CodeSigningEntitlements(values: values, limits: limits)
     }
 
     /// Decodes a complete framed blob (`0xFADE7172` + length + payload).
@@ -91,6 +118,13 @@ struct DEREntitlementsDecoder {
             let bytes = try element.contentBytes(limit: limits.maximumStringByteCount)
             guard let text = String(bytes: bytes, encoding: .utf8) else {
                 throw EntitlementsError.malformedDEREncoding
+            }
+            // Enforce the shared string policy: a DER UTF8String that is not
+            // valid XML character data is rejected so XML and DER stay
+            // semantically identical. A lone surrogate or FFFE is not a
+            // representable entitlement string in the canonical model.
+            guard EntitlementCanonicalValidator.isValidEntitlementString(text) else {
+                throw EntitlementsError.invalidXMLString
             }
             return .string(text)
 
@@ -233,12 +267,16 @@ private struct DEREReader {
         return element
     }
 
-    /// Reads a UTF8String and returns its text.
+    /// Reads a UTF8String and returns its text, enforcing the shared string
+    /// policy so DER keys also respect the canonical XML character rule.
     mutating func readString(limits: ProvisioningProfileParsingLimits) throws -> String {
         let element = try readElement(expected: DERETag.utf8String)
         let content = try element.contentBytes(limit: limits.maximumStringByteCount)
         guard let text = String(bytes: content, encoding: .utf8) else {
             throw EntitlementsError.malformedDEREncoding
+        }
+        guard EntitlementCanonicalValidator.isValidEntitlementString(text) else {
+            throw EntitlementsError.invalidXMLString
         }
         return text
     }
@@ -249,7 +287,10 @@ private struct DEREReader {
         return bytes[cursor]
     }
 
-    /// Definite, minimally encoded lengths only.
+    /// Definite, minimally encoded lengths only, with overflow-checked
+    /// arithmetic. Indefinite, reserved, non-minimal and overflowed lengths
+    /// are refused before any content allocation. Truncated input (declared
+    /// past the buffer) is also refused here, not after a partial allocation.
     private mutating func readLength() throws -> Int {
         let first = try readByte()
         if first < 0x80 { return Int(first) }
@@ -262,13 +303,21 @@ private struct DEREReader {
             let byte = try readByte()
             // A leading zero in the long form is a non-minimal encoding.
             if index == 0, byte == 0x00 { throw EntitlementsError.malformedDEREncoding }
-            length = (length << 8) | Int(byte)
+            let (shifted, overflowShift) = length.multipliedReportingOverflow(by: 256)
+            guard !overflowShift else { throw EntitlementsError.malformedDEREncoding }
+            let (added, overflowAdd) = shifted.addingReportingOverflow(Int(byte))
+            guard !overflowAdd else { throw EntitlementsError.malformedDEREncoding }
+            length = added
         }
         // Anything that would have fitted the short form must use it.
         guard length >= 0x80 else { throw EntitlementsError.malformedDEREncoding }
         guard length <= EntitlementsBlob.maximumPayloadByteCount else {
             throw EntitlementsError.resourceLimitExceeded
         }
+        // Length is also checked against the remaining buffer so a truncated
+        // element (declared past the slice) is refused without allocating the
+        // missing bytes.
+        guard length <= bytes.count - cursor else { throw EntitlementsError.malformedDEREncoding }
         return length
     }
 }

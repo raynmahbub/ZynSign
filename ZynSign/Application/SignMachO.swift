@@ -227,10 +227,26 @@ struct SignMachOUseCase {
                     throw MachOSigningError.entitlements(.missingDEREntitlements)
                 }
                 let bytes = artifact.subdata(in: entry.fileRange)
+                // Typed diagnostics for every DER failure mode, redacted: the
+                // error names the stage (invalid magic vs framing vs malformed
+                // vs unsupported vs mismatch) and never carries value bytes.
                 do {
+                    // Framing (magic/length) is validated inside the blob init;
+                    // content grammar, bounds and semantic equivalence are
+                    // validated by the decoder and the re-encode check.
                     let decoded = try DEREntitlementsDecoder().decode(blob: bytes)
+                    // Re-encode must reproduce the same canonical bytes; a
+                    // non-canonical SET ordering is malformed for verification.
                     guard try DEREntitlementsSerializer().blob(decoded).bytes == bytes else {
                         throw EntitlementsError.malformedDEREncoding
+                    }
+                    // Cross-check decoded claims against the expected model so
+                    // an embedded blob that decodes to a different claim set
+                    // is reported as a semantic mismatch, not as a generic
+                    // verification failure.
+                    let expectedClaims = try DEREntitlementsDecoder().decode(blob: expectedDER.bytes)
+                    guard decoded.hasSameSerializedClaims(as: expectedClaims) else {
+                        throw EntitlementsError.derXMLSemanticMismatch
                     }
                 } catch let error as EntitlementsError {
                     throw MachOSigningError.entitlements(error)
@@ -266,10 +282,30 @@ struct SignMachOUseCase {
             try cms.verify(signatureBytes, codeDirectory: directoryBytes, digest: digest, verifier: verifier)
             return try sha256(directoryBytes)
         } catch let error as MachOParsingError where error.boundary == .derEntitlements && request.metadata?.emitDEREntitlements == true {
+            // Mach-O parsing of the DER blob failed before DER decoding could
+            // run. Distinguish the two framing-level failures for diagnostics:
+            // an unrecognized magic is `invalidDERMagic`, any other framing
+            // violation (truncated, length mismatch, missing) is `invalidBlobFraming`.
+            // Both are redacted — they carry no payload bytes.
             if error.reason == .malformedSignatureBlob { throw MachOSigningError.entitlements(.invalidDERMagic) }
             throw MachOSigningError.entitlements(.invalidBlobFraming)
         } catch let error as MachOSigningError {
+            // Preserve the typed DER diagnostics (missing blob, magic,
+            // framing, unsupported value, malformed payload, semantic
+            // mismatch, digest mismatch, unsupported version) — they are
+            // already redacted and actionable. Everything else is a generic
+            // post-sign failure with no value payload.
             if case .entitlements = error, request.metadata?.emitDEREntitlements == true { throw error }
+            if case .requirements = error { throw error }
+            throw MachOSigningError.postSignVerification
+        } catch let error as EntitlementsError {
+            // Direct entitlement-layer failures during prepare (e.g.,
+            // invalidXMLString, notRepresentable, derXMLSemanticMismatch) are
+            // already typed and redacted; surface them as entitlements errors
+            // when DER was requested so the caller gets an actionable stage.
+            if request.metadata?.emitDEREntitlements == true {
+                throw MachOSigningError.entitlements(error)
+            }
             throw MachOSigningError.postSignVerification
         } catch { throw MachOSigningError.postSignVerification }
     }

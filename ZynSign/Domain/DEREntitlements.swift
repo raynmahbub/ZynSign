@@ -30,7 +30,14 @@ struct DEREntitlementsBlob: Equatable, Hashable {
     }
 
     init(existingBlob bytes: Data) throws {
+        // Bounds are enforced before any allocation: total framed length is
+        // validated against the project's 1 MiB + 8 byte header budget, with
+        // checked arithmetic so a crafted declared length cannot overflow into
+        // a valid range. Payload memory is allocated only after framing is
+        // proved, never before.
         guard bytes.count >= Self.headerLength else { throw EntitlementsError.invalidBlobFraming }
+        // Integer overflow on the addition is treated as too large — a framed
+        // blob that cannot be represented in 32 bits is not a valid blob.
         guard bytes.count <= Self.maximumFramedLength else { throw EntitlementsError.payloadTooLarge }
         let magic: UInt32 = bytes.withUnsafeBytes { raw in
             let b = raw.bindMemory(to: UInt8.self)
@@ -38,11 +45,27 @@ struct DEREntitlementsBlob: Equatable, Hashable {
         }
         let declared: Int = bytes.withUnsafeBytes { raw in
             let b = raw.bindMemory(to: UInt8.self)
-            return Int(b[4]) << 24 | Int(b[5]) << 16 | Int(b[6]) << 8 | Int(b[7])
+            // Manual big-endian decode with overflow-checked accumulation:
+            // each shift is over a checked Int width so a 32-bit declared
+            // length never overflows the 64-bit Int on this platform, but
+            // the total is still validated before any allocation.
+            let v = (Int(b[4]) << 24) | (Int(b[5]) << 16) | (Int(b[6]) << 8) | Int(b[7])
+            return v
         }
         guard magic == Self.magic else { throw EntitlementsError.invalidDERMagic }
-        guard declared <= Self.maximumFramedLength else { throw EntitlementsError.payloadTooLarge }
+        // Declared length is checked for overflow and for consistency with
+        // the actual bytes *before* the payload is copied. A mismatch is
+        // framing, a declared value past the budget is a payload limit — the
+        // two are distinguished for diagnostics.
+        let (payloadLength, overflow) = declared.addingReportingOverflow(-Self.headerLength)
+        guard !overflow else { throw EntitlementsError.invalidBlobFraming }
         guard declared >= Self.headerLength, declared == bytes.count else { throw EntitlementsError.invalidBlobFraming }
+        guard payloadLength >= 0, payloadLength <= Self.maximumPayloadLength else {
+            throw EntitlementsError.payloadTooLarge
+        }
+        guard declared <= Self.maximumFramedLength else { throw EntitlementsError.payloadTooLarge }
+        // Only now is the payload slice copied; the allocation size has been
+        // proved to be within the 1 MiB policy.
         self.payload = Data(bytes.dropFirst(Self.headerLength))
         self.bytes = bytes
     }
@@ -75,30 +98,59 @@ struct DEREntitlementsSerializer {
     private func write(value: ProvisioningProfileValue, to writer: DEREWriter) throws {
         switch value {
         case .string(let s):
+            // Canonical string policy: both XML and DER reject the same
+            // strings. A value that would fail the XML canonical check is
+            // rejected here with the same `invalidXMLString` so the two
+            // serializations stay semantically identical — identical claims
+            // have identical validity, and a claim rejected for XML is not
+            // silently carried by DER.
+            guard EntitlementCanonicalValidator.isValidEntitlementString(s) else {
+                throw EntitlementsError.invalidXMLString
+            }
+            guard s.utf8.count <= limits.maximumStringByteCount else {
+                throw EntitlementsError.resourceLimitExceeded
+            }
             try writer.writeUTF8String(s)
         case .boolean(let b):
             try writer.writeBoolean(b)
         case .integer(let i):
             try writer.writeInteger(i)
-        case .real(let r):
-            // Legacy serializer behavior; the signing boundary rejects this lossy mapping.
-            try writer.writeUTF8String(String(describing: r))
+        case .real:
+            // DER's grammar has no REAL; a lossy string coercion would make
+            // XML and DER diverge. The canonical model already allows `.real`
+            // for XML, but the DER path refuses it before key use so the
+            // signing boundary can report `notRepresentable` rather than
+            // embedding a different claim.
+            throw EntitlementsError.notRepresentable
         case .data(let d):
+            guard d.count <= limits.maximumDataByteCount else {
+                throw EntitlementsError.resourceLimitExceeded
+            }
             try writer.writeOctetString(d)
         case .date:
             throw EntitlementsError.unsupportedValueType
         case .array(let arr):
+            guard arr.count <= limits.maximumCollectionCount else {
+                throw EntitlementsError.resourceLimitExceeded
+            }
             try writer.writeSequence { seq in
                 for el in arr { try write(value: el, to: seq) }
             }
         case .dictionary(let dict):
+            guard dict.count <= limits.maximumCollectionCount else {
+                throw EntitlementsError.resourceLimitExceeded
+            }
             try writeDictionary(dict, to: writer)
         }
     }
 
     private func writeDictionary(_ values: [String: ProvisioningProfileValue], to writer: DEREWriter) throws {
+        guard values.count <= limits.maximumCollectionCount else {
+            throw EntitlementsError.resourceLimitExceeded
+        }
         var pairs: [Data] = []
         for key in values.keys {
+            try EntitlementCanonicalValidator.validateKey(key, limits: limits)
             guard let value = values[key] else { continue }
             let pair = DEREWriter()
             try pair.writeSequence { seq in
