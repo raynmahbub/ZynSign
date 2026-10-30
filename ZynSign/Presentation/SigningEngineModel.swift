@@ -186,14 +186,24 @@ final class SigningEngineModel: ObservableObject {
         entitlements: CodeSigningEntitlements,
         emitDEREntitlements: Bool,
         sideload: SideloadSigningOptions = .none,
-        replacesExistingSignatures: Bool = false
+        replacesExistingSignatures: Bool = false,
+        allowDeferredDeviceCoverage: Bool = false,
+        deviceContext: ProvisioningDeviceContext = .unavailable
     ) -> SigningEngineRequest {
         // The sideloading edits travel with the ordinary options, so the run
         // the engine performs is the same run whether or not anything is
         // rewritten — there is no second pipeline.
-        var options = SignApplicationOptions(emitDEREntitlements: emitDEREntitlements,
-                                             sideload: sideload,
-                                             replacesExistingSignatures: replacesExistingSignatures)
+        let teamID = ProfileEntitlementDerivation.displaySummary(fromProvisioningProfile: profile)?
+            .teamIdentifier
+            .flatMap { try? CodeDirectoryTeamIdentifier(rawValue: $0) }
+        let options = SignApplicationOptions(
+            teamIdentifier: teamID,
+            deviceContext: deviceContext,
+            emitDEREntitlements: emitDEREntitlements,
+            sideload: sideload,
+            replacesExistingSignatures: replacesExistingSignatures,
+            allowDeferredDeviceCoverage: allowDeferredDeviceCoverage
+        )
         return SigningEngineRequest(
             sourceURL: sourceURL,
             profile: profile,

@@ -28,6 +28,20 @@ enum VersionHistoryCatalog {
     /// Every entry, newest first.
     static let entries: [VersionHistoryEntry] = [
         VersionHistoryEntry(
+            tag: "v0.1.0-alpha.3",
+            marketingVersion: "0.1.0",
+            buildNumber: 9,
+            releasedAt: DateComponents(year: 2026, month: 10, day: 30),
+            headline: "Alpha 3 switches on Entitlements Studio and the Developer Identity Center alongside real-device signing, native Apple ID SRP-6a provisioning, and community feed resilience.",
+            highlights: [
+                "Inspect embedded XML and DER entitlements against provisioning profiles in Entitlements Studio, and manage team workspaces, expiration forecasts, and certificate-profile graphs in the Developer Identity Center.",
+                "Wildcard entitlements materialize concrete bundle-scoped application-identifier and keychain-access-groups claims automatically across Smart Sign, presets, and the signing queue.",
+                "Universal Mach-O thinning to arm64, pre-signed binary signature stripping, loose dylib enumeration, and CodeDirectory teamID propagation keep re-signed packages aligned with iOS installd and amfid.",
+                "Native 2048-bit SRP-6a GrandSlam authentication, trusted-device 2FA verification, QH65B2 developer portal requests, and automatic App Group assignment power Free and Paid Apple ID provisioning.",
+                "Community repository feed normalization, Content-Length and ZIP header transfer validation, and canonical UUID HostID pairing record support harden real-world imports and device pairing.",
+            ]
+        ),
+        VersionHistoryEntry(
             tag: "v0.1.0-alpha.2",
             marketingVersion: "0.1.0",
             buildNumber: 8,

@@ -8,14 +8,25 @@ import Security
 /// client for both Free Personal Teams and Paid Developer Program memberships.
 struct URLSessionAppleDeveloperPortalClient: AppleDeveloperPortalClient {
 
+    typealias TransportLoader = @Sendable (URLRequest) async throws -> (Data, URLResponse)
+
     private static let maximumResponseBytes = 4 * 1_024 * 1_024
     private static let gsaAuthEndpoint = "https://gsa.apple.com/grandslam/GsService2"
+    private static let gsaTrustedDeviceVerifyURL = "https://gsa.apple.com/auth/verify/trusteddevice"
+    private static let gsaValidateCodeURL = "https://gsa.apple.com/grandslam/GsService2/validate"
+    private static let xcodeAuthAppName = "com.apple.gs.xcode.auth"
+
+    private let loadData: TransportLoader
+
+    init(loadData: @escaping TransportLoader = { try await URLSession.shared.data(for: $0) }) {
+        self.loadData = loadData
+    }
 
     func fetchAnisetteHeaders(from serverURL: URL) async throws -> AnisetteHeaderBundle {
         var req = URLRequest(url: serverURL)
         req.timeoutInterval = 15
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: req)
+        let (data, response) = try await loadData(req)
         guard let http = response as? HTTPURLResponse,
               (200...299).contains(http.statusCode),
               data.count <= Self.maximumResponseBytes else {
@@ -31,57 +42,301 @@ struct URLSessionAppleDeveloperPortalClient: AppleDeveloperPortalClient {
         anisette: AnisetteHeaderBundle,
         anisetteURL: URL
     ) async throws -> ApplePortalSessionToken {
+        let cleanCode = twoFactorCode?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return try await performGSASignIn(
+            appleID: appleID,
+            password: password,
+            twoFactorCode: cleanCode.isEmpty ? nil : cleanCode,
+            anisette: anisette,
+            anisetteURL: anisetteURL,
+            allowTwoFactorRetry: true
+        )
+    }
+
+    private func performGSASignIn(
+        appleID: String,
+        password: String,
+        twoFactorCode: String?,
+        anisette: AnisetteHeaderBundle,
+        anisetteURL: URL,
+        allowTwoFactorRetry: Bool
+    ) async throws -> ApplePortalSessionToken {
+        let cpd = buildClientProvisioningDictionary(anisette: anisette)
+        let handshake = AppleGSASRP6a.startAuthentication()
+
+        // Step 1: SRP-6a `init`
+        let initResponse = try await sendGSARequest(
+            parameters: [
+                "A2k": handshake.publicEphemeralA,
+                "ps": ["s2k", "s2k_fo"],
+                "cpd": cpd,
+                "u": appleID,
+                "o": "init"
+            ],
+            anisette: anisette
+        )
+        try throwIfGSAStatusFailed(initResponse)
+
+        guard let contextCookie = initResponse["c"] as? String,
+              let salt = initResponse["s"] as? Data,
+              let iterations = (initResponse["i"] as? Int) ?? (initResponse["i"] as? NSNumber)?.intValue,
+              let serverB = initResponse["B"] as? Data else {
+            throw AppleProvisioningDomainError.portalRejection(
+                code: -1,
+                message: "Apple GSA server did not return a complete SRP-6a challenge."
+            )
+        }
+        let sp = (initResponse["sp"] as? String) ?? "s2k"
+        let srpProof = try AppleGSASRP6a.processChallenge(
+            handshake: handshake,
+            username: appleID,
+            password: password,
+            protocolVariant: sp,
+            salt: salt,
+            iterations: iterations,
+            serverPublicB: serverB
+        )
+
+        // Step 2: SRP-6a `complete`
+        let completeResponse = try await sendGSARequest(
+            parameters: [
+                "c": contextCookie,
+                "M1": srpProof.clientProofM1,
+                "cpd": cpd,
+                "u": appleID,
+                "o": "complete"
+            ],
+            anisette: anisette
+        )
+        try throwIfGSAStatusFailed(completeResponse)
+
+        guard let spd = completeResponse["spd"] as? Data else {
+            throw AppleProvisioningDomainError.portalRejection(
+                code: -2,
+                message: "Apple GSA server did not return an encrypted session payload."
+            )
+        }
+        let decryptedSPD = try AppleGSASRP6a.decryptSessionPayloadCBC(
+            spd: spd,
+            sessionKeyK: srpProof.sessionKeyK
+        )
+        guard let spdPlist = try? PropertyListSerialization.propertyList(
+            from: decryptedSPD, options: [], format: nil
+        ) as? [String: Any],
+              let adsid = spdPlist["adsid"] as? String,
+              let idmsToken = spdPlist["GsIdmsToken"] as? String,
+              !adsid.isEmpty, !idmsToken.isEmpty else {
+            throw AppleProvisioningDomainError.portalRejection(
+                code: -3,
+                message: "Decrypted GSA session dictionary is missing identity tokens."
+            )
+        }
+
+        let statusDict = (completeResponse["Status"] as? [String: Any]) ?? [:]
+        let authAction = statusDict["au"] as? String
+        if authAction == "trustedDeviceSecondaryAuth" || authAction == "secondaryAuth" {
+            guard let code = twoFactorCode, !code.isEmpty, allowTwoFactorRetry else {
+                await triggerTrustedDeviceVerificationPrompt(
+                    dsid: adsid,
+                    idmsToken: idmsToken,
+                    anisette: anisette
+                )
+                throw AppleProvisioningDomainError.twoFactorRequired(trustedPhoneMask: authAction)
+            }
+            try await validateTwoFactorCode(
+                code: code,
+                dsid: adsid,
+                idmsToken: idmsToken,
+                anisette: anisette
+            )
+            return try await performGSASignIn(
+                appleID: appleID,
+                password: password,
+                twoFactorCode: nil,
+                anisette: anisette,
+                anisetteURL: anisetteURL,
+                allowTwoFactorRetry: false
+            )
+        }
+
+        guard let sk = spdPlist["sk"] as? Data,
+              let tokenCookie = spdPlist["c"] as? Data else {
+            throw AppleProvisioningDomainError.portalRejection(
+                code: -4,
+                message: "GSA session response did not include apptoken session keys."
+            )
+        }
+
+        // Step 3: Exchange `GsIdmsToken` for `com.apple.gs.xcode.auth` GS token
+        let apps = [Self.xcodeAuthAppName]
+        let checksum = AppleGSASRP6a.computeAppTokensChecksum(sk: sk, adsid: adsid, apps: apps)
+        let appTokensResponse = try await sendGSARequest(
+            parameters: [
+                "u": adsid,
+                "app": apps,
+                "c": tokenCookie,
+                "t": idmsToken,
+                "checksum": checksum,
+                "cpd": cpd,
+                "o": "apptokens"
+            ],
+            anisette: anisette
+        )
+        try throwIfGSAStatusFailed(appTokensResponse)
+
+        guard let encryptedToken = appTokensResponse["et"] as? Data else {
+            throw AppleProvisioningDomainError.portalRejection(
+                code: -5,
+                message: "GSA apptokens response did not include an encrypted Xcode auth token."
+            )
+        }
+        let decryptedTokenData = try AppleGSASRP6a.decryptAppTokensGCM(encryptedToken: encryptedToken, sk: sk)
+        guard let tokenRoot = try? PropertyListSerialization.propertyList(
+            from: decryptedTokenData, options: [], format: nil
+        ) as? [String: Any],
+              let tokensByApp = tokenRoot["t"] as? [String: Any],
+              let xcodeTokenDict = tokensByApp[Self.xcodeAuthAppName] as? [String: Any],
+              let gsToken = xcodeTokenDict["token"] as? String,
+              !gsToken.isEmpty else {
+            throw AppleProvisioningDomainError.portalRejection(
+                code: -6,
+                message: "Could not extract Xcode GrandSlam token from GSA envelope."
+            )
+        }
+
+        return ApplePortalSessionToken(
+            appleIDEmail: appleID,
+            dsid: adsid,
+            myacinfoToken: gsToken,
+            anisetteServerURL: anisetteURL,
+            authenticatedAt: Date()
+        )
+    }
+
+    private func buildClientProvisioningDictionary(anisette: AnisetteHeaderBundle) -> [String: Any] {
+        var cpd: [String: Any] = [
+            "bootstrap": true,
+            "icscrec": true,
+            "loc": anisette.locale,
+            "pbe": false,
+            "prkgen": true,
+            "svct": "iCloud"
+        ]
+        for (key, value) in anisette.httpHeaders() {
+            cpd[key] = value
+        }
+        return cpd
+    }
+
+    private func sendGSARequest(
+        parameters: [String: Any],
+        anisette: AnisetteHeaderBundle
+    ) async throws -> [String: Any] {
         guard let url = URL(string: Self.gsaAuthEndpoint) else {
             throw AppleProvisioningDomainError.invalidEndpointURL
         }
-        let combinedSecret = password + (twoFactorCode ?? "")
-        let bodyDict: [String: Any] = [
+        let payload: [String: Any] = [
             "Header": ["Version": "1.0.1"],
-            "Request": [
-                "u": appleID,
-                "s2k": Data(combinedSecret.utf8),
-                "o": "init",
-                "ps": ["s2k", "s2k_fo"],
-                "cpd": anisette.httpHeaders()
-            ]
+            "Request": parameters
         ]
-        let bodyData = try PropertyListSerialization.data(fromPropertyList: bodyDict, format: .xml, options: 0)
+        let bodyData = try PropertyListSerialization.data(fromPropertyList: payload, format: .xml, options: 0)
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.timeoutInterval = 20
         req.httpBody = bodyData
         req.setValue("text/x-xml-plist", forHTTPHeaderField: "Content-Type")
-        req.setValue("Xcode", forHTTPHeaderField: "X-MMe-Client-Info")
-        for (k, v) in anisette.httpHeaders() {
-            req.setValue(v, forHTTPHeaderField: k)
+        req.setValue("text/x-xml-plist", forHTTPHeaderField: "Accept")
+        req.setValue("Xcode", forHTTPHeaderField: "User-Agent")
+        req.setValue("en-us", forHTTPHeaderField: "Accept-Language")
+        for (key, value) in anisette.httpHeaders() {
+            req.setValue(value, forHTTPHeaderField: key)
         }
-
-        let (respData, _) = try await URLSession.shared.data(for: req)
+        let (respData, _) = try await loadData(req)
         guard respData.count <= Self.maximumResponseBytes,
-              let plist = try? PropertyListSerialization.propertyList(from: respData, options: [], format: nil) as? [String: Any] else {
-            throw AppleProvisioningDomainError.portalRejection(code: -1, message: "Unreadable authentication response.")
+              let plist = try? PropertyListSerialization.propertyList(
+                from: respData, options: [], format: nil
+              ) as? [String: Any] else {
+            throw AppleProvisioningDomainError.portalRejection(
+                code: -1,
+                message: "Unreadable authentication response from Apple GSA."
+            )
         }
-        let responseSection = (plist["Response"] as? [String: Any]) ?? plist
+        return (plist["Response"] as? [String: Any]) ?? plist
+    }
+
+    private func throwIfGSAStatusFailed(_ responseSection: [String: Any]) throws {
         let statusSection = (responseSection["Status"] as? [String: Any]) ?? [:]
-        if let ec = statusSection["ec"] as? Int, ec != 0 {
+        if let ec = (statusSection["ec"] as? Int) ?? (statusSection["ec"] as? NSNumber)?.intValue,
+           ec != 0 {
             let em = (statusSection["em"] as? String) ?? "Authentication refused."
             if ec == -22406 || em.localizedCaseInsensitiveContains("verification") {
                 throw AppleProvisioningDomainError.twoFactorRequired(trustedPhoneMask: statusSection["au"] as? String)
             }
             throw AppleProvisioningDomainError.portalRejection(code: ec, message: em)
         }
-        let dsid = (responseSection["adsid"] as? String) ?? (responseSection["dsid"] as? String) ?? ""
-        let token = (responseSection["myacinfo"] as? String) ?? (responseSection["GsIdmsToken"] as? String) ?? ""
-        guard !dsid.isEmpty, !token.isEmpty else {
-            throw AppleProvisioningDomainError.twoFactorRequired(trustedPhoneMask: nil)
+    }
+
+    private func triggerTrustedDeviceVerificationPrompt(
+        dsid: String,
+        idmsToken: String,
+        anisette: AnisetteHeaderBundle
+    ) async {
+        guard let url = URL(string: Self.gsaTrustedDeviceVerifyURL) else { return }
+        let encodedIdentity = Data("\(dsid):\(idmsToken)".utf8).base64EncodedString()
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.timeoutInterval = 15
+        applyTwoFactorHeaders(&req, encodedIdentityToken: encodedIdentity, anisette: anisette)
+        _ = try? await loadData(req)
+    }
+
+    private func validateTwoFactorCode(
+        code: String,
+        dsid: String,
+        idmsToken: String,
+        anisette: AnisetteHeaderBundle
+    ) async throws {
+        guard let url = URL(string: Self.gsaValidateCodeURL) else {
+            throw AppleProvisioningDomainError.invalidEndpointURL
         }
-        return ApplePortalSessionToken(
-            appleIDEmail: appleID,
-            dsid: dsid,
-            myacinfoToken: token,
-            anisetteServerURL: anisetteURL,
-            authenticatedAt: Date()
-        )
+        let encodedIdentity = Data("\(dsid):\(idmsToken)".utf8).base64EncodedString()
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.timeoutInterval = 20
+        applyTwoFactorHeaders(&req, encodedIdentityToken: encodedIdentity, anisette: anisette)
+        req.setValue(code, forHTTPHeaderField: "security-code")
+        let (data, _) = try await loadData(req)
+        guard data.count <= Self.maximumResponseBytes,
+              let plist = try? PropertyListSerialization.propertyList(
+                from: data, options: [], format: nil
+              ) as? [String: Any] else {
+            throw AppleProvisioningDomainError.portalRejection(
+                code: -21669,
+                message: "Could not verify the two-factor security code."
+            )
+        }
+        let ec = (plist["ec"] as? Int) ?? (plist["ec"] as? NSNumber)?.intValue ?? 0
+        if ec != 0 {
+            let em = (plist["em"] as? String) ?? "Invalid two-factor verification code."
+            throw AppleProvisioningDomainError.portalRejection(code: ec, message: em)
+        }
+    }
+
+    private func applyTwoFactorHeaders(
+        _ req: inout URLRequest,
+        encodedIdentityToken: String,
+        anisette: AnisetteHeaderBundle
+    ) {
+        req.setValue("text/x-xml-plist", forHTTPHeaderField: "Content-Type")
+        req.setValue("text/x-xml-plist", forHTTPHeaderField: "Accept")
+        req.setValue("Xcode", forHTTPHeaderField: "User-Agent")
+        req.setValue("en-us", forHTTPHeaderField: "Accept-Language")
+        req.setValue(Self.xcodeAuthAppName, forHTTPHeaderField: "X-Apple-App-Info")
+        req.setValue("11.2 (11B41)", forHTTPHeaderField: "X-Xcode-Version")
+        req.setValue(encodedIdentityToken, forHTTPHeaderField: "X-Apple-Identity-Token")
+        for (key, value) in anisette.httpHeaders() {
+            req.setValue(value, forHTTPHeaderField: key)
+        }
     }
 
     func listTeams(session: ApplePortalSessionToken, anisette: AnisetteHeaderBundle) async throws -> [AppleDeveloperTeam] {
@@ -224,14 +479,32 @@ struct URLSessionAppleDeveloperPortalClient: AppleDeveloperPortalClient {
         appIDRecordID: String,
         groupIdentifier: String
     ) async throws {
-        let groupResp = try await postPortalAction(
-            .addAppGroup,
+        var resolvedGroupRecordID: String?
+        if let listResp = try? await postPortalAction(
+            .listAppGroups,
             session: session,
             anisette: anisette,
-            fields: ["teamId": teamID, "name": "ZynSign Shared Group", "identifier": groupIdentifier]
-        )
-        if let groupObj = groupResp["applicationGroup"] as? [String: Any],
-           let groupRecordID = groupObj["applicationGroup"] as? String {
+            fields: ["teamId": teamID]
+        ), let existingGroups = listResp["applicationGroupList"] as? [[String: Any]] {
+            for group in existingGroups where (group["identifier"] as? String) == groupIdentifier {
+                resolvedGroupRecordID = (group["applicationGroup"] as? String)
+                    ?? (group["applicationGroupId"] as? String)
+                if resolvedGroupRecordID != nil { break }
+            }
+        }
+        if resolvedGroupRecordID == nil {
+            let groupResp = try await postPortalAction(
+                .addAppGroup,
+                session: session,
+                anisette: anisette,
+                fields: ["teamId": teamID, "name": "ZynSign Shared Group", "identifier": groupIdentifier]
+            )
+            if let groupObj = groupResp["applicationGroup"] as? [String: Any] {
+                resolvedGroupRecordID = (groupObj["applicationGroup"] as? String)
+                    ?? (groupObj["applicationGroupId"] as? String)
+            }
+        }
+        if let groupRecordID = resolvedGroupRecordID, !groupRecordID.isEmpty {
             _ = try await postPortalAction(
                 .assignAppGroup,
                 session: session,
@@ -284,14 +557,18 @@ struct URLSessionAppleDeveloperPortalClient: AppleDeveloperPortalClient {
         req.timeoutInterval = 20
         req.httpBody = bodyBytes
         req.setValue("text/x-xml-plist", forHTTPHeaderField: "Content-Type")
-        req.setValue("Accept-Language", forHTTPHeaderField: "en-us")
-        req.setValue(session.dsid, forHTTPHeaderField: "X-Apple-GS-Token-DSID")
-        req.setValue("myacinfo=\(session.myacinfoToken)", forHTTPHeaderField: "Cookie")
+        req.setValue("text/x-xml-plist", forHTTPHeaderField: "Accept")
+        req.setValue("Xcode", forHTTPHeaderField: "User-Agent")
+        req.setValue("en-us", forHTTPHeaderField: "Accept-Language")
+        req.setValue(Self.xcodeAuthAppName, forHTTPHeaderField: "X-Apple-App-Info")
+        req.setValue("11.2 (11B41)", forHTTPHeaderField: "X-Xcode-Version")
+        req.setValue(session.dsid, forHTTPHeaderField: "X-Apple-I-Identity-Id")
+        req.setValue(session.myacinfoToken, forHTTPHeaderField: "X-Apple-GS-Token")
         for (k, v) in anisette.httpHeaders() {
             req.setValue(v, forHTTPHeaderField: k)
         }
 
-        let (data, _) = try await URLSession.shared.data(for: req)
+        let (data, _) = try await loadData(req)
         guard data.count <= Self.maximumResponseBytes,
               let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
             throw AppleProvisioningDomainError.portalRejection(code: -5, message: "Invalid XML plist returned by Apple Developer Services.")

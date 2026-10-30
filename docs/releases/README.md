@@ -24,3 +24,4 @@ If publication succeeds but the changelog-sync job fails, the release is already
 - [Historical release notes](notes-v0.0.1.md) — notes for the first stable train stop.
 - [Alpha 1 release notes](notes-v0.1.0-alpha.1.md) — notes for the Alpha 1 release.
 - [Alpha 2 release notes](notes-v0.1.0-alpha.2.md) — notes for the Alpha 2 release: the signing workflow opens on the Storefront shell.
+- [Alpha 3 release notes](notes-v0.1.0-alpha.3.md) — notes for the Alpha 3 release: Entitlements Studio, Developer Identity Center, real-device signing, and native SRP-6a provisioning.

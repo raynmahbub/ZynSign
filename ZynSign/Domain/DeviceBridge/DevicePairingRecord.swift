@@ -145,11 +145,14 @@ enum PairingRecordCoding {
         }
         let hostCertificate = try field(DevicePairingRecord.Key.hostCertificate)
         let computed = try hostIdentifier(forCertificate: hostCertificate, digest: digest)
-        let declared = (root[DevicePairingRecord.Key.hostID] as? String ?? "").uppercased()
+        let declared = (root[DevicePairingRecord.Key.hostID] as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
         guard !declared.isEmpty else {
             throw PairingRecordError.emptyField(DevicePairingRecord.Key.hostID)
         }
-        guard declared == computed else {
+        let isCanonicalHostUUID = declared.count == 36 && UUID(uuidString: declared) != nil
+        guard declared == computed || isCanonicalHostUUID else {
             throw PairingRecordError.hostIdentifierMismatch(declared: declared,
                                                             computed: computed)
         }
@@ -158,7 +161,7 @@ enum PairingRecordCoding {
             rootCertificate: try field(DevicePairingRecord.Key.rootCertificate),
             hostCertificate: hostCertificate,
             hostPrivateKey: try field(DevicePairingRecord.Key.hostPrivateKey),
-            hostIdentifier: computed,
+            hostIdentifier: declared,
             systemBUID: root[DevicePairingRecord.Key.systemBUID] as? String ?? "",
             wifiMACAddress: root[DevicePairingRecord.Key.wifiMACAddress] as? String,
             escrowBag: root[DevicePairingRecord.Key.escrowBag] as? Data

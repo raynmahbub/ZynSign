@@ -242,7 +242,25 @@ final class GuestContainerHostService: ObservableObject {
         }
         for tweakURL in tweakDylibURLs where fm.fileExists(atPath: tweakURL.path) {
             let dest = tweaksDir.appendingPathComponent(tweakURL.lastPathComponent)
-            try? fm.copyItem(at: tweakURL, to: dest)
+            if var tweakBytes = try? Data(contentsOf: tweakURL) {
+                if tweakBytes.count >= 32 {
+                    if let arm64 = try? GuestMachOPatcher.extractArm64Slice(tweakBytes) {
+                        tweakBytes = arm64
+                    }
+                    if let stripped = try? MachOCodeSignatureStripper.stripSignature(from: tweakBytes) {
+                        tweakBytes = stripped
+                    }
+                    if let adHocSigned = try? adHocSigner.signMachO(
+                        tweakBytes,
+                        identifier: tweakURL.deletingPathExtension().lastPathComponent
+                    ) {
+                        tweakBytes = adHocSigned.signedBytes
+                    }
+                }
+                try? tweakBytes.write(to: dest, options: .atomic)
+            } else {
+                try? fm.copyItem(at: tweakURL, to: dest)
+            }
             stagedTweakNames.append(tweakURL.lastPathComponent)
             injectedInstallNames.append("@executable_path/../../\(GuestContainer.Layout.tweaks)/\(tweakURL.lastPathComponent)")
         }
@@ -261,6 +279,8 @@ final class GuestContainerHostService: ObservableObject {
         let backupExecURL = containerDir.appendingPathComponent("\(execName).zynorig")
         try originalExecBytes.write(to: backupExecURL, options: .atomic)
 
+        normalizeNestedMachOImages(in: extractedApp, excludingRootExecutable: execURL)
+
         let patchOutcome = try GuestMachOPatcher.patchExecutableForGuestRuntime(
             originalExecBytes,
             installID: "@rpath/\(execName)",
@@ -271,6 +291,37 @@ final class GuestContainerHostService: ObservableObject {
         try FileManager.default.moveItem(at: extractedApp, to: guestAppDest)
         _ = try adHocSigner.signBundleDirectory(at: guestAppDest, bundleIdentifier: bundleID, executableName: execName)
         return patchOutcome
+    }
+
+    private func normalizeNestedMachOImages(in appDirectory: URL, excludingRootExecutable rootExecURL: URL) {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: appDirectory,
+            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        let rootStandardized = rootExecURL.standardizedFileURL
+        for case let fileURL as URL in enumerator {
+            guard fileURL.standardizedFileURL != rootStandardized else { continue }
+            guard let vals = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
+                  vals.isRegularFile == true,
+                  vals.isSymbolicLink != true,
+                  let data = try? Data(contentsOf: fileURL),
+                  data.count >= 32 else { continue }
+            var current = data
+            var changed = false
+            if let arm64 = try? GuestMachOPatcher.extractArm64Slice(current), arm64 != current {
+                current = arm64
+                changed = true
+            }
+            if let stripped = try? MachOCodeSignatureStripper.stripSignature(from: current), stripped != current {
+                current = stripped
+                changed = true
+            }
+            if changed {
+                try? current.write(to: fileURL, options: .atomic)
+            }
+        }
     }
 
     // MARK: - Multi-Profile Sandbox Slots

@@ -26,13 +26,21 @@ enum ProfileEntitlementDerivation {
     ///
     /// - Throws: the parser's typed error when the payload is not a
     ///   provisioning profile this build can read.
-    static func entitlements(fromProvisioningProfile data: Data) throws -> CodeSigningEntitlements {
+    static func entitlements(
+        fromProvisioningProfile data: Data,
+        forBundleIdentifier bundleIdentifier: BundleIdentifier? = nil
+    ) throws -> CodeSigningEntitlements {
         let payload = profilePayload(from: data)
         let parser = PropertyListProvisioningProfileParser()
         do {
             let profile = try parser.parse(ProvisioningProfilePayload(plistData: payload))
             if let entitlements = profile.entitlements {
-                return try CodeSigningEntitlements(profileEntitlements: entitlements)
+                let concrete = concreteProfileEntitlements(
+                    entitlements,
+                    profile: profile,
+                    bundleIdentifier: bundleIdentifier
+                )
+                return try CodeSigningEntitlements(profileEntitlements: concrete)
             }
             return try CodeSigningEntitlements(values: [:])
         } catch {
@@ -44,6 +52,41 @@ enum ProfileEntitlementDerivation {
             }
             throw error
         }
+    }
+
+    /// Materializes concrete bundle-scoped entitlement claims (such as
+    /// replacing a wildcard `TEAMID.*` `application-identifier` with
+    /// `TEAMID.<bundleIdentifier>`) when signing a specific application under
+    /// an authenticated wildcard profile.
+    static func concreteProfileEntitlements(
+        _ entitlements: ProvisioningProfileEntitlements,
+        profile: ProvisioningProfile,
+        bundleIdentifier: BundleIdentifier?
+    ) -> ProvisioningProfileEntitlements {
+        guard let bundleIdentifier else { return entitlements }
+        let compatibility = ProvisioningIdentifierCompatibility(profile: profile)
+        guard let concreteAppID = compatibility.expectedApplicationIdentifier(for: bundleIdentifier) else {
+            return entitlements
+        }
+        var updated = entitlements.values
+        if case .string(let declared)? = updated[ProvisioningProfileEntitlementKeys.applicationIdentifier],
+           declared.hasSuffix("*"),
+           compatibility.outcome(forApplicationIdentifierValue: concreteAppID) == .wildcardMatch {
+            updated[ProvisioningProfileEntitlementKeys.applicationIdentifier] = .string(concreteAppID)
+        }
+        if case .array(let groups)? = updated["keychain-access-groups"] {
+            let rewrittenGroups = groups.map { element -> ProvisioningProfileValue in
+                if case .string(let group) = element, group.hasSuffix(".*") {
+                    let prefix = String(group.dropLast(2))
+                    if concreteAppID.hasPrefix(prefix + ".") {
+                        return .string(concreteAppID)
+                    }
+                }
+                return element
+            }
+            updated["keychain-access-groups"] = .array(rewrittenGroups)
+        }
+        return ProvisioningProfileEntitlements(values: updated)
     }
 
     /// The profile's own display facts: its declared name and its first

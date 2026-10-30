@@ -909,7 +909,9 @@ final class SigningQueue: ObservableObject {
             certificateFingerprint: submission.certificateFingerprint,
             profileDisplayName: submission.profileDisplayName,
             profileTeamIdentifier: submission.profileTeamIdentifier,
-            presetID: submission.presetID
+            presetID: submission.presetID,
+            sideloadOptions: submission.sideloadOptions,
+            replacesExistingSignatures: submission.replacesExistingSignatures
         )
     }
 

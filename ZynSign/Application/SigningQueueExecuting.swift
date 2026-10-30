@@ -61,6 +61,12 @@ struct SigningJobSubmission: Equatable, Sendable {
     /// later.
     let presetID: PresetIdentifier?
 
+    /// Package edits and tweak payloads staged for this queued run.
+    let sideloadOptions: SideloadSigningOptions
+
+    /// Whether existing code signatures should be stripped before signing.
+    let replacesExistingSignatures: Bool
+
     init(
         recordID: ApplicationRecordIdentifier,
         artifactID: ArtifactIdentifier,
@@ -74,7 +80,9 @@ struct SigningJobSubmission: Equatable, Sendable {
         profileDisplayName: String? = nil,
         profileTeamIdentifier: String? = nil,
         emitDEREntitlements: Bool = false,
-        presetID: PresetIdentifier? = nil
+        presetID: PresetIdentifier? = nil,
+        sideloadOptions: SideloadSigningOptions = .none,
+        replacesExistingSignatures: Bool = true
     ) {
         self.recordID = recordID
         self.artifactID = artifactID
@@ -89,6 +97,8 @@ struct SigningJobSubmission: Equatable, Sendable {
         self.profileTeamIdentifier = profileTeamIdentifier
         self.emitDEREntitlements = emitDEREntitlements
         self.presetID = presetID
+        self.sideloadOptions = sideloadOptions
+        self.replacesExistingSignatures = replacesExistingSignatures
     }
 }
 
@@ -150,6 +160,12 @@ struct SigningJobExecutionRequest: Equatable, Sendable {
     /// The preset the configuration came from, when one.
     let presetID: PresetIdentifier?
 
+    /// Package edits and tweak payloads staged for this queued run.
+    let sideloadOptions: SideloadSigningOptions
+
+    /// Whether existing code signatures should be stripped before signing.
+    let replacesExistingSignatures: Bool
+
     init(
         jobID: SigningJobIdentifier,
         attempt: Int,
@@ -165,7 +181,9 @@ struct SigningJobExecutionRequest: Equatable, Sendable {
         certificateFingerprint: CertificateFingerprint? = nil,
         profileDisplayName: String? = nil,
         profileTeamIdentifier: String? = nil,
-        presetID: PresetIdentifier? = nil
+        presetID: PresetIdentifier? = nil,
+        sideloadOptions: SideloadSigningOptions = .none,
+        replacesExistingSignatures: Bool = true
     ) {
         self.jobID = jobID
         self.attempt = attempt
@@ -182,6 +200,8 @@ struct SigningJobExecutionRequest: Equatable, Sendable {
         self.profileDisplayName = profileDisplayName
         self.profileTeamIdentifier = profileTeamIdentifier
         self.presetID = presetID
+        self.sideloadOptions = sideloadOptions
+        self.replacesExistingSignatures = replacesExistingSignatures
     }
 }
 

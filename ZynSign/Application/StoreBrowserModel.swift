@@ -13,6 +13,7 @@ final class StoreBrowserModel: ObservableObject {
     @Published var problem: String?
     let repository: StoreRepository
     let downloads: StoreDownloadQueue
+    let onSourceURLAdded: (@Sendable @MainActor (String) async -> Void)?
     private var searchIndex = CatalogSearchIndex(sources: [])
     private var loaded = false
     private var loading = false
@@ -25,8 +26,14 @@ final class StoreBrowserModel: ObservableObject {
         }
     }
 
-    nonisolated init(repository: StoreRepository, downloads: StoreDownloadQueue) {
-        self.repository = repository; self.downloads = downloads
+    nonisolated init(
+        repository: StoreRepository,
+        downloads: StoreDownloadQueue,
+        onSourceURLAdded: (@Sendable @MainActor (String) async -> Void)? = nil
+    ) {
+        self.repository = repository
+        self.downloads = downloads
+        self.onSourceURLAdded = onSourceURLAdded
     }
     func load(library: ApplicationLibrary) async {
         guard !loading else { return }
@@ -144,6 +151,7 @@ final class StoreBrowserModel: ObservableObject {
         do {
             try await repository.add(raw); try await reload()
             if let url = try? StoreURLPolicy.validate(raw), let source = snapshot.sources.first(where: { $0.url == url }) { liveSources.insert(source.id) }
+            await onSourceURLAdded?(raw)
             return true
         } catch { problem = error.localizedDescription; return false }
     }

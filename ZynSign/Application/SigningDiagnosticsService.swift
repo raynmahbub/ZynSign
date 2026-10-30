@@ -81,6 +81,10 @@ actor SigningDiagnosticsService {
         identityID: SigningIdentityIdentifier? = nil,
         profileData: Data? = nil,
         emitDEREntitlements: Bool = false,
+        replacesExistingSignatures: Bool = false,
+        allowDeferredDeviceCoverage: Bool = false,
+        deviceContext: ProvisioningDeviceContext = .unavailable,
+        sideloadOptions: SideloadSigningOptions = .none,
         force: Bool = false
     ) async throws -> SigningDiagnosticsAnalysis {
         try Task.checkCancellation()
@@ -92,16 +96,28 @@ actor SigningDiagnosticsService {
         let package = packageEvidence(for: entry, at: date, force: force)
         try Task.checkCancellation()
         let identity = identityEvidence(for: identityID)
+        let effectiveMetadata = effectiveApplication(from: metadata(in: package), sideload: sideloadOptions)
         let (profile, claims) = profileEvidence(
             data: profileData,
-            application: metadata(in: package),
+            application: effectiveMetadata,
             identityID: identityID,
+            deviceContext: deviceContext,
             at: date
         )
         try Task.checkCancellation()
+        let removesNested = sideloadOptions.removesAppExtensions
+            || sideloadOptions.removesPlugIns
+            || sideloadOptions.removesWatchApps
         let report = SigningDiagnosticsEvaluation.evaluate(
-            record: entry.record, package: package, identity: identity,
-            profile: profile, emitDEREntitlements: emitDEREntitlements, at: date
+            record: entry.record,
+            package: package,
+            identity: identity,
+            profile: profile,
+            emitDEREntitlements: emitDEREntitlements,
+            replacesExistingSignatures: replacesExistingSignatures,
+            allowDeferredDeviceCoverage: allowDeferredDeviceCoverage,
+            removesNestedExtensions: removesNested,
+            at: date
         )
         let snapshot = SigningDiagnosticSnapshot(report: report)
         var history: [SigningDiagnosticSnapshot] = []
@@ -141,6 +157,34 @@ actor SigningDiagnosticsService {
             return inspection.metadata
         }
         return nil
+    }
+
+    private func effectiveApplication(
+        from original: ApplicationMetadata?,
+        sideload: SideloadSigningOptions
+    ) -> ApplicationMetadata? {
+        guard let original else { return nil }
+        let resolvedID = sideload.resolvedBundleIdentifier(
+            originalBundleID: original.identity.bundleIdentifier.rawValue
+        ) ?? original.identity.bundleIdentifier.rawValue
+        guard resolvedID != original.identity.bundleIdentifier.rawValue,
+              let newBundleID = BundleIdentifier(rawValue: resolvedID) else {
+            return original
+        }
+        let updatedIdentity = ApplicationIdentity(
+            bundleIdentifier: newBundleID,
+            declaredDisplayName: sideload.displayName ?? original.identity.declaredDisplayName,
+            declaredBundleName: original.identity.declaredBundleName,
+            shortVersionString: sideload.shortVersion ?? original.identity.shortVersionString,
+            buildVersion: sideload.version ?? original.identity.buildVersion
+        )
+        return ApplicationMetadata(
+            identity: updatedIdentity,
+            executableName: original.executableName,
+            minimumOSVersion: sideload.minimumOSVersion ?? original.minimumOSVersion,
+            deviceFamily: original.deviceFamily,
+            iconName: original.iconName
+        )
     }
 
     private func packageEvidence(for entry: LibraryEntry, at date: Date, force: Bool) -> SigningPackageEvidence {
@@ -242,29 +286,51 @@ actor SigningDiagnosticsService {
         bundle: ArchivePath, reader: any ArchiveReader
     ) -> SigningImageSupport {
         guard case .plan(let plan) = discovery else { return .unchecked }
-        let root = supportsSigningImage(plan.root, bundle: bundle, reader: reader)
-        let nested = plan.nestedItems.map { supportsSigningImage($0, bundle: bundle, reader: reader) }
+        let root = supportsSigningImage(plan.root, bundle: bundle, reader: reader, allowReSign: false)
+        let nested = plan.nestedItems.map { supportsSigningImage($0, bundle: bundle, reader: reader, allowReSign: false) }
         let nestedStatus: Bool? = nested.contains(where: { $0 == false }) ? false :
             (nested.contains(where: { $0 == nil }) ? nil : true)
-        return SigningImageSupport(rootSupported: root, nestedSupported: nestedStatus)
+
+        let rootReSign = supportsSigningImage(plan.root, bundle: bundle, reader: reader, allowReSign: true)
+        let nestedReSignList = plan.nestedItems.map { supportsSigningImage($0, bundle: bundle, reader: reader, allowReSign: true) }
+        let nestedReSignStatus: Bool? = nestedReSignList.contains(where: { $0 == false }) ? false :
+            (nestedReSignList.contains(where: { $0 == nil }) ? nil : true)
+        return SigningImageSupport(
+            rootSupported: root,
+            nestedSupported: nestedStatus,
+            rootReSignable: rootReSign,
+            nestedReSignable: nestedReSignStatus
+        )
     }
 
-    /// Reads only established, unsigned executables that discovery named.
-    /// Both the parser and the signer's image policy are the SAME ones used
-    /// during signing. A signed image is handled by the signature check, not
-    /// misreported as an unsupported *unsigned* image.
+    /// Reads only established executables that discovery named. When `allowReSign`
+    /// is `false`, only unsigned images are evaluated; when `allowReSign` is `true`,
+    /// universal `arm64` extraction and existing-signature stripping are simulated
+    /// in memory so signed/universal packages are verified against the post-strip
+    /// signer layout without modifying the archive.
     private func supportsSigningImage(
-        _ item: NestedCodeItem, bundle: ArchivePath, reader: any ArchiveReader
+        _ item: NestedCodeItem,
+        bundle: ArchivePath,
+        reader: any ArchiveReader,
+        allowReSign: Bool
     ) -> Bool? {
-        guard item.status.isEstablished, item.existingSignature == .absent,
-              let executable = item.executablePath else { return nil }
+        guard item.status.isEstablished, let executable = item.executablePath else { return nil }
+        if !allowReSign, item.existingSignature != .absent { return nil }
         var path = bundle
         for component in executable.components {
             guard let next = path.appending(component: component) else { return false }
             path = next
         }
         do {
-            let bytes = try reader.readEntryData(at: path, maximumBytes: limits.maximumInspectionReadBytes)
+            var bytes = try reader.readEntryData(at: path, maximumBytes: limits.maximumInspectionReadBytes)
+            if allowReSign {
+                if let thinned = try? GuestMachOPatcher.extractArm64Slice(bytes), thinned.count != bytes.count {
+                    bytes = thinned
+                }
+                if MachOCodeSignatureStripper.carriesSignature(bytes) {
+                    bytes = try MachOCodeSignatureStripper.stripSignature(from: bytes)
+                }
+            }
             let image = try ReadOnlyMachOParser().parse(bytes)
             try SignMachOUseCase.checkSupportedImage(image)
             return true
@@ -272,6 +338,8 @@ actor SigningDiagnosticsService {
             if case .unsupportedMachOForm = error { return false }
             return nil
         } catch is MachOParsingError {
+            return false
+        } catch is MachOCodeSignatureStripper.Failure {
             return false
         } catch {
             return nil
@@ -288,7 +356,9 @@ actor SigningDiagnosticsService {
 
     private func profileEvidence(
         data: Data?, application: ApplicationMetadata?,
-        identityID: SigningIdentityIdentifier?, at date: Date
+        identityID: SigningIdentityIdentifier?,
+        deviceContext: ProvisioningDeviceContext = .unavailable,
+        at date: Date
     ) -> (SigningProfileEvidence, CodeSigningEntitlements?) {
         guard let data else { return (.notSelected, nil) }
         let fingerprint = try? digest.digest(data, algorithm: .sha256)
@@ -332,12 +402,20 @@ actor SigningDiagnosticsService {
               let parsed = result.profile else {
             return (.failed(inputUnsupported ? .unsupported : .invalid), nil)
         }
-        let claims = parsed.entitlements.flatMap { try? CodeSigningEntitlements(profileEntitlements: $0) }
+        let concreteEntitlements = parsed.entitlements.map {
+            ProfileEntitlementDerivation.concreteProfileEntitlements(
+                $0,
+                profile: parsed,
+                bundleIdentifier: application?.identity.bundleIdentifier
+            )
+        }
+        let claims = concreteEntitlements.flatMap { try? CodeSigningEntitlements(profileEntitlements: $0) }
         let policyResult = policy.validate(ValidateProvisioningConfigurationRequest(
             verification: verified,
             applicationMetadata: application,
             signingIdentityID: identityID,
-            signingConfiguration: SigningConfiguration(entitlements: claims?.profileEntitlements)
+            signingConfiguration: SigningConfiguration(entitlements: claims?.profileEntitlements),
+            deviceContext: deviceContext
         ))
         return (.verified(policy: policyResult, expiration: parsed.expirationDate, claimsRepresentable: claims != nil), claims)
     }

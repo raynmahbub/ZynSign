@@ -417,7 +417,14 @@ struct SigningPresetWorkflow {
                 diagnosticDetail: "The package file is not in library storage."
             )
         }
-        let entitlements = try ProfileEntitlementDerivation.entitlements(fromProvisioningProfile: resolved.profileBytes)
+        let resolvedBundleIDString = resolved.options.sideload.resolvedBundleIdentifier(
+            originalBundleID: entry.record.bundleIdentifier.rawValue
+        ) ?? entry.record.bundleIdentifier.rawValue
+        let resolvedBundleID = BundleIdentifier(rawValue: resolvedBundleIDString) ?? entry.record.bundleIdentifier
+        let entitlements = try ProfileEntitlementDerivation.entitlements(
+            fromProvisioningProfile: resolved.profileBytes,
+            forBundleIdentifier: resolvedBundleID
+        )
         let output = outputDirectory.appendingPathComponent(Self.outputName(for: entry), isDirectory: false)
         return SignApplicationRequest(
             sourceURL: source,

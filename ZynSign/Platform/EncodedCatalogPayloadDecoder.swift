@@ -100,6 +100,26 @@ enum EncodedCatalogPayloadDecoder {
     private static func normalizeCompactCatalogSchemaIfNeeded(_ root: inout [String: Any]) -> Bool {
         guard var apps = root["apps"] as? [[String: Any]] else { return false }
         var changed = false
+        let fallbackSourceName: String = {
+            if let existing = (root["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !existing.isEmpty {
+                return existing
+            }
+            if let identifier = (root["identifier"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !identifier.isEmpty {
+                return identifier
+            }
+            return "Community Repository"
+        }()
+        if (root["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            root["name"] = fallbackSourceName
+            changed = true
+        }
+
+        var seenBundles = Set<String>()
+        var normalizedApps: [[String: Any]] = []
+        normalizedApps.reserveCapacity(apps.count)
+
         for index in apps.indices {
             var app = apps[index]
             if app["bundleIdentifier"] == nil, let bundleID = app["bundleID"] as? String {
@@ -110,14 +130,68 @@ enum EncodedCatalogPayloadDecoder {
                 app["downloadURL"] = down
                 changed = true
             }
-            if app["versions"] == nil,
-               let version = app["version"] as? String,
-               let downloadURL = app["downloadURL"] as? String {
+            if app["iconURL"] == nil, let icon = app["icon"] as? String {
+                app["iconURL"] = icon
+                changed = true
+            }
+            if app["developerName"] == nil, let dev = app["dev"] as? String {
+                app["developerName"] = dev
+                changed = true
+            }
+            if (app["developerName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+                app["developerName"] = fallbackSourceName
+                changed = true
+            }
+            if normalizeByteSizeField(&app, key: "size") {
+                changed = true
+            }
+            if (app["versionDate"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true,
+               app["versionDate"] != nil {
+                app.removeValue(forKey: "versionDate")
+                changed = true
+            }
+            if app["screenshotURLs"] == nil, let altScreenshots = extractAltStoreScreenshots(from: app["screenshots"]) {
+                app["screenshotURLs"] = altScreenshots
+                changed = true
+            }
+            if var versions = app["versions"] as? [[String: Any]] {
+                var seenVersions = Set<String>()
+                var cleanedVersions: [[String: Any]] = []
+                for var ver in versions {
+                    if ver["downloadURL"] == nil, let down = ver["down"] as? String {
+                        ver["downloadURL"] = down
+                        changed = true
+                    }
+                    if normalizeByteSizeField(&ver, key: "size") {
+                        changed = true
+                    }
+                    if (ver["date"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true,
+                       ver["date"] != nil {
+                        ver.removeValue(forKey: "date")
+                        changed = true
+                    }
+                    if let vStr = ver["version"] as? String {
+                        if seenVersions.insert(vStr).inserted {
+                            cleanedVersions.append(ver)
+                        } else {
+                            changed = true
+                        }
+                    } else {
+                        cleanedVersions.append(ver)
+                    }
+                }
+                if cleanedVersions.count != versions.count || changed {
+                    versions = cleanedVersions
+                    app["versions"] = versions
+                }
+            } else if let version = app["version"] as? String,
+                      let downloadURL = app["downloadURL"] as? String {
                 var entry: [String: Any] = [
                     "version": version,
                     "downloadURL": downloadURL
                 ]
-                if let date = app["versionDate"] as? String {
+                if let date = (app["versionDate"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !date.isEmpty {
                     entry["date"] = date
                 }
                 if let desc = app["versionDescription"] as? String {
@@ -129,12 +203,82 @@ enum EncodedCatalogPayloadDecoder {
                 app["versions"] = [entry]
                 changed = true
             }
-            apps[index] = app
+
+            if let bundleID = (app["bundleIdentifier"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !bundleID.isEmpty {
+                if seenBundles.insert(bundleID).inserted {
+                    normalizedApps.append(app)
+                } else {
+                    changed = true
+                }
+            } else {
+                normalizedApps.append(app)
+            }
         }
+
+        if let featured = root["featuredApps"] as? [String] {
+            let validFeatured = featured.filter { seenBundles.contains($0) }
+            if validFeatured.count != featured.count {
+                root["featuredApps"] = validFeatured
+                changed = true
+            }
+        }
+
         if changed {
+            apps = normalizedApps
             root["apps"] = apps
         }
         return changed
+    }
+
+    private static func normalizeByteSizeField(_ dict: inout [String: Any], key: String) -> Bool {
+        guard let raw = dict[key] else { return false }
+        if let intVal = raw as? Int64 {
+            if intVal <= 0 {
+                dict.removeValue(forKey: key)
+                return true
+            }
+            return false
+        }
+        if let num = raw as? NSNumber {
+            let intVal = num.int64Value
+            if intVal <= 0 {
+                dict.removeValue(forKey: key)
+                return true
+            }
+            return false
+        }
+        if let str = raw as? String {
+            let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let parsed = Int64(trimmed), parsed > 0 {
+                dict[key] = parsed
+            } else {
+                dict.removeValue(forKey: key)
+            }
+            return true
+        }
+        return false
+    }
+
+    private static func extractAltStoreScreenshots(from value: Any?) -> [String]? {
+        if let list = value as? [Any] {
+            let urls = list.compactMap { item -> String? in
+                if let str = item as? String { return str }
+                if let dict = item as? [String: Any] { return dict["imageURL"] as? String }
+                return nil
+            }
+            return urls.isEmpty ? nil : urls
+        }
+        if let grouped = value as? [String: Any] {
+            var collected: [String] = []
+            for key in ["iphone", "ipad"] {
+                if let nested = extractAltStoreScreenshots(from: grouped[key]) {
+                    collected.append(contentsOf: nested)
+                }
+            }
+            return collected.isEmpty ? nil : collected
+        }
+        return nil
     }
 
     private static func extractHTTPSLines(from text: String) -> [String] {

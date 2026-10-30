@@ -310,6 +310,11 @@ struct SignApplicationOptions {
     /// still refused — and the sideloading screen turns it on.
     let replacesExistingSignatures: Bool
 
+    /// Whether on-device signing may proceed when a Development or Ad-Hoc
+    /// profile restricts `ProvisionedDevices` and no local target UDID is
+    /// available to compare prior to iOS `installd` installation.
+    let allowDeferredDeviceCoverage: Bool
+
     init(
         existingSignaturePolicy: MachOExistingCodeSignaturePolicy = .rejectExistingSignature,
         teamIdentifier: CodeDirectoryTeamIdentifier? = nil,
@@ -319,7 +324,8 @@ struct SignApplicationOptions {
         intendedProfileClass: ProvisioningProfileClassification? = nil,
         emitDEREntitlements: Bool = false,
         sideload: SideloadSigningOptions = .none,
-        replacesExistingSignatures: Bool = false
+        replacesExistingSignatures: Bool = false,
+        allowDeferredDeviceCoverage: Bool = false
     ) {
         self.existingSignaturePolicy = existingSignaturePolicy
         self.teamIdentifier = teamIdentifier
@@ -330,6 +336,7 @@ struct SignApplicationOptions {
         self.emitDEREntitlements = emitDEREntitlements
         self.sideload = sideload
         self.replacesExistingSignatures = replacesExistingSignatures
+        self.allowDeferredDeviceCoverage = allowDeferredDeviceCoverage
     }
 }
 
@@ -556,8 +563,17 @@ struct SignApplicationPipeline {
             try Task.checkCancellation()
 
             observer?(.stageStarted(.discovery))
-            var plan = try runDiscovery(request: request, integrity: integrity)
-            observer?(.nestedPlan(Self.nestedTotals(of: plan)))
+            let editsMutateNestedPlan = !request.options.sideload.isEmpty
+            var plan: NestedSigningPlan?
+            do {
+                let initialPlan = try runDiscovery(request: request, integrity: integrity)
+                plan = initialPlan
+                observer?(.nestedPlan(Self.nestedTotals(of: initialPlan)))
+            } catch where editsMutateNestedPlan {
+                // When sideload edits remove unsupported Watch/AppClip/Extension
+                // bundles, post-edit discovery establishes the authoritative plan.
+                plan = nil
+            }
             observer?(.stageCompleted(.discovery))
             try Task.checkCancellation()
 
@@ -567,13 +583,21 @@ struct SignApplicationPipeline {
                 integrity: integrity,
                 workingRoot: workingRoot
             )
-            if !request.options.sideload.isEmpty {
-                plan = try runPostEditDiscovery(
+            if editsMutateNestedPlan || plan == nil {
+                let updatedPlan = try runPostEditDiscovery(
                     workingRoot: workingRoot,
                     bundlePath: integrity.report.bundlePath,
                     metadata: effectiveMetadata
                 )
-                observer?(.nestedPlan(Self.nestedTotals(of: plan)))
+                plan = updatedPlan
+                observer?(.nestedPlan(Self.nestedTotals(of: updatedPlan)))
+            }
+            guard let resolvedPlan = plan else {
+                throw ApplicationSigningFailure(
+                    stage: .discovery,
+                    detail: "Nested code discovery produced no signing plan.",
+                    category: .internalFailure
+                )
             }
             observer?(.stageCompleted(.extraction))
             try Task.checkCancellation()
@@ -581,7 +605,7 @@ struct SignApplicationPipeline {
             observer?(.stageStarted(.nestedSigning))
             let nested = try runNestedSigning(
                 request: request,
-                plan: plan,
+                plan: resolvedPlan,
                 bundleDirectory: extraction.bundleDirectory,
                 observer: observer
             )
@@ -590,7 +614,7 @@ struct SignApplicationPipeline {
 
             observer?(.stageStarted(.resourceSealing))
             let sealing = try runSealing(
-                plan: plan,
+                plan: resolvedPlan,
                 nestedSeals: nested.codeSeals,
                 integrity: integrity,
                 bundleDirectory: extraction.bundleDirectory
@@ -602,6 +626,7 @@ struct SignApplicationPipeline {
             let main = try runMainExecutable(
                 request: request,
                 integrity: integrity,
+                effectiveMetadata: effectiveMetadata,
                 sealed: sealing.seal,
                 bundleDirectory: extraction.bundleDirectory
             )
@@ -624,9 +649,9 @@ struct SignApplicationPipeline {
                     integrity: integrity.report,
                     profile: profile,
                     discovery: ApplicationSigningDiscoveryReport(
-                        nestedItemCount: plan.items.count,
-                        stepCount: plan.stepCount,
-                        nestedTargets: plan.items.map { item in
+                        nestedItemCount: resolvedPlan.items.count,
+                        stepCount: resolvedPlan.stepCount,
+                        nestedTargets: resolvedPlan.items.map { item in
                             ApplicationSigningNestedTargetReport(
                                 executablePath: item.executablePath,
                                 kind: item.kind,
@@ -648,7 +673,7 @@ struct SignApplicationPipeline {
                     profile: request.profile,
                     sealedCodeResources: sealing.seal.bytes,
                     entitlements: request.entitlements,
-                    nestedExecutablePaths: plan.items.map { $0.executablePath },
+                    nestedExecutablePaths: resolvedPlan.items.map { $0.executablePath },
                     embedsProfile: !request.options.sideload.removesProvisioningProfile
                 )
             )
@@ -845,14 +870,23 @@ struct SignApplicationPipeline {
         } catch {
             throw map(error, stage: .profile, detail: "The replacement profile could not be validated.")
         }
-        guard result.overallStatus == .valid else {
+        let allowsDeferredDevice = request.options.allowDeferredDeviceCoverage
+            && result.isProfileAuthenticated
+            && result.isStructurallyValid
+            && (result.policy?.categories.allSatisfy { item in
+                item.status == .satisfied
+                    || (item.category == .device && item.status == .indeterminate)
+            } ?? false)
+        guard result.overallStatus == .valid || allowsDeferredDevice else {
             throw ApplicationSigningFailure(
                 stage: .profile,
                 detail: "The replacement profile is not established as compatible.",
                 category: .invalidInput
             )
         }
-        return ApplicationSigningProfileReport(overallStatus: result.overallStatus)
+        return ApplicationSigningProfileReport(
+            overallStatus: allowsDeferredDevice ? .valid : result.overallStatus
+        )
     }
 
     // MARK: - Discovery
@@ -1054,6 +1088,9 @@ struct SignApplicationPipeline {
                 throw map(error, stage: .extraction,
                           detail: "The package edits could not be applied.")
             }
+            if request.options.replacesExistingSignatures {
+                try? stripExistingSignatures(in: bundleDirectory, removeEmbeddedProfile: false)
+            }
         }
         return ExtractionContext(report: report, bundleDirectory: bundleDirectory,
                                  sideloadReport: sideloadReport)
@@ -1075,8 +1112,12 @@ struct SignApplicationPipeline {
     /// Every Mach-O is stripped of its `LC_CODE_SIGNATURE` and its file end
     /// moved back to where the signature began; `_CodeSignature` directories
     /// and the embedded profile are removed because the new run writes its own.
-    /// Files that are not Mach-O images are left exactly as they are.
-    private func stripExistingSignatures(in bundleDirectory: URL) throws {
+    /// Universal containers carrying an `arm64` slice are normalized to thin
+    /// 64-bit `arm64` so single-slice CodeDirectory signing succeeds cleanly.
+    private func stripExistingSignatures(
+        in bundleDirectory: URL,
+        removeEmbeddedProfile: Bool = true
+    ) throws {
         let fileManager = FileManager.default
         guard let enumerator = fileManager.enumerator(
             at: bundleDirectory,
@@ -1099,20 +1140,28 @@ struct SignApplicationPipeline {
                 continue
             }
             guard values.isRegularFile == true else { continue }
-            if entry.lastPathComponent == "embedded.mobileprovision" {
+            if removeEmbeddedProfile && entry.lastPathComponent == "embedded.mobileprovision" {
                 try fileManager.removeItem(at: entry)
                 continue
             }
-            // A file is only rewritten when its own bytes say it carries the
-            // command. A resource is never decoded as an image merely because
-            // it was found in a bundle.
-            guard let image = try? Data(contentsOf: entry, options: .mappedIfSafe),
-                  image.count <= MachOCodeSignatureStripper.maximumImageByteCount,
-                  MachOCodeSignatureStripper.carriesSignature(image) else {
+            guard var image = try? Data(contentsOf: entry, options: .mappedIfSafe),
+                  image.count >= 32,
+                  image.count <= MachOCodeSignatureStripper.maximumImageByteCount else {
                 continue
             }
-            try MachOCodeSignatureStripper.stripSignature(from: image)
-                .write(to: entry, options: .atomic)
+            var modified = false
+            if let thinned = try? GuestMachOPatcher.extractArm64Slice(image),
+               thinned.count != image.count {
+                image = thinned
+                modified = true
+            }
+            if MachOCodeSignatureStripper.carriesSignature(image) {
+                image = try MachOCodeSignatureStripper.stripSignature(from: image)
+                modified = true
+            }
+            if modified {
+                try image.write(to: entry, options: .atomic)
+            }
         }
     }
 
@@ -1451,6 +1500,7 @@ struct SignApplicationPipeline {
     private func runMainExecutable(
         request: SignApplicationRequest,
         integrity: IntegrityContext,
+        effectiveMetadata: ApplicationMetadata,
         sealed: SealedCodeResources,
         bundleDirectory: URL
     ) throws -> ApplicationSigningMainExecutableReport {
@@ -1494,7 +1544,7 @@ struct SignApplicationPipeline {
         }
         let identifier: CodeDirectoryIdentifier
         do {
-            identifier = try CodeDirectoryIdentifier(rawValue: integrity.report.bundleIdentifier.rawValue)
+            identifier = try CodeDirectoryIdentifier(rawValue: effectiveMetadata.identity.bundleIdentifier.rawValue)
         } catch {
             throw map(error, stage: .mainExecutable, detail: "The bundle identifier cannot be a CodeDirectory identifier.")
         }
