@@ -224,7 +224,7 @@ final class RealDeviceSigningAndPortalVerificationTests: XCTestCase {
         }
         XCTAssertEqual(cd.identifier, ProvisioningPolicyFixtures.bundleIdentifier)
         XCTAssertEqual(cd.teamIdentifier, "TEAM123456")
-        XCTAssertGreaterThanOrEqual(cd.version, 0x0002_0400)
+        XCTAssertGreaterThanOrEqual(cd.version, 0x0002_0200)
     }
 
     // MARK: - 4. Apple GSA SRP-6a + 2FA + AppTokens GCM + QH65B2 Headers

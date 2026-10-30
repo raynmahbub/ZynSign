@@ -69,13 +69,10 @@ enum ProfileEntitlementDerivation {
             return entitlements
         }
         var updated = entitlements.values
-        if case .string(let declared)? = updated[ProvisioningProfileEntitlementKeys.applicationIdentifier] {
-            switch compatibility.outcome(forApplicationIdentifierValue: declared) {
-            case .wildcardMatch where declared.hasSuffix("*"):
-                updated[ProvisioningProfileEntitlementKeys.applicationIdentifier] = .string(concreteAppID)
-            default:
-                break
-            }
+        if case .string(let declared)? = updated[ProvisioningProfileEntitlementKeys.applicationIdentifier],
+           declared.hasSuffix("*"),
+           compatibility.outcome(forApplicationIdentifierValue: concreteAppID) == .wildcardMatch {
+            updated[ProvisioningProfileEntitlementKeys.applicationIdentifier] = .string(concreteAppID)
         }
         if case .array(let groups)? = updated["keychain-access-groups"] {
             let rewrittenGroups = groups.map { element -> ProvisioningProfileValue in
