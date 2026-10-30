@@ -103,15 +103,29 @@ struct ZynIdentityArchiveSheet: View {
                     selectedProfileID = savedProfiles.first?.id
                 }
             }
-            .fileImporter(isPresented: $isPickingArchive, allowedContentTypes: [.data, .item]) { result in
-                if case .success(let url) = result {
-                    Task { await importArchive(from: url) }
-                }
+            .sheet(isPresented: $isPickingArchive) {
+                ZDocumentPicker(
+                    contentTypes: [.data, .item],
+                    allowsMultipleSelection: false,
+                    onPick: { urls in
+                        isPickingArchive = false
+                        if let url = urls.first {
+                            Task { await importArchive(from: url) }
+                        }
+                    },
+                    onCancel: { isPickingArchive = false }
+                )
             }
-            .fileImporter(isPresented: $isPickingP12, allowedContentTypes: PKCS12PickerTypes.allowed) { result in
-                if case .success(let url) = result {
-                    selectedP12URL = url
-                }
+            .sheet(isPresented: $isPickingP12) {
+                ZDocumentPicker(
+                    contentTypes: PKCS12PickerTypes.allowed,
+                    allowsMultipleSelection: false,
+                    onPick: { urls in
+                        isPickingP12 = false
+                        selectedP12URL = urls.first
+                    },
+                    onCancel: { isPickingP12 = false }
+                )
             }
             .sheet(isPresented: Binding(
                 get: { shareFileURL != nil },
@@ -241,11 +255,17 @@ struct P12PasswordRecoverySheet: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .fileImporter(isPresented: $isPickingP12, allowedContentTypes: PKCS12PickerTypes.allowed) { result in
-                if case .success(let url) = result {
-                    selectedURL = url
-                    resultMessage = nil
-                }
+            .sheet(isPresented: $isPickingP12) {
+                ZDocumentPicker(
+                    contentTypes: PKCS12PickerTypes.allowed,
+                    allowsMultipleSelection: false,
+                    onPick: { urls in
+                        isPickingP12 = false
+                        selectedURL = urls.first
+                        resultMessage = nil
+                    },
+                    onCancel: { isPickingP12 = false }
+                )
             }
         }
     }

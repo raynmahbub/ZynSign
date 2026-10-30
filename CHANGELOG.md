@@ -19,8 +19,6 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
-## [3.0.0] - 2026-10-30
-
 ### Added
 
 - **Unified Free Apple ID & Paid Certificate Provisioning Hub.** `UnifiedSigningHubView` and `AppleAccountProvisioningService` bring Free Apple ID GSA authentication (`URLSessionAppleDeveloperPortalClient` + `AnisetteHeaderBundle` + 2FA verification + automatic Keychain RSA-2048 CSR generation via `KeychainCSRIdentityProvisioner` and `PKCS10CertificateRequestBuilder`, developer certificate issuance, UDID registration, team-scoped App ID + App Group provisioning, and 7-day profile download) alongside Paid `.p12`/`.pfx`, portable `.zcert` (`ZynCertificateBundle`), bounded `.p12` passphrase recovery, and encrypted DNS (`.mobileconfig`) revocation-shield generation in one workspace.
@@ -73,65 +71,6 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   can leave the screen. The calendar is built once per read beside the plan and
   the usage rows, so the strip, the queue, and the copied schedule describe one
   instant. See `docs/architecture/sideloading.md`.
-
-### Changed
-
-- **Native XCTest evidence stays downloadable after a pass and after a failure.**
-  The Build and Release macOS jobs upload the `.xcresult` bundle and the test
-  logs as `xctest-results-<run-id>-<attempt>`, kept for 14 days. The job
-  summary records the Xcode version, the simulator destination, and a concise
-  count. DerivedData, signing certificates, private keys, and provisioning
-  profiles are not in that artifact. A missing bundle warns and does not fail
-  the job. See `docs/development/continuous-integration.md`.
-
-- **The sideloading rows are measured, not assumed.** `Settings → Sideloading`
-  passed `buildCarriesLocalTunnelEntitlement: false` as a constant, so every
-  build said the same thing about the entitlement that decides whether a device
-  session can exist — true of an App Store build, a guess about a self-signed or
-  enterprise one. `ProcessEntitlements` now reads the running binary's own
-  signature once at composition (`SecTaskEntitlementReader`), and the screen
-  shows three distinct states: **granted**, **absent** (read, and not there), or
-  **not established** (nothing readable — preview, simulator). iOS exposes no
-  process-entitlement query (the macOS `SecTask` API is absent from the overlay),
-  so the reader parses the app's **own embedded signature** with the same
-  Mach-O/slot decoder the Entitlements Studio uses — the same claims the system
-  would consult. `nil` never
-  collapses into `false`: an unmeasured build stays unsupported, but its note
-  says the signature could not be read instead of claiming the entitlement is
-  missing. `get-task-allow` keeps the Studio's rule: `declaresGetTaskAllow`
-  reports the claim's presence, `allowsDebugging` reports its value, so a
-  profile that declares `false` is never read as one that declares nothing. A build that carries the entitlement lights the rows up on its own
-  and still needs a pairing record and a composed transport — and what a device
-  does with the session remains the device's answer. See
-  `docs/architecture/sideloading.md`.
-
-### Fixed
-
-- **Xcode 26.3, Swift 6 concurrency & test-suite hardening.** Resolved Swift 6 strict-concurrency and Xcode 26.3 SDK issues across `Domain`, `Application`, `Platform`, and `Presentation` (`@MainActor` `ObservableObject` `nonisolated init` backing-storage initialization, `Identifiable` conformances, Domain wrapper conversions, `RootView` navigation routing, `LocalTransferHTTP.Method.isReadOnly`, `SelfUpdateChecker`, `TweakStagingResolver`, `FileArchiveTools`, and explicit PKCS#12 `UTType` identifiers), aligned `SideloadOptionsDraft.allowsTweakCollisionSuffixing` with `SideloadSigningOptions.none`, added compact `bundleID` → `bundleIdentifier` normalization in `EncodedCatalogPayloadDecoder`, routed `SyncPortableWorkspaceIntent` through the live `ApplicationEnvironment`, added Xcode 26.3 `xcresulttool` fallback in `Scripts/ci/annotate_test_failures.sh`, and pruned 775 lines of retired scaffolding.
-
-- **A capacity failure no longer looks like a lint failure.** `Lint and format`
-  ran on `macos-15` only to `brew install` SwiftLint and SwiftFormat, and when
-  GitHub's hosted macOS pool was short a runner the job ended red with the
-  annotation *"the job was not acquired by Runner of type hosted"* — not one
-  step executed, nothing linted, nothing disproved — beside a green Xcode build.
-  Neither tool needs Xcode: `Scripts/ci/lint.sh` and `Scripts/ci/format.sh`
-  already run both from their published Linux images when no binary is
-  installed, so the job now runs on `ubuntu-24.04` with the same pinned
-  `.swiftlint.yml` and `.swiftformat` rule sets and the same verdict, leaving
-  the macOS pool to the two jobs that genuinely need it. The retry path for a
-  run that still cannot get a machine is written down in
-  `docs/development/continuous-integration.md` — re-run the failed jobs on the
-  same commit; a shortage is never a test result.
-
-## [3.0.0-nova.1] - 2026-10-28
-
-> `v2.0.0` was scheduled as depth and fixes and introduced no gate of its own,
-> so the train moves to the first stop that switches another feature on and
-> carries that work here. With this stop every staged feature the train has ever
-> carried is visible: **18 of 18**. The three *never* rows are unchanged and
-> still explained in `docs/product/WHAT_DOES_NOT_EXIST.md`.
-
-### Added
 
 - **Nova Assistant — the last staged feature, now on.** Nova reads the stores
   the rest of the app reads — identities, profiles, the library, the signing
@@ -193,7 +132,132 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   (JIT, Metal, a newer minimum OS). The launch itself needs a device and is
   not claimed. See `docs/architecture/sideloading.md`.
 
+- **The Export Center.** Every signed artifact ZynSign holds is now one list:
+  newest first, filtered by verification, availability, and date, each row
+  carrying the application it came from, the bytes it holds, its last
+  independent verification, and whether it has been handed to the system.
+  `ExportsCenterView` presents the catalog `ExportCenter` already kept —
+  verifying an artifact again, sharing it, revealing its source application in
+  the Library, or deleting it — and the detail screen links each artifact back
+  to the signing operation that produced it. The list is a projection of the
+  catalog, never an edited copy: an artifact whose file is gone stays listed and
+  says so, a failed verification is reported and changes no row it did not
+  measure, and deleting an export never touches the imported application or the
+  signing history beside it. Reachable from Home, the Library toolbar, a
+  signing result, and Settings.
+- **Signing History.** `SigningHistoryView` is the journal's own screen — every
+  run of the signing pipeline, including the ones that produced no artifact.
+  A failure is a first-class row: the stage it stopped at, the outcome it
+  recorded, and the same detail screen the Export Center links to. Without it a
+  failed signing left no trace the user could reach, because only successes put
+  a file in export storage. Filter by outcome, verification, and date; clear
+  the journal without touching a single artifact.
+- **Entitlements Studio.** Read-only entitlements and profile compatibility
+  reachable from an application's detail screen, its signing run, and
+  Settings → Diagnostics.
+- **The Developer Identity Center.** Teams, identity health, certificate and
+  profile inspectors, conflicts, expiration forecast, and the identity timeline,
+  with the recommended identity surfaced on the signing screen.
+- **Mission Control.** Home → Refresh Everything: repository refresh, a library
+  re-read, and cache cleanup in one pass, with a report of what completed and
+  what was unavailable.
+- **Installation delivery hand-off.** Sign → Deliver… builds the OTA manifest,
+  the percent-encoded install link, an on-device QR, and the step guides for
+  OTA, MDM, and host tooling. ZynSign uploads nothing, hosts nothing, and never
+  learns an install outcome; `InstallationCapabilityAssessment` keeps in-app
+  installation unavailable on every path.
+- **The local activity journal.** Settings → Analytics records category, fixed
+  slug, outcome, and time in a bounded on-device journal, with live counts,
+  recent activity, one-tap clear, and export. Off-device measurement stays off:
+  `AnalyticsPolicy.isEnabled` is `false`, the endpoint is `nil`, and the counter
+  reads zero.
+- **The Installation Workspace.** Delivery readiness checklists, the installed
+  applications library, delivery attempts and confirmations, installation
+  history, the artifact relationship view, and storage awareness — from
+  Settings → Devices, a signing result, and the Smart Workspace's Install Health
+  card.
+- **The Performance Engine dashboard.** Settings → Advanced → Performance shows
+  the library and index counts, cache statistics by category, the search index's
+  status, benchmarks with regression detection, and manual optimization.
+- **The Smart Workspace.** Home becomes the command center at `v1.0.0-rc.2`:
+  a daypart greeting, widgets ordered by what the person actually opens,
+  Continue Last Session, and the Nova Assistant's on-device suggestions when
+  that feature ships. The classic dashboard's import doors stay where they were;
+  its counts, favourites, and recently imported summaries move into the widgets
+  that already carry the same facts.
+- **Signing Health Score.** Pre-sign compatibility assessment predicts whether an
+  identity, profile, and bundle will succeed before the pipeline runs.
+
+### Changed
+
+- **Native XCTest evidence stays downloadable after a pass and after a failure.**
+  The Build and Release macOS jobs upload the `.xcresult` bundle and the test
+  logs as `xctest-results-<run-id>-<attempt>`, kept for 14 days. The job
+  summary records the Xcode version, the simulator destination, and a concise
+  count. DerivedData, signing certificates, private keys, and provisioning
+  profiles are not in that artifact. A missing bundle warns and does not fail
+  the job. See `docs/development/continuous-integration.md`.
+
+- **The sideloading rows are measured, not assumed.** `Settings → Sideloading`
+  passed `buildCarriesLocalTunnelEntitlement: false` as a constant, so every
+  build said the same thing about the entitlement that decides whether a device
+  session can exist — true of an App Store build, a guess about a self-signed or
+  enterprise one. `ProcessEntitlements` now reads the running binary's own
+  signature once at composition (`SecTaskEntitlementReader`), and the screen
+  shows three distinct states: **granted**, **absent** (read, and not there), or
+  **not established** (nothing readable — preview, simulator). iOS exposes no
+  process-entitlement query (the macOS `SecTask` API is absent from the overlay),
+  so the reader parses the app's **own embedded signature** with the same
+  Mach-O/slot decoder the Entitlements Studio uses — the same claims the system
+  would consult. `nil` never
+  collapses into `false`: an unmeasured build stays unsupported, but its note
+  says the signature could not be read instead of claiming the entitlement is
+  missing. `get-task-allow` keeps the Studio's rule: `declaresGetTaskAllow`
+  reports the claim's presence, `allowsDebugging` reports its value, so a
+  profile that declares `false` is never read as one that declares nothing. A build that carries the entitlement lights the rows up on its own
+  and still needs a pairing record and a composed transport — and what a device
+  does with the session remains the device's answer. See
+  `docs/architecture/sideloading.md`.
+
+- **The certificate sheet types itself, and nothing is ignored silently.** The
+  password field holds focus from the first frame, Return submits, an eye toggles
+  reveal; a multi-file selection and a file chosen mid-import are both answered
+  with what to do next. `Info.plist` now declares the types its document entries
+  already referenced (`com.apple.itunes.ipa`, `com.apple.mobileprovision`,
+  `com.rsa.pkcs-12`, `com.microsoft.pkcs12`) and owns `io.zynsign.tipa`, and a
+  file handed to ZynSign that is none of the accepted kinds lands in the Import
+  Hub as a refusal that names what ZynSign does take.
+
+- The release train reaches its first stable stop. Every staged feature except
+  the Nova Assistant — which ships at `v3.0.0-nova.1` — is switched on in a
+  Release build; `Scripts/audit_release_gating.py` reports 18 features wired,
+  one still ahead, and the honest limitations page records the limits that stay.
+- **`Scripts/audit_presentation_ports.py`** makes the shell's presentation ports
+  mechanical. A `*Presentation` value the shell never installs hands every
+  caller a silent no-op: the surface exists, the tests pass, and nothing can
+  reach it — which is exactly how the Export Center stayed invisible while its
+  use case, model, and detail screen were complete. The audit fails on a port
+  the shell does not install and on a deferral that has since been repaid.
+
 ### Fixed
+
+- **Real-device Import, Settings crash, & 120Hz UI smoothness overhaul.** Replaced `.fileImporter` and `PresentationSettle.presentAndConfirm` polling across `ImportHubView`, `CertificateManagerView`, `ProfilesView`, `Library`, `Home`, `TweakLibraryView`, `UnifiedSigningHubView`, `CertificateToolsSheets`, `FilesView`, and `SigningView` with `ZDocumentPicker` (`UIDocumentPickerViewController(..., asCopy: true)`) + `PickedDocumentStaging`, set `LSSupportsOpeningDocumentsInPlace = false` in `Info.plist`, enabled automatic Library addition for clean `.ipa`/`.tipa` packages, switched `RootView` from a 5-stack `ZStack` (`ShellTabBar`) to isolated native `TabView`, redesigned `SettingsView` into Ksign-style `.insetGrouped` sections with modal sheet isolation for `.searchable` sub-screens, and removed per-card offscreen blur/shadow passes in `ZGlass`.
+
+- **Xcode 26.3, Swift 6 concurrency & test-suite hardening.** Resolved Swift 6 strict-concurrency and Xcode 26.3 SDK issues across `Domain`, `Application`, `Platform`, and `Presentation` (`@MainActor` `ObservableObject` `nonisolated init` backing-storage initialization, `Identifiable` conformances, Domain wrapper conversions, `RootView` navigation routing, `LocalTransferHTTP.Method.isReadOnly`, `SelfUpdateChecker`, `TweakStagingResolver`, `FileArchiveTools`, and explicit PKCS#12 `UTType` identifiers), aligned `SideloadOptionsDraft.allowsTweakCollisionSuffixing` with `SideloadSigningOptions.none`, added compact `bundleID` → `bundleIdentifier` normalization in `EncodedCatalogPayloadDecoder`, routed `SyncPortableWorkspaceIntent` through the live `ApplicationEnvironment`, added Xcode 26.3 `xcresulttool` fallback in `Scripts/ci/annotate_test_failures.sh`, and pruned 775 lines of retired scaffolding.
+
+- **A capacity failure no longer looks like a lint failure.** `Lint and format`
+  ran on `macos-15` only to `brew install` SwiftLint and SwiftFormat, and when
+  GitHub's hosted macOS pool was short a runner the job ended red with the
+  annotation *"the job was not acquired by Runner of type hosted"* — not one
+  step executed, nothing linted, nothing disproved — beside a green Xcode build.
+  Neither tool needs Xcode: `Scripts/ci/lint.sh` and `Scripts/ci/format.sh`
+  already run both from their published Linux images when no binary is
+  installed, so the job now runs on `ubuntu-24.04` with the same pinned
+  `.swiftlint.yml` and `.swiftformat` rule sets and the same verdict, leaving
+  the macOS pool to the two jobs that genuinely need it. The retry path for a
+  run that still cannot get a machine is written down in
+  `docs/development/continuous-integration.md` — re-run the failed jobs on the
+  same commit; a shortage is never a test result.
 
 - **A package and a certificate are read by their content, not by their name.**
   The document picker's own answer was being overruled before the file was
@@ -391,98 +455,6 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   `KeychainIdentityRegistry.remove` judges every item on its own, so an identity
   can still be forgotten — and re-imported — while an unreadable record stays
   fail-closed for the reads that must not guess.
-
-### Changed
-
-- **The certificate sheet types itself, and nothing is ignored silently.** The
-  password field holds focus from the first frame, Return submits, an eye toggles
-  reveal; a multi-file selection and a file chosen mid-import are both answered
-  with what to do next. `Info.plist` now declares the types its document entries
-  already referenced (`com.apple.itunes.ipa`, `com.apple.mobileprovision`,
-  `com.rsa.pkcs-12`, `com.microsoft.pkcs12`) and owns `io.zynsign.tipa`, and a
-  file handed to ZynSign that is none of the accepted kinds lands in the Import
-  Hub as a refusal that names what ZynSign does take.
-
-## [1.0.0] - 2026-10-28
-
-> The train's last stops before this one carried no new feature of their own:
-> `v0.9.0-beta.3`, `v0.9.0-beta.4`, `v1.0.0-rc.1`, `v1.0.0-rc.2` and
-> `v1.0.0-rc.3` were fixes-only rehearsals of the surfaces below. `1.0.0` is the
-> stop that switches them on together, and nothing in it is new code that has
-> not been compiled and tested since its alpha.
-
-### Added
-
-- **The Export Center.** Every signed artifact ZynSign holds is now one list:
-  newest first, filtered by verification, availability, and date, each row
-  carrying the application it came from, the bytes it holds, its last
-  independent verification, and whether it has been handed to the system.
-  `ExportsCenterView` presents the catalog `ExportCenter` already kept —
-  verifying an artifact again, sharing it, revealing its source application in
-  the Library, or deleting it — and the detail screen links each artifact back
-  to the signing operation that produced it. The list is a projection of the
-  catalog, never an edited copy: an artifact whose file is gone stays listed and
-  says so, a failed verification is reported and changes no row it did not
-  measure, and deleting an export never touches the imported application or the
-  signing history beside it. Reachable from Home, the Library toolbar, a
-  signing result, and Settings.
-- **Signing History.** `SigningHistoryView` is the journal's own screen — every
-  run of the signing pipeline, including the ones that produced no artifact.
-  A failure is a first-class row: the stage it stopped at, the outcome it
-  recorded, and the same detail screen the Export Center links to. Without it a
-  failed signing left no trace the user could reach, because only successes put
-  a file in export storage. Filter by outcome, verification, and date; clear
-  the journal without touching a single artifact.
-- **Entitlements Studio.** Read-only entitlements and profile compatibility
-  reachable from an application's detail screen, its signing run, and
-  Settings → Diagnostics.
-- **The Developer Identity Center.** Teams, identity health, certificate and
-  profile inspectors, conflicts, expiration forecast, and the identity timeline,
-  with the recommended identity surfaced on the signing screen.
-- **Mission Control.** Home → Refresh Everything: repository refresh, a library
-  re-read, and cache cleanup in one pass, with a report of what completed and
-  what was unavailable.
-- **Installation delivery hand-off.** Sign → Deliver… builds the OTA manifest,
-  the percent-encoded install link, an on-device QR, and the step guides for
-  OTA, MDM, and host tooling. ZynSign uploads nothing, hosts nothing, and never
-  learns an install outcome; `InstallationCapabilityAssessment` keeps in-app
-  installation unavailable on every path.
-- **The local activity journal.** Settings → Analytics records category, fixed
-  slug, outcome, and time in a bounded on-device journal, with live counts,
-  recent activity, one-tap clear, and export. Off-device measurement stays off:
-  `AnalyticsPolicy.isEnabled` is `false`, the endpoint is `nil`, and the counter
-  reads zero.
-- **The Installation Workspace.** Delivery readiness checklists, the installed
-  applications library, delivery attempts and confirmations, installation
-  history, the artifact relationship view, and storage awareness — from
-  Settings → Devices, a signing result, and the Smart Workspace's Install Health
-  card.
-- **The Performance Engine dashboard.** Settings → Advanced → Performance shows
-  the library and index counts, cache statistics by category, the search index's
-  status, benchmarks with regression detection, and manual optimization.
-- **The Smart Workspace.** Home becomes the command center at `v1.0.0-rc.2`:
-  a daypart greeting, widgets ordered by what the person actually opens,
-  Continue Last Session, and the Nova Assistant's on-device suggestions when
-  that feature ships. The classic dashboard's import doors stay where they were;
-  its counts, favourites, and recently imported summaries move into the widgets
-  that already carry the same facts.
-- **Signing Health Score.** Pre-sign compatibility assessment predicts whether an
-  identity, profile, and bundle will succeed before the pipeline runs.
-
-### Changed
-
-- The release train reaches its first stable stop. Every staged feature except
-  the Nova Assistant — which ships at `v3.0.0-nova.1` — is switched on in a
-  Release build; `Scripts/audit_release_gating.py` reports 18 features wired,
-  one still ahead, and the honest limitations page records the limits that stay.
-- **`Scripts/audit_presentation_ports.py`** makes the shell's presentation ports
-  mechanical. A `*Presentation` value the shell never installs hands every
-  caller a silent no-op: the surface exists, the tests pass, and nothing can
-  reach it — which is exactly how the Export Center stayed invisible while its
-  use case, model, and detail screen were complete. The audit fails on a port
-  the shell does not install and on a deferral that has since been repaid.
-
-### Fixed
 
 - **Import reads the file that was chosen, not the one the screen allows.** A
   package whose name did not look like the accepted kind was refused before its

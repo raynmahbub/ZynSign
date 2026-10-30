@@ -53,6 +53,8 @@ struct ApplicationLibraryView: View {
 
     /// While a vault unlock attempt is running.
     @State private var isUnlockingVault = false
+    @State private var isShowingDirectPicker = false
+    @State private var pendingDirectImportURLs: [URL] = []
 
     @AppStorage(LibraryPreferenceKeys.showsGrid) private var showsGrid = false
     @AppStorage(LibraryPreferenceKeys.sortOrder) private var storedSortOrder = LibrarySortMode.recentlyImported.rawValue
@@ -126,11 +128,26 @@ struct ApplicationLibraryView: View {
                     prompt: Text(features.powerFeatures ? "Name, Bundle ID, Developer, Team…" : "Name or Bundle ID")
                 )
                 .toolbar { toolbarContent }
-                .safeAreaInset(edge: .top) { ReleaseReadinessLink().padding(.horizontal).padding(.vertical, 6) }
                 .safeAreaInset(edge: .bottom) { floatingBar }
                 .disabled(model.isRemovingSelection)
                 // Files dropped anywhere on the Library go to the Import Hub.
                 .importDropTarget()
+        }
+        .sheet(
+            isPresented: $isShowingDirectPicker,
+            onDismiss: { consumeDirectImportURLsIfNeeded() }
+        ) {
+            ZDocumentPicker(
+                contentTypes: ImportablePackage.contentTypes,
+                allowsMultipleSelection: true,
+                onPick: { urls in
+                    pendingDirectImportURLs = urls
+                    isShowingDirectPicker = false
+                },
+                onCancel: {
+                    isShowingDirectPicker = false
+                }
+            )
         }
         .task { await prepare() }
         .task { loadVaultState() }
@@ -428,8 +445,26 @@ struct ApplicationLibraryView: View {
                     }
                     .buttonStyle(.plain)
                 } else {
-                    NavigationLink(value: LibraryRoute.details(id)) {
-                        row.equatable()
+                    HStack(spacing: ZSpacing.sm) {
+                        NavigationLink(value: LibraryRoute.details(id)) {
+                            row.equatable()
+                        }
+                        if features.signingInsights && state.entry.isArtifactAvailable {
+                            Button {
+                                ZHaptics.tap()
+                                path.append(.sign(id))
+                            } label: {
+                                Text("Sign")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(Color.accentColor)
+                                    .padding(.horizontal, ZSpacing.sm)
+                                    .padding(.vertical, ZSpacing.xxs)
+                                    .background(Color.accentColor.opacity(0.12), in: Capsule(style: .continuous))
+                                    .frame(minWidth: 44, minHeight: 44)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Sign \(ApplicationLibraryRowContent(entry: state.entry).name)")
+                        }
                     }
                 }
             }
@@ -880,50 +915,75 @@ struct ApplicationLibraryView: View {
                 }
                 .keyboardShortcut("a", modifiers: .command)
             } else {
-                if isQueueAvailable {
+                if isQueueAvailable && environment.signingQueue.jobs.contains(where: \.isActive) {
                     SigningQueueToolbarButton(queue: environment.signingQueue) {
                         signingQueuePresentation.present()
                     }
                 }
-                if !concealedRecordIDs.isEmpty || vaultOpen {
-                    Button {
-                        if vaultOpen { closeVault() } else { unlockVault() }
-                    } label: {
-                        if isUnlockingVault {
-                            ProgressView()
-                        } else {
-                            Label(
-                                vaultOpen ? "Close Vault" : "Open Vault",
-                                systemImage: vaultOpen ? "lock.open" : "lock.shield"
-                            )
+                Menu {
+                    if features.powerFeatures, case .loaded = model.phase {
+                        Section("Filter") {
+                            filterMenu
                         }
                     }
-                    .accessibilityHint(vaultOpen
-                        ? "Conceals hidden applications again."
-                        : "Authenticates, then shows the concealed applications for this session.")
-                }
-                if features.powerFeatures, case .loaded = model.phase {
-                    filterMenu
-                }
-                sortMenu
-                layoutToggle
-                if exportsPresentation.isAvailable {
-                    Button {
-                        ZHaptics.tap()
-                        exportsPresentation.present()
-                    } label: {
-                        Label("Export Center", systemImage: "shippingbox")
+                    Section("Sort & View") {
+                        sortMenu
+                        layoutToggle
                     }
-                    .accessibilityHint("Every signed artifact ZynSign holds, with verification, sharing, and deletion.")
-                }
-                Button {
-                    importPresentation.present()
+                    Section("Workspace") {
+                        if isQueueAvailable {
+                            Button {
+                                signingQueuePresentation.present()
+                            } label: {
+                                Label("Signing Queue", systemImage: "tray.full")
+                            }
+                        }
+                        if exportsPresentation.isAvailable {
+                            Button {
+                                ZHaptics.tap()
+                                exportsPresentation.present()
+                            } label: {
+                                Label("Export Center", systemImage: "shippingbox")
+                            }
+                        }
+                        if importPresentation.isAvailable {
+                            Button {
+                                importPresentation.present()
+                            } label: {
+                                Label("Import Hub", systemImage: "tray.and.arrow.down")
+                            }
+                        }
+                        if !concealedRecordIDs.isEmpty || vaultOpen {
+                            Button {
+                                if vaultOpen { closeVault() } else { unlockVault() }
+                            } label: {
+                                Label(
+                                    vaultOpen ? "Close Vault" : "Open Vault",
+                                    systemImage: vaultOpen ? "lock.open" : "lock.shield"
+                                )
+                            }
+                        }
+                    }
                 } label: {
-                    Label("Import Package…", systemImage: "plus")
+                    Label("Library Options", systemImage: "ellipsis.circle")
                 }
-                .disabled(!importPresentation.isAvailable)
+
+                Button {
+                    ZHaptics.tap()
+                    isShowingDirectPicker = true
+                } label: {
+                    Label("Import IPA", systemImage: "plus")
+                }
             }
         }
+    }
+
+    private func consumeDirectImportURLsIfNeeded() {
+        guard !pendingDirectImportURLs.isEmpty else { return }
+        let urls = pendingDirectImportURLs
+        pendingDirectImportURLs = []
+        _ = environment.importHub.receive(urls, origin: .documentPicker)
+        importPresentation.present()
     }
 
     private var filterMenu: some View {

@@ -191,14 +191,17 @@ struct TweakLibraryView: View {
                 TweakAutoInjectRuleSheet(tweak: item, ruleStore: ruleStore)
             }
         }
-        .fileImporter(
-            isPresented: $isImporting,
-            allowedContentTypes: [.data, .item, .folder, .zip],
-            allowsMultipleSelection: true
-        ) { result in
-            if case .success(let urls) = result {
-                Task { await model.importFiles(at: urls) }
-            }
+        .sheet(isPresented: $isImporting) {
+            ZDocumentPicker(
+                contentTypes: ImportablePackage.tweakContentTypes,
+                allowsMultipleSelection: true,
+                onPick: { urls in
+                    isImporting = false
+                    guard !urls.isEmpty else { return }
+                    Task { await model.importFiles(at: urls) }
+                },
+                onCancel: { isImporting = false }
+            )
         }
         .alert("Import", isPresented: Binding(
             get: { model.importResultMessage != nil },

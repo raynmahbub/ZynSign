@@ -125,21 +125,19 @@ struct ZSettingsLabel: View {
     let title: String
     var subtitle: String? = nil
     var symbol: String? = nil
+    var tint: Color = .accentColor
 
     var body: some View {
         HStack(alignment: .center, spacing: ZSpacing.sm) {
             if let symbol {
-                Image(systemName: symbol)
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 26, alignment: .center)
+                ZSettingsIconBadge(symbol: symbol, tint: tint)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.body)
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
-                if let subtitle {
+                if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -147,9 +145,29 @@ struct ZSettingsLabel: View {
                 }
             }
         }
+        .padding(.vertical, 2)
         // The row's own label is the accessible name; the explanation is read
         // with it rather than as a separate element.
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Decorative rounded-square icon badge matching iOS Settings / Ksign rows.
+struct ZSettingsIconBadge: View {
+
+    let symbol: String
+    let tint: Color
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: ZRadius.sm, style: .continuous)
+                .fill(tint.gradient)
+            Image(systemName: symbol)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white)
+        }
+        .frame(width: ZSpacing.xl, height: ZSpacing.xl)
+        .accessibilityHidden(true)
     }
 }
 

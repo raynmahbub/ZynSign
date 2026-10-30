@@ -1,24 +1,24 @@
 # What Does Not Exist — Honest Limitations
 
-> ZynSign `v3.0.0` (market `3.0.0`, build `12`) — **18 staged · 18 on · 0 still ahead · 3 never**.
+> ZynSign `v0.1.0-alpha.2` (market `0.1.0`, build `8`) — **18 staged · 8 on · 10 still ahead · 3 never**.
 >
 > **Wired** means the capability is compiled into the app and reachable. A Release
-> build of `v1.0.0` switches on every feature up to and including that stop on the
-> [release train](../releases/release-train.md); Debug builds show all of them.
-> **Still ahead** means the code is present and tested but the train has not
-> reached it — the rows below say which stop turns each one on.
+> build of `v0.1.0-alpha.2` switches on every feature up to and including that
+> stop on the [release train](../releases/release-train.md); Debug builds show all
+> of them.
+> **Still ahead** means the code is present and tested in source, and turns on in
+> Release builds at its scheduled stop along the train (`0.1.0-alpha.3` →
+> `0.9.0-beta.1..4` → `1.0.0-rc.1..3` → `1.0.0` → `2.0.0` → `3.0.0-nova.1` → `3.0.0`).
 > **Never** means no release will claim it: those rows are recorded decisions, not
 > missing features.
 >
-> The count is the point. Eighteen features are staged, and `v3.0.0` completes
-> the Nova train with **all eighteen** switched on: the Nova Assistant shipped
-> at `3.0.0-nova.1`, the stop between `1.0.0` and it (`v2.0.0`, depth and fixes)
-> introduced no gate, and `v3.0.0` finishes the unified Free Apple ID + Paid
-> Certificate hub, wire-free loopback bridge, multi-app host container, tweak
-> studio, and foreground LAN/WebDAV workspace. Nothing is left ahead on the
-> train, and **nothing beyond the platform's own boundaries is claimed**: the
-> three *never* rows below are platform facts and recorded decisions, not work
-> that this stop silently overrode. In-app installation without an entitled
+> The count is the point. Eighteen `ReleaseFeature` capabilities are staged in
+> source; `v0.1.0-alpha.2` switches **eight** of them on in Release builds
+> (Certificate Studio, Provisioning Profile Manager, App Store, Downloads,
+> Library Power Features, Smart Sign, Signing Queue, and Signing Presets), while
+> ten remain gated for later stops on the ordered train and **nothing beyond the
+> platform's own boundaries is claimed**: the three *never* rows below are
+> platform facts and recorded decisions. In-app installation without an entitled
 > tunnel, JIT/private-framework linkage, and off-device measurement stay as
 > recorded, and the app names the requirement each one needs rather than
 > offering a button that cannot work.

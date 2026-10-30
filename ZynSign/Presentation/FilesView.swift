@@ -110,11 +110,16 @@ struct FilesView: View {
                 }
             }
             .refreshable { model.reload() }
-            .fileImporter(isPresented: $isShowingImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
-                switch result {
-                case .success(let urls): importFiles(urls)
-                case .failure: break
-                }
+            .sheet(isPresented: $isShowingImporter) {
+                ZDocumentPicker(
+                    contentTypes: [.item, .data],
+                    allowsMultipleSelection: true,
+                    onPick: { urls in
+                        isShowingImporter = false
+                        importFiles(urls)
+                    },
+                    onCancel: { isShowingImporter = false }
+                )
             }
             .alert("New Folder", isPresented: $isShowingNewFolder) {
                 TextField("Folder name", text: $newFolderName)

@@ -187,7 +187,17 @@ struct SigningView: View {
             }
         }
         .onDisappear { preflightTask?.cancel() }
-        .fileImporter(isPresented: $showProfileImporter, allowedContentTypes: [.data, .item], allowsMultipleSelection: false) { result in handleProfilePicker(result) }
+        .sheet(isPresented: $showProfileImporter) {
+            ZDocumentPicker(
+                contentTypes: ImportablePackage.profileContentTypes,
+                allowsMultipleSelection: false,
+                onPick: { urls in
+                    showProfileImporter = false
+                    handleProfilePicker(.success(urls))
+                },
+                onCancel: { showProfileImporter = false }
+            )
+        }
         .sheet(item: $shareItem) { item in ShareSheet(url: item.url) }
         .sheet(isPresented: $isPresentingWorkspace) {
             NavigationStack {

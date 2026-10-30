@@ -175,12 +175,16 @@ private struct HostContainerWorkshopSections: View {
                 }
             }
         }
-        .fileImporter(
-            isPresented: $isImportingIPA,
-            allowedContentTypes: [UTType(filenameExtension: "ipa") ?? .data],
-            allowsMultipleSelection: false
-        ) { result in
-            handleStageImport(result)
+        .sheet(isPresented: $isImportingIPA) {
+            ZDocumentPicker(
+                contentTypes: ImportablePackage.contentTypes,
+                allowsMultipleSelection: false,
+                onPick: { urls in
+                    isImportingIPA = false
+                    handleStageImport(.success(urls))
+                },
+                onCancel: { isImportingIPA = false }
+            )
         }
         .sheet(item: Binding(
             get: { exportedShareURL.map { IdentifiableURL(url: $0) } },
@@ -540,38 +544,43 @@ private struct DeviceBridgeWorkshopSections: View {
                 Label(err, systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.red)
             }
         }
-        .fileImporter(
-            isPresented: $isImportingPairing,
-            allowedContentTypes: [
-                UTType(filenameExtension: "mobiledevicepairing") ?? .propertyList,
-                .propertyList,
-                .data
-            ],
-            allowsMultipleSelection: false
-        ) { result in
-            guard case .success(let urls) = result, let url = urls.first else { return }
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            if let data = try? Data(contentsOf: url) {
-                _ = try? bridge.importPairingFile(data: data)
-                ZHaptics.success()
-            }
+        .sheet(isPresented: $isImportingPairing) {
+            ZDocumentPicker(
+                contentTypes: [
+                    UTType(filenameExtension: "mobiledevicepairing") ?? .propertyList,
+                    .propertyList,
+                    .data,
+                    .item
+                ],
+                allowsMultipleSelection: false,
+                onPick: { urls in
+                    isImportingPairing = false
+                    guard let url = urls.first else { return }
+                    if let data = try? Data(contentsOf: url) {
+                        _ = try? bridge.importPairingFile(data: data)
+                        ZHaptics.success()
+                    }
+                },
+                onCancel: { isImportingPairing = false }
+            )
         }
-        .fileImporter(
-            isPresented: $isPickingSignedIPA,
-            allowedContentTypes: [UTType(filenameExtension: "ipa") ?? .data],
-            allowsMultipleSelection: false
-        ) { result in
-            guard case .success(let urls) = result, let url = urls.first else { return }
-            let targetID = installBundleID
-            Task {
-                let scoped = url.startAccessingSecurityScopedResource()
-                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                if let outcome = try? await bridge.installSignedPackage(at: url, bundleIdentifier: targetID),
-                   outcome.isInstalled {
-                    ZHaptics.success()
-                }
-            }
+        .sheet(isPresented: $isPickingSignedIPA) {
+            ZDocumentPicker(
+                contentTypes: ImportablePackage.contentTypes,
+                allowsMultipleSelection: false,
+                onPick: { urls in
+                    isPickingSignedIPA = false
+                    guard let url = urls.first else { return }
+                    let targetID = installBundleID
+                    Task {
+                        if let outcome = try? await bridge.installSignedPackage(at: url, bundleIdentifier: targetID),
+                           outcome.isInstalled {
+                            ZHaptics.success()
+                        }
+                    }
+                },
+                onCancel: { isPickingSignedIPA = false }
+            )
         }
     }
 }

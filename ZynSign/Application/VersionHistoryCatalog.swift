@@ -28,49 +28,6 @@ enum VersionHistoryCatalog {
     /// Every entry, newest first.
     static let entries: [VersionHistoryEntry] = [
         VersionHistoryEntry(
-            tag: "v3.0.0",
-            marketingVersion: "3.0.0",
-            buildNumber: 12,
-            releasedAt: DateComponents(year: 2026, month: 10, day: 30),
-            headline: "3.0.0 completes the Nova release train with unified Free Apple ID and Paid Certificate signing, wire-free loopback device installation, the zero-slot multi-app container, and full package/tweak/WebDAV workspace tooling.",
-            highlights: [
-                "Unified Signing & Provisioning Hub: choose Free Apple ID (GSA + 2FA + automatic RSA CSR, certificate, team-scoped App ID, App Group, and 7-day profile renewal) or Paid .p12/.zcert Certificates in one workflow.",
-                "Wire-Free On-Device Installer & Multi-App Container: stream signed IPAs over loopback lockdownd + AFC + mobile.installation_proxy with a pairing record, or stage unlimited CS_ADHOC guest apps inside ZynSign's zero-slot host container.",
-                "Tweak & Binary Studio: .deb (ar + gzip/xz/lzma tar) extraction, Mach-O load-command and rpath inspector, per-dylib injection toggles, Liquid Glass SDK v26 patcher, and PPQ protection.",
-                "LAN WebDAV & Portable Workspace: browser drag-and-drop plus Finder/Windows Explorer WebDAV server, Documents/ZynSignPortable mirror, Plist/Hex/Text file editors, and encrypted DNS shield generator.",
-                "Build & Hygiene Hardening: resolved Swift 6 / Xcode 26.3 concurrency and SDK issues across local transfer, version comparison, archive permissions, tweak staging, and PKCS#12 file pickers, and removed retired scaffolding.",
-            ]
-        ),
-        VersionHistoryEntry(
-            tag: "v3.0.0-nova.1",
-            marketingVersion: "3.0.0",
-            buildNumber: 11,
-            releasedAt: DateComponents(year: 2026, month: 10, day: 28),
-            headline: "3.0.0-nova.1 switches on the last staged feature — the Nova Assistant — beside the Sideload Studio, the screen that keeps a free Apple ID's seven-day builds running.",
-            highlights: [
-                "Nova Assistant: on-device, rule-based suggestions about expiring certificates and profiles, missing signing materials, duplicate bundle identifiers, apps no profile covers, and a backup that is overdue. Every suggestion opens the screen that owns the work; none of them acts.",
-                "Sideload Studio: one row per signed application, the earlier of its profile and certificate expiry, the account that signed it against the limits that account publishes, and a re-sign that hands the build back to the ordinary signing flow.",
-                "Zeus: violet lightning over deep indigo, and the theme a new install opens on. Every earlier theme stays selectable and a stored choice is never rewritten.",
-                "Home gains a refresh row that says what stops launching next, and stays out of the way until the journal has something to report.",
-                "The one stop that carried no new gate — v2.0.0 — ships its depth and fixes here; every staged feature the train has carried is now visible.",
-                "The three limits stay recorded and unchanged: in-app installation, pairing/JIT/mux, and off-device measurement.",
-            ]
-        ),
-        VersionHistoryEntry(
-            tag: "v1.0.0",
-            marketingVersion: "1.0.0",
-            buildNumber: 10,
-            releasedAt: DateComponents(year: 2026, month: 10, day: 28),
-            headline: "1.0.0 switches on every staged feature the train has carried — including the Export Center and the signing history that make what you signed findable again.",
-            highlights: [
-                "Export Center: every signed artifact in one list, with its verification, its provenance, sharing, reveal in Library, and deletion. An artifact whose file is gone stays listed and says so.",
-                "Signing History: the journal's own screen, including the runs that produced no artifact — the only place a failed signing is explained in full.",
-                "Entitlements Studio, the Developer Identity Center, Mission Control, the installation delivery hand-off, the local activity journal, the Installation Workspace, the Performance Engine dashboard, the Smart Workspace, and the Signing Health Score.",
-                "Home becomes the command center: greeting, widgets ordered by what you open, and Continue Last Session. Its import doors are unchanged.",
-                "The Nova Assistant is the one staged feature still ahead: it ships at v3.0.0-nova.1.",
-            ]
-        ),
-        VersionHistoryEntry(
             tag: "v0.1.0-alpha.2",
             marketingVersion: "0.1.0",
             buildNumber: 8,

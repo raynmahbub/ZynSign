@@ -56,6 +56,8 @@ struct HomeView: View {
     @State private var isShowingSources = false
     /// The Sideload Studio, opened from the refresh row.
     @State private var isShowingSideloadStudio = false
+    @State private var isShowingDirectPicker = false
+    @State private var pendingDirectImportURLs: [URL] = []
     @AppStorage(LibraryPreferenceKeys.scope) private var libraryScope = LibraryScope.all.storageValue
     /// Whether first-launch onboarding has been completed.
     ///
@@ -122,7 +124,8 @@ struct HomeView: View {
                         }
                     }
                     ZHomeImportTarget {
-                        importPresentation.chooseFiles()
+                        ZHaptics.tap()
+                        isShowingDirectPicker = true
                     }
                     ZHomeDirectLinkField(
                         text: $directLink,
@@ -162,10 +165,26 @@ struct HomeView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { importPresentation.present() } label: {
-                        Label("Import IPA", systemImage: "square.and.arrow.down")
+                    Menu {
+                        Button {
+                            ZHaptics.tap()
+                            isShowingDirectPicker = true
+                        } label: {
+                            Label("Import IPA from Files…", systemImage: "plus.app")
+                        }
+                        if importPresentation.isAvailable {
+                            Button {
+                                importPresentation.present()
+                            } label: {
+                                Label("Open Import Hub", systemImage: "tray.and.arrow.down")
+                            }
+                        }
+                    } label: {
+                        Label("Import IPA", systemImage: "plus")
+                    } primaryAction: {
+                        ZHaptics.tap()
+                        isShowingDirectPicker = true
                     }
-                    .disabled(!importPresentation.isAvailable)
                 }
             }
             .task { await reload() }
@@ -186,11 +205,34 @@ struct HomeView: View {
             .navigationDestination(item: $quickSignEntry) { entry in
                 SigningView(entry: entry)
             }
-            .navigationDestination(isPresented: $isShowingSigningMaterials) {
-                SigningMaterialsView(
-                    initialSelection: signingMaterialsSelection,
-                    embedsNavigationStack: false
+            .sheet(
+                isPresented: $isShowingDirectPicker,
+                onDismiss: { consumeDirectImportURLsIfNeeded() }
+            ) {
+                ZDocumentPicker(
+                    contentTypes: ImportablePackage.contentTypes,
+                    allowsMultipleSelection: true,
+                    onPick: { urls in
+                        pendingDirectImportURLs = urls
+                        isShowingDirectPicker = false
+                    },
+                    onCancel: {
+                        isShowingDirectPicker = false
+                    }
                 )
+            }
+            .sheet(isPresented: $isShowingSigningMaterials) {
+                NavigationStack {
+                    SigningMaterialsView(
+                        initialSelection: signingMaterialsSelection,
+                        embedsNavigationStack: false
+                    )
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { isShowingSigningMaterials = false }
+                        }
+                    }
+                }
                 .id(signingMaterialsSelection)
             }
             .sheet(isPresented: $isShowingIPSWBrowser) {
@@ -204,7 +246,14 @@ struct HomeView: View {
             }
             .sheet(isPresented: $isShowingSources) {
                 if let store = environment.storeBrowser {
-                    StoreSourcesView(model: store)
+                    NavigationStack {
+                        StoreSourcesView(model: store)
+                            .toolbar {
+                                ToolbarItem(placement: .confirmationAction) {
+                                    Button("Done") { isShowingSources = false }
+                                }
+                            }
+                    }
                 }
             }
             .alert(
@@ -400,6 +449,14 @@ struct HomeView: View {
     /// Hands a direct link to the Download Center, which owns the transfer
     /// from that point. ZynSign does not fetch an `.ipa` from a URL on its
     /// own, and the message says which area took it so the result is findable.
+    private func consumeDirectImportURLsIfNeeded() {
+        guard !pendingDirectImportURLs.isEmpty else { return }
+        let urls = pendingDirectImportURLs
+        pendingDirectImportURLs = []
+        _ = environment.importHub.receive(urls, origin: .documentPicker)
+        importPresentation.present()
+    }
+
     private func submitDirectLink(_ link: String) {
         guard let center = environment.downloadCenter else {
             linkNotice = "The Download Center is not available in this build."

@@ -19,7 +19,7 @@ before it.
 
 | | |
 |---|---|
-| Status | **Shipped on train (`v3.0.0`, `.nova`, build `12`).** Smart Workspace (`rc2`), Nova Assistant (`nova1`), and the `v3.0.0` Unified Signing & Container Hub, Wire-Free Device Bridge, Tweak & Binary Studio, and Foreground LAN/WebDAV Workspace are compiled and wired across the four layers. |
+| Status | **Implemented in source; staged on the release train (current published stop: `v0.1.0-alpha.2`, `.alpha2`, build `8`).** Smart Workspace (`rc2`) and Nova Assistant (`nova1`) switch on at their scheduled stops along the train (`0.1.0-alpha.3` → `0.9.0-beta.1..4` → `1.0.0-rc.1..3` → `1.0.0` → `2.0.0` → `3.0.0-nova.1` → `3.0.0`). |
 | Train | `v0.0.1-dev.1` → the first build (`v0.0.1`) → the alphas → the betas → the RCs → `v1.0.0` → `v2.0.0` (depth, no new gates) → `v3.0.0-nova.1` (Nova Assistant) → `v3.0.0` (the rest of this document). Which stop is current is `python3 Scripts/release_train.py current --tag`; this row does not claim one. |
 | Preview | Debug builds show everything; `-ZynSignReleaseStage nova1` previews the exact release. |
 | Nevers | Unchanged: no in-app installation claim, no Pairing/JIT/Mux, no off-device analytics. Nova is rule-based and on-device; it recommends, it never acts. |
