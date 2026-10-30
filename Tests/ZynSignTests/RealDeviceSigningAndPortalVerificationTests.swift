@@ -11,36 +11,40 @@ final class RealDeviceSigningAndPortalVerificationTests: XCTestCase {
     // MARK: - 1. Wildcard Entitlement Concretization
 
     func testConcreteProfileEntitlementsExpandsWildcardAppIDAndKeychainGroups() throws {
-        let profile = ProvisioningProfile(
-            uuid: "00000000-1111-2222-3333-444444444444",
-            name: "Wildcard Dev Profile",
-            appIDName: "Wildcard",
-            applicationIdentifierPrefix: ["TEAM998877"],
-            teamIdentifier: ["TEAM998877"],
-            teamName: "Zyn Team",
-            creationDate: Date(timeIntervalSince1970: 1_700_000_000),
-            expirationDate: Date(timeIntervalSince1970: 1_900_000_000),
-            entitlements: [
-                "application-identifier": .string("TEAM998877.*"),
-                "com.apple.developer.team-identifier": .string("TEAM998877"),
-                "get-task-allow": .bool(true),
-                "keychain-access-groups": .array([
-                    .string("TEAM998877.*"),
-                    .string("TEAM998877.com.zyn.shared.keychain")
-                ]),
-                "com.apple.security.application-groups": .array([
-                    .string("group.com.zyn.shared")
-                ])
-            ],
-            provisionedDevices: ["00008110-0011223344556677"],
-            provisionsAllDevices: false,
-            developerCertificates: [],
-            platforms: ["iOS"],
-            isXcodeManaged: false
+        let profileXML = Data(
+            """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <plist version="1.0"><dict>
+              <key>UUID</key><string>00000000-1111-2222-3333-444444444444</string>
+              <key>Name</key><string>Wildcard Dev Profile</string>
+              <key>AppIDName</key><string>Wildcard</string>
+              <key>ApplicationIdentifierPrefix</key><array><string>TEAM998877</string></array>
+              <key>TeamIdentifier</key><array><string>TEAM998877</string></array>
+              <key>TeamName</key><string>Zyn Team</string>
+              <key>CreationDate</key><date>2025-01-01T00:00:00Z</date>
+              <key>ExpirationDate</key><date>2030-01-01T00:00:00Z</date>
+              <key>Entitlements</key>
+              <dict>
+                <key>application-identifier</key><string>TEAM998877.*</string>
+                <key>com.apple.developer.team-identifier</key><string>TEAM998877</string>
+                <key>get-task-allow</key><true/>
+                <key>keychain-access-groups</key>
+                <array>
+                  <string>TEAM998877.*</string>
+                  <string>TEAM998877.com.zyn.shared.keychain</string>
+                </array>
+                <key>com.apple.security.application-groups</key>
+                <array>
+                  <string>group.com.zyn.shared</string>
+                </array>
+              </dict>
+              <key>Platform</key><array><string>iOS</string></array>
+            </dict></plist>
+            """.utf8
         )
-        let targetBundle = try BundleIdentifier(validating: "com.zyn.sideload.demo")
+        let targetBundle = try XCTUnwrap(BundleIdentifier(rawValue: "com.zyn.sideload.demo"))
         let derived = try ProfileEntitlementDerivation.entitlements(
-            fromProvisioningProfile: profile,
+            fromProvisioningProfile: profileXML,
             forBundleIdentifier: targetBundle
         )
 
@@ -69,50 +73,66 @@ final class RealDeviceSigningAndPortalVerificationTests: XCTestCase {
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let appDir = tempDir.appendingPathComponent("Sample.app", isDirectory: true)
-        let frameworksDir = appDir.appendingPathComponent("Frameworks", isDirectory: true)
-        let pluginsDir = appDir.appendingPathComponent("PlugIns/Widget.appex", isDirectory: true)
-        try FileManager.default.createDirectory(at: frameworksDir, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: pluginsDir, withIntermediateDirectories: true)
-
+        let appDir = tempDir.appendingPathComponent("Sample.ipa")
         let infoXML = Data(
             """
             <?xml version="1.0" encoding="UTF-8"?>
             <plist version="1.0"><dict>
               <key>CFBundleIdentifier</key><string>com.example.sample</string>
               <key>CFBundleExecutable</key><string>Sample</string>
+              <key>CFBundleShortVersionString</key><string>1.0</string>
+              <key>CFBundleVersion</key><string>1</string>
+              <key>MinimumOSVersion</key><string>17.0</string>
+              <key>UIDeviceFamily</key><array><integer>1</integer></array>
             </dict></plist>
             """.utf8
         )
-        try infoXML.write(to: appDir.appendingPathComponent("Info.plist"))
-
         let preSignedThin = try AdHocMachOSigner().signMachO(
             MachOSigningFixtures.unsignedMachO,
             identifier: "com.example.sample"
         ).signedBytes
         let fatPreSigned = Self.wrapInUniversalFatHeader(arm64Slice: preSignedThin)
-        try fatPreSigned.write(to: appDir.appendingPathComponent("Sample"))
-
-        // Loose dylib in Frameworks/ has NO Info.plist by Apple design.
         let looseDylibSigned = try AdHocMachOSigner().signMachO(
             MachOSigningFixtures.unsignedMachO,
             identifier: "Helper"
         ).signedBytes
-        try looseDylibSigned.write(to: frameworksDir.appendingPathComponent("Helper.dylib"))
 
-        // Broken/unprovisioned extension without Info.plist that user asked to strip.
-        try Data("placeholder".utf8).write(to: pluginsDir.appendingPathComponent("Widget"))
+        let ipaBytes = ZipFixtureBuilder.archive([
+            .directory("Payload"),
+            .directory("Payload/Sample.app"),
+            ZipFixtureBuilder.Entry(name: "Payload/Sample.app/Info.plist", content: Array(infoXML)),
+            ZipFixtureBuilder.Entry(
+                name: "Payload/Sample.app/Sample",
+                content: Array(fatPreSigned),
+                unixMode: 0o100_755
+            ),
+            .directory("Payload/Sample.app/Frameworks"),
+            ZipFixtureBuilder.Entry(
+                name: "Payload/Sample.app/Frameworks/Helper.dylib",
+                content: Array(looseDylibSigned),
+                unixMode: 0o100_755
+            ),
+            .directory("Payload/Sample.app/PlugIns"),
+            .directory("Payload/Sample.app/PlugIns/Widget.appex"),
+            ZipFixtureBuilder.Entry(
+                name: "Payload/Sample.app/PlugIns/Widget.appex/Widget",
+                content: Array("placeholder".utf8),
+                unixMode: 0o100_755
+            )
+        ])
+        try Data(ipaBytes).write(to: appDir)
 
         var sideload = SideloadSigningOptions.none
-        sideload.removesNestedExtensions = true
+        sideload.removesAppExtensions = true
 
-        XCTAssertNoThrow(
-            try SigningEngineBundleValidator().validate(
-                bundleDirectory: appDir,
-                bundleArchivePath: try XCTUnwrap(ArchivePath(rawValue: "Payload/Sample.app")),
-                replacesExistingSignatures: true,
-                sideload: sideload
-            )
+        let report = try SigningEngineBundleValidator().validate(
+            containerURL: appDir,
+            replacesExistingSignatures: true,
+            sideload: sideload
+        )
+        XCTAssertTrue(
+            report.isAccepted,
+            "Expected bundle validation to pass; failed checks: \(report.checks.filter { !$0.passed })"
         )
     }
 
@@ -170,7 +190,7 @@ final class RealDeviceSigningAndPortalVerificationTests: XCTestCase {
 
         let outputURL = tempDir.appendingPathComponent("ReSigned.ipa")
         let pipeline = Self.makePipeline(identities: identities)
-        let teamID = try CodeDirectoryTeamIdentifier(validating: "TEAM123456")
+        let teamID = try CodeDirectoryTeamIdentifier(rawValue: "TEAM123456")
 
         let result = try await pipeline.sign(SignApplicationRequest(
             sourceURL: sourceURL,
@@ -189,22 +209,11 @@ final class RealDeviceSigningAndPortalVerificationTests: XCTestCase {
         XCTAssertEqual(result.status, .signed, "Expected signing to succeed with deferred device coverage; got \(String(describing: result.failure))")
         XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
 
-        let extractDir = tempDir.appendingPathComponent("Extracted", isDirectory: true)
         let reader = ZipArchiveReader(url: outputURL)
         defer { reader.close() }
-        _ = try await DirectoryArchiveExtractor(
-            destination: extractDir,
-            policy: ArchiveExtractionPolicy(
-                maximumExtractedBytes: ArchiveLimits.default.maximumTotalUncompressedBytes,
-                maximumLinkTargetBytes: ArchiveLimits.default.maximumEntryNameLength,
-                symlinkPolicy: .recreateWithinRoot
-            ),
-            fileSystem: LocalArchiveExtractionFileSystem(),
-            reader: reader
-        ).extractAll()
-
-        let signedMainBytes = try Data(
-            contentsOf: extractDir.appendingPathComponent("Payload/Synthetic.app/Synthetic")
+        let signedMainBytes = try reader.readEntryData(
+            at: try XCTUnwrap(ArchivePath(rawValue: "Payload/Synthetic.app/Synthetic")),
+            maximumBytes: 16 * 1_024 * 1_024
         )
         let parsedMain = try ReadOnlyMachOParser().parse(signedMainBytes)
         guard case .thin(let slice) = parsedMain.container,
@@ -279,15 +288,15 @@ final class RealDeviceSigningAndPortalVerificationTests: XCTestCase {
             try await recorder.handle(req)
         }
         let anisette = AnisetteHeaderBundle(
-            machineID: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
             oneTimePassword: "OTP123456",
-            localUserID: "LOCALUSER",
+            machineIdentifier: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+            localUserIdentifier: "LOCALUSER",
             routingInfo: "17106176",
             deviceUniqueIdentifier: "00008110-0011223344556677",
+            serialNumber: "C02ZYN0001",
             clientTime: "2026-10-30T12:00:00Z",
             locale: "en_US",
-            timeZone: "UTC",
-            clientInfo: "<iPhone16,2> <iPhone OS;18.0;22A3354> <com.apple.AuthKit/1 (com.apple.dt.Xcode/3594.4.19)>"
+            timeZone: "UTC"
         )
 
         let sessionToken = try await client.authenticate(

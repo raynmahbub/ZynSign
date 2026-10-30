@@ -164,8 +164,7 @@ struct SigningView: View {
         ) ?? entry.record.bundleIdentifier.rawValue
         let removesNested = currentSideload.removesAppExtensions
             || currentSideload.removesPlugIns
-            || currentSideload.removesWatchApp
-            || currentSideload.removesAppClips
+            || currentSideload.removesWatchApps
         return SigningScanKey(
             recordID: entry.record.id,
             identityID: selectedIdentityID,

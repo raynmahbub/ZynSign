@@ -12,12 +12,12 @@ enum ShellPresentation: Equatable, Hashable {
     case importHub
 
     /// Certificates & Profiles with the Profiles segment selected, ready to
-    /// import `url`.
-    case profiles(URL)
+    /// import `url` when supplied.
+    case profiles(URL?)
 
     /// Certificates & Profiles with the Certificates segment selected, ready
-    /// to import `url`.
-    case certificates(URL)
+    /// to import `url` when supplied.
+    case certificates(URL?)
 
     /// The Export Center, optionally opened at one artifact.
     case exports(ExportIdentifier?)

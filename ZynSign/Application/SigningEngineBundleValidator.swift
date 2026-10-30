@@ -207,8 +207,7 @@ struct SigningEngineBundleValidator {
         )
         let removesNestedBundles = sideload.removesAppExtensions
             || sideload.removesPlugIns
-            || sideload.removesWatchApp
-            || sideload.removesAppClips
+            || sideload.removesWatchApps
         var signedPlan: NestedCodeSigningPlan?
         var nestedTargetCount = 0
         switch discovery {

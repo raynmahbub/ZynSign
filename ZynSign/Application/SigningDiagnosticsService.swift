@@ -107,8 +107,7 @@ actor SigningDiagnosticsService {
         try Task.checkCancellation()
         let removesNested = sideloadOptions.removesAppExtensions
             || sideloadOptions.removesPlugIns
-            || sideloadOptions.removesWatchApp
-            || sideloadOptions.removesAppClips
+            || sideloadOptions.removesWatchApps
         let report = SigningDiagnosticsEvaluation.evaluate(
             record: entry.record,
             package: package,
