@@ -562,7 +562,14 @@ struct RootView: View {
     /// Home can request any destination it links to; a destination that is a
     /// root tab is selected, and one that lives inside Settings opens there.
     private func openHomeSection(_ section: ShellSection) {
-        selected = ShellSection.tab(toOpen: section)
+        switch section {
+        case .certificates:
+            presentWhenActive(.certificates(nil))
+        case .profiles:
+            presentWhenActive(.profiles(nil))
+        default:
+            selected = ShellSection.tab(toOpen: section)
+        }
     }
 
     private func badgeCount(for section: ShellSection) -> Int {
@@ -828,7 +835,7 @@ struct RootView: View {
             Task { _ = await environment.downloadCenter?.enqueueUserLink(pkgURL.absoluteString) }
             ZHaptics.tap()
         case .importCertificateMaterial(let p12Data, let profileData, let password)?:
-            Task {
+            Task { @MainActor in
                 let pkg = ZynCertificateBundle(
                     name: "DeepLinkIdentity",
                     password: password,
@@ -843,12 +850,11 @@ struct RootView: View {
                         profileLibrary: environment.provisioningProfiles
                     )
                     ZHaptics.success()
+                    presentWhenActive(.certificates(nil))
                 }
             }
         case .exportPublicCertificateSummary?:
-            signingMaterialsSelection = .certificates
-            signingMaterialsImportURL = nil
-            isShowingSigningMaterials = true
+            presentWhenActive(.certificates(nil))
         case .launchGuestContainer(let bundleIdentifier, let slotID)?:
             environment.guestContainerHost?.requestLaunch(bundleIdentifier: bundleIdentifier, slotID: slotID)
             ZHaptics.tap()

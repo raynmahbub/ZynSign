@@ -114,8 +114,15 @@ struct SigningOperationExecutor: SigningQueueExecuting {
         // empty set: the pipeline's profile stage holds whatever set arrives
         // against the profile's policy and refuses when the profile requires
         // claims the set does not carry.
+        let resolvedBundleIDString = request.sideloadOptions.resolvedBundleIdentifier(
+            originalBundleID: entry.record.bundleIdentifier.rawValue
+        ) ?? entry.record.bundleIdentifier.rawValue
+        let resolvedBundleID = BundleIdentifier(rawValue: resolvedBundleIDString) ?? entry.record.bundleIdentifier
         let entitlements: CodeSigningEntitlements
-        if let derived = try? ProfileEntitlementDerivation.entitlements(fromProvisioningProfile: request.profile) {
+        if let derived = try? ProfileEntitlementDerivation.entitlements(
+            fromProvisioningProfile: request.profile,
+            forBundleIdentifier: resolvedBundleID
+        ) {
             entitlements = derived
         } else if let empty = try? CodeSigningEntitlements(values: [:]) {
             entitlements = empty
@@ -130,10 +137,16 @@ struct SigningOperationExecutor: SigningQueueExecuting {
             ))
         }
 
-        var options = SignApplicationOptions()
-        if request.emitDEREntitlements {
-            options = SignApplicationOptions(emitDEREntitlements: true)
-        }
+        let teamString = request.profileTeamIdentifier
+            ?? ProfileEntitlementDerivation.displaySummary(fromProvisioningProfile: request.profile)?.teamIdentifier
+        let teamID = teamString.flatMap { try? CodeDirectoryTeamIdentifier(rawValue: $0) }
+        let options = SignApplicationOptions(
+            teamIdentifier: teamID,
+            emitDEREntitlements: request.emitDEREntitlements,
+            sideload: request.sideloadOptions,
+            replacesExistingSignatures: request.replacesExistingSignatures,
+            allowDeferredDeviceCoverage: true
+        )
         let operationRequest = SigningOperationRequest(
             entry: entry,
             sourceURL: request.sourceURL,

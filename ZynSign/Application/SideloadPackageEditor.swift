@@ -286,7 +286,8 @@ struct SideloadPackageEditor {
                 let folder = dest.deletingLastPathComponent()
                 do {
                     try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
-                    try item.bytes.write(to: dest, options: .atomic)
+                    let outBytes = item.isExecutable ? Self.normalizeSignableMachOIfNeeded(item.bytes) : item.bytes
+                    try outBytes.write(to: dest, options: .atomic)
                     if item.isExecutable {
                         try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dest.path)
                     }
@@ -324,7 +325,9 @@ struct SideloadPackageEditor {
                 in: targetDir
             )
             let destination = targetDir.appendingPathComponent(finalName)
-            if let existing = try? Data(contentsOf: destination), existing == tweak.bytes {
+            let preparedBytes = Self.normalizeSignableMachOIfNeeded(tweak.bytes)
+            if let existing = try? Data(contentsOf: destination),
+               existing == preparedBytes || existing == tweak.bytes {
                 report.stagedTweaks.append(finalName)
                 installNames.append(
                     options.tweakInjectFolder.installName(base: options.tweakInjectBase, fileName: finalName)
@@ -332,7 +335,7 @@ struct SideloadPackageEditor {
                 continue
             }
             do {
-                try tweak.bytes.write(to: destination, options: .atomic)
+                try preparedBytes.write(to: destination, options: .atomic)
                 try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destination.path)
             } catch {
                 throw SideloadEditError.unwritableFile(finalName)
@@ -343,6 +346,22 @@ struct SideloadPackageEditor {
             )
         }
         return installNames
+    }
+
+    /// Normalizes a staged Mach-O payload (thinning universal `arm64` archives
+    /// and stripping upstream `ldid` code signatures) while leaving non-Mach-O
+    /// resource/test payloads byte-for-byte untouched.
+    static func normalizeSignableMachOIfNeeded(_ raw: Data) -> Data {
+        guard raw.count >= 32 else { return raw }
+        var working = raw
+        if let thinned = try? GuestMachOPatcher.extractArm64Slice(working) {
+            working = thinned
+        }
+        if MachOCodeSignatureStripper.carriesSignature(working),
+           let stripped = try? MachOCodeSignatureStripper.stripSignature(from: working) {
+            working = stripped
+        }
+        return working
     }
 
     private func resolveDylibDestinationName(
@@ -481,6 +500,13 @@ struct SideloadPackageEditor {
     private func inject(_ libraries: [InjectedLibrary], into url: URL) throws {
         guard var bytes = try? Data(contentsOf: url) else {
             throw SideloadEditError.unwritableFile(url.lastPathComponent)
+        }
+        if let thinned = try? GuestMachOPatcher.extractArm64Slice(bytes), thinned.count != bytes.count {
+            bytes = thinned
+            if MachOCodeSignatureStripper.carriesSignature(bytes),
+               let stripped = try? MachOCodeSignatureStripper.stripSignature(from: bytes) {
+                bytes = stripped
+            }
         }
         let image: MachOImage
         do {

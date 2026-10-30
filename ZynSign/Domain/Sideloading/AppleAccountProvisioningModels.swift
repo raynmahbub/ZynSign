@@ -147,8 +147,9 @@ enum ApplePortalEndpoints {
         case revokeDevelopmentCert = "ios/revokeDevelopmentCert.action"
         case listAppIDs = "ios/listAppIds.action"
         case addAppID = "ios/addAppId.action"
-        case addAppGroup = "ios/addAppGroup.action"
-        case assignAppGroup = "ios/assignAppGroupToAppId.action"
+        case listAppGroups = "ios/listApplicationGroups.action"
+        case addAppGroup = "ios/addApplicationGroup.action"
+        case assignAppGroup = "ios/assignApplicationGroupToAppId.action"
         case downloadTeamProvisioningProfile = "ios/downloadTeamProvisioningProfile.action"
 
         func url() throws -> URL {

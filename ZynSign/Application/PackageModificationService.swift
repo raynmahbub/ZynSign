@@ -75,6 +75,10 @@ struct PackageModificationService: Sendable {
 
         let editReport = try SideloadPackageEditor(options: validated).apply(in: bundleDirectory)
 
+        if stripSignatures {
+            stripExistingCodeSignatures(in: bundleDirectory)
+        }
+
         if validated.adHoc {
             let infoURL = bundleDirectory.appendingPathComponent("Info.plist")
             if let infoData = try? Data(contentsOf: infoURL),

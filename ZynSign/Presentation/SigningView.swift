@@ -120,6 +120,10 @@ struct SigningView: View {
         let scanRevision: Int
         let isLoading: Bool
         let emitDER: Bool
+        let replacesSignatures: Bool
+        let resolvedBundleID: String
+        let removesNestedExtensions: Bool
+        let connectedDeviceUDID: String?
     }
 
     /// The provisioning profile summary behind the current picker selection.
@@ -145,12 +149,37 @@ struct SigningView: View {
                             profileRevision: profileRevision)
     }
 
+    private var currentDeviceContext: ProvisioningDeviceContext {
+        if let udid = env.deviceBridgeController?.lastConnectedDevice?.uniqueDeviceID,
+           let identifier = ProvisionedDeviceIdentifier(rawValue: udid) {
+            return .identified(identifier)
+        }
+        return .unavailable
+    }
+
     private var scanKey: SigningScanKey {
-        SigningScanKey(recordID: entry.record.id, identityID: selectedIdentityID,
-                       profileRevision: profileRevision, storedProfileID: selectedSavedProfileID,
-                       identityRevision: identityRevision, scanRevision: scanRevision,
-                       isLoading: isLoadingIdentities || isLoadingProfile,
-                       emitDER: emitDEREntitlements)
+        let currentSideload = sideloadDraft.options
+        let effectiveBundle = currentSideload.resolvedBundleIdentifier(
+            originalBundleID: entry.record.bundleIdentifier.rawValue
+        ) ?? entry.record.bundleIdentifier.rawValue
+        let removesNested = currentSideload.removesAppExtensions
+            || currentSideload.removesPlugIns
+            || currentSideload.removesWatchApp
+            || currentSideload.removesAppClips
+        return SigningScanKey(
+            recordID: entry.record.id,
+            identityID: selectedIdentityID,
+            profileRevision: profileRevision,
+            storedProfileID: selectedSavedProfileID,
+            identityRevision: identityRevision,
+            scanRevision: scanRevision,
+            isLoading: isLoadingIdentities || isLoadingProfile,
+            emitDER: emitDEREntitlements,
+            replacesSignatures: replacesExistingSignatures,
+            resolvedBundleID: effectiveBundle,
+            removesNestedExtensions: removesNested,
+            connectedDeviceUDID: env.deviceBridgeController?.lastConnectedDevice?.uniqueDeviceID
+        )
     }
 
     private var isSigning: Bool { model.isRunning }
@@ -902,6 +931,23 @@ struct SigningView: View {
             return
         }
         let summary = ProfileEntitlementDerivation.displaySummary(fromProvisioningProfile: profile)
+        var queuedOptions = sideloadDraft.options
+        if let plan = stagedTweakPlan, let service = env.tweakLibrary {
+            do {
+                let staged = try service.prepareFullStagingArtifacts(for: plan)
+                queuedOptions.tweaks = staged.dylibs
+                queuedOptions.stagedBundlePayloads = staged.bundlePayloads
+                if staged.autoRecommendedSubstrateRewrite {
+                    queuedOptions.replacesSubstrateWithElleKit = true
+                }
+                if staged.autoRecommendedArm64eFix {
+                    queuedOptions.fixesLegacyArm64eSlice = true
+                }
+            } catch {
+                preflightError = stagingRefusalMessage(for: error)
+                return
+            }
+        }
         let submission = SigningJobSubmission(
             recordID: entry.record.id,
             artifactID: entry.record.artifact.artifactID,
@@ -914,7 +960,9 @@ struct SigningView: View {
             profile: profile,
             profileDisplayName: summary?.name ?? profileFileName,
             profileTeamIdentifier: summary?.teamIdentifier,
-            emitDEREntitlements: emitDEREntitlements
+            emitDEREntitlements: emitDEREntitlements,
+            sideloadOptions: queuedOptions,
+            replacesExistingSignatures: replacesExistingSignatures
         )
         env.signingQueue.enqueue(submission, priority: .normal, origin: .signingScreen)
         env.recordAnalyticsEvent(category: .signing, name: "queue.job.enqueued", succeeded: true)
@@ -1279,8 +1327,14 @@ struct SigningView: View {
         analysisError = nil
         do {
             let result = try await diagnostics.analyze(
-                recordWithID: entry.record.id, identityID: identity,
-                profileData: profile, emitDEREntitlements: requestedKey.emitDER
+                recordWithID: entry.record.id,
+                identityID: identity,
+                profileData: profile,
+                emitDEREntitlements: requestedKey.emitDER,
+                replacesExistingSignatures: requestedKey.replacesSignatures,
+                allowDeferredDeviceCoverage: true,
+                deviceContext: currentDeviceContext,
+                sideloadOptions: sideloadDraft.options
             )
             guard !Task.isCancelled, requestedKey == scanKey else { return }
             health = result
@@ -1384,8 +1438,14 @@ struct SigningView: View {
         let preflight: SigningDiagnosticsAnalysis
         do {
             preflight = try await diagnostics.analyze(
-                recordWithID: entry.record.id, identityID: identityID,
-                profileData: profile, emitDEREntitlements: requestedKey.emitDER,
+                recordWithID: entry.record.id,
+                identityID: identityID,
+                profileData: profile,
+                emitDEREntitlements: requestedKey.emitDER,
+                replacesExistingSignatures: requestedKey.replacesSignatures,
+                allowDeferredDeviceCoverage: true,
+                deviceContext: currentDeviceContext,
+                sideloadOptions: sideloadDraft.options,
                 force: true
             )
         } catch is CancellationError {
@@ -1475,7 +1535,9 @@ struct SigningView: View {
                 identityID: identityID, entitlements: effectiveEntitlements,
                 emitDEREntitlements: requestedKey.emitDER,
                 sideload: options,
-                replacesExistingSignatures: replacesExistingSignatures
+                replacesExistingSignatures: replacesExistingSignatures,
+                allowDeferredDeviceCoverage: true,
+                deviceContext: currentDeviceContext
             ),
             environment: env,
             onFinish: { result, wasCancelled in

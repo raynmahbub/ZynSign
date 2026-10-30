@@ -282,7 +282,9 @@ struct SigningEngineCoordinator {
             begin(.validating, detail: "Validating the bundle before signing")
             let validation = try validator.validate(
                 containerURL: request.sourceURL,
-                existingSignaturePolicy: request.options.existingSignaturePolicy
+                existingSignaturePolicy: request.options.existingSignaturePolicy,
+                replacesExistingSignatures: request.options.replacesExistingSignatures,
+                sideload: request.options.sideload
             )
             guard validation.isAccepted else {
                 let failing = validation.failure

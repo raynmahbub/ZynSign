@@ -49,7 +49,9 @@ struct SigningEngineBundleValidator {
     ///   checks.
     func validate(
         containerURL: URL,
-        existingSignaturePolicy: MachOExistingCodeSignaturePolicy = .rejectExistingSignature
+        existingSignaturePolicy: MachOExistingCodeSignaturePolicy = .rejectExistingSignature,
+        replacesExistingSignatures: Bool = false,
+        sideload: SideloadSigningOptions = .none
     ) throws -> BundleValidationReport {
         let reader = makeReader(containerURL)
         defer { reader.close() }
@@ -148,7 +150,15 @@ struct SigningEngineBundleValidator {
         } else if let path = executablePath,
                  let bytes = try? reader.readEntryData(at: path, maximumBytes: limits.maximumEntryBytes) {
             mainExecutableBytes = bytes
-            let verdict = Self.machOForm(of: bytes, parser: parser)
+            let candidateBytes: Data
+            if replacesExistingSignatures,
+               let thinned = try? GuestMachOPatcher.extractArm64Slice(bytes),
+               thinned.count != bytes.count {
+                candidateBytes = thinned
+            } else {
+                candidateBytes = bytes
+            }
+            let verdict = Self.machOForm(of: candidateBytes, parser: parser)
             checks.append(BundleValidationCheck(
                 identifier: .executableFile,
                 passed: verdict.isSignableForm,
@@ -195,14 +205,18 @@ struct SigningEngineBundleValidator {
             limits: discoveryLimits,
             source: ArchiveNestedCodeInspectionSource(reader: reader, limits: limits)
         )
+        let removesNestedBundles = sideload.removesAppExtensions
+            || sideload.removesPlugIns
+            || sideload.removesWatchApp
+            || sideload.removesAppClips
         var signedPlan: NestedCodeSigningPlan?
         var nestedTargetCount = 0
         switch discovery {
         case .rejected(let error):
             checks.append(BundleValidationCheck(
                 identifier: .nestedBundles,
-                passed: false,
-                detail: error.detail
+                passed: removesNestedBundles,
+                detail: removesNestedBundles ? "Nested extension layout deferred until post-edit discovery." : error.detail
             ))
         case .plan(let plan):
             signedPlan = plan
@@ -213,19 +227,21 @@ struct SigningEngineBundleValidator {
                     unreadable = "\(item.bundlePath.rawValue) declares no executable discovery could establish"
                     break
                 }
-                let containerInformation = Self.archivePath(
-                    within: bundlePath,
-                    relative: item.bundlePath.appending(component: IPALayout.bundleInformationFileName) ?? item.bundlePath
-                )
-                let readable = containerInformation.flatMap { path in
-                    try? reader.readEntryData(at: path, maximumBytes: limits.maximumInspectionReadBytes)
-                }
                 let executableRecorded = Self.archivePath(within: bundlePath, relative: itemExecutable).map { path in
                     table.contains { $0.path == path && $0.kind == .regularFile }
                 } ?? false
-                if readable == nil {
-                    unreadable = "\(item.bundlePath.rawValue)/Info.plist could not be read"
-                    break
+                if item.kind.isBundleBacked {
+                    let containerInformation = Self.archivePath(
+                        within: bundlePath,
+                        relative: item.bundlePath.appending(component: IPALayout.bundleInformationFileName) ?? item.bundlePath
+                    )
+                    let readable = containerInformation.flatMap { path in
+                        try? reader.readEntryData(at: path, maximumBytes: limits.maximumInspectionReadBytes)
+                    }
+                    if readable == nil {
+                        unreadable = "\(item.bundlePath.rawValue)/Info.plist could not be read"
+                        break
+                    }
                 }
                 if !executableRecorded {
                     unreadable = "\(itemExecutable.rawValue) is not recorded as a regular file"
@@ -234,7 +250,7 @@ struct SigningEngineBundleValidator {
             }
             checks.append(BundleValidationCheck(
                 identifier: .nestedBundles,
-                passed: unreadable == nil,
+                passed: unreadable == nil || removesNestedBundles,
                 detail: unreadable ?? (plan.nestedItems.isEmpty
                     ? "The bundle carries no nested bundles."
                     : "\(plan.nestedItems.count) nested container(s) read, every information file and executable present.")
@@ -244,23 +260,24 @@ struct SigningEngineBundleValidator {
         // 6. Supported layout.
         var layoutDetail = "No existing signature and no unsupported container form was found."
         var layoutPassed = true
-        if case .plan(let plan) = discovery, !plan.unsupportedItems.isEmpty {
+        if case .plan(let plan) = discovery, !plan.unsupportedItems.isEmpty, !removesNestedBundles {
             layoutPassed = false
             let first = plan.unsupportedItems[0]
             layoutDetail = "\(first.path.rawValue) is \(first.reason.displayName), which this build does not sign."
         }
-        if layoutPassed, case .rejected(let error) = discovery {
+        if layoutPassed, case .rejected(let error) = discovery, !removesNestedBundles {
             layoutPassed = false
             layoutDetail = error.detail
         }
-        if layoutPassed, let bytes = mainExecutableBytes, let signature = Self.existingSignature(of: bytes, parser: parser),
+        if layoutPassed, !replacesExistingSignatures,
+           let bytes = mainExecutableBytes, let signature = Self.existingSignature(of: bytes, parser: parser),
            signature.isPresent {
             layoutPassed = false
             layoutDetail = existingSignaturePolicy == .rejectExistingSignature
                 ? "The main executable already carries a code signature, which this run does not replace."
                 : "The main executable already carries a code signature, and signature replacement is unsupported."
         }
-        if layoutPassed, let plan = signedPlan {
+        if layoutPassed, !replacesExistingSignatures, let plan = signedPlan {
             for item in plan.nestedItems {
                 guard let itemExecutable = item.executablePath,
                       let path = Self.archivePath(within: bundlePath, relative: itemExecutable),

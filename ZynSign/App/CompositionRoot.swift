@@ -320,6 +320,14 @@ enum CompositionRoot {
         // their preference lives in `UserDefaults` and is off by default.
         environment.refreshReminders = LocalRefreshReminderScheduler()
         environment.repositoryDirectory = repositoryDirectory
+        environment.storeBrowser?.onSourceURLAdded = { [weak repositoryDirectory] urlString in
+            guard let repositoryDirectory else { return }
+            repositoryDirectory.load()
+            if repositoryDirectory.addSource(urlString: urlString) == nil,
+               let added = repositoryDirectory.sources.last {
+                await repositoryDirectory.refresh(sourceID: added.id)
+            }
+        }
         environment.installationWorkspace = makeInstallationWorkspace(
             library: foundation.library,
             history: signing.history,

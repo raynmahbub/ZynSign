@@ -50,8 +50,11 @@ final class StorePackageTransfer: NSObject, URLSessionDownloadDelegate, StoreTra
                 throw StoreFailure.invalid("The package server did not return HTTP 200.")
             }
             let size = Int64(try location.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
-            guard size > 4, size <= Self.limit, expectedSize == nil || expectedSize == size else {
-                throw StoreFailure.invalid("The package is empty, too large, or does not match the source's declared size.")
+            let serverExpectedLength = http.expectedContentLength
+            let hasContentEncoding = http.value(forHTTPHeaderField: "Content-Encoding") != nil
+            let matchesTransportLength = serverExpectedLength <= 0 || hasContentEncoding || size == serverExpectedLength
+            guard size > 4, size <= Self.limit, matchesTransportLength else {
+                throw StoreFailure.invalid("The package is empty, too large, or truncated in transit.")
             }
             let handle = try FileHandle(forReadingFrom: location)
             defer { try? handle.close() }

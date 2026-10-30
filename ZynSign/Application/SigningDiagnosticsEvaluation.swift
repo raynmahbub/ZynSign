@@ -23,6 +23,22 @@ struct SigningImageSupport {
     /// exact, narrow admission rule. The root and nested code are independent.
     let rootSupported: Bool?
     let nestedSupported: Bool?
+    /// Image compatibility after signature stripping and `arm64` slice extraction
+    /// when `replacesExistingSignatures` is enabled.
+    let rootReSignable: Bool?
+    let nestedReSignable: Bool?
+
+    init(
+        rootSupported: Bool?,
+        nestedSupported: Bool?,
+        rootReSignable: Bool? = nil,
+        nestedReSignable: Bool? = nil
+    ) {
+        self.rootSupported = rootSupported
+        self.nestedSupported = nestedSupported
+        self.rootReSignable = rootReSignable
+        self.nestedReSignable = nestedReSignable
+    }
 
     static let unchecked = SigningImageSupport(rootSupported: nil, nestedSupported: nil)
 }
@@ -58,12 +74,25 @@ struct SigningDiagnosticsEvaluation {
         identity: SigningIdentityEvidence,
         profile: SigningProfileEvidence,
         emitDEREntitlements: Bool,
+        replacesExistingSignatures: Bool = false,
+        allowDeferredDeviceCoverage: Bool = false,
+        removesNestedExtensions: Bool = false,
         at date: Date
     ) -> SigningDiagnosticsReport {
         var builder = SigningDiagnosticsEvaluation()
-        builder.package(package, record: record)
+        builder.package(
+            package,
+            record: record,
+            replacesExistingSignatures: replacesExistingSignatures,
+            removesNestedExtensions: removesNestedExtensions
+        )
         builder.identity(identity, at: date)
-        builder.profile(profile, identitySelected: builder.hasIdentity(identity), at: date)
+        builder.profile(
+            profile,
+            identitySelected: builder.hasIdentity(identity),
+            allowDeferredDeviceCoverage: allowDeferredDeviceCoverage,
+            at: date
+        )
         if emitDEREntitlements {
             builder.add(.derUnavailable, .signingOptions, .unsupported,
                         "DER signing is not implemented",
@@ -119,7 +148,12 @@ struct SigningDiagnosticsEvaluation {
         ))
     }
 
-    private mutating func package(_ evidence: SigningPackageEvidence, record: ApplicationRecord) {
+    private mutating func package(
+        _ evidence: SigningPackageEvidence,
+        record: ApplicationRecord,
+        replacesExistingSignatures: Bool = false,
+        removesNestedExtensions: Bool = false
+    ) {
         switch evidence {
         case .missing:
             add(.packageMissing, .package, .error, "Package is missing",
@@ -171,19 +205,22 @@ struct SigningDiagnosticsEvaluation {
             } else {
                 mark(.metadata, .passed)
             }
+            let rootCheck = replacesExistingSignatures
+                ? (inspection.images.rootReSignable ?? inspection.images.rootSupported)
+                : inspection.images.rootSupported
             if !inspection.executablePresent {
                 add(.executableMissing, .executable, .error, "Executable is missing",
                     "The app's declared executable is not a regular file inside its bundle.",
                     "The CFBundleExecutable entry could not be resolved as a regular archive entry.",
                     "Use an IPA with its declared executable intact.")
                 mark(.executable, .blocked)
-            } else if inspection.images.rootSupported == false {
+            } else if rootCheck == false {
                 add(.executableInvalid, .executable, .unsupported, "Executable layout is unsupported",
                     "The main executable does not meet this build's narrow signing layout rules.",
                     "The read-only Mach-O check used the signer's own image admission rule. A readable Mach-O can still be unsupported.",
                     "Use a supported unsigned build; ZynSign cannot rewrite this executable layout.")
                 mark(.executable, .unsupported)
-            } else if inspection.images.rootSupported == true {
+            } else if rootCheck == true {
                 mark(.executable, .passed)
             } else {
                 add(.executableInvalid, .executable, .warning, "Executable not fully inspected",
@@ -191,11 +228,21 @@ struct SigningDiagnosticsEvaluation {
                     "No supported main Mach-O image was established by the bounded read.", "Re-run verification with a readable IPA.")
                 mark(.executable, .attention)
             }
-            nestedCode(inspection.discovery, images: inspection.images)
+            nestedCode(
+                inspection.discovery,
+                images: inspection.images,
+                replacesExistingSignatures: replacesExistingSignatures,
+                removesNestedExtensions: removesNestedExtensions
+            )
         }
     }
 
-    private mutating func nestedCode(_ outcome: NestedCodeDiscoveryOutcome?, images: SigningImageSupport) {
+    private mutating func nestedCode(
+        _ outcome: NestedCodeDiscoveryOutcome?,
+        images: SigningImageSupport,
+        replacesExistingSignatures: Bool = false,
+        removesNestedExtensions: Bool = false
+    ) {
         guard let outcome else {
             add(.nestedUnverified, .nestedCode, .warning, "Nested code not inspected",
                 "ZynSign could not finish checking the app's nested signing layout.",
@@ -203,24 +250,33 @@ struct SigningDiagnosticsEvaluation {
             mark(.nestedCode, .attention)
             return
         }
+        let nestedCheck = replacesExistingSignatures
+            ? (images.nestedReSignable ?? images.nestedSupported)
+            : images.nestedSupported
         switch outcome {
         case .rejected:
-            add(.nestedInvalid, .nestedCode, .error, "Nested code layout was rejected",
-                "The app's code layout could not be made into a safe signing order.",
-                "Read-only nested discovery rejected the bundle; no target was signed.",
-                "Check nested bundles and executables, then re-import the IPA.")
-            mark(.nestedCode, .blocked)
+            if removesNestedExtensions {
+                mark(.nestedCode, .attention)
+            } else {
+                add(.nestedInvalid, .nestedCode, .error, "Nested code layout was rejected",
+                    "The app's code layout could not be made into a safe signing order.",
+                    "Read-only nested discovery rejected the bundle; no target was signed.",
+                    "Check nested bundles and executables, then re-import the IPA.")
+                mark(.nestedCode, .blocked)
+            }
         case .plan(let plan):
-            if !plan.isComplete || images.nestedSupported == false {
+            if (!plan.isComplete || nestedCheck == false) && !removesNestedExtensions {
                 add(.nestedUnsupported, .nestedCode, .unsupported, "Nested code is unsupported",
                     "At least one nested target cannot be signed by this build.",
                     "Discovery found an incomplete target or a binary outside the signer's supported layout.",
                     "Use a package whose nested targets ZynSign can inspect and sign; do not strip code to bypass a check.")
                 mark(.nestedCode, .unsupported)
+            } else if removesNestedExtensions && (!plan.isComplete || nestedCheck == false) {
+                mark(.nestedCode, .passed)
             } else {
                 do {
                     _ = try NestedSigningPlanValidator.validate(plan: plan)
-                    if images.nestedSupported == true {
+                    if nestedCheck == true {
                         mark(.nestedCode, .passed)
                     } else {
                         add(.nestedUnverified, .nestedCode, .warning, "Nested signing not fully checked",
@@ -230,13 +286,17 @@ struct SigningDiagnosticsEvaluation {
                         mark(.nestedCode, .attention)
                     }
                 } catch let failure as NestedSigningFailure {
-                    add(.nestedUnsupported, .nestedCode,
-                        failure.category == .unsupportedInput ? .unsupported : .error,
-                        "Nested signing plan cannot be used",
-                        "A discovered target does not satisfy the signing plan rules.",
-                        "The signer's read-only plan validator rejected the discovered plan.",
-                        "Use a package with supported nested code and re-run verification.")
-                    mark(.nestedCode, failure.category == .unsupportedInput ? .unsupported : .blocked)
+                    if removesNestedExtensions {
+                        mark(.nestedCode, .passed)
+                    } else {
+                        add(.nestedUnsupported, .nestedCode,
+                            failure.category == .unsupportedInput ? .unsupported : .error,
+                            "Nested signing plan cannot be used",
+                            "A discovered target does not satisfy the signing plan rules.",
+                            "The signer's read-only plan validator rejected the discovered plan.",
+                            "Use a package with supported nested code and re-run verification.")
+                        mark(.nestedCode, failure.category == .unsupportedInput ? .unsupported : .blocked)
+                    }
                 } catch {
                     add(.nestedInvalid, .nestedCode, .error, "Nested signing plan could not be checked",
                         "ZynSign could not validate the discovered signing order.",
@@ -245,7 +305,7 @@ struct SigningDiagnosticsEvaluation {
                 }
             }
             let signatures = plan.items.map(\.existingSignature)
-            if signatures.contains(where: { if case .malformed = $0 { return true }; return false }) {
+            if signatures.contains(where: { if case .malformed = $0 { return true }; return false }) && !replacesExistingSignatures {
                 add(.signatureMalformed, .existingSignature, .error, "Existing signature is damaged",
                     "A discovered executable contains a signature that could not be parsed.",
                     "Read-only Mach-O signature inspection found a malformed signature region.",
@@ -254,12 +314,16 @@ struct SigningDiagnosticsEvaluation {
             } else if signatures.contains(where: {
                 switch $0 { case .structurallyParsed, .incompleteSlices, .unsupported: return true; default: return false }
             }) {
-                add(.signaturePresent, .existingSignature, .error, "App is already signed",
-                    "At least one executable carries an existing signature. This pipeline only signs unsigned code.",
-                    "Read-only inspection found a code-signature region. Its validity and trust were not evaluated.",
-                    "Use the original unsigned app. Replacing an existing signature is not supported.")
-                mark(.existingSignature, .blocked)
-            } else if signatures.allSatisfy({ $0 == .absent }) {
+                if replacesExistingSignatures {
+                    mark(.existingSignature, .passed)
+                } else {
+                    add(.signaturePresent, .existingSignature, .error, "App is already signed",
+                        "At least one executable carries an existing signature. This pipeline only signs unsigned code.",
+                        "Read-only inspection found a code-signature region. Its validity and trust were not evaluated.",
+                        "Use the original unsigned app. Replacing an existing signature is not supported.")
+                    mark(.existingSignature, .blocked)
+                }
+            } else if signatures.allSatisfy({ $0 == .absent }) || replacesExistingSignatures {
                 mark(.existingSignature, .passed)
             } else {
                 add(.signatureUnverified, .existingSignature, .warning, "Signature state is unknown",
@@ -325,7 +389,12 @@ struct SigningDiagnosticsEvaluation {
         }
     }
 
-    private mutating func profile(_ evidence: SigningProfileEvidence, identitySelected: Bool, at date: Date) {
+    private mutating func profile(
+        _ evidence: SigningProfileEvidence,
+        identitySelected: Bool,
+        allowDeferredDeviceCoverage: Bool = false,
+        at date: Date
+    ) {
         switch evidence {
         case .notSelected:
             add(.profileMissing, .profile, .error, "Select a provisioning profile",
@@ -412,11 +481,19 @@ struct SigningDiagnosticsEvaluation {
                     "Choose a profile that covers the target device.")
                 mark(.profile, .blocked)
             case .indeterminate:
-                add(.deviceUnverified, .profile, .unsupported, "Device coverage cannot be checked here",
-                    "This profile restricts devices, but ZynSign has no verified target-device identifier to compare.",
-                    "The device policy is indeterminate; the current signing pipeline will not treat it as compatible.",
-                    "Verify device coverage outside ZynSign or choose an appropriate profile without an uncheckable restriction.")
-                mark(.profile, .unsupported)
+                if allowDeferredDeviceCoverage {
+                    add(.deviceUnverified, .profile, .warning, "Device UDID verified on install",
+                        "This profile restricts devices; iOS verifies your device UDID when installing the signed package.",
+                        "No local hardware UDID was supplied during preflight, so device membership is deferred to iOS installd.",
+                        "Connect Device Bridge if you want pre-install UDID verification, or proceed to sign and let iOS verify UDID membership.")
+                    mark(.profile, .attention)
+                } else {
+                    add(.deviceUnverified, .profile, .unsupported, "Device coverage cannot be checked here",
+                        "This profile restricts devices, but ZynSign has no verified target-device identifier to compare.",
+                        "The device policy is indeterminate; the current signing pipeline will not treat it as compatible.",
+                        "Verify device coverage outside ZynSign or choose an appropriate profile without an uncheckable restriction.")
+                    mark(.profile, .unsupported)
+                }
             }
             policyArea(policy.bundleIdentifier, area: .bundleIdentifier, mismatch: .bundleMismatch, unknown: .bundleUnverified,
                        title: "Bundle ID does not match", explanation: "The profile's App ID does not cover this app's bundle identifier.",
