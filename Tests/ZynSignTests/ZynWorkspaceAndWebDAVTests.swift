@@ -251,9 +251,10 @@ final class ZynWorkspaceAndWebDAVTests: XCTestCase {
         let html = String(decoding: WebDAVProtocol.renderDashboardHTML(items: [item], webdavEnabled: true), as: UTF8.self)
         XCTAssertFalse(html.contains("delItem('/a'file.txt')"))
         XCTAssertTrue(html.contains("delItem(this.dataset.href)"))
-        // With the drive off the page offers no control the server would refuse.
+        // With the drive off the page renders no delete control the server would
+        // refuse. The script keeps its `delItem` helper — nothing calls it.
         let browserOnly = String(decoding: WebDAVProtocol.renderDashboardHTML(items: [item], webdavEnabled: false), as: UTF8.self)
-        XCTAssertFalse(browserOnly.contains("delItem("))
+        XCTAssertFalse(browserOnly.contains("onclick=\"delItem("))
     }
 
     // MARK: - LAN Web Workspace: helpers
