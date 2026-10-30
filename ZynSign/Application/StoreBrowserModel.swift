@@ -13,7 +13,7 @@ final class StoreBrowserModel: ObservableObject {
     @Published var problem: String?
     let repository: StoreRepository
     let downloads: StoreDownloadQueue
-    var onSourceURLAdded: (@MainActor (String) async -> Void)?
+    let onSourceURLAdded: (@Sendable @MainActor (String) async -> Void)?
     private var searchIndex = CatalogSearchIndex(sources: [])
     private var loaded = false
     private var loading = false
@@ -26,8 +26,14 @@ final class StoreBrowserModel: ObservableObject {
         }
     }
 
-    nonisolated init(repository: StoreRepository, downloads: StoreDownloadQueue) {
-        self.repository = repository; self.downloads = downloads
+    nonisolated init(
+        repository: StoreRepository,
+        downloads: StoreDownloadQueue,
+        onSourceURLAdded: (@Sendable @MainActor (String) async -> Void)? = nil
+    ) {
+        self.repository = repository
+        self.downloads = downloads
+        self.onSourceURLAdded = onSourceURLAdded
     }
     func load(library: ApplicationLibrary) async {
         guard !loading else { return }
