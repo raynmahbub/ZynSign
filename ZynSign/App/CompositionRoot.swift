@@ -323,9 +323,8 @@ enum CompositionRoot {
         environment.storeBrowser?.onSourceURLAdded = { [weak repositoryDirectory] urlString in
             guard let repositoryDirectory else { return }
             repositoryDirectory.load()
-            if repositoryDirectory.addSource(urlString: urlString) == nil,
-               let added = repositoryDirectory.sources.last {
-                await repositoryDirectory.refresh(sourceID: added.id)
+            if repositoryDirectory.addSource(urlString: urlString) == nil {
+                await repositoryDirectory.refresh()
             }
         }
         environment.installationWorkspace = makeInstallationWorkspace(

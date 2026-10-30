@@ -399,7 +399,7 @@ private struct BigUInt: Equatable, Sendable {
     init(bigEndian data: Data) {
         let bytes = [UInt8](data)
         guard !bytes.isEmpty else {
-            self.limbs = []
+            self.init(limbs: [])
             return
         }
         var built: [UInt64] = []
