@@ -402,6 +402,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          # Kept identical to commitlint's `type-enum` and to the PR template:
+          # `security` is a first-class type for fixes that harden a surface, so
+          # a title using it must not be rejected here.
           types: |
             feat
             fix
@@ -413,6 +416,7 @@ jobs:
             build
             chore
             style
+            security
             release
           requireScope: false
           subjectPattern: ^(?![A-Z]).+$
