@@ -85,13 +85,19 @@ extension UnsupportedFeature {
 
     /// The explanation behind this limit.
     var detail: PlatformLimitDetail {
+        let currentGate = ReleaseGate(stage: ReleaseTrain.current, exposesEverything: false)
         switch self {
         case .inAppInstallation:
             return PlatformLimitDetail(
                 requirement: "A supported way to hand an installation to the system, or the private installation entitlement and the daemon access that a pairing record grants.",
                 wouldHaveToChange: "Apple would have to publish an application-facing install API, or grant this app the entitlement that mobile-installation clients rely on. Stock iOS refuses both; that is a platform decision this app cannot make for it.",
                 instead: "ZynSign signs the package, writes the over-the-air manifest, encodes the itms-services link, renders the QR code, and records the delivery — the part of installation that needs no platform exception. The person completes the install from their own device.",
-                alternatives: [.released(.deliveryHandoff), .released(.installationWorkspace)],
+                alternatives: [
+                    PlatformLimitAlternative.core(.sideloading),
+                    PlatformLimitAlternative.released(.smartSign),
+                    PlatformLimitAlternative.released(.deliveryHandoff),
+                    PlatformLimitAlternative.released(.installationWorkspace),
+                ].filter { $0.isAvailable(at: currentGate) },
                 evidence: [
                     InstallationLimitation.noDeliveryMechanism.message,
                     "Readiness, attempts, and history are recorded; no row offers an install button.",
@@ -112,7 +118,11 @@ extension UnsupportedFeature {
                 requirement: "An endpoint to send to and a policy that says sending is acceptable.",
                 wouldHaveToChange: "Nothing on Apple's side — this is the app's own decision, and it is a permanent one rather than a feature flag. Turning measurement on would be a different product, disclosed as such, not a setting someone can flip.",
                 instead: "Encrypted backups the person exports themselves, and an activity journal that stays on the device. Sync between a person's own devices is their file transfer, not a service of ours.",
-                alternatives: [.released(.activityJournal), .core(.encryptedBackups), .core(.onDevicePrivacy)],
+                alternatives: [
+                    PlatformLimitAlternative.released(.activityJournal),
+                    PlatformLimitAlternative.core(.encryptedBackups),
+                    PlatformLimitAlternative.core(.onDevicePrivacy),
+                ].filter { $0.isAvailable(at: currentGate) },
                 evidence: AnalyticsPolicy.guarantees.map(\.message)
             )
         }
