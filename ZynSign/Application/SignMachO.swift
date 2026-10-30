@@ -32,7 +32,7 @@ struct SignMachOUseCase {
         let image: MachOImage
         do { image = try parser.parse(request.artifact) }
         catch let error as MachOParsingError { throw MachOSigningError.invalidMachO(error) }
-        try Self.checkSupportedImage(image)
+        try Self.checkSupportedImage(image, bytes: request.artifact)
         // The offset depends only on the original length, not on CMS contents.
         let offsetPlan = try MachOCodeSignatureRegionLayout(
             appendingSerializedSuperBlobLength: 1, toFileLength: request.artifact.count)
@@ -65,6 +65,9 @@ struct SignMachOUseCase {
         }
         if let entitlementsBlob = preparation.entitlementsBlob {
             plannedBlobLengths.append(entitlementsBlob.serializedLength)
+        }
+        if let derBlob = preparation.derEntitlementsBlob {
+            plannedBlobLengths.append(derBlob.bytes.count)
         }
         plannedBlobLengths.append(cmsLength + 8)
         let plannedSuperBlob: SuperBlobLayout
@@ -131,6 +134,10 @@ struct SignMachOUseCase {
                 blobEntries.append(try CodeSignatureBlobEntry(
                     type: .entitlements, blob: .entitlements(blob: entitlementsBlob)))
             }
+            if let derBlob = preparation.derEntitlementsBlob {
+                blobEntries.append(try CodeSignatureBlobEntry(
+                    type: .derEntitlements, blob: .opaque(serializedBytes: derBlob.bytes)))
+            }
             blobEntries.append(try CodeSignatureBlobEntry(type: .cms, blob: cmsBlob))
         } catch { throw MachOSigningError.superBlobConstruction }
         let superBlob: SuperBlobSerialization
@@ -182,7 +189,14 @@ struct SignMachOUseCase {
             var expectedSlots: [CodeSignatureBlobType] = [.codeDirectory]
             if preparation.requirementsSet != nil { expectedSlots.append(.requirements) }
             if preparation.entitlementsBlob != nil { expectedSlots.append(.entitlements) }
+            if preparation.derEntitlementsBlob != nil { expectedSlots.append(.derEntitlements) }
             expectedSlots.append(.cms)
+            if preparation.derEntitlementsBlob != nil,
+               case .thin(let candidate) = image.container,
+               let signature = candidate.embeddedSignature,
+               !signature.superBlob.entries.contains(where: { $0.slot == .derEntitlements }) {
+                throw MachOSigningError.entitlements(.missingDEREntitlements)
+            }
             guard case .thin(let slice) = image.container,
                   let embedded = slice.embeddedSignature,
                   embedded.command.dataOffset == Int(request.codeDirectory.codeLimit),
@@ -208,6 +222,28 @@ struct SignMachOUseCase {
                     throw MachOSigningError.postSignVerification
                 }
             }
+            if let expectedDER = preparation.derEntitlementsBlob {
+                guard let entry = embedded.superBlob.entries.first(where: { $0.slot == .derEntitlements }) else {
+                    throw MachOSigningError.entitlements(.missingDEREntitlements)
+                }
+                let bytes = artifact.subdata(in: entry.fileRange)
+                do {
+                    let decoded = try DEREntitlementsDecoder().decode(blob: bytes)
+                    guard try DEREntitlementsSerializer().blob(decoded).bytes == bytes else {
+                        throw EntitlementsError.malformedDEREncoding
+                    }
+                } catch let error as EntitlementsError {
+                    throw MachOSigningError.entitlements(error)
+                }
+                guard bytes == expectedDER.bytes else {
+                    throw MachOSigningError.entitlements(.derEntitlementsMismatch)
+                }
+                guard let expected = preparation.slotDigests.derEntitlements,
+                      let slot = cd.codeDirectory?.specialSlots.first(where: { $0.kind == .derEntitlements }),
+                      slot.hash == Data(expected.bytes.prefix(slot.hash.count)) else {
+                    throw MachOSigningError.entitlements(.derEntitlementsDigestMismatch)
+                }
+            }
             // Declared special-slot digests must match the re-derived digests.
             let declaredDirectory = cd.codeDirectory
             for (kind, expected) in [
@@ -229,6 +265,9 @@ struct SignMachOUseCase {
             let cms = try DetachedCodeSignatureCMS(certificate: certificate)
             try cms.verify(signatureBytes, codeDirectory: directoryBytes, digest: digest, verifier: verifier)
             return try sha256(directoryBytes)
+        } catch let error as MachOSigningError {
+            if case .entitlements = error, request.metadata?.emitDEREntitlements == true { throw error }
+            throw MachOSigningError.postSignVerification
         } catch { throw MachOSigningError.postSignVerification }
     }
 
@@ -298,7 +337,7 @@ struct SignMachOUseCase {
     /// Universal containers are refused here. A container is a table of
     /// images; signing one means signing each slice and rebuilding the table,
     /// which is a different code path from this single-image signer.
-    static func checkSupportedImage(_ image: MachOImage) throws {
+    static func checkSupportedImage(_ image: MachOImage, bytes: Data) throws {
         guard case .thin(let slice) = image.container else { throw MachOSigningError.unsupportedMachOForm }
         if slice.embeddedSignature != nil { throw MachOSigningError.layout(.existingSignatureRejected) }
         guard slice.header.wordSize == .bits64,
@@ -308,12 +347,24 @@ struct SignMachOUseCase {
                 || slice.header.fileType == Self.dynamicLibraryFileType else {
             throw MachOSigningError.unsupportedMachOForm
         }
-        // An encrypted image is refused, not signed around: the signature would
-        // describe ciphertext the device rewrites at load time.
-        guard !slice.loadCommands.contains(where: {
+        // An encryption command can also describe a decrypted image (cryptid
+        // zero). Decode its fields within the command's bounds; reject active,
+        // malformed, duplicate or out-of-file records rather than signing them.
+        let encryptionCommands = slice.loadCommands.filter {
             $0.type == Self.encryptionInfoCommand || $0.type == Self.encryptionInfo64Command
-        }) else {
-            throw MachOSigningError.unsupportedMachOForm
+        }
+        guard encryptionCommands.count <= 1 else { throw MachOSigningError.unsupportedMachOForm }
+        if let command = encryptionCommands.first {
+            guard command.size >= (command.type == Self.encryptionInfo64Command ? 24 : 20) else {
+                throw MachOSigningError.unsupportedMachOForm
+            }
+            let decoded = ReadOnlyMachOLoadCommandDecoder().decodeLoadCommands(of: slice, in: bytes)
+            guard let entry = decoded.first(where: { $0.fileRange == command.fileRange }),
+                  case .encryption(let info) = entry.payload,
+                  !info.isEncrypted,
+                  UInt64(info.cryptOffset) + UInt64(info.cryptSize) <= UInt64(bytes.count) else {
+                throw MachOSigningError.unsupportedMachOForm
+            }
         }
         guard slice.segments.filter(\.isLinkEdit).count == 1 else {
             throw MachOSigningError.unsupportedMachOForm

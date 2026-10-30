@@ -19,6 +19,19 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ## [Unreleased]
 
+### Changed
+
+- Added experimental opt-in DER entitlement slot 7 binding to the single-image signer, with same-claim and canonical-byte checks. Application signing still refuses DER; Apple-platform and device validation are pending.
+
+- Tightened pairing-record BUID validation and refuse device service TLS requirements that the transport cannot satisfy. Scoped device connections now close on success or failure, and installation progress is bounded. Device transport remains blocked and unverified.
+- Shared entitlement-option preparation between interactive and queued signing, with conservative refusal when inputs cannot be read. The experimental guest probe no longer infers an entry point from a missing symbol. Apple-platform tests remain pending.
+
+- Removed the silent-audio download keep-alive and its setting. Downloads use a foreground URLSession and may be interrupted when the app is suspended or terminated; existing preference files remain readable. Audible resource preview remains separate.
+- Hardened ZIP directory and local-header validation and applied the HTTPS redirect policy to download transfers; Apple-platform regression and compatibility testing is still required.
+- Blocked experimental direct device connections and installation until authenticated TLS and complete protocol framing are implemented and physically validated. Pairing-record management remains available.
+- Guarded download callbacks by active task identity and tightened Debian archive validation and staged extraction. These changes need Xcode testing; Debian compressed-member output is now bounded during decoding, with gzip trailer checks, but compatibility is unverified.
+- Added confirmation for guest/profile removal and made guest staging refuse existing containers. Guest execution and isolation remain unverified.
+
 ## [0.1.0-alpha.3] - 2026-10-30
 
 ### Added

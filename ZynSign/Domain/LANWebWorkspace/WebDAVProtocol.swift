@@ -74,9 +74,11 @@ enum WebDAVProtocol {
             guard let colon = line.firstIndex(of: ":") else { return nil }
             let key = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
             let val = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+            guard !key.isEmpty, headers[key] == nil else { return nil }
             headers[key] = val
         }
         if headers["transfer-encoding"] != nil { return nil }
+        if parts[0].uppercased() == "PUT", headers["content-length"] == nil { return nil }
         let length: Int
         if let rawLen = headers["content-length"] {
             guard let parsed = Int(rawLen), parsed >= 0 else { return nil }
@@ -98,7 +100,7 @@ enum WebDAVProtocol {
         expectedUsername: String,
         expectedPassword: String
     ) -> Bool {
-        guard !expectedPassword.isEmpty else { return true }
+        guard !expectedUsername.isEmpty, !expectedPassword.isEmpty, !expectedUsername.contains(":") else { return false }
         guard let headerValue,
               headerValue.lowercased().hasPrefix("basic ") else { return false }
         let b64 = String(headerValue.dropFirst(6)).trimmingCharacters(in: .whitespaces)
@@ -184,7 +186,7 @@ enum WebDAVProtocol {
             return """
             <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid #2c2c2e;">
               <div><strong>\(safeLabel)</strong> <span style="opacity:.65;font-size:12px;">(\(badge))</span></div>
-              <div>\(action)<button onclick="delItem('\(safeHref)')" style="background:#ff453a;color:#fff;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;">Delete</button></div>
+              <div>\(action)<button data-href="\(safeHref)" onclick="delItem(this.dataset.href)" style="background:#ff453a;color:#fff;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;">Delete</button></div>
             </div>
             """
         }.joined(separator: "\n")

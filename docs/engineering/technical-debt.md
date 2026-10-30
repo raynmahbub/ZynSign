@@ -1,0 +1,28 @@
+# Technical debt and release gates — initial increment
+
+Status: **Partially implemented** inventory. Severity is provisional, not the result of a completed threat assessment.
+
+- **High:** ZIP parser format consistency and central-directory completeness, extraction boundaries, case-insensitive filesystem collisions, and hostile fixture coverage require review; see [security report](security-cleanup-report.md). Validate the new regression tests with Xcode before merging. `DirectoryArchiveExtractor` uses path resolution rather than race-free descriptor-relative writes, and should only operate in private isolated destinations until reviewed.
+- **High:** Debian members now use a chunked, output-bounded platform decoder and gzip trailer checks, but the implementation and new regression tests are unrun on Apple platforms. Verify deflate/gzip, zlib envelope integrity, xz/lzma compatibility, PAX semantics, malicious inputs and real package corpora before trusting compressed `.deb` extraction. The parser still retains bounded input and expanded data in memory; do not assume ZIP protections cover Debian packages.
+- **Critical:** The current device transport has no pairing-identity TLS. The bridge now assembles bounded fragmented reads, but this change is untested on Apple platforms. The Swift AFC header now uses total length / this length / transaction / operation; its upload flow and opcode values still require independent interoperability testing. The Python simulator implements a different subset and is not evidence for this Swift path. Production connection is now blocked; implement correct authentication and AFC framing, and verify cancellation and cleanup before controlled physical-device validation. A local entitlement or the Python simulator is not sufficient evidence.
+- **High:** No iOS build, signing interoperability, installation, pairing, guest runtime or physical-device evidence was obtained in this environment. Resolve against real devices and Apple tools before advertising these capabilities or stable release.
+- **High:** Complete security review of secrets, Keychain, profiles, network transports and downloads; document concrete findings and fixes. Opaque persisted URLSession resume data and HTTPS enforcement before resumed network requests need dedicated Apple-platform investigation. No claim of comprehensive security follows from this increment.
+- **High:** Download task identity now gates callbacks and pause completion, but the new controlled stale-callback XCTest is unrun. Validate retry, pause/cancel interleavings, real URLSession delegate scheduling and opaque resumed requests on Apple platforms before relying on this mitigation.
+- **Medium:** Audit all source files, assets, scripts, dependencies, lifecycle and storage migrations; resolve potentially overlapping services based on actual consumers. Perform Periphery/index-based review before deletion.
+- **Medium:** Verify CI on the actual Xcode scheme and expand tests for archive edge cases, failure paths, cancellation, state transitions and storage migration.
+- **Low:** Reconcile existing historical and forward-looking documentation with code and release evidence; preserve useful existing documents rather than duplicating them.
+
+The configured next train stop is `v0.9.0-beta.1`, not an instruction to publish. Stable 1.0.0 requires verified core workflows, no unresolved critical/high security or data-loss defects, reproducible CI and credible physical-device evidence. The current session branch is fixed; no new branch or release has been created.
+
+- **High:** Guest probing loads untrusted code in the host process, and environment variables do not isolate it. Review process-wide environment changes, symlink/race-resistant filesystem access, cleanup, same-volume publication and all other guest mutation paths before considering this feature safe. Guest runtime and new tests remain unverified on Apple platforms.
+
+- **High:** LAN WebDAV remains plaintext HTTP, with optional authentication, raceable path checks and destructive DELETE operations. Design TLS or an appropriately isolated access model, descriptor-relative path handling, CSRF protection, connection timeouts, bounded downloads and safe transactional overwrite; validate against real clients. See the [1.0 parity plan](1.0-parity-plan.md).
+
+## Post-refactoring verification gates
+
+- **Critical:** Pairing records have not been cryptographically matched or authenticated. USBMux chooses the first device; TLS upgrade and service TLS, actual deadlines, cancellation and reconnection remain unfinished. A safe production connection remains blocked. See [device transport report](device-transport-interoperability.md).
+- **Critical:** Signing cannot be declared interoperable until the current branch has been built and independently verified on Apple tooling, including realistic IPA/profile/identity fixtures. Historical rejection is not a current measurement. See [signing report](signing-interoperability.md).
+- **Critical:** There is no proven install/discovery/launch chain or functional isolated guest runtime. See [installation](installation-validation.md) and [guest runtime](guest-runtime-validation.md).
+- **High:** Binary entitlement extraction returns `nil` for both absence and failure; requested merges are conservatively refused. Queue profile parsing can read a bare entitlement plist as a convenience; the pipeline must still authenticate a real profile before signing. Validate the shared preparation and error paths with Xcode.
+
+See the [working-tree review and file-level summary](working-tree-review.md) for local checks and CI readiness.

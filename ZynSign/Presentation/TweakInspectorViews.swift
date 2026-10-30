@@ -93,7 +93,7 @@ struct TweakMachOAnalyzerSheet: View {
         }
         if tweak.kind == .debPackage {
             do {
-                let unpacked = try DebArchiveParser.unpack(bytes)
+                let unpacked = try DebArchiveReader.unpack(bytes)
                 debInfo = unpacked
                 if let firstDylib = unpacked.payloads.first(where: { $0.kind == .dylib }) {
                     report = TweakMachOAnalyzer.analyze(firstDylib.bytes)

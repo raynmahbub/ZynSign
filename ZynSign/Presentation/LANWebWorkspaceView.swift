@@ -26,7 +26,7 @@ struct LANWebWorkspaceView: View {
                     }
                     if service.webdavEnabled {
                         LabeledContent("WebDAV Mount URL") {
-                            Text(baseURLString + "/dav/")
+                            Text(baseURLString + "/")
                                 .font(ZTypography.codeCaption)
                                 .textSelection(.enabled)
                         }
@@ -59,13 +59,13 @@ struct LANWebWorkspaceView: View {
             } header: {
                 Text("Foreground LAN Server")
             } footer: {
-                Text("Exposes your ZynSign WebWorkspace over local Wi-Fi as both an HTML5 drag-and-drop dashboard and a macOS Finder / Windows Explorer WebDAV drive.")
+                Text("This foreground server exposes workspace files to the local network. Connections, passwords and file contents use unencrypted HTTP; use only on a trusted network and do not transfer signing credentials. Existing files cannot be overwritten.")
             }
 
             Section("Configuration") {
                 TextField("Preferred Port", text: $portText)
                     .keyboardType(.numberPad)
-                Toggle("Enable WebDAV Drive (/dav/)", isOn: $service.webdavEnabled)
+                Toggle("Enable WebDAV Drive", isOn: $service.webdavEnabled)
                 Toggle("Require HTTP Basic Authentication", isOn: $service.requiresAuthentication)
                 if service.requiresAuthentication {
                     TextField("Username", text: $service.username)
@@ -74,6 +74,7 @@ struct LANWebWorkspaceView: View {
                     SecureField("Password", text: $service.password)
                 }
             }
+            .disabled(service.isRunning)
 
             if !service.items.isEmpty {
                 Section("Uploaded Workspace Files (\(service.items.count))") {
@@ -113,7 +114,7 @@ struct LANWebWorkspaceView: View {
         .onAppear {
             portText = String(service.port)
             if service.password.isEmpty {
-                service.password = String(UUID().uuidString.prefix(8)).lowercased()
+                service.password = UUID().uuidString.lowercased()
             }
             service.refreshItems()
         }

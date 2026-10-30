@@ -105,6 +105,8 @@ struct ArchiveLimits: Equatable, Hashable {
         guard compressedSize > 0 else {
             return uncompressedSize > 0 && maximumCompressionRatio < Int.max
         }
-        return (uncompressedSize / compressedSize) > maximumCompressionRatio
+        let quotient = uncompressedSize / compressedSize
+        return quotient > maximumCompressionRatio
+            || (quotient == maximumCompressionRatio && uncompressedSize % compressedSize != 0)
     }
 }

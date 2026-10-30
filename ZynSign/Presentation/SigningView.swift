@@ -1065,7 +1065,12 @@ struct SigningView: View {
                             if isInstallingOverBridge { ProgressView() }
                         }
                     }
-                    .disabled(!bridge.hasPairingRecord || isInstallingOverBridge)
+                    .disabled(!bridge.isTransportComposed || !bridge.hasPairingRecord || isInstallingOverBridge)
+                    if !bridge.isTransportComposed {
+                        Text("Direct device installation is unavailable until authenticated transport is verified.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     if let bridgeInstallFeedback {
                         Text(bridgeInstallFeedback)
                             .font(.caption)
@@ -1492,7 +1497,6 @@ struct SigningView: View {
         }
         isSigningConfirmed = false
         ZHaptics.tap()
-        liveActivity.start(stage: "Preparing", detail: "Creating an isolated working copy…")
         // The engine keeps no history, so the screen journals each run it
         // starts: the signing history and the library's signed state read
         // it. A journal write that fails never changes the run's outcome.
@@ -1522,12 +1526,17 @@ struct SigningView: View {
                 return
             }
         }
-        let effectiveEntitlements = resolveEffectiveEntitlements(
-            base: entitlements,
-            sourceURL: sourceURL,
-            profile: profile,
-            options: options
-        )
+        let effectiveEntitlements: CodeSigningEntitlements
+        do {
+            effectiveEntitlements = try resolveEffectiveEntitlements(
+                base: entitlements, sourceURL: sourceURL, profile: profile, options: options
+            )
+        } catch {
+            preflightError = "Entitlements could not be prepared. Check the selected profile and entitlement options."
+            scanRevision += 1
+            return
+        }
+        liveActivity.start(stage: "Preparing", detail: "Creating an isolated working copy…")
         model.run(
             SigningEngineModel.makeRequest(
                 entry: entry, sourceURL: sourceURL, profile: profile,
@@ -1774,36 +1783,15 @@ struct SigningView: View {
         sourceURL: URL,
         profile: Data,
         options: SideloadSigningOptions
-    ) -> CodeSigningEntitlements {
-        let needsCustomMerge = options.mergesBinaryEntitlements
-            || options.isolatesKeychainGroup
-            || !options.entitlementOverrides.isEmpty
-            || !options.removedEntitlementKeys.isEmpty
-            || options.rawEntitlementsXMLOverride != nil
-        guard needsCustomMerge else { return base }
-
-        var binaryXML: Data?
-        if options.mergesBinaryEntitlements {
-            binaryXML = env.packageModifier?.extractMainExecutableEntitlements(from: sourceURL)
-        }
+    ) throws -> CodeSigningEntitlements {
         let originalID = entry.record.bundleIdentifier.rawValue
         let effectiveID = options.resolvedBundleIdentifier(originalBundleID: originalID) ?? originalID
         let teamID = ProfileEntitlementDerivation.displaySummary(fromProvisioningProfile: profile)?.teamIdentifier
-
-        if let resolved = try? BinaryEntitlementMerger.resolve(
-            profileEntitlements: base,
-            binaryEntitlementsXML: binaryXML,
-            resolvedBundleIdentifier: effectiveID,
-            teamIdentifier: teamID,
-            mergesBinaryEntitlements: options.mergesBinaryEntitlements,
-            isolatesKeychainGroup: options.isolatesKeychainGroup,
-            overrides: options.entitlementOverrides,
-            removedKeys: options.removedEntitlementKeys,
-            rawXMLOverride: options.rawEntitlementsXMLOverride
+        return try SigningEntitlementPreparation.resolve(
+            base: base, options: options, bundleIdentifier: effectiveID, teamIdentifier: teamID
         ) {
-            return resolved.entitlements
+            env.packageModifier?.extractMainExecutableEntitlements(from: sourceURL)
         }
-        return base
     }
 }
 

@@ -53,7 +53,11 @@ that the bytes can continue:
 | `held` | URLSession produced resume data. Continuing *may* work. If the server refuses it, the next attempt starts over. |
 | `notCaptured` | No resume data. Resume starts the download again. |
 
-A background session that relaunches the app is not installed.
+A background session that relaunches the app is not installed. Transfers may
+be suspended or interrupted when the app backgrounds or is terminated. The
+previous silent-audio keep-alive and its toggle have been removed; the old
+preference is retained only for storage compatibility and has no effect.
+Audible resource-preview playback is a separate feature.
 `DownloadTransferHonesty.claimsBackgroundRelaunch` and
 `claimsUniversalResume` are both false.
 
@@ -71,8 +75,12 @@ A background session that relaunches the app is not installed.
 Before a repository download starts:
 
 1. The address must be https, have a host, and embed no credentials.
-2. The address must appear in a catalog that already passed metadata
-   validation. "Refresh the source" is the refusal when it does not.
+2. For repository-backed downloads, the address must appear in a catalog that
+   already passed metadata validation. "Refresh the source" is the refusal when it does not.
+3. The download transport applies the same HTTPS, credential-free policy to
+   redirects and to the final response URL. These checks have not yet been
+   validated against real networks on a device. Opaque persisted URLSession
+   resume data still needs dedicated security review.
 
 After the bytes arrive, regardless of source:
 

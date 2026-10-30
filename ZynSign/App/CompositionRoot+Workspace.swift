@@ -81,7 +81,6 @@ extension CompositionRoot {
         environment.releaseFeeds = makeReleaseFeedProvider()
         environment.selfUpdateChecker = SelfUpdateChecker(transport: URLSessionReleaseFeedTransport())
         environment.portableWorkspaceSync = PortableWorkspaceSyncService()
-        environment.downloadKeepAlive = AVAudioBackgroundDownloadKeepAlive()
         environment.appProtection = makeAppProtection()
         environment.storageGauge = makeStorageGauge()
         environment.localTransfer = makeLocalTransferService()
@@ -101,6 +100,7 @@ extension CompositionRoot {
             recordStore: KeychainPairingRecordStore(digest: digest),
             digest: digest,
             endpointConfig: endpointConfig,
+            isTransportComposed: NetworkDeviceBridgeTransport.supportsAuthenticatedSessions,
             makeTransport: { NetworkDeviceBridgeTransport(endpointConfig: endpointConfig) }
         )
         let identityStore = environment.identityStore

@@ -40,7 +40,8 @@ enum USBMuxProtocol {
         func serialized() throws -> Data {
             var data = Data(capacity: USBMuxProtocol.headerLength + payload.count)
             let length = USBMuxProtocol.headerLength + payload.count
-            guard let length32 = UInt32(exactly: length) else {
+            guard payload.count <= USBMuxProtocol.maximumPayloadBytes,
+                  let length32 = UInt32(exactly: length) else {
                 throw DeviceProtocolError.frameTooLarge(bytes: length)
             }
             data.appendLittleEndian(length32)
@@ -65,7 +66,7 @@ enum USBMuxProtocol {
                     "ProgName": "ZynSign",
                 ]
             case .connect(let deviceID, let port):
-                guard (0...65_535).contains(port) else {
+                guard (1...65_535).contains(port) else {
                     throw DeviceProtocolError.invalidPort(port)
                 }
                 return [
@@ -75,7 +76,7 @@ enum USBMuxProtocol {
                     "DeviceID": deviceID,
                     // usbmux carries the port as a 16-bit network-order value
                     // inside the property list.
-                    "PortNumber": port,
+                    "PortNumber": Int(UInt16(port).bigEndian),
                 ]
             }
         }
@@ -95,7 +96,7 @@ enum USBMuxProtocol {
         guard let type = MessageType(rawValue: message) else {
             throw DeviceProtocolError.unknownMessageType(message)
         }
-        guard length >= headerLength, length <= maximumPayloadBytes else {
+        guard length >= headerLength, length - headerLength <= maximumPayloadBytes else {
             throw DeviceProtocolError.invalidFrameLength(length)
         }
         return (Frame(type: type, tag: tag, payload: Data()), length)
@@ -184,11 +185,8 @@ enum LockdownProtocol {
         func message(label: String) -> [String: Any] {
             var message: [String: Any] = ["Label": label, "Request": verb]
             switch self {
-            case .queryType, .stopSession:
+            case .queryType, .stopSession, .allValues:
                 break
-            case .allValues:
-                message["Key"] = ""
-                message["Domain"] = ""
             case .value(let key, let domain):
                 message["Key"] = key
                 message["Domain"] = domain
@@ -223,8 +221,8 @@ enum LockdownProtocol {
         }
     }
 
-    /// A response is either a result or a typed refusal; there is no third
-    /// shape, and a missing `Result` is a refusal too.
+    /// Accept a modern result-less response only when its Request matches the
+    /// request sent. Callers must still validate the expected payload fields.
     ///
     /// Not `Equatable`: the success case carries the device's dictionary,
     /// whose contents are not necessarily comparable. Callers match the case.
@@ -232,14 +230,23 @@ enum LockdownProtocol {
         case success([String: Any])
         case failure(code: String)
 
-        static func decode(_ message: [String: Any]) -> Response {
-            if let error = message["Error"] as? String, !error.isEmpty {
-                return .failure(code: error)
+        static func decode(_ message: [String: Any], expectedRequest: String) -> Response {
+            guard let request = message["Request"] as? String, request == expectedRequest else {
+                return .failure(code: "UnexpectedResponse")
             }
-            guard let result = message["Result"] as? String else {
-                return .failure(code: "MissingResult")
+            if let error = message["Error"] {
+                guard let code = error as? String, !code.isEmpty else {
+                    return .failure(code: "InvalidError")
+                }
+                return .failure(code: code)
             }
-            return result == "Success" ? .success(message) : .failure(code: result)
+            if let result = message["Result"] {
+                guard let result = result as? String, !result.isEmpty else {
+                    return .failure(code: "InvalidResult")
+                }
+                return result == "Success" ? .success(message) : .failure(code: result)
+            }
+            return .success(message)
         }
     }
 }
@@ -258,47 +265,48 @@ enum AFCProtocol {
         case makeDirectory = 0x09
         case getInfo = 0x0A
         case fileOpen = 0x0D
+        case fileOpenResult = 0x0E
         case fileRead = 0x0F
         case fileWrite = 0x10
         case fileClose = 0x14
-        case truncate = 0x16
+        case truncate = 0x07
         case rename = 0x18
-        case hello = 0x40
     }
 
+    /// AFC lengths include the header. `thisLength` counts the header and
+    /// command arguments; `entireLength` additionally includes any data body.
     struct Header: Equatable, Sendable {
-        let entryType: UInt64
-        let operation: Operation?
-        let operationRaw: UInt64
+        let entireLength: UInt64
+        let thisLength: UInt64
         let transaction: UInt64
-        let payloadSize: UInt64
+        let operationRaw: UInt64
+        var operation: Operation? { Operation(rawValue: operationRaw) }
+        var payloadSize: UInt64 { entireLength - UInt64(AFCProtocol.headerLength) }
 
         func serialized() -> Data {
             var data = Data(capacity: AFCProtocol.headerLength)
             data.append(AFCProtocol.magic)
-            data.appendLittleEndian(entryType)
-            data.appendLittleEndian(operationRaw)
+            data.appendLittleEndian(entireLength)
+            data.appendLittleEndian(thisLength)
             data.appendLittleEndian(transaction)
-            data.appendLittleEndian(payloadSize)
+            data.appendLittleEndian(operationRaw)
             return data
         }
 
         static func decode(_ data: Data) throws -> Header {
-            guard data.count >= AFCProtocol.headerLength else {
-                throw DeviceProtocolError.truncatedFrame(needed: AFCProtocol.headerLength,
-                                                         received: data.count)
+            guard data.count == AFCProtocol.headerLength else {
+                throw DeviceProtocolError.truncatedFrame(needed: AFCProtocol.headerLength, received: data.count)
             }
-            guard data.prefix(8) == AFCProtocol.magic else {
-                throw DeviceProtocolError.invalidAFCMagic
+            guard data.prefix(8) == AFCProtocol.magic else { throw DeviceProtocolError.invalidAFCMagic }
+            let total = data.littleEndianUInt64(at: 8)
+            let current = data.littleEndianUInt64(at: 16)
+            guard current >= UInt64(AFCProtocol.headerLength), current <= total,
+                  total <= UInt64(AFCProtocol.headerLength + PropertyListFraming.maximumMessageBytes) else {
+                throw DeviceProtocolError.invalidFrameLength(-1)
             }
-            let operationRaw = data.littleEndianUInt64(at: 16)
-            return Header(
-                entryType: data.littleEndianUInt64(at: 8),
-                operation: Operation(rawValue: operationRaw),
-                operationRaw: operationRaw,
-                transaction: data.littleEndianUInt64(at: 24),
-                payloadSize: data.littleEndianUInt64(at: 32)
-            )
+            return Header(entireLength: total, thisLength: current,
+                          transaction: data.littleEndianUInt64(at: 24),
+                          operationRaw: data.littleEndianUInt64(at: 32))
         }
     }
 
@@ -408,7 +416,7 @@ enum InstallationProxyProtocol {
 }
 
 /// Every protocol refusal, in one typed list.
-enum DeviceProtocolError: Error, Equatable, Hashable, Sendable {
+enum DeviceProtocolError: LocalizedError, Equatable, Hashable, Sendable {
     case truncatedFrame(needed: Int, received: Int)
     case invalidFrameLength(Int)
     case frameTooLarge(bytes: Int)
@@ -420,8 +428,11 @@ enum DeviceProtocolError: Error, Equatable, Hashable, Sendable {
     case invalidAFCMagic
     case deviceRefused(code: String)
     case deviceUnavailable
+    case authenticatedTransportUnavailable
     case notPaired
     case sessionNotStarted
+
+    var errorDescription: String? { message }
 
     var message: String {
         switch self {
@@ -447,6 +458,8 @@ enum DeviceProtocolError: Error, Equatable, Hashable, Sendable {
             return "The device refused the request: \(code)."
         case .deviceUnavailable:
             return "No paired device is reachable."
+        case .authenticatedTransportUnavailable:
+            return "Device sessions are unavailable until authenticated TLS and protocol framing are implemented and verified."
         case .notPaired:
             return "A pairing record is required before a session can start."
         case .sessionNotStarted:

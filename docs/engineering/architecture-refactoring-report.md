@@ -1,0 +1,7 @@
+# Architecture refactoring report — initial increment
+
+Status: **Partially implemented**. Existing domain, application, platform, presentation and composition-root structure was retained. No broad rewrite, new unused abstraction, persistence migration or dependency removal was performed. The implemented change strengthens the shared ZIP scanner/extractor boundary: extraction must not infer uniqueness from a deliberately truncated inspection table. ZIP64 range checks now avoid overflow, and a fully scanned directory must match its declared count and size; the end record must be unambiguous and match the file's comment length. Both ZIP consumers now share local-header validation rather than diverging on name, flags, encoding, checksum and size checks. Compatibility and XCTest validation are pending. See [inventory](repository-inventory.md), [security report](security-cleanup-report.md), and [test report](regression-test-report.md).
+
+The silent-audio download keep-alive was removed with its presentation and composition wiring; existing preference values remain inert and round-trip compatible. Foreground URLSession and audible media preview were retained. Background download execution remains unsupported, not replaced with a placeholder.
+
+The requested full integration, source audit, UI/design-system review and architectural redesign have not been completed. Follow the debt list in small validated increments; source and test discovery alone is not proof that every subsystem was reviewed.

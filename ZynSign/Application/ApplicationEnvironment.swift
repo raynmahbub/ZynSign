@@ -313,9 +313,6 @@ struct ApplicationEnvironment {
     /// Files-app portable workspace mirroring & directory import service.
     var portableWorkspaceSync: PortableWorkspaceSyncService? = nil
 
-    /// Optional silent-audio background download keep-alive controller.
-    var downloadKeepAlive: (any BackgroundDownloadKeepAliveControlling)? = nil
-
     /// Multi-app zero-slot `MH_DYLIB` Host Container runtime & data-slot manager.
     var guestContainerHost: GuestContainerHostService? = nil
 

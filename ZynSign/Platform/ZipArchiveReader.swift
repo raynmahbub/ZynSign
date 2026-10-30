@@ -25,9 +25,6 @@ final class ZipArchiveReader: ArchiveReader {
     /// The encoding a container uses for raw DEFLATE content.
     private static let deflateMethod: UInt16 = 8
 
-    private static let localFileHeaderSize = 30
-    private static let localFileHeaderSignature: UInt32 = 0x0403_4B50
-
     private let location: URL
     private let limits: ArchiveLimits
 
@@ -95,7 +92,7 @@ final class ZipArchiveReader: ArchiveReader {
         }
 
         let contentOffset = try contentOffset(for: record, path: path)
-        guard contentOffset + record.entry.compressedSize <= fileSize else {
+        guard contentOffset <= fileSize, record.entry.compressedSize <= fileSize - contentOffset else {
             throw ZynSignError.archiveEntryUnreadable(
                 diagnosticDetail: "The entry '\(path.rawValue)' extends past the end of the archive."
             )
@@ -245,7 +242,7 @@ final class ZipArchiveReader: ArchiveReader {
                 diagnosticDetail: "The package is not open for reading."
             )
         }
-        guard offset >= 0, count >= 0, offset + count <= fileSize else {
+        guard offset >= 0, count >= 0, offset <= fileSize, count <= fileSize - offset else {
             throw ZynSignError.unreadableArtifact(
                 diagnosticDetail: "A read outside the package's own bounds was requested."
             )
@@ -283,47 +280,11 @@ final class ZipArchiveReader: ArchiveReader {
         return Array(collected)
     }
 
-    /// Resolves where an entry's content begins, verifying that the container's
-    /// own local header agrees with its central directory before any content is
-    /// read from that offset.
+    /// Both the inspector and stream extractor use the same local-header checks.
     private func contentOffset(for record: ZipCentralDirectoryRecord, path: ArchivePath) throws -> Int {
-        guard record.localHeaderOffset >= 0,
-              record.localHeaderOffset + Self.localFileHeaderSize <= fileSize else {
-            throw ZynSignError.archiveEntryUnreadable(
-                diagnosticDetail: "The entry header for '\(path.rawValue)' lies outside the archive."
-            )
+        try ZipLocalHeader.contentOffset(for: record, path: path, fileSize: fileSize) { offset, count in
+            try readBytes(at: offset, count: count)
         }
-        let header = try readBytes(at: record.localHeaderOffset, count: Self.localFileHeaderSize)
-        guard ZipField.uint32(header, 0) == Self.localFileHeaderSignature else {
-            throw ZynSignError.archiveEntryUnreadable(
-                diagnosticDetail: "The entry header for '\(path.rawValue)' does not begin with a recognized signature."
-            )
-        }
-        guard ZipField.uint16(header, 8) == record.compressionMethod else {
-            throw ZynSignError.archiveEntryUnreadable(
-                diagnosticDetail: "The entry header for '\(path.rawValue)' disagrees with the archive's directory about its encoding."
-            )
-        }
-        // A container that streams an entry records no sizes in its local
-        // header, so agreement is only checkable when the flag is absent.
-        if (ZipField.uint16(header, 6) & 0x0008) == 0 {
-            let localCompressedSize = Int(ZipField.uint32(header, 18))
-            guard localCompressedSize == record.entry.compressedSize else {
-                throw ZynSignError.archiveEntryUnreadable(
-                    diagnosticDetail: "The entry header for '\(path.rawValue)' disagrees with the archive's directory about its size."
-                )
-            }
-        }
-
-        let nameLength = Int(ZipField.uint16(header, 26))
-        let extraLength = Int(ZipField.uint16(header, 28))
-        let contentOffset = record.localHeaderOffset + Self.localFileHeaderSize + nameLength + extraLength
-        guard contentOffset <= fileSize else {
-            throw ZynSignError.archiveEntryUnreadable(
-                diagnosticDetail: "The entry header for '\(path.rawValue)' places its content outside the archive."
-            )
-        }
-        return contentOffset
     }
 
     // MARK: - Expansion

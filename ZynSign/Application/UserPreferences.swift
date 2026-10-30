@@ -175,8 +175,8 @@ struct GeneralPreferences: Equatable, Sendable, Codable {
     /// so they remain directly accessible in the iOS Files app.
     var saveDownloadsToDocuments: Bool = false
 
-    /// Plays an inaudible keep-alive loop while active downloads are running so
-    /// iOS suspends transfers less aggressively when switching apps.
+    /// Legacy persisted setting, retained only for round-trip compatibility.
+    /// It has no effect; downloads do not use audio to extend execution.
     var keepDownloadsAliveInBackground: Bool = false
 
     /// Automatically opens Signing Queue when a new package settles in Library.

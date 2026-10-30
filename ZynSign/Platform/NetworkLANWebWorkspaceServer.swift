@@ -113,6 +113,13 @@ final class NetworkLANWebWorkspaceServer: LANWebWorkspaceTransport, @unchecked S
                 return
             }
             if let marker = buffer.range(of: Data("\r\n\r\n".utf8)) {
+                guard marker.lowerBound <= 32_768 else {
+                    self.sendAndClose(
+                        WebDAVProtocol.HTTPResponseMessage(status: 431, reason: "Request Header Fields Too Large", headers: [], body: Data()),
+                        on: connection
+                    )
+                    return
+                }
                 let headBytes = buffer.subdata(in: 0..<marker.lowerBound)
                 let initialBody = buffer.subdata(in: marker.upperBound..<buffer.count)
                 guard let head = WebDAVProtocol.parseHead(headBytes) else {
@@ -149,6 +156,13 @@ final class NetworkLANWebWorkspaceServer: LANWebWorkspaceTransport, @unchecked S
         initialBody: Data,
         handling: @escaping @Sendable (WebDAVProtocol.HTTPRequestHead, URL?) async -> WebDAVProtocol.HTTPResponseMessage
     ) {
+        guard initialBody.count <= head.contentLength else {
+            sendAndClose(
+                WebDAVProtocol.HTTPResponseMessage(status: 400, reason: "Bad Request", headers: [], body: Data()),
+                on: connection
+            )
+            return
+        }
         if head.contentLength == 0 {
             Task {
                 let response = await handling(head, nil)
@@ -168,7 +182,17 @@ final class NetworkLANWebWorkspaceServer: LANWebWorkspaceTransport, @unchecked S
             return
         }
         let initialSlice = initialBody.prefix(head.contentLength)
-        try? handle.write(contentsOf: initialSlice)
+        do {
+            try handle.write(contentsOf: initialSlice)
+        } catch {
+            try? handle.close()
+            try? FileManager.default.removeItem(at: tempFile)
+            sendAndClose(
+                WebDAVProtocol.HTTPResponseMessage(status: 507, reason: "Insufficient Storage", headers: [], body: Data()),
+                on: connection
+            )
+            return
+        }
         let remaining = head.contentLength - initialSlice.count
         if remaining <= 0 {
             try? handle.close()
@@ -212,7 +236,23 @@ final class NetworkLANWebWorkspaceServer: LANWebWorkspaceTransport, @unchecked S
                 return
             }
             let written = chunk ?? Data()
-            try? fileHandle.write(contentsOf: written)
+            guard !written.isEmpty, written.count <= remaining else {
+                try? fileHandle.close()
+                try? FileManager.default.removeItem(at: tempFile)
+                connection.cancel()
+                return
+            }
+            do {
+                try fileHandle.write(contentsOf: written)
+            } catch {
+                try? fileHandle.close()
+                try? FileManager.default.removeItem(at: tempFile)
+                self.sendAndClose(
+                    WebDAVProtocol.HTTPResponseMessage(status: 507, reason: "Insufficient Storage", headers: [], body: Data()),
+                    on: connection
+                )
+                return
+            }
             let nextRemaining = remaining - written.count
             if nextRemaining <= 0 {
                 try? fileHandle.close()

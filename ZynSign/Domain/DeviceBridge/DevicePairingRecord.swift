@@ -5,9 +5,9 @@ import Foundation
 /// The file carries two certificate chains and the host's private key. The
 /// host presents `HostCertificate` + `HostPrivateKey` in TLS, and accepts the
 /// device only when its certificate chains to `RootCertificate`. `HostID` is
-/// the SHA-1 of the host certificate in uppercase hex — the identifier the
-/// device stored when the pairing was made, and the one `StartSession` must
-/// echo back.
+/// the identifier stored by the device and echoed in `StartSession`. Imported
+/// records may use a canonical UUID or the supported certificate-digest form;
+/// neither form proves that the certificates and private key match.
 ///
 /// The record is a bearer credential: whoever holds `HostPrivateKey` can talk
 /// to the device. ZynSign therefore never writes it to a plain file, never
@@ -65,7 +65,7 @@ struct DevicePairingRecord: Equatable, Sendable {
         self.importedAt = importedAt
     }
 
-    /// Fingerprint of the host certificate, safe to show and to log.
+    /// Host identifier for display; UUID-form identifiers are not certificate fingerprints.
     var hostFingerprint: String {
         hostIdentifier
     }
@@ -156,13 +156,20 @@ enum PairingRecordCoding {
             throw PairingRecordError.hostIdentifierMismatch(declared: declared,
                                                             computed: computed)
         }
+        guard let rawBUID = root[DevicePairingRecord.Key.systemBUID] as? String else {
+            throw PairingRecordError.emptyField(DevicePairingRecord.Key.systemBUID)
+        }
+        let buid = rawBUID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !buid.isEmpty, buid.rangeOfCharacter(from: .controlCharacters) == nil else {
+            throw PairingRecordError.emptyField(DevicePairingRecord.Key.systemBUID)
+        }
         return DevicePairingRecord(
             deviceCertificate: try field(DevicePairingRecord.Key.deviceCertificate),
             rootCertificate: try field(DevicePairingRecord.Key.rootCertificate),
             hostCertificate: hostCertificate,
             hostPrivateKey: try field(DevicePairingRecord.Key.hostPrivateKey),
             hostIdentifier: declared,
-            systemBUID: root[DevicePairingRecord.Key.systemBUID] as? String ?? "",
+            systemBUID: buid,
             wifiMACAddress: root[DevicePairingRecord.Key.wifiMACAddress] as? String,
             escrowBag: root[DevicePairingRecord.Key.escrowBag] as? Data
         )

@@ -234,41 +234,75 @@ final class DeviceWireProtocolTests: XCTestCase {
         XCTAssertEqual(session["HostID"] as? String, "AB")
         XCTAssertEqual(session["SystemBUID"] as? String, "CD")
 
+        let all = LockdownProtocol.Request.allValues.message(label: "ZynSign")
+        XCTAssertNil(all["Key"])
+        XCTAssertNil(all["Domain"])
+
         let service = LockdownProtocol.Request.startService(
             name: LockdownProtocol.installationProxyService).message(label: "ZynSign")
         XCTAssertEqual(service["Service"] as? String, "com.apple.mobile.installation_proxy")
     }
 
-    func testLockdownResponseTreatsErrorAsFailure() {
-        guard case .success = LockdownProtocol.Response.decode(["Result": "Success"]) else {
-            return XCTFail("a Success result must decode as success")
+    func testLockdownResponseValidatesRequestAndError() {
+        guard case .success = LockdownProtocol.Response.decode(
+            ["Request": "QueryType", "Result": "Success"], expectedRequest: "QueryType") else {
+            return XCTFail("a matching Success must decode as success")
+        }
+        guard case .success = LockdownProtocol.Response.decode(
+            ["Request": "QueryType", "Type": LockdownProtocol.service], expectedRequest: "QueryType") else {
+            return XCTFail("a matching modern response may omit Result")
         }
         guard case .failure(let code) = LockdownProtocol.Response.decode(
-            ["Error": "InvalidPairRecord"]) else {
+            ["Request": "QueryType", "Error": "InvalidPairRecord"], expectedRequest: "QueryType") else {
             return XCTFail("an Error must decode as a failure")
         }
         XCTAssertEqual(code, "InvalidPairRecord")
-        guard case .failure(let missing) = LockdownProtocol.Response.decode([:]) else {
-            return XCTFail("a response without Result must be a failure")
+        let invalidMessages: [[String: Any]] = [[:], ["Request": "GetValue"], ["Request": "QueryType", "Error": ""]]
+        for message in invalidMessages {
+            guard case .failure = LockdownProtocol.Response.decode(message, expectedRequest: "QueryType") else {
+                return XCTFail("a malformed or mismatched response must fail")
+            }
         }
-        XCTAssertEqual(missing, "MissingResult")
+    }
+
+    func testUSBMuxConnectEncodesNetworkOrderPortAndBounds() throws {
+        let request = try USBMuxProtocol.Request.connect(deviceID: 7, port: 62_078).payload()
+        XCTAssertEqual(request["PortNumber"] as? Int, Int(UInt16(62_078).bigEndian))
+        XCTAssertThrowsError(try USBMuxProtocol.Request.connect(deviceID: 7, port: 0).payload())
+        XCTAssertThrowsError(try USBMuxProtocol.Request.connect(deviceID: 7, port: 65_536).payload())
+    }
+
+    func testUSBMuxFramePayloadLimitIncludesHeaderSeparately() throws {
+        let payload = Data(count: USBMuxProtocol.maximumPayloadBytes)
+        let encoded = try USBMuxProtocol.Frame(type: .plist, tag: 1, payload: payload).serialized()
+        XCTAssertEqual(try USBMuxProtocol.decodeHeader(encoded).1, encoded.count)
+        XCTAssertThrowsError(try USBMuxProtocol.Frame(type: .plist, tag: 1, payload: payload + Data([0])).serialized())
     }
 
     func testAFCHeaderCodec() throws {
-        let header = AFCProtocol.Header(
-            entryType: 0,
-            operation: .fileWrite,
-            operationRaw: AFCProtocol.Operation.fileWrite.rawValue,
-            transaction: 9,
-            payloadSize: 1_024)
+        let header = AFCProtocol.Header(entireLength: 1_072, thisLength: 48, transaction: 9,
+                                        operationRaw: AFCProtocol.Operation.fileWrite.rawValue)
         let encoded = header.serialized()
         XCTAssertEqual(encoded.count, 40)
         XCTAssertEqual(encoded.prefix(8), AFCProtocol.magic)
         let decoded = try AFCProtocol.Header.decode(encoded)
         XCTAssertEqual(decoded.operation, .fileWrite)
         XCTAssertEqual(decoded.transaction, 9)
-        XCTAssertEqual(decoded.payloadSize, 1_024)
-        XCTAssertEqual(decoded.entryType, 0)
+        XCTAssertEqual(decoded.payloadSize, 1_032)
+        XCTAssertEqual(decoded.entireLength, 1_072)
+        XCTAssertEqual(decoded.thisLength, 48)
+        XCTAssertEqual(Array(encoded[8..<16]), [0x30, 0x04, 0, 0, 0, 0, 0, 0])
+        XCTAssertEqual(Array(encoded[16..<24]), [0x30, 0, 0, 0, 0, 0, 0, 0])
+        XCTAssertEqual(Array(encoded[32..<40]), [0x10, 0, 0, 0, 0, 0, 0, 0])
+    }
+
+    func testAFCRejectsInvalidAndOversizedLengths() {
+        for (total, partial) in [(UInt64(39), UInt64(39)), (UInt64(40), UInt64(41)),
+                                 (UInt64(PropertyListFraming.maximumMessageBytes + 41), UInt64(40))] {
+            let header = AFCProtocol.Header(entireLength: total, thisLength: partial, transaction: 1,
+                                            operationRaw: AFCProtocol.Operation.status.rawValue)
+            XCTAssertThrowsError(try AFCProtocol.Header.decode(header.serialized()))
+        }
     }
 
     func testAFCMagicMismatchIsRefused() {
@@ -351,6 +385,24 @@ final class PairingRecordCodingTests: XCTestCase {
         XCTAssertThrowsError(try PairingRecordCoding.decode(plist ?? Data(), digest: recorder)) {
             guard case .hostIdentifierMismatch? = $0 as? PairingRecordError else {
                 return XCTFail("expected a HostID mismatch, got \($0)")
+            }
+        }
+    }
+
+    func testRecordRejectsEmptyOrMalformedSystemBUID() throws {
+        let invalidValues: [Any] = ["", "  ", "bad\u{0001}value", 42]
+        for value in invalidValues {
+            let record: [String: Any] = [
+                DevicePairingRecord.Key.deviceCertificate: Data([1]),
+                DevicePairingRecord.Key.rootCertificate: Data([2]),
+                DevicePairingRecord.Key.hostCertificate: Data([3]),
+                DevicePairingRecord.Key.hostPrivateKey: Data([4]),
+                DevicePairingRecord.Key.hostID: String(repeating: "11", count: 20),
+                DevicePairingRecord.Key.systemBUID: value,
+            ]
+            let plist = try PropertyListSerialization.data(fromPropertyList: record, format: .binary, options: 0)
+            XCTAssertThrowsError(try PairingRecordCoding.decode(plist, digest: digestReturning(0x11))) {
+                XCTAssertEqual($0 as? PairingRecordError, .emptyField(DevicePairingRecord.Key.systemBUID))
             }
         }
     }

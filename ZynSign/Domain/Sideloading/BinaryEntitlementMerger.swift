@@ -9,6 +9,9 @@ import Foundation
 /// while never admitting an unauthorized entitlement that would cause `installd`
 /// to reject the signature unless the user explicitly provided an override.
 enum BinaryEntitlementMerger {
+    enum MergeError: Error, Equatable {
+        case keychainIsolationNotAuthorized
+    }
 
     struct Result: Equatable, Sendable {
         let entitlements: CodeSigningEntitlements
@@ -38,23 +41,26 @@ enum BinaryEntitlementMerger {
         var mergedKeys: [String] = []
 
         // Substitute wildcard `*` in `application-identifier` when concrete bundle ID is known.
-        if let appID = working["application-identifier"] as? String, appID.contains("*"),
+        if let appID = working["application-identifier"] as? String,
+           appID.hasSuffix("*"), let resolvedTeam, !resolvedTeam.isEmpty,
            !resolvedBundleIdentifier.isEmpty {
-            if let resolvedTeam, !resolvedTeam.isEmpty {
-                working["application-identifier"] = "\(resolvedTeam).\(resolvedBundleIdentifier)"
-            } else {
-                working["application-identifier"] = resolvedBundleIdentifier
+            let candidate = "\(resolvedTeam).\(resolvedBundleIdentifier)"
+            if matchesAuthorization(candidate, pattern: appID) {
+                working["application-identifier"] = candidate
             }
         }
 
         // Merge compatible entitlements from the original Mach-O binary when requested.
-        if mergesBinaryEntitlements,
-           let binaryXML = binaryEntitlementsXML,
-           let binaryDict = try? decodePlistDictionary(from: binaryXML) {
+        if mergesBinaryEntitlements, let binaryXML = binaryEntitlementsXML {
+            // Parse through the bounded entitlement parser rather than silently
+            // treating malformed embedded claims as an empty set.
+            let binaryEntitlements = try EntitlementsPlistParser.parse(binaryXML)
+            let binaryDict = try decodePlistDictionary(from: binaryEntitlements.canonicalXMLData())
+            let profileSnapshot = working
             mergedKeys = mergeAuthorizedBinaryKeys(
                 from: binaryDict,
                 into: &working,
-                profileDict: working,
+                profileDict: profileSnapshot,
                 bundleIdentifier: resolvedBundleIdentifier,
                 teamIdentifier: resolvedTeam
             )
@@ -63,12 +69,17 @@ enum BinaryEntitlementMerger {
         // Keychain Isolation: rewrite `keychain-access-groups` to `<TeamID>.<BundleID>`
         // so cloned or PPQ-renamed builds do not collide on shared keychain items.
         var isolatedGroup: String?
-        if isolatesKeychainGroup, !resolvedBundleIdentifier.isEmpty {
-            let group = if let resolvedTeam, !resolvedTeam.isEmpty {
-                "\(resolvedTeam).\(resolvedBundleIdentifier)"
-            } else {
-                resolvedBundleIdentifier
+        if isolatesKeychainGroup {
+            guard let resolvedTeam, !resolvedTeam.isEmpty, !resolvedBundleIdentifier.isEmpty,
+                  let profileGroups = profileEntitlements.values["keychain-access-groups"],
+                  case .array(let groups) = profileGroups else {
+                throw MergeError.keychainIsolationNotAuthorized
             }
+            let group = "\(resolvedTeam).\(resolvedBundleIdentifier)"
+            guard groups.contains(where: { value in
+                guard case .string(let pattern) = value else { return false }
+                return matchesAuthorization(group, pattern: pattern)
+            }) else { throw MergeError.keychainIsolationNotAuthorized }
             working["keychain-access-groups"] = [group]
             isolatedGroup = group
         }
@@ -138,8 +149,7 @@ enum BinaryEntitlementMerger {
         bundleIdentifier: String,
         teamIdentifier: String?
     ) -> [String] {
-        let allowsWildcard = profileGroups.contains { $0.hasSuffix(".*") || $0 == "*" }
-        guard let team = teamIdentifier, !team.isEmpty else { return profileGroups }
+        guard let team = teamIdentifier, !team.isEmpty else { return [] }
         var output: [String] = []
         for group in binaryGroups {
             let suffix: String
@@ -149,34 +159,49 @@ enum BinaryEntitlementMerger {
                 suffix = bundleIdentifier
             }
             let candidate = "\(team).\(suffix)"
-            if allowsWildcard || profileGroups.contains(candidate) {
+            if profileGroups.contains(where: { matchesAuthorization(candidate, pattern: $0) }) {
                 if !output.contains(candidate) { output.append(candidate) }
             }
         }
-        if output.isEmpty, allowsWildcard, !bundleIdentifier.isEmpty {
-            output.append("\(team).\(bundleIdentifier)")
+        let fallback = "\(team).\(bundleIdentifier)"
+        if output.isEmpty, !bundleIdentifier.isEmpty,
+           profileGroups.contains(where: { matchesAuthorization(fallback, pattern: $0) }) {
+            output.append(fallback)
         }
         return output
     }
 
+    /// Only trailing wildcards are considered, and a candidate must itself be
+    /// concrete. A wildcard belonging to a different prefix grants nothing.
+    private static func matchesAuthorization(_ candidate: String, pattern: String) -> Bool {
+        guard !candidate.isEmpty, !candidate.contains("*") else { return false }
+        if !pattern.contains("*") { return candidate == pattern }
+        guard pattern.last == "*", pattern.dropLast().contains("*") == false else { return false }
+        return candidate.hasPrefix(String(pattern.dropLast()))
+    }
+
     private static func narrowToAuthorizedSubset(binaryValue: Any, profileValue: Any) -> Any? {
-        if let profileString = profileValue as? String, profileString == "*" {
-            return binaryValue
-        }
-        if let binaryArray = binaryValue as? [String], let profileArray = profileValue as? [String] {
-            if profileArray.contains("*") { return binaryArray }
-            let intersection = binaryArray.filter { item in
-                profileArray.contains { allowed in
-                    allowed == item
-                        || (allowed.hasSuffix("*") && item.hasPrefix(String(allowed.dropLast())))
-                }
+        guard let binary = try? ProvisioningProfileValue.decode(binaryValue),
+              let profile = try? ProvisioningProfileValue.decode(profileValue) else { return nil }
+        switch (binary, profile) {
+        case (.array(let requested), .array(let authorized)):
+            let patterns = authorized.compactMap { value -> String? in
+                guard case .string(let text) = value else { return nil }
+                return text
             }
-            return intersection.isEmpty ? nil : intersection
+            guard patterns.count == authorized.count else { return binary == profile ? binaryValue : nil }
+            let selected = requested.compactMap { value -> String? in
+                guard case .string(let text) = value,
+                      patterns.contains(where: { matchesAuthorization(text, pattern: $0) }) else { return nil }
+                return text
+            }
+            return selected.isEmpty ? nil : selected
+        case (.string(let requested), .string(let pattern)):
+            return matchesAuthorization(requested, pattern: pattern) ? requested : nil
+        default:
+            // Never coerce NSNumber types or treat true as allowed by false.
+            return binary == profile ? binaryValue : nil
         }
-        if let binaryBool = binaryValue as? Bool, let profileBool = profileValue as? Bool {
-            return (binaryBool && profileBool) ? true : binaryBool
-        }
-        return nil
     }
 
     private static func extractTeamIdentifier(from dict: [String: Any]) -> String? {

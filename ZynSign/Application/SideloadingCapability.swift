@@ -33,7 +33,7 @@ enum SideloadingCapability: String, CaseIterable, Hashable, Sendable {
 
     var title: String {
         switch self {
-        case .devicePairing: return "Device pairing"
+        case .devicePairing: return "Pairing record prerequisites"
         case .deviceSession: return "Device session"
         case .packageInstallation: return "Package installation"
         case .guestContainer: return "Guest container"
@@ -45,14 +45,11 @@ enum SideloadingCapability: String, CaseIterable, Hashable, Sendable {
     var summary: String {
         switch self {
         case .devicePairing:
-            return "The pairing record is the trust anchor: the host certificate is presented "
-                + "to the device and the device's certificate must chain to the record's root."
+            return "A pairing record can be imported. Authenticated device sessions are not yet available."
         case .deviceSession:
-            return "lockdownd answers QueryType, StartSession and StartService over a "
-                + "mutually-authenticated TLS connection carrying usbmux frames."
+            return "A lockdownd session requires authenticated TLS and complete, bounded message framing; this transport is not yet available."
         case .packageInstallation:
-            return "The signed package is uploaded with AFC and installed with "
-                + "installation_proxy; the device verifies the signature, not this app."
+            return "Direct AFC and installation_proxy delivery is unavailable until the device transport is verified."
         case .guestContainer:
             return "The guest is patched to MH_DYLIB, has the loader linked in, is signed "
                 + "ad-hoc, and is mapped by the host with dlopen."
@@ -97,7 +94,7 @@ enum SideloadingCapability: String, CaseIterable, Hashable, Sendable {
                 return "The entitlement must be in the provisioning profile that signed this "
                     + "build. App Store builds cannot carry it."
             case .deviceTransport:
-                return "A transport carrying usbmux frames over the tunnel must be composed."
+                return "An authenticated device transport with complete framed reads must be implemented and verified."
             case .bundledLoader:
                 return "A prebuilt signed TweakLoader.dylib must ship in the app bundle."
             case .headerPadding:

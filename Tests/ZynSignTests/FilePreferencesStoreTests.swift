@@ -45,6 +45,20 @@ final class FilePreferencesStoreTests: XCTestCase {
         XCTAssertEqual(store.snapshot.appearance.appearanceMode, .light)
     }
 
+    func testLegacyDownloadKeepAlivePreferenceRoundTripsWithoutLosingOtherSettings() throws {
+        let document = """
+        {"schemaVersion": 1, "preferences": {"general": {"landingTab": "library", "keepDownloadsAliveInBackground": true}}}
+        """
+        try Data(document.utf8).write(to: SettingsFixtures.preferencesLocation(root: root))
+        let store = makeStore()
+        XCTAssertTrue(store.snapshot.general.keepDownloadsAliveInBackground)
+        XCTAssertEqual(store.snapshot.general.landingTab, .library)
+        try store.save(store.snapshot)
+        let reloaded = makeStore()
+        XCTAssertTrue(reloaded.snapshot.general.keepDownloadsAliveInBackground)
+        XCTAssertEqual(reloaded.snapshot.general.landingTab, .library)
+    }
+
     func testADocumentThatCannotBeReadBecomesDefaultsAndSaysSo() throws {
         try Data("not a preferences document".utf8).write(
             to: SettingsFixtures.preferencesLocation(root: root)

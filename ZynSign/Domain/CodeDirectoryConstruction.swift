@@ -57,6 +57,7 @@ enum CodeDirectoryVersion: Equatable, Hashable {
         }
     }
 
+    // Project policy, not an Apple-defined DER minimum version.
     var supportsDEREntitlements: Bool {
         self == .v20400
     }

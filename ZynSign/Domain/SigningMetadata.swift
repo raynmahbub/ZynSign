@@ -66,6 +66,7 @@ struct SealedCodeResources: Equatable, Hashable {
 struct MachOSigningMetadata: Equatable {
 
     let entitlements: CodeSigningEntitlements?
+    let emitDEREntitlements: Bool
     let requirements: CodeSigningRequirements?
     let resourceSeal: SealedCodeResources?
 
@@ -80,11 +81,13 @@ struct MachOSigningMetadata: Equatable {
 
     init(
         entitlements: CodeSigningEntitlements? = nil,
+        emitDEREntitlements: Bool = false,
         requirements: CodeSigningRequirements? = nil,
         resourceSeal: SealedCodeResources? = nil,
         bundleInfoPlist: Data? = nil
     ) {
         self.entitlements = entitlements
+        self.emitDEREntitlements = emitDEREntitlements
         self.requirements = requirements
         self.resourceSeal = resourceSeal
         self.bundleInfoPlist = bundleInfoPlist
@@ -92,7 +95,7 @@ struct MachOSigningMetadata: Equatable {
 
     /// Whether any component is present.
     var isEmpty: Bool {
-        entitlements == nil && requirements == nil && resourceSeal == nil
+        entitlements == nil && !emitDEREntitlements && requirements == nil && resourceSeal == nil
             && bundleInfoPlist == nil
     }
 
@@ -104,6 +107,7 @@ struct MachOSigningMetadata: Equatable {
     /// recorded malformed is refused here, at the boundary, before any
     /// cryptographic operation happens.
     func validateForEmbedding() throws {
+        if emitDEREntitlements && entitlements == nil { throw EntitlementsError.missingDEREntitlements }
         if let requirements {
             switch requirements.disposition {
             case .absent:
@@ -142,11 +146,20 @@ struct SigningMetadataSlotDigests: Equatable {
     let requirements: Digest?
     let codeResources: Digest?
     let entitlements: Digest?
+    let derEntitlements: Digest?
+
+    init(infoPlist: Digest?, requirements: Digest?, codeResources: Digest?, entitlements: Digest?, derEntitlements: Digest? = nil) {
+        self.infoPlist = infoPlist
+        self.requirements = requirements
+        self.codeResources = codeResources
+        self.entitlements = entitlements
+        self.derEntitlements = derEntitlements
+    }
 
     /// Whether any digest is present.
     var isEmpty: Bool {
         infoPlist == nil && requirements == nil && codeResources == nil
-            && entitlements == nil
+            && entitlements == nil && derEntitlements == nil
     }
 
     /// The special slots in CodeDirectory construction order: contiguous
@@ -167,6 +180,7 @@ struct SigningMetadataSlotDigests: Equatable {
         if requirements != nil { highest = max(highest, CodeDirectorySpecialSlotKind.requirements.slotIndex) }
         if codeResources != nil { highest = max(highest, CodeDirectorySpecialSlotKind.codeResources.slotIndex) }
         if entitlements != nil { highest = max(highest, CodeDirectorySpecialSlotKind.entitlements.slotIndex) }
+        if derEntitlements != nil { highest = max(highest, CodeDirectorySpecialSlotKind.derEntitlements.slotIndex) }
         guard highest > 0 else { return [] }
         var slots: [CodeDirectorySpecialSlot] = []
         slots.reserveCapacity(highest)
@@ -192,6 +206,9 @@ struct SigningMetadataSlotDigests: Equatable {
                     kind: .entitlements,
                     hash: entitlements.map { truncated($0, hashSize: hashSize) }
                 ))
+            case CodeDirectorySpecialSlotKind.derEntitlements.slotIndex:
+                slots.append(CodeDirectorySpecialSlot(kind: .derEntitlements,
+                    hash: derEntitlements.map { truncated($0, hashSize: hashSize) }))
             default:
                 slots.append(CodeDirectorySpecialSlot(index: index, hash: nil))
             }
@@ -258,6 +275,7 @@ enum SigningMetadataError: Error, Equatable {
 struct SigningMetadataPreparation: Equatable {
 
     let entitlementsBlob: EntitlementsBlob?
+    let derEntitlementsBlob: DEREntitlementsBlob?
 
     /// The embedded-entitlements record, when this target carried
     /// entitlements: the exact blob bytes, the digest destined for special
@@ -294,6 +312,7 @@ struct SigningMetadataPreparation: Equatable {
         guard let metadata, !metadata.isEmpty else {
             return SigningMetadataPreparation(
                 entitlementsBlob: nil,
+                derEntitlementsBlob: nil,
                 entitlementsRecord: nil,
                 requirementsSet: nil,
                 requirementsSetBytes: nil,
@@ -307,9 +326,12 @@ struct SigningMetadataPreparation: Equatable {
         }
         do { try metadata.validateForEmbedding() }
         catch let error as RequirementsError { throw SigningMetadataError.requirements(error) }
+        catch let error as EntitlementsError { throw SigningMetadataError.entitlements(error) }
         catch { throw SigningMetadataError.requirements(.notEmbeddable) }
 
         var entitlementsBlob: EntitlementsBlob?
+        var derBlob: DEREntitlementsBlob?
+        var derDigest: Digest?
         var entitlementsRecord: EmbeddedEntitlementsRecord?
         var requirementsSet: RequirementsSet?
         var requirementsBytes: Data?
@@ -334,6 +356,19 @@ struct SigningMetadataPreparation: Equatable {
             entitlementsBlob = blob
             let digest = try slotDigest(blob.bytes, hashConfiguration: hashConfiguration, messageDigest: messageDigest)
             entitlementsDigest = digest
+            if metadata.emitDEREntitlements {
+                do {
+                    let candidate = try DEREntitlementsSerializer().blob(entitlements)
+                    // Reject values whose DER representation changes their type.
+                    guard try DEREntitlementsDecoder().decode(blob: candidate.bytes) == entitlements else {
+                        throw EntitlementsError.notRepresentable
+                    }
+                    derBlob = candidate
+                    derDigest = try slotDigest(candidate.bytes, hashConfiguration: hashConfiguration, messageDigest: messageDigest)
+                } catch let error as EntitlementsError {
+                    throw SigningMetadataError.entitlements(error)
+                }
+            }
             entitlementsRecord = EmbeddedEntitlementsRecord(
                 blobBytes: blob.bytes,
                 specialSlotDigest: digest,
@@ -360,6 +395,7 @@ struct SigningMetadataPreparation: Equatable {
 
         return SigningMetadataPreparation(
             entitlementsBlob: entitlementsBlob,
+            derEntitlementsBlob: derBlob,
             entitlementsRecord: entitlementsRecord,
             requirementsSet: requirementsSet,
             requirementsSetBytes: requirementsBytes,
@@ -367,7 +403,8 @@ struct SigningMetadataPreparation: Equatable {
                 infoPlist: infoPlistDigest,
                 requirements: requirementsDigest,
                 codeResources: codeResourcesDigest,
-                entitlements: entitlementsDigest
+                entitlements: entitlementsDigest,
+                derEntitlements: derDigest
             )
         )
     }

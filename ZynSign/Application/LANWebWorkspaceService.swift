@@ -33,7 +33,7 @@ final class LANWebWorkspaceService: ObservableObject {
     @Published private(set) var endpoint: LocalTransferEndpoint?
     @Published var port: UInt16 = 8088
     @Published var webdavEnabled = true
-    @Published var requiresAuthentication = false
+    @Published var requiresAuthentication = true
     @Published var username = "zynsign"
     @Published var password = ""
     @Published private(set) var items: [UploadedItem] = []
@@ -59,6 +59,10 @@ final class LANWebWorkspaceService: ObservableObject {
 
     func startServer() async {
         guard !isRunning else { return }
+        guard !requiresAuthentication || (!username.isEmpty && !password.isEmpty && !username.contains(":")) else {
+            statusMessage = "Set a non-empty username and password before starting authentication. Usernames cannot contain a colon."
+            return
+        }
         Self.createCategoryDirectories(at: rootDirectory)
         let transport = makeTransport()
         let root = rootDirectory
@@ -161,7 +165,7 @@ final class LANWebWorkspaceService: ObservableObject {
         expectedUser: String,
         expectedPass: String
     ) -> WebDAVProtocol.HTTPResponseMessage {
-        if requiresAuth, !expectedPass.isEmpty,
+        if requiresAuth,
            !WebDAVProtocol.verifyBasicAuthorization(
             headerValue: head.headers["authorization"],
             expectedUsername: expectedUser,
@@ -174,6 +178,9 @@ final class LANWebWorkspaceService: ObservableObject {
             return plainResponse(status: 400, reason: "Bad Request", text: "Invalid path.")
         }
 
+        guard hasNoSymbolicLink(in: parts, under: rootDirectory) else {
+            return plainResponse(status: 403, reason: "Forbidden", text: "Symbolic links are not served.")
+        }
         let targetURL = parts.reduce(rootDirectory) { $0.appendingPathComponent($1) }
         switch head.method {
         case "OPTIONS":
@@ -196,14 +203,21 @@ final class LANWebWorkspaceService: ObservableObject {
             return handleRead(parts: parts, targetURL: targetURL, rootDirectory: rootDirectory, webdavEnabled: webdavEnabled, headOnly: head.method == "HEAD")
 
         case "PUT":
-            return handlePut(targetURL: targetURL, bodyFileURL: bodyFileURL)
+            guard !parts.isEmpty else {
+                return plainResponse(status: 403, reason: "Forbidden", text: "Cannot replace the workspace root.")
+            }
+            return handlePut(targetURL: targetURL, bodyFileURL: bodyFileURL, contentLength: head.contentLength)
 
         case "DELETE":
             guard !parts.isEmpty, FileManager.default.fileExists(atPath: targetURL.path) else {
                 return plainResponse(status: 404, reason: "Not Found", text: "Not found.")
             }
-            try? FileManager.default.removeItem(at: targetURL)
-            return plainResponse(status: 204, reason: "No Content", text: "")
+            do {
+                try FileManager.default.removeItem(at: targetURL)
+                return plainResponse(status: 204, reason: "No Content", text: "")
+            } catch {
+                return plainResponse(status: 409, reason: "Conflict", text: "Could not delete item.")
+            }
 
         case "MKCOL":
             guard webdavEnabled, !parts.isEmpty else {
@@ -217,6 +231,9 @@ final class LANWebWorkspaceService: ObservableObject {
             }
 
         case "MOVE", "COPY":
+            guard !parts.isEmpty else {
+                return plainResponse(status: 403, reason: "Forbidden", text: "Cannot move or copy the workspace root.")
+            }
             return handleMoveOrCopy(
                 method: head.method,
                 targetURL: targetURL,
@@ -228,6 +245,20 @@ final class LANWebWorkspaceService: ObservableObject {
         default:
             return plainResponse(status: 405, reason: "Method Not Allowed", text: "Unsupported method.")
         }
+    }
+
+    /// Reject existing symbolic links on a request path. This is a conservative
+    /// check, not a race-free substitute for descriptor-relative file access.
+    nonisolated private static func hasNoSymbolicLink(in parts: [String], under root: URL) -> Bool {
+        var current = root
+        for part in parts {
+            current.appendPathComponent(part)
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: current.path),
+               attrs[.type] as? FileAttributeType == .typeSymbolicLink {
+                return false
+            }
+        }
+        return true
     }
 
     nonisolated private static func unauthorizedResponse() -> WebDAVProtocol.HTTPResponseMessage {
@@ -275,9 +306,19 @@ final class LANWebWorkspaceService: ObservableObject {
               !destParts.isEmpty else {
             return plainResponse(status: 400, reason: "Bad Request", text: "Invalid Destination header.")
         }
+        guard hasNoSymbolicLink(in: destParts, under: rootDirectory) else {
+            return plainResponse(status: 403, reason: "Forbidden", text: "Symbolic links are not served.")
+        }
         let destURL = destParts.reduce(rootDirectory) { $0.appendingPathComponent($1) }
         let fm = FileManager.default
-        try? fm.removeItem(at: destURL)
+        guard fm.fileExists(atPath: targetURL.path) else {
+            return plainResponse(status: 404, reason: "Not Found", text: "Source not found.")
+        }
+        // Never delete an existing destination before a potentially failing move.
+        // Until transactional replacement is implemented, refuse overwrites.
+        guard !fm.fileExists(atPath: destURL.path) else {
+            return plainResponse(status: 412, reason: "Precondition Failed", text: "Destination already exists.")
+        }
         do {
             try fm.createDirectory(at: destURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             if method == "MOVE" {
@@ -327,19 +368,24 @@ final class LANWebWorkspaceService: ObservableObject {
 
     nonisolated private static func handlePut(
         targetURL: URL,
-        bodyFileURL: URL?
+        bodyFileURL: URL?,
+        contentLength: Int
     ) -> WebDAVProtocol.HTTPResponseMessage {
         let fm = FileManager.default
+        guard contentLength == 0 || (bodyFileURL != nil && fm.fileExists(atPath: bodyFileURL?.path ?? "")) else {
+            return plainResponse(status: 400, reason: "Bad Request", text: "Upload body is missing.")
+        }
         do {
             try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let existed = fm.fileExists(atPath: targetURL.path)
-            if existed { try fm.removeItem(at: targetURL) }
+            guard !fm.fileExists(atPath: targetURL.path) else {
+                return plainResponse(status: 412, reason: "Precondition Failed", text: "Destination already exists.")
+            }
             if let bodyFileURL, fm.fileExists(atPath: bodyFileURL.path) {
                 try fm.moveItem(at: bodyFileURL, to: targetURL)
             } else {
                 try Data().write(to: targetURL, options: .atomic)
             }
-            return plainResponse(status: existed ? 204 : 201, reason: existed ? "No Content" : "Created", text: "")
+            return plainResponse(status: 201, reason: "Created", text: "")
         } catch {
             return plainResponse(status: 507, reason: "Insufficient Storage", text: "Write failed.")
         }

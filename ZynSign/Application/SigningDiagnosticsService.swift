@@ -332,7 +332,7 @@ actor SigningDiagnosticsService {
                 }
             }
             let image = try ReadOnlyMachOParser().parse(bytes)
-            try SignMachOUseCase.checkSupportedImage(image)
+            try SignMachOUseCase.checkSupportedImage(image, bytes: bytes)
             return true
         } catch let error as MachOSigningError {
             if case .unsupportedMachOForm = error { return false }

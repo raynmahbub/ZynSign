@@ -33,8 +33,6 @@ struct ZipEntryStreamExtractor {
 
     private static let storedMethod: UInt16 = 0
     private static let deflateMethod: UInt16 = 8
-    private static let localFileHeaderSize = 30
-    private static let localFileHeaderSignature: UInt32 = 0x0403_4B50
 
     let archive: URL
     let limits: ArchiveLimits
@@ -107,9 +105,18 @@ struct ZipEntryStreamExtractor {
         let records = try ZipCentralDirectoryScanner.scan(fileSize: fileSize, limits: limits) { offset, count in
             try reader.read(at: offset, count: count)
         }
+        // The scanner returns one extra entry when its limit is exceeded.
+        // A partial table cannot establish that the requested path is unique.
+        guard records.count <= limits.maximumEntryCount else {
+            throw ZynSignError.archiveResourceLimitExceeded(
+                diagnosticDetail: "The archive contains more entries than the permitted limit."
+            )
+        }
         let record = try Self.uniqueRecord(for: path, in: records)
         try Self.checkEntry(record, path: path, maximumOutputBytes: maximumOutputBytes, limits: limits)
-        let contentOffset = try Self.contentOffset(for: record, path: path, reader: reader)
+        let contentOffset = try ZipLocalHeader.contentOffset(for: record, path: path, fileSize: fileSize) { offset, count in
+            try reader.read(at: offset, count: count)
+        }
         guard contentOffset <= fileSize, record.entry.compressedSize <= fileSize - contentOffset else {
             throw ZynSignError.archiveEntryUnreadable(
                 diagnosticDetail: "The content of '\(path.rawValue)' extends beyond the archive."
@@ -261,27 +268,6 @@ struct ZipEntryStreamExtractor {
                 )
             }
         }
-    }
-
-    private static func contentOffset(
-        for record: ZipCentralDirectoryRecord,
-        path: ArchivePath,
-        reader: BoundedReader
-    ) throws -> Int {
-        let header = try reader.read(at: record.localHeaderOffset, count: localFileHeaderSize)
-        guard ZipField.uint32(header, 0) == localFileHeaderSignature else {
-            throw ZynSignError.archiveEntryUnreadable(
-                diagnosticDetail: "The entry header for '\(path.rawValue)' does not begin with a recognized signature."
-            )
-        }
-        guard ZipField.uint16(header, 8) == record.compressionMethod else {
-            throw ZynSignError.archiveEntryUnreadable(
-                diagnosticDetail: "The entry header for '\(path.rawValue)' disagrees with the archive's directory about its encoding."
-            )
-        }
-        let nameLength = Int(ZipField.uint16(header, 26))
-        let extraLength = Int(ZipField.uint16(header, 28))
-        return record.localHeaderOffset + localFileHeaderSize + nameLength + extraLength
     }
 
     // MARK: - Streaming

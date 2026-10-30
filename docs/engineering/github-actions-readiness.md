@@ -1,0 +1,12 @@
+# GitHub Actions readiness
+
+Status: **Prepared, not executed for this working tree**. Existing workflow definitions were inspected; no dispatch, commit, push, tag or release was made. GitHub cannot test uncommitted local changes. A future run requires the user's separately authorized commit/push or another authorized transfer of the exact patch.
+
+- `01-build.yml` runs on pull requests or manual dispatch. Its `build-and-test` macOS job runs `Scripts/ci/build.sh` with XCTest by default; manual `run_unit_tests: false` only compiles and is not sufficient for this review. It also runs the external-validation export and Apple-tool analysis, and uploads logs/reports. The project's filesystem-synchronized groups include production and test files, but membership and compilation of newly added files remain unverified until Xcode runs.
+- `02-quality.yml` runs architecture, dependency, documentation, secret, Gitleaks and other gates on PRs, main/develop pushes or dispatch. The local secret script ran but Gitleaks was not installed. Workflow shell parsing passed locally; that is not workflow execution.
+- External-validation reports tool verdicts and can remain green when a signed artifact is rejected: the job's harness status is not a signing-acceptance gate. Inspect `external-validation/report/report.md` and JSON, the export status and native XCTest evidence, and record actual results per artifact. Simulator and macOS tools cannot prove physical-device acceptance.
+- The optional manual `private-ipa` job is not a release and depends on configuration and signing credentials; it is not evidence that ZynSign's own signer, device bridge or guest runtime works. Avoid any release/publish workflow without separate authorization.
+
+## Review sequence after authorization
+
+Run build with tests enabled and Quality on the exact reviewed commit; download non-secret XCTest and external-validation evidence; triage compilation/test failures and independently reported codesign failures. Do not put real P12 files, provisioning profiles, pairing records, account credentials or private keys into artifacts. Validate installation and launch separately on an owned physical device only after security and code review; hosted runners cannot perform that test. No new duplicate workflow was introduced because the required build, XCTest, static checks and independent-tool jobs already exist; their actual effectiveness on the changed tree is unknown.

@@ -133,6 +133,59 @@ enum ZipFixtureBuilder {
         return container
     }
 
+    /// A small ZIP using ZIP64 directory structures, optionally with extensible data.
+    static func zip64Archive(_ entries: [Entry], extensionBytes: [UInt8] = []) -> [UInt8] {
+        var bytes = archive(entries)
+        let end = bytes.count - 22
+        func field32(_ offset: Int) -> UInt32 {
+            UInt32(bytes[offset]) | (UInt32(bytes[offset + 1]) << 8)
+                | (UInt32(bytes[offset + 2]) << 16) | (UInt32(bytes[offset + 3]) << 24)
+        }
+        let directorySize = field32(end + 12)
+        let directoryOffset = field32(end + 16)
+        var extended: [UInt8] = []
+        appendUInt32(&extended, 0x0606_4B50)
+        appendUInt64(&extended, UInt64(44 + extensionBytes.count))
+        appendUInt16(&extended, 45)
+        appendUInt16(&extended, 45)
+        appendUInt32(&extended, 0)
+        appendUInt32(&extended, 0)
+        appendUInt64(&extended, UInt64(entries.count))
+        appendUInt64(&extended, UInt64(entries.count))
+        appendUInt64(&extended, UInt64(directorySize))
+        appendUInt64(&extended, UInt64(directoryOffset))
+        extended.append(contentsOf: extensionBytes)
+        appendUInt32(&extended, 0x0706_4B50)
+        appendUInt32(&extended, 0)
+        appendUInt64(&extended, UInt64(end))
+        appendUInt32(&extended, 1)
+        bytes.insert(contentsOf: extended, at: end)
+        let newEnd = end + extended.count
+        for index in 8..<20 { bytes[newEnd + index] = 0xFF }
+        return bytes
+    }
+
+    /// A single-entry ZIP using a data descriptor instead of local sizes.
+    static func archiveWithDataDescriptor(_ entry: Entry) -> [UInt8] {
+        var bytes = archive([entry])
+        let end = bytes.count - 22
+        let centralOffset = Int(bytes[end + 16])
+            | (Int(bytes[end + 17]) << 8)
+            | (Int(bytes[end + 18]) << 16)
+            | (Int(bytes[end + 19]) << 24)
+        let descriptor: [UInt8] = [0x50, 0x4B, 0x07, 0x08] + Array(bytes[14..<26])
+        bytes.insert(contentsOf: descriptor, at: centralOffset)
+        let newCentralOffset = centralOffset + descriptor.count
+        let newEnd = end + descriptor.count
+        bytes[6] |= 0x08
+        bytes[newCentralOffset + 8] |= 0x08
+        for index in 14..<26 { bytes[index] = 0 }
+        for index in 0..<4 {
+            bytes[newEnd + 16 + index] = UInt8(truncatingIfNeeded: newCentralOffset >> (index * 8))
+        }
+        return bytes
+    }
+
     /// The entries of a minimal, structurally valid application package.
     static func validPackage(bundleName: String = "Example.app") -> [Entry] {
         [
@@ -226,6 +279,12 @@ enum ZipFixtureBuilder {
     private static func appendUInt32(_ bytes: inout [UInt8], _ value: UInt32) {
         for shift in stride(from: 0, through: 24, by: 8) {
             bytes.append(UInt8(truncatingIfNeeded: value >> UInt32(shift)))
+        }
+    }
+
+    private static func appendUInt64(_ bytes: inout [UInt8], _ value: UInt64) {
+        for shift in stride(from: 0, through: 56, by: 8) {
+            bytes.append(UInt8(truncatingIfNeeded: value >> UInt64(shift)))
         }
     }
 

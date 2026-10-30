@@ -57,7 +57,8 @@ struct MachOSigningRequest {
         guard codeDirectory.hashConfiguration.hashType == .sha256 else {
             throw MachOSigningError.unsupportedHashType
         }
-        guard codeDirectory.version == .v20200,
+        let emitsDER = metadata?.emitDEREntitlements == true
+        guard (emitsDER ? codeDirectory.version == .v20400 : codeDirectory.version == .v20200),
               codeDirectory.flags.rawValue == 0, codeDirectory.platform == 0,
               codeDirectory.pageSize == .exponent(12),
               codeDirectory.specialSlots.isEmpty else {

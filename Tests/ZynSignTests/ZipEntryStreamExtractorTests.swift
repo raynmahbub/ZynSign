@@ -152,6 +152,48 @@ final class ZipEntryStreamExtractorTests: XCTestCase {
         XCTAssertEqual(refusal("App.ipa", from: archive)?.userMessage, ZynSignError.unsafeArchiveEntry().userMessage)
     }
 
+    func testEntryLimitRejectsPartialTableBeforeDuplicateCheck() throws {
+        let archive = ZipFixtureBuilder.archive([
+            .init(name: "App.ipa", content: [0x01]),
+            .init(name: "Other.txt", content: [0x02]),
+            .init(name: "App.ipa", content: [0x03]),
+        ])
+        let defaults = ArchiveLimits.default
+        let limits = ArchiveLimits(
+            maximumEntryCount: 1,
+            maximumEntryNameLength: defaults.maximumEntryNameLength,
+            maximumPathDepth: defaults.maximumPathDepth,
+            maximumEntryBytes: defaults.maximumEntryBytes,
+            maximumTotalUncompressedBytes: defaults.maximumTotalUncompressedBytes,
+            maximumCompressionRatio: defaults.maximumCompressionRatio,
+            maximumInspectionReadBytes: defaults.maximumInspectionReadBytes
+        )
+        let extractor = ZipEntryStreamExtractor(archive: write(archive), limits: limits)
+        XCTAssertThrowsError(try extractor.extract(makePath("App.ipa"), to: destination, reporting: nil)) { error in
+            XCTAssertEqual(
+                (error as? ZynSignError)?.userMessage,
+                ZynSignError.archiveResourceLimitExceeded().userMessage
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    func testRejectsLocalHeaderDisagreementsBeforeCreatingOutput() throws {
+        let original = ZipFixtureBuilder.archive([.init(name: "App.ipa", content: [1, 2, 3])])
+        for offset in [6, 8, 14, 18, 22, 30] {
+            var bytes = original
+            bytes[offset] ^= 1
+            let extractor = ZipEntryStreamExtractor(archive: write(bytes))
+            XCTAssertThrowsError(try extractor.extract(makePath("App.ipa"), to: destination, reporting: nil), "offset \(offset)")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+        }
+    }
+
+    func testExtractsEntryWithDataDescriptor() throws {
+        let archive = ZipFixtureBuilder.archiveWithDataDescriptor(.init(name: "App.ipa", content: [1, 2, 3]))
+        XCTAssertEqual(try extract("App.ipa", from: archive), Data([1, 2, 3]))
+    }
+
     func testALinkIsRefusedEvenWithAPackageName() {
         let archive = ZipFixtureBuilder.archive([
             .symbolicLink("App.ipa", target: "/etc/passwd"),

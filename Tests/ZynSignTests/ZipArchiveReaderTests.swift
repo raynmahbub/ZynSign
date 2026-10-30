@@ -68,6 +68,51 @@ final class ZipArchiveReaderTests: XCTestCase {
         30 + (Int(bytes[26]) | (Int(bytes[27]) << 8)) + (Int(bytes[28]) | (Int(bytes[29]) << 8))
     }
 
+    func testZip64LocatorWithUnaddressableRecordDoesNotOverflow() {
+        var bytes = [UInt8](repeating: 0, count: 42)
+        bytes.replaceSubrange(0..<4, with: [0x50, 0x4B, 0x06, 0x07])
+        // Int.max on 64-bit platforms: adding the ZIP64 record size would overflow.
+        bytes.replaceSubrange(8..<16, with: [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F])
+        bytes[16] = 1 // one disk; reach the offset check rather than the disk check
+        bytes.replaceSubrange(20..<24, with: [0x50, 0x4B, 0x05, 0x06])
+        XCTAssertThrowsError(try ZipCentralDirectoryScanner.scan(fileSize: bytes.count, limits: .default) { offset, count in
+            Array(bytes[offset..<(offset + count)])
+        })
+    }
+
+    func testReadsZip64DirectoryWithExtensibleData() throws {
+        let bytes = ZipFixtureBuilder.zip64Archive(
+            [.init(name: "App.ipa", content: [1, 2, 3])],
+            extensionBytes: [0x11, 0x22, 0x33, 0x44]
+        )
+        let reader = try reader(for: bytes)
+        XCTAssertEqual(try reader.readEntryData(at: makePath("App.ipa"), maximumBytes: 1024), Data([1, 2, 3]))
+    }
+
+    func testRejectsMalformedZip64StructureRelationships() throws {
+        let original = ZipFixtureBuilder.zip64Archive([.init(name: "App.ipa", content: [1])])
+        let end = original.count - 22
+        let locator = end - 20
+        let extended = locator - 56
+        let mutations: [(Int, UInt8)] = [
+            (end + 4, 1),          // ordinary end record names another disk
+            (locator + 4, 1),      // locator names another disk
+            (locator + 16, 2),     // locator says two disks
+            (extended + 16, 1),    // ZIP64 end record names another disk
+            (extended + 24, 2),    // disk entry count differs from total
+            (extended + 4, 43),    // record is too short
+            (extended + 4, 255),   // record extends into its locator
+            (extended + 40, original[extended + 40] + 1), // directory overlaps ZIP64 end record
+        ]
+        for (offset, value) in mutations {
+            var bytes = original
+            bytes[offset] = value
+            let reader = try reader(for: bytes)
+            XCTAssertThrowsError(try reader.readEntryTable(), "offset \(offset)")
+            reader.close()
+        }
+    }
+
     // MARK: - Valid containers
 
     func testReadsEntryTableFromValidContainer() throws {
@@ -155,6 +200,73 @@ final class ZipArchiveReaderTests: XCTestCase {
         )
         let error = try thrownError { _ = try reader.readEntryTable() }
         XCTAssertEqual(error.category, .invalidInput)
+    }
+
+    func testAcceptsCommentContainingNonMatchingEndSignature() throws {
+        var bytes = ZipFixtureBuilder.archive([.init(name: "App.ipa", content: [1])])
+        let end = bytes.count - 22
+        bytes[end + 20] = 25
+        bytes.append(contentsOf: [0x50, 0x4B, 0x05, 0x06] + [UInt8](repeating: 0, count: 21))
+        let table = try reader(for: bytes).readEntryTable()
+        XCTAssertEqual(table.count, 1)
+    }
+
+    func testRejectsAmbiguousEndRecordsInComment() throws {
+        var bytes = ZipFixtureBuilder.archive([.init(name: "App.ipa", content: [1])])
+        let end = bytes.count - 22
+        bytes[end + 20] = 22
+        bytes.append(contentsOf: [0x50, 0x4B, 0x05, 0x06] + [UInt8](repeating: 0, count: 18))
+        let reader = try reader(for: bytes)
+        _ = try thrownError { _ = try reader.readEntryTable() }
+    }
+
+    func testRejectsEndRecordWithIncorrectCommentLength() throws {
+        var bytes = ZipFixtureBuilder.archive([.init(name: "App.ipa", content: [1])])
+        bytes[bytes.count - 2] = 1
+        let reader = try reader(for: bytes)
+        _ = try thrownError { _ = try reader.readEntryTable() }
+    }
+
+    func testRejectsCentralDirectoryCountMismatch() throws {
+        var bytes = ZipFixtureBuilder.archive([.init(name: "App.ipa", content: [1])])
+        bytes[bytes.count - 14] = 2
+        bytes[bytes.count - 12] = 2
+        let reader = try reader(for: bytes)
+        _ = try thrownError { _ = try reader.readEntryTable() }
+    }
+
+    func testRejectsPartialCentralDirectoryRecord() throws {
+        var bytes = ZipFixtureBuilder.archive([.init(name: "App.ipa", content: [1])])
+        let directorySizeByte = bytes.count - 10
+        bytes[directorySizeByte] -= 1
+        let reader = try reader(for: bytes)
+        _ = try thrownError { _ = try reader.readEntryTable() }
+    }
+
+    func testRejectsDirectoryOverlappingEndRecord() throws {
+        var bytes = ZipFixtureBuilder.archive([.init(name: "App.ipa", content: [1])])
+        let directorySizeByte = bytes.count - 10
+        bytes[directorySizeByte] += 1
+        let reader = try reader(for: bytes)
+        _ = try thrownError { _ = try reader.readEntryTable() }
+    }
+
+    func testRejectsLocalHeaderDisagreementsBeforeReading() throws {
+        let original = ZipFixtureBuilder.archive([.init(name: "App.ipa", content: [1, 2, 3])])
+        // flags, compression, checksum, compressed size, expanded size, name
+        for offset in [6, 8, 14, 18, 22, 30] {
+            var bytes = original
+            bytes[offset] ^= 1
+            let reader = try reader(for: bytes)
+            XCTAssertThrowsError(try reader.readEntryData(at: makePath("App.ipa"), maximumBytes: 1024), "offset \(offset)")
+            reader.close()
+        }
+    }
+
+    func testReadsEntryWithDataDescriptor() throws {
+        let bytes = ZipFixtureBuilder.archiveWithDataDescriptor(.init(name: "App.ipa", content: [1, 2, 3]))
+        let reader = try reader(for: bytes)
+        XCTAssertEqual(try reader.readEntryData(at: makePath("App.ipa"), maximumBytes: 1024), Data([1, 2, 3]))
     }
 
     func testRejectsAbsentContainer() throws {

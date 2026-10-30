@@ -183,8 +183,27 @@ final class MachOSigningIntegrationTests: XCTestCase {
         MachOFixtures.put(3, at: 16, in: &encrypted, order: .littleEndian)
         MachOFixtures.put(248, at: 20, in: &encrypted, order: .littleEndian)
         encrypted.replaceSubrange(256..<280, with: MachOFixtures.command(0x2C, size: 24))
+        MachOFixtures.put(1, at: 272, in: &encrypted, order: .littleEndian)
         assertFailure(.unsupportedMachOForm, store: store,
                       request: try signingRequest(identity: store.id, artifact: Data(encrypted)))
+    }
+
+    func testUnencryptedEncryptionCommandIsAdmittedButInvalidRangesAreRefused() throws {
+        var bytes = Array(MachOSigningFixtures.unsignedMachO)
+        MachOFixtures.put(3, at: 16, in: &bytes, order: .littleEndian)
+        MachOFixtures.put(248, at: 20, in: &bytes, order: .littleEndian)
+        bytes.replaceSubrange(256..<280, with: MachOFixtures.command(0x2C, size: 24))
+        let artifact = Data(bytes)
+        let parsed = try ReadOnlyMachOParser().parse(artifact)
+        XCTAssertNoThrow(try SignMachOUseCase.checkSupportedImage(parsed, bytes: artifact))
+
+        MachOFixtures.put(UInt32.max, at: 264, in: &bytes, order: .littleEndian)
+        MachOFixtures.put(1, at: 268, in: &bytes, order: .littleEndian)
+        let bad = Data(bytes)
+        let badImage = try ReadOnlyMachOParser().parse(bad)
+        XCTAssertThrowsError(try SignMachOUseCase.checkSupportedImage(badImage, bytes: bad)) {
+            XCTAssertEqual($0 as? MachOSigningError, .unsupportedMachOForm)
+        }
     }
 
     func testExistingSignatureAndExplicitReplacementRejected() throws {

@@ -1,18 +1,9 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// All-in-one Dual-Mode Signing, Host Container & Wire-Free Device Hub.
-///
-/// Unifies ZynSign's three execution tracks in one native workshop:
-/// 1. **Host Container (Zero-Slot)** — `MH_DYLIB` + `CS_ADHOC` multi-app runtime
-///    with isolated per-profile data sandboxes, WebClip `.mobileconfig` export,
-///    and reversible standalone `.ipa` conversion.
-/// 2. **Apple ID Provisioner (Free & Paid)** — Personal Team (7-day) and Paid
-///    Developer Program (365-day) certificate, UDID, App ID, and profile minting
-///    directly into ZynSign's Keychain & Profile Library.
-/// 3. **Wire-Free Device Bridge** — Keychain `.mobiledevicepairing` management,
-///    local loopback `lockdownd` UDID probe, and `AFC` + `installation_proxy`
-///    direct install / 7-day lease refresh.
+/// Hub for experimental guest staging, account provisioning and pairing
+/// record management. Device transport is blocked until authenticated and
+/// verified; guest loading is not evidence of complete app execution.
 struct UnifiedSigningHubView: View {
 
     enum HubTab: String, CaseIterable, Identifiable, Sendable {
@@ -25,8 +16,6 @@ struct UnifiedSigningHubView: View {
 
     @Environment(\.applicationEnvironment) private var environment
     @State private var selectedTab: HubTab
-    @State private var hasPaidIdentity = false
-    @State private var activeFreeCount = 0
 
     init(initialTab: HubTab = .container) {
         _selectedTab = State(initialValue: initialTab)
@@ -34,7 +23,11 @@ struct UnifiedSigningHubView: View {
 
     var body: some View {
         List {
-            strategyOverviewSection
+            Section("Capability status") {
+                Text("Guest execution is experimental. Device installation is blocked until authenticated transport is verified. Account and profile restrictions vary.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
             modePickerSection
             switch selectedTab {
             case .container:
@@ -63,37 +56,6 @@ struct UnifiedSigningHubView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("Unified Signing Hub")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await refreshOverviewFacts() }
-    }
-
-    private var strategyOverviewSection: some View {
-        let hasFreeTeam = environment.appleAccountProvisioner?.selectedTeam?.isFreePersonalTeam == true
-        let rec = ZynSigningStrategyAdvisor.recommend(
-            hasPaidCertificate: hasPaidIdentity,
-            hasFreePersonalTeam: hasFreeTeam,
-            activeFreeAppCount: activeFreeCount,
-            hasAppExtensions: false,
-            requiresPushOrBackground: false,
-            prefersUnlimitedContainerApps: selectedTab == .container && !hasPaidIdentity
-        )
-        return Section {
-            VStack(alignment: .leading, spacing: ZSpacing.xs) {
-                HStack {
-                    Label(rec.track.rawValue, systemImage: "sparkles")
-                        .font(.subheadline.weight(.semibold))
-                    Spacer()
-                    ZStatusBadge(rec.track.badgeLabel, kind: .info)
-                }
-                Text(rec.headline)
-                    .font(.body.weight(.semibold))
-                Text(rec.rationale)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.vertical, ZSpacing.xxs)
-        } header: {
-            Text("Dual-Mode Strategy Advisor")
-        }
     }
 
     private var modePickerSection: some View {
@@ -114,22 +76,18 @@ struct UnifiedSigningHubView: View {
                 .foregroundStyle(.secondary)
         }
     }
-
-    private func refreshOverviewFacts() async {
-        let identities = (try? environment.identityStore.listIdentities()) ?? []
-        hasPaidIdentity = !identities.isEmpty
-        let records = (try? await environment.signingHistory?.allRecords()) ?? []
-        let profiles = (try? await environment.provisioningProfiles?.allProfiles()) ?? []
-        let leases = SideloadLedger.leases(from: records, profiles: profiles)
-        let usage = SideloadLedger.usage(leases, at: Date())
-        activeFreeCount = usage.first { $0.account == .personalTeam }?.installed ?? 0
-    }
 }
 
 // MARK: - 1. Host Container Sections
 
 private struct HostContainerWorkshopSections: View {
+    private enum PendingDeletion {
+        case guest(bundleID: String, name: String)
+        case slot(bundleID: String, slotID: String, name: String)
+    }
+
     @ObservedObject var host: GuestContainerHostService
+    @State private var pendingDeletion: PendingDeletion?
     @State private var isImportingIPA = false
     @State private var customGuestName = ""
     @State private var newSlotName = ""
@@ -154,19 +112,19 @@ private struct HostContainerWorkshopSections: View {
             .disabled(isStaging)
 
             if let banner = host.statusBanner {
-                Label(banner, systemImage: "checkmark.circle")
+                Text(banner)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
         } header: {
-            Text("Stage Unlimited Apps (0 Apple ID Slots)")
+            Text("Experimental Guest Staging")
         } footer: {
-            Text("Extracts the arm64 binary, converts MH_EXECUTE to MH_DYLIB, neutralizes __PAGEZERO, signs with CS_ADHOC, and isolates guest data under Documents/Applications/.")
+            Text("Stages and modifies a guest bundle for inspection. Data directories do not establish sandbox isolation. Probing loads code into this process and may execute initializers; it does not prove an app can run.")
         }
 
         Section("Hosted Container Apps (\(host.hostedGuests.count))") {
             if host.hostedGuests.isEmpty {
-                Text("No apps staged yet. Stage any decrypted .ipa above to run it inside ZynSign without consuming a 3-app Free Apple ID slot.")
+                Text("No guests staged yet. Compatibility, execution and isolation are not guaranteed.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } else {
@@ -197,6 +155,20 @@ private struct HostContainerWorkshopSections: View {
             }
             .presentationDetents([.medium])
         }
+        .confirmationDialog("Permanently delete data?", isPresented: Binding(
+            get: { pendingDeletion != nil },
+            set: { if !$0 { pendingDeletion = nil } }
+        ), presenting: pendingDeletion) { deletion in
+            Button("Delete", role: .destructive) { performDeletion(deletion) }
+            Button("Cancel", role: .cancel) { pendingDeletion = nil }
+        } message: { deletion in
+            switch deletion {
+            case .guest(_, let name):
+                Text("Remove \(name) and all of its stored profiles? This cannot be undone.")
+            case .slot(_, _, let name):
+                Text("Delete the data in profile \(name)? This cannot be undone.")
+            }
+        }
         .alert("Container Action Failed", isPresented: Binding(
             get: { errorAlert != nil },
             set: { if !$0 { errorAlert = nil } }
@@ -219,14 +191,17 @@ private struct HostContainerWorkshopSections: View {
                 }
                 Spacer()
                 ZStatusBadge(
-                    guest.jitlessCompatible ? "JIT-Less Ready" : "Needs JIT",
-                    kind: guest.jitlessCompatible ? .success : .warning
+                    guest.requiresJIT ? "JIT requested" : "Compatibility unverified",
+                    kind: .warning
                 )
             }
 
             Picker("Active Data Sandbox", selection: Binding(
                 get: { guest.activeSlotID },
-                set: { newSlot in try? host.switchActiveSlot(for: guest.bundleIdentifier, to: newSlot) }
+                set: { newSlot in
+                    do { try host.switchActiveSlot(for: guest.bundleIdentifier, to: newSlot) }
+                    catch { errorAlert = error.localizedDescription }
+                }
             )) {
                 ForEach(guest.slots) { slot in
                     Text(slot.label).tag(slot.id)
@@ -240,7 +215,7 @@ private struct HostContainerWorkshopSections: View {
                     host.requestLaunch(bundleIdentifier: guest.bundleIdentifier)
                     ZHaptics.tap()
                 } label: {
-                    Label("Launch", systemImage: "play.fill")
+                    Label("Probe Executable", systemImage: "play.fill")
                         .font(.footnote.weight(.semibold))
                 }
                 .buttonStyle(.borderedProminent)
@@ -267,13 +242,13 @@ private struct HostContainerWorkshopSections: View {
             }
             if guest.activeSlotID != "primary" {
                 Button(role: .destructive) {
-                    try? host.deleteDataSlot(for: guest.bundleIdentifier, slotID: guest.activeSlotID)
+                    pendingDeletion = .slot(bundleID: guest.bundleIdentifier, slotID: guest.activeSlotID, name: guest.activeSlot.label)
                 } label: {
                     Label("Delete Active Data Slot", systemImage: "trash")
                 }
             }
             Button(role: .destructive) {
-                try? host.removeHostedGuest(guest.bundleIdentifier)
+                pendingDeletion = .guest(bundleID: guest.bundleIdentifier, name: guest.displayName)
             } label: {
                 Label("Remove Hosted App", systemImage: "xmark.bin")
             }
@@ -282,6 +257,20 @@ private struct HostContainerWorkshopSections: View {
                 .font(.footnote)
         }
         .buttonStyle(.bordered)
+    }
+
+    private func performDeletion(_ deletion: PendingDeletion) {
+        pendingDeletion = nil
+        do {
+            switch deletion {
+            case .guest(let bundleID, _):
+                try host.removeHostedGuest(bundleID)
+            case .slot(let bundleID, let slotID, _):
+                try host.deleteDataSlot(for: bundleID, slotID: slotID)
+            }
+        } catch {
+            errorAlert = error.localizedDescription
+        }
     }
 
     private func handleStageImport(_ result: Result<[URL], any Error>) {
@@ -508,7 +497,12 @@ private struct DeviceBridgeWorkshopSections: View {
             Text("Pairing records are stored exclusively in the iOS Keychain (WhenUnlockedThisDeviceOnly).")
         }
 
-        Section("Wire-Free Session & Direct Install") {
+        Section("Device Session & Direct Install") {
+            if !bridge.isTransportComposed {
+                Text("Unavailable: authenticated device transport and framed reads require implementation and device verification.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
             if let device = bridge.lastConnectedDevice {
                 LabeledContent("Connected Device", value: "\(device.name) (iOS \(device.productVersion))")
                 LabeledContent("UDID", value: device.uniqueDeviceID)
@@ -524,7 +518,7 @@ private struct DeviceBridgeWorkshopSections: View {
                 }
                 .frame(minHeight: 44)
             }
-            .disabled(!bridge.hasPairingRecord || bridge.isBusy)
+            .disabled(!bridge.isTransportComposed || !bridge.hasPairingRecord || bridge.isBusy)
 
             TextField("Signed IPA Bundle Identifier", text: $installBundleID)
                 .textInputAutocapitalization(.never)
@@ -535,7 +529,7 @@ private struct DeviceBridgeWorkshopSections: View {
                 Label("Install / Refresh Signed .ipa via installation_proxy…", systemImage: "arrow.down.app")
                     .frame(minHeight: 44)
             }
-            .disabled(!bridge.hasPairingRecord || bridge.isBusy || installBundleID.isEmpty)
+            .disabled(!bridge.isTransportComposed || !bridge.hasPairingRecord || bridge.isBusy || installBundleID.isEmpty)
 
             if let msg = bridge.statusMessage {
                 Label(msg, systemImage: "checkmark.circle").font(.footnote)

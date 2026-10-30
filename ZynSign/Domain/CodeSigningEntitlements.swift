@@ -35,6 +35,9 @@ enum EntitlementsError: Error, Equatable {
     /// non-minimal length, a non-canonical boolean or integer, a duplicate key,
     /// a truncated element, or trailing bytes after the set.
     case malformedDEREncoding
+    case missingDEREntitlements
+    case derEntitlementsMismatch
+    case derEntitlementsDigestMismatch
 }
 
 /// The typed representation of one signing target's entitlement claims.

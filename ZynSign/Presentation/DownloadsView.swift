@@ -45,7 +45,6 @@ private struct DownloadCenterScreen: View {
     var embedsNavigationStack: Bool = true
 
     @Environment(\.applicationEnvironment) private var environment
-    @Environment(\.settingsCenter) private var settingsCenter
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var searchText = ""
     @State private var showAdd = false
@@ -182,10 +181,6 @@ private struct DownloadCenterScreen: View {
         }
         .onChange(of: center.jobs.map(DownloadCenterRendering.milestoneToken(for:))) { _, _ in
             announceMilestones()
-            environment.downloadKeepAlive?.setActiveTransferCount(
-                center.activeJobs.count,
-                enabled: settingsCenter.preferences.general.keepDownloadsAliveInBackground
-            )
         }
         .sheet(isPresented: $showLinkScanner) {
             WebLinkExtractorSheet { extractedURL in
