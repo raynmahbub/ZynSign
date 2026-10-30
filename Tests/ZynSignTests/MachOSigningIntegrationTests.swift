@@ -197,7 +197,7 @@ final class MachOSigningIntegrationTests: XCTestCase {
         let parsed = try ReadOnlyMachOParser().parse(artifact)
         XCTAssertNoThrow(try SignMachOUseCase.checkSupportedImage(parsed, bytes: artifact))
 
-        MachOFixtures.put(UInt32.max, at: 264, in: &bytes, order: .littleEndian)
+        MachOFixtures.put(UInt64(UInt32.max), at: 264, in: &bytes, order: .littleEndian)
         MachOFixtures.put(1, at: 268, in: &bytes, order: .littleEndian)
         let bad = Data(bytes)
         let badImage = try ReadOnlyMachOParser().parse(bad)
