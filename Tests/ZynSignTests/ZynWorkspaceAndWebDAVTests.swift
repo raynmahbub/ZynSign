@@ -219,8 +219,8 @@ final class ZynWorkspaceAndWebDAVTests: XCTestCase {
         let big = root.appendingPathComponent("Packages/big.ipa")
         try Data(repeating: 0x41, count: 4_097).write(to: big)
 
-        XCTAssertEqual(dispatch(head("GET", "/Packages/big.ipa", maximumDownloadBytes: 4_096), root: root).status, 413)
-        XCTAssertEqual(dispatch(head("GET", "/Packages/big.ipa", maximumDownloadBytes: 8_192), root: root).status, 200)
+        XCTAssertEqual(dispatch(head("GET", "/Packages/big.ipa"), root: root, maximumDownloadBytes: 4_096).status, 413)
+        XCTAssertEqual(dispatch(head("GET", "/Packages/big.ipa"), root: root, maximumDownloadBytes: 8_192).status, 200)
     }
 
     func testWebDAVFramingRefusalsStayRefused() {
