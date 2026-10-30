@@ -29,8 +29,8 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
   Requests from a foreign `Origin` or `Sec-Fetch-Site` are refused before the
   method is considered; the workspace root and its four category folders can no
   longer be replaced, moved or deleted; `DELETE`, `MKCOL`, `MOVE` and `COPY` are
-  refused when WebDAV is off, while the browser page's own `PUT` upload keeps
-  working; a truncated upload is never published; a download past
+  answered `405` when WebDAV is off (availability before policy), while the
+  browser page's own `PUT` upload keeps working; a truncated upload is never published; a download past
   512 MiB is refused rather than read into memory; `PROPFIND` depth `infinity`
   is answered as one level. The listener gains a 30-second idle clock and an
   eight-connection budget. The link is still plaintext HTTP, file access is

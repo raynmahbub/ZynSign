@@ -323,16 +323,20 @@ final class LANWebWorkspaceService: ObservableObject {
         webdavEnabled: Bool,
         protectedTopLevelDirectories: Set<String>
     ) -> WebDAVProtocol.HTTPResponseMessage {
-        if let refusal = WebDAVPathPolicy.refusalForMutation(of: parts, protectedRoots: protectedTopLevelDirectories) {
-            return refusal.response
-        }
         // `PUT` is answered with the drive off as well: uploading through the
         // browser page is what the listener is for in that mode. The methods that
         // make it a file manager — delete, make, move, copy — are the drive's,
         // and the dashboard hides its delete control to match.
+        //
+        // Availability is answered before policy: a method this listener is not
+        // offering at all is `405`, and only a method it does offer is judged by
+        // what it names (`403` for the workspace root or a category folder).
         let driveOnlyMethods: Set<String> = ["DELETE", "MKCOL", "MOVE", "COPY"]
         if driveOnlyMethods.contains(head.method), !webdavEnabled {
             return plainResponse(status: 405, reason: "Method Not Allowed", text: "WebDAV is disabled.")
+        }
+        if let refusal = WebDAVPathPolicy.refusalForMutation(of: parts, protectedRoots: protectedTopLevelDirectories) {
+            return refusal.response
         }
         let fm = FileManager.default
         switch head.method {

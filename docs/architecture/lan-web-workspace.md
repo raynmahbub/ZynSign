@@ -86,8 +86,11 @@ is presented as such.
 
 `OPTIONS`, `GET`, `HEAD`, and `PROPFIND` read. `PUT`, `DELETE`, `MKCOL`, `MOVE`,
 and `COPY` mutate. `DELETE`, `MKCOL`, `MOVE`, and `COPY` belong to the drive and
-are refused when WebDAV is off; `PUT` keeps answering, because uploading through
-the browser page is exactly what the listener is for in that mode. The dashboard
+are answered `405` when WebDAV is off; `PUT` keeps answering, because uploading
+through the browser page is exactly what the listener is for in that mode.
+Availability is decided before policy, so a drive method with the drive off is
+`405` whatever it names, and only a method the listener offers is judged by its
+target (`403` for the root or a category folder). The dashboard
 hides its delete control when the drive is off, so the page never offers what the
 server would refuse.
 

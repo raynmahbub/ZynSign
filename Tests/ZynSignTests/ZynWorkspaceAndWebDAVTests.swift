@@ -121,6 +121,11 @@ final class ZynWorkspaceAndWebDAVTests: XCTestCase {
         // The dashboard's own upload is the one write that survives the drive
         // being off; that mode exists to receive files.
         XCTAssertEqual(dispatch(head("PUT", "/Files/browser.ipa", length: 0), root: root, webdavEnabled: false).status, 201)
+        // Availability is answered before policy: with the drive off, a drive
+        // method is not offered at all (405) even when its target is protected,
+        // and only with the drive on does the target earn 403.
+        XCTAssertEqual(dispatch(head("DELETE", "/Packages"), root: root, webdavEnabled: true).status, 403)
+        XCTAssertEqual(dispatch(head("MOVE", "/Packages", headers: ["destination": "/Files/x"]), root: root, webdavEnabled: false).status, 405)
         XCTAssertEqual(dispatch(head("MKCOL", "/Files/Sub"), root: root).status, 201)
         XCTAssertEqual(dispatch(head("GET", "/Files"), root: root).status, 404)
     }
@@ -219,8 +224,8 @@ final class ZynWorkspaceAndWebDAVTests: XCTestCase {
         let big = root.appendingPathComponent("Packages/big.ipa")
         try Data(repeating: 0x41, count: 4_097).write(to: big)
 
-        XCTAssertEqual(dispatch(head("GET", "/Packages/big.ipa", maximumDownloadBytes: 4_096), root: root).status, 413)
-        XCTAssertEqual(dispatch(head("GET", "/Packages/big.ipa", maximumDownloadBytes: 8_192), root: root).status, 200)
+        XCTAssertEqual(dispatch(head("GET", "/Packages/big.ipa"), root: root, maximumDownloadBytes: 4_096).status, 413)
+        XCTAssertEqual(dispatch(head("GET", "/Packages/big.ipa"), root: root, maximumDownloadBytes: 8_192).status, 200)
     }
 
     func testWebDAVFramingRefusalsStayRefused() {
@@ -246,9 +251,10 @@ final class ZynWorkspaceAndWebDAVTests: XCTestCase {
         let html = String(decoding: WebDAVProtocol.renderDashboardHTML(items: [item], webdavEnabled: true), as: UTF8.self)
         XCTAssertFalse(html.contains("delItem('/a'file.txt')"))
         XCTAssertTrue(html.contains("delItem(this.dataset.href)"))
-        // With the drive off the page offers no control the server would refuse.
+        // With the drive off the page renders no delete control the server would
+        // refuse. The script keeps its `delItem` helper — nothing calls it.
         let browserOnly = String(decoding: WebDAVProtocol.renderDashboardHTML(items: [item], webdavEnabled: false), as: UTF8.self)
-        XCTAssertFalse(browserOnly.contains("delItem("))
+        XCTAssertFalse(browserOnly.contains("onclick=\"delItem("))
     }
 
     // MARK: - LAN Web Workspace: helpers
