@@ -94,7 +94,7 @@ enum EntitlementCanonicalValidator {
                 throw EntitlementsError.resourceLimitExceeded
             }
             for element in elements {
-                try validateValue(element, depth: depth + 1, nodeCount: &nodeCount)
+                try validateValue(element, depth: depth + 1, nodeCount: &nodeCount, limits: limits)
             }
         case .dictionary(let entries):
             guard entries.count <= limits.maximumCollectionCount else {
@@ -103,7 +103,7 @@ enum EntitlementCanonicalValidator {
             for key in entries.keys {
                 try validateKey(key, limits: limits)
                 guard let entry = entries[key] else { throw EntitlementsError.invalidKey }
-                try validateValue(entry, depth: depth + 1, nodeCount: &nodeCount)
+                try validateValue(entry, depth: depth + 1, nodeCount: &nodeCount, limits: limits)
             }
         }
     }
