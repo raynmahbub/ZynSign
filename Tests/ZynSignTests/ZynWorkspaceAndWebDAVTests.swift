@@ -121,6 +121,11 @@ final class ZynWorkspaceAndWebDAVTests: XCTestCase {
         // The dashboard's own upload is the one write that survives the drive
         // being off; that mode exists to receive files.
         XCTAssertEqual(dispatch(head("PUT", "/Files/browser.ipa", length: 0), root: root, webdavEnabled: false).status, 201)
+        // Availability is answered before policy: with the drive off, a drive
+        // method is not offered at all (405) even when its target is protected,
+        // and only with the drive on does the target earn 403.
+        XCTAssertEqual(dispatch(head("DELETE", "/Packages"), root: root, webdavEnabled: true).status, 403)
+        XCTAssertEqual(dispatch(head("MOVE", "/Packages", headers: ["destination": "/Files/x"]), root: root, webdavEnabled: false).status, 405)
         XCTAssertEqual(dispatch(head("MKCOL", "/Files/Sub"), root: root).status, 201)
         XCTAssertEqual(dispatch(head("GET", "/Files"), root: root).status, 404)
     }
