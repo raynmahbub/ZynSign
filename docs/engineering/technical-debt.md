@@ -16,7 +16,7 @@ The configured next train stop is `v0.9.0-beta.1`, not an instruction to publish
 
 - **High:** Guest probing loads untrusted code in the host process, and environment variables do not isolate it. Review process-wide environment changes, symlink/race-resistant filesystem access, cleanup, same-volume publication and all other guest mutation paths before considering this feature safe. Guest runtime and new tests remain unverified on Apple platforms.
 
-- **High:** LAN WebDAV remains plaintext HTTP, with optional authentication, raceable path checks and destructive DELETE operations. Design TLS or an appropriately isolated access model, descriptor-relative path handling, CSRF protection, connection timeouts, bounded downloads and safe transactional overwrite; validate against real clients. See the [1.0 parity plan](1.0-parity-plan.md).
+- **High:** LAN WebDAV is still plaintext HTTP. Authentication is now a precondition (no anonymous mode, minimum credential length), every target passes through `WebDAVPathPolicy`, the root and category folders are protected, cross-origin requests are refused, bodies are checked for completeness, downloads are bounded, and connections have an idle clock and a budget — see the [LAN Web Workspace record](../architecture/lan-web-workspace.md). What remains: TLS (Basic credentials still travel in clear text and stay readable on the path), descriptor-relative file access to close the remaining symlink time-of-check/time-of-use window, safe transactional overwrite, and validation against Finder, Explorer, iOS Files and a command-line WebDAV client. None of the new checks has been exercised on a device or against a real client. See the [1.0 parity plan](1.0-parity-plan.md).
 
 ## Post-refactoring verification gates
 

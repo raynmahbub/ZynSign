@@ -21,6 +21,22 @@ See `docs/releases/version-strategy.md` for the pre-1.0 progression and
 
 ### Changed
 
+- Made LAN Web Workspace authentication a precondition instead of an option, and
+  replaced ad-hoc path handling with `WebDAVPathPolicy`: one parse of the target,
+  one percent-decode, and the complete refusal vocabulary — traversal however
+  encoded, empty segments, control and separator characters, hidden names,
+  trailing dots and spaces, and length bounds — each carrying its status.
+  Requests from a foreign `Origin` or `Sec-Fetch-Site` are refused before the
+  method is considered; the workspace root and its four category folders can no
+  longer be replaced, moved or deleted; `DELETE`, `MKCOL`, `MOVE` and `COPY` are
+  refused when WebDAV is off, while the browser page's own `PUT` upload keeps
+  working; a truncated upload is never published; a download past
+  512 MiB is refused rather than read into memory; `PROPFIND` depth `infinity`
+  is answered as one level. The listener gains a 30-second idle clock and an
+  eight-connection budget. The link is still plaintext HTTP, file access is
+  still not descriptor-relative, and no real-client or device run was made — see
+  `docs/architecture/lan-web-workspace.md`.
+
 - Hardened experimental single-image DER signing with XML/DER semantic round trips, bounded decoding and additional cryptographic regression coverage; Xcode and Apple interoperability validation remain pending.
 
 - Added experimental opt-in DER entitlement slot 7 binding to the single-image signer, with same-claim and canonical-byte checks. Application signing still refuses DER; Apple-platform and device validation are pending.

@@ -4,10 +4,23 @@ import Network
 /// `NWListener`-backed foreground server for `LANWebWorkspaceService`,
 /// streaming request bodies to bounded temporary files so large `.ipa` uploads
 /// never sit in RAM whole.
+///
+/// Two bounds keep a hostile or merely broken client from holding the listener:
+/// a connection that makes no progress for `idleTimeoutSeconds` is closed, and at
+/// most `maximumConcurrentConnections` connections are served at once. Both are
+/// counted on the same serial queue the listener runs on, so the budget cannot
+/// be observed half-updated.
 final class NetworkLANWebWorkspaceServer: LANWebWorkspaceTransport, @unchecked Sendable {
+
+    /// How long a connection may go without a byte before it is closed.
+    static let idleTimeoutSeconds: TimeInterval = 30
+
+    /// How many connections this server serves at once.
+    static let maximumConcurrentConnections = 8
 
     private let queue = DispatchQueue(label: "com.zynsign.lan-web-workspace")
     private var listener: NWListener?
+    private var activeConnectionCount = 0
 
     init() {}
 
@@ -90,18 +103,56 @@ final class NetworkLANWebWorkspaceServer: LANWebWorkspaceTransport, @unchecked S
         maximumUploadBytes: Int,
         handling: @escaping @Sendable (WebDAVProtocol.HTTPRequestHead, URL?) async -> WebDAVProtocol.HTTPResponseMessage
     ) {
+        guard activeConnectionCount < Self.maximumConcurrentConnections else {
+            connection.start(queue: queue)
+            sendAndClose(
+                WebDAVProtocol.HTTPResponseMessage(
+                    status: 503,
+                    reason: "Service Unavailable",
+                    headers: [("Retry-After", "1")],
+                    body: Data("This workspace is serving the maximum number of connections.\n".utf8)
+                ),
+                on: connection
+            )
+            return
+        }
+        activeConnectionCount += 1
+        let ticket = ConnectionTicket { [weak self] in
+            guard let self else { return }
+            self.activeConnectionCount = max(0, self.activeConnectionCount - 1)
+        }
+        // The handler is installed before the connection starts, so a connection
+        // that ends immediately still returns its seat.
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .failed, .cancelled: ticket.release()
+            default: break
+            }
+        }
         connection.start(queue: queue)
-        readHead(connection: connection, accumulated: Data(), maximumUploadBytes: maximumUploadBytes, handling: handling)
+        let watchdog = IdleWatchdog(queue: queue, seconds: Self.idleTimeoutSeconds) {
+            connection.cancel()
+        }
+        watchdog.touch()
+        readHead(
+            connection: connection,
+            accumulated: Data(),
+            maximumUploadBytes: maximumUploadBytes,
+            watchdog: watchdog,
+            handling: handling
+        )
     }
 
     private func readHead(
         connection: NWConnection,
         accumulated: Data,
         maximumUploadBytes: Int,
+        watchdog: IdleWatchdog,
         handling: @escaping @Sendable (WebDAVProtocol.HTTPRequestHead, URL?) async -> WebDAVProtocol.HTTPResponseMessage
     ) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) { [weak self] chunk, _, isComplete, error in
             guard let self else { connection.cancel(); return }
+            watchdog.touch()
             if error != nil { connection.cancel(); return }
             var buffer = accumulated
             if let chunk { buffer.append(chunk) }
@@ -140,12 +191,19 @@ final class NetworkLANWebWorkspaceServer: LANWebWorkspaceTransport, @unchecked S
                     connection: connection,
                     head: head,
                     initialBody: initialBody,
+                    watchdog: watchdog,
                     handling: handling
                 )
             } else if isComplete {
                 connection.cancel()
             } else {
-                self.readHead(connection: connection, accumulated: buffer, maximumUploadBytes: maximumUploadBytes, handling: handling)
+                self.readHead(
+                    connection: connection,
+                    accumulated: buffer,
+                    maximumUploadBytes: maximumUploadBytes,
+                    watchdog: watchdog,
+                    handling: handling
+                )
             }
         }
     }
@@ -154,6 +212,7 @@ final class NetworkLANWebWorkspaceServer: LANWebWorkspaceTransport, @unchecked S
         connection: NWConnection,
         head: WebDAVProtocol.HTTPRequestHead,
         initialBody: Data,
+        watchdog: IdleWatchdog,
         handling: @escaping @Sendable (WebDAVProtocol.HTTPRequestHead, URL?) async -> WebDAVProtocol.HTTPResponseMessage
     ) {
         guard initialBody.count <= head.contentLength else {
@@ -164,6 +223,9 @@ final class NetworkLANWebWorkspaceServer: LANWebWorkspaceTransport, @unchecked S
             return
         }
         if head.contentLength == 0 {
+            // The request is complete; the clock that guards a stalled client no
+            // longer applies while the handler does its work.
+            watchdog.disarm()
             Task {
                 let response = await handling(head, nil)
                 self.sendAndClose(response, on: connection)
@@ -196,6 +258,7 @@ final class NetworkLANWebWorkspaceServer: LANWebWorkspaceTransport, @unchecked S
         let remaining = head.contentLength - initialSlice.count
         if remaining <= 0 {
             try? handle.close()
+            watchdog.disarm()
             Task {
                 let response = await handling(head, tempFile)
                 try? FileManager.default.removeItem(at: tempFile)
@@ -209,6 +272,7 @@ final class NetworkLANWebWorkspaceServer: LANWebWorkspaceTransport, @unchecked S
             fileHandle: handle,
             tempFile: tempFile,
             remaining: remaining,
+            watchdog: watchdog,
             handling: handling
         )
     }
@@ -219,6 +283,7 @@ final class NetworkLANWebWorkspaceServer: LANWebWorkspaceTransport, @unchecked S
         fileHandle: FileHandle,
         tempFile: URL,
         remaining: Int,
+        watchdog: IdleWatchdog,
         handling: @escaping @Sendable (WebDAVProtocol.HTTPRequestHead, URL?) async -> WebDAVProtocol.HTTPResponseMessage
     ) {
         let chunkLimit = min(262_144, remaining)
@@ -229,6 +294,7 @@ final class NetworkLANWebWorkspaceServer: LANWebWorkspaceTransport, @unchecked S
                 connection.cancel()
                 return
             }
+            watchdog.touch()
             if error != nil || (chunk == nil && isComplete) {
                 try? fileHandle.close()
                 try? FileManager.default.removeItem(at: tempFile)
@@ -256,6 +322,7 @@ final class NetworkLANWebWorkspaceServer: LANWebWorkspaceTransport, @unchecked S
             let nextRemaining = remaining - written.count
             if nextRemaining <= 0 {
                 try? fileHandle.close()
+                watchdog.disarm()
                 Task {
                     let response = await handling(head, tempFile)
                     try? FileManager.default.removeItem(at: tempFile)
@@ -268,6 +335,7 @@ final class NetworkLANWebWorkspaceServer: LANWebWorkspaceTransport, @unchecked S
                     fileHandle: fileHandle,
                     tempFile: tempFile,
                     remaining: nextRemaining,
+                    watchdog: watchdog,
                     handling: handling
                 )
             }
@@ -330,5 +398,57 @@ private final class ListenerGate: @unchecked Sendable {
         continuation = nil
         lock.unlock()
         cont?.resume(throwing: error)
+    }
+}
+
+/// A per-connection clock that closes a connection making no progress.
+///
+/// `touch()` is called from every receive completion and must run on the queue
+/// the server was started with; the type holds no lock because it is never
+/// touched from another one.
+private final class IdleWatchdog: @unchecked Sendable {
+    private let queue: DispatchQueue
+    private let seconds: TimeInterval
+    private let onExpiry: @Sendable () -> Void
+    private var pending: DispatchWorkItem?
+
+    init(queue: DispatchQueue, seconds: TimeInterval, onExpiry: @escaping @Sendable () -> Void) {
+        self.queue = queue
+        self.seconds = seconds
+        self.onExpiry = onExpiry
+    }
+
+    /// Starts or restarts the clock.
+    func touch() {
+        pending?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, self.pending?.isCancelled == false else { return }
+            self.onExpiry()
+        }
+        pending = item
+        queue.asyncAfter(deadline: .now() + seconds, execute: item)
+    }
+
+    /// Stops the clock once the request is complete and the handler is working.
+    func disarm() {
+        pending?.cancel()
+        pending = nil
+    }
+}
+
+/// One seat in the connection budget, released exactly once however the
+/// connection ends.
+private final class ConnectionTicket: @unchecked Sendable {
+    private var released = false
+    private let releaseSeat: () -> Void
+
+    init(_ releaseSeat: @escaping () -> Void) {
+        self.releaseSeat = releaseSeat
+    }
+
+    func release() {
+        guard !released else { return }
+        released = true
+        releaseSeat()
     }
 }

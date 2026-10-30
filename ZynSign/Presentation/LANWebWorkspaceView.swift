@@ -59,20 +59,21 @@ struct LANWebWorkspaceView: View {
             } header: {
                 Text("Foreground LAN Server")
             } footer: {
-                Text("This foreground server exposes workspace files to the local network. Connections, passwords and file contents use unencrypted HTTP; use only on a trusted network and do not transfer signing credentials. Existing files cannot be overwritten.")
+                Text("This foreground server exposes workspace files to the local network. Connections, passwords and file contents use unencrypted HTTP, so anything on the path can read them; use it only on a network you trust, and do not leave it running. Every request is authenticated, existing files cannot be overwritten, and the workspace's own folders cannot be moved or deleted.")
             }
 
-            Section("Configuration") {
+            Section {
                 TextField("Preferred Port", text: $portText)
                     .keyboardType(.numberPad)
                 Toggle("Enable WebDAV Drive", isOn: $service.webdavEnabled)
-                Toggle("Require HTTP Basic Authentication", isOn: $service.requiresAuthentication)
-                if service.requiresAuthentication {
-                    TextField("Username", text: $service.username)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                    SecureField("Password", text: $service.password)
-                }
+                TextField("Username", text: $service.username)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                SecureField("Password", text: $service.password)
+            } header: {
+                Text("Configuration")
+            } footer: {
+                Text("Authentication is required and cannot be turned off: this listener is reachable from the whole local network. Use at least \(LANWebWorkspaceService.minimumCredentialLength) characters; the app fills in a random one when you first open this screen.")
             }
             .disabled(service.isRunning)
 

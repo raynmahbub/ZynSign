@@ -109,6 +109,40 @@ enum WebDAVProtocol {
         return constantTimeEquals(decoded, expected)
     }
 
+    /// Whether a request names a different origin than the one it was sent to.
+    ///
+    /// A browser attaches `Origin` to state-changing requests and `Sec-Fetch-Site`
+    /// to most of them; both are set by the browser and cannot be forged from a
+    /// page. Comparing them against `Host` is what makes a cross-site form or
+    /// script unable to use this workspace's cached Basic credential to upload or
+    /// delete a file. A non-browser client sends neither header, so it is not
+    /// judged by them.
+    static func hasForeignOrigin(headers: [String: String]) -> Bool {
+        if let fetchSite = headers["sec-fetch-site"]?.lowercased(),
+           fetchSite == "cross-site" || fetchSite == "same-site" {
+            return true
+        }
+        guard let origin = headers["origin"], !origin.isEmpty else { return false }
+        let originAuthority = authority(of: origin)
+        guard !originAuthority.isEmpty else { return true }
+        guard let host = headers["host"]?.lowercased(), !host.isEmpty else {
+            return true
+        }
+        return originAuthority != host
+    }
+
+    /// Reduces an `Origin` value to its lowercased `host[:port]`.
+    private static func authority(of origin: String) -> String {
+        var value = origin
+        if let schemeEnd = value.range(of: "://") {
+            value = String(value[schemeEnd.upperBound...])
+        }
+        if let slash = value.firstIndex(of: "/") {
+            value = String(value[..<slash])
+        }
+        return value.lowercased()
+    }
+
     static func constantTimeEquals(_ lhs: Data, _ rhs: Data) -> Bool {
         let maxLen = max(lhs.count, rhs.count)
         var diff: UInt8 = lhs.count == rhs.count ? 0 : 1
@@ -120,25 +154,9 @@ enum WebDAVProtocol {
         return diff == 0
     }
 
-    /// Normalizes a URL path into safe relative path components without `..`.
-    static func sanitizePath(_ rawTarget: String) -> [String]? {
-        let pathOnly: String
-        if let q = rawTarget.firstIndex(of: "?") {
-            pathOnly = String(rawTarget[..<q])
-        } else if let url = URL(string: rawTarget) {
-            pathOnly = url.path
-        } else {
-            pathOnly = rawTarget
-        }
-        let decoded = pathOnly.removingPercentEncoding ?? pathOnly
-        let parts = decoded.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-        for part in parts {
-            if part == "." || part == ".." || part.contains("\0") || part.contains("\\") {
-                return nil
-            }
-        }
-        return parts
-    }
+    // A request target becomes a location through `WebDAVPathPolicy`, never here:
+    // the codec stays a codec, and the rules that decide what a target may name
+    // live in one testable place.
 
     /// Builds a WebDAV `207 Multi-Status` XML response body for `PROPFIND`.
     static func renderMultiStatusXML(resources: [ResourceMetadata]) -> Data {

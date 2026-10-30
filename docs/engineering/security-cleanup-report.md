@@ -61,6 +61,21 @@ Debian parsing rejects duplicate data/control members, trailing truncated ar dat
 
 The LAN WebDAV server had destructive failure paths: MOVE/COPY deleted the destination before checking whether the operation could succeed, and PUT removed existing files before the new body was committed. It now refuses existing destinations rather than overwriting, rejects root PUT/MOVE/COPY, reports deletion failures, and refuses existing symbolic-link path components. Basic authentication is on by default and an empty password no longer turns a requested authentication check into access. Duplicate HTTP headers and PUT without Content-Length are refused; failed temporary-file writes do not dispatch partial uploads. The dashboard no longer inserts a filename into an inline JavaScript string, and the UI shows the actual root mount URL.
 
+A second pass replaced the ad-hoc path handling with `WebDAVPathPolicy` and made
+the remaining findings structural rather than incidental: authentication is a
+precondition of listening (no anonymous mode, minimum credential length, checked
+before the method or target is considered), the target is parsed once and
+decoded once with the complete refusal vocabulary and status for each, the
+drive's own methods (`DELETE`, `MKCOL`, `MOVE`, `COPY`) are refused when WebDAV
+is off while the browser page's upload keeps working, the workspace root and its
+four category folders cannot be replaced, moved or deleted, requests carrying a
+foreign `Origin` or `Sec-Fetch-Site` are refused, a truncated upload is never
+published, downloads past the served bound are refused instead of being read
+into memory, `PROPFIND` depth is bounded, and connections have an idle clock and
+a budget. What remains open is stated rather than implied: TLS, descriptor-
+relative file access, transactional overwrite, and validation against a real
+WebDAV client. See [the LAN Web Workspace record](../architecture/lan-web-workspace.md).
+
 These are **not** a complete WebDAV or security implementation. The server uses plaintext HTTP, including Basic credentials and uploaded content; authentication is optional, so it must not be exposed to an untrusted network or used to transfer signing credentials. Symlink checks are not descriptor-relative and remain raceable; there are no verified connection deadlines, CSRF defenses, bounded response streaming, or transactional replacements. Configuration is frozen at startup. New XCTest cases have not been run and actual transport behavior and Finder/Files interoperability have not been verified on Apple platforms.
 
 ## Installation handoff address validation
