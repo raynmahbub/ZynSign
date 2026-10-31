@@ -117,11 +117,11 @@ struct CanonicalPropertyListXMLSerializer {
             throw CanonicalPropertyListError.rootMustBeDictionary
         }
         var context = SerializationContext(limits: limits)
-        context.appendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>", depth: 0)
-        context.appendLine("<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">", depth: 0)
-        context.appendLine("<plist version=\"1.0\">", depth: 0)
+        try context.appendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>", depth: 0)
+        try context.appendLine("<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">", depth: 0)
+        try context.appendLine("<plist version=\"1.0\">", depth: 0)
         try serializeValue(root, depth: 0, context: &context)
-        context.appendLine("</plist>", depth: 0)
+        try context.appendLine("</plist>", depth: 0)
         guard context.byteCount <= limits.maximumDocumentByteCount else {
             throw CanonicalPropertyListError.outputTooLarge
         }
@@ -142,17 +142,20 @@ struct CanonicalPropertyListXMLSerializer {
         if depth > 0 { try context.countNode() }
         switch value {
         case .string(let text):
+            guard text.utf8.count <= limits.maximumStringByteCount else {
+                throw CanonicalPropertyListError.resourceLimitExceeded
+            }
             guard Self.isValidXMLText(text) else { throw CanonicalPropertyListError.invalidString }
-            context.appendLine("<string>\(Self.escaped(text))</string>", depth: depth)
+            try context.appendLine("<string>\(Self.escaped(text))</string>", depth: depth)
         case .boolean(let flag):
-            context.appendLine(flag ? "<true/>" : "<false/>", depth: depth)
+            try context.appendLine(flag ? "<true/>" : "<false/>", depth: depth)
         case .integer(let number):
-            context.appendLine("<integer>\(number)</integer>", depth: depth)
+            try context.appendLine("<integer>\(number)</integer>", depth: depth)
         case .real(let number):
             guard number.isFinite else {
                 throw CanonicalPropertyListError.nonFiniteNumber
             }
-            context.appendLine("<real>\(Self.realText(number))</real>", depth: depth)
+            try context.appendLine("<real>\(Self.realText(number))</real>", depth: depth)
         case .data(let bytes):
             try serializeData(bytes, depth: depth, context: &context)
         case .date:
@@ -166,25 +169,25 @@ struct CanonicalPropertyListXMLSerializer {
             guard elements.count <= 10_000 else {
                 throw CanonicalPropertyListError.resourceLimitExceeded
             }
-            context.appendLine("<array>", depth: depth)
+            try context.appendLine("<array>", depth: depth)
             for element in elements {
                 try serializeValue(element, depth: depth + 1, context: &context)
             }
-            context.appendLine("</array>", depth: depth)
+            try context.appendLine("</array>", depth: depth)
         case .dictionary(let entries):
             guard entries.count <= 10_000 else {
                 throw CanonicalPropertyListError.resourceLimitExceeded
             }
-            context.appendLine("<dict>", depth: depth)
+            try context.appendLine("<dict>", depth: depth)
             for key in entries.keys.sorted(by: Self.utf8Ascending) {
                 try validateKey(key)
-                context.appendLine("<key>\(Self.escaped(key))</key>", depth: depth + 1)
+                try context.appendLine("<key>\(Self.escaped(key))</key>", depth: depth + 1)
                 guard let entry = entries[key] else {
                     throw CanonicalPropertyListError.invalidKey
                 }
                 try serializeValue(entry, depth: depth + 1, context: &context)
             }
-            context.appendLine("</dict>", depth: depth)
+            try context.appendLine("</dict>", depth: depth)
         }
     }
 
@@ -193,15 +196,24 @@ struct CanonicalPropertyListXMLSerializer {
         depth: Int,
         context: inout SerializationContext
     ) throws {
-        context.appendLine("<data>", depth: depth)
-        let base64 = bytes.base64EncodedString()
-        var start = base64.startIndex
-        while start < base64.endIndex {
-            let end = base64.index(start, offsetBy: 76, limitedBy: base64.endIndex) ?? base64.endIndex
-            context.appendLine(String(base64[start..<end]), depth: depth + 1)
-            start = end
+        // Base64 output cannot fit in a document whose byte limit is already
+        // smaller than the raw input. Refuse before encoding; otherwise encode
+        // one 57-byte chunk (76 base64 characters) at a time rather than
+        // retaining a second, whole-value base64 string.
+        guard bytes.count <= limits.maximumDocumentByteCount else {
+            throw CanonicalPropertyListError.outputTooLarge
         }
-        context.appendLine("</data>", depth: depth)
+        try context.appendLine("<data>", depth: depth)
+        var offset = 0
+        while offset < bytes.count {
+            let chunkCount = min(57, bytes.count - offset)
+            let start = bytes.index(bytes.startIndex, offsetBy: offset)
+            let end = bytes.index(start, offsetBy: chunkCount)
+            let line = bytes[start..<end].base64EncodedString()
+            try context.appendLine(line, depth: depth + 1)
+            offset += chunkCount
+        }
+        try context.appendLine("</data>", depth: depth)
     }
 
     private func validateKey(_ key: String) throws {
@@ -279,8 +291,16 @@ private struct SerializationContext {
         }
     }
 
-    mutating func appendLine(_ line: String, depth: Int) {
-        for _ in 0..<max(depth, 0) {
+    mutating func appendLine(_ line: String, depth: Int) throws {
+        let indentation = max(depth, 0)
+        let (lineLength, lineOverflow) = indentation.addingReportingOverflow(line.utf8.count)
+        let (addition, newlineOverflow) = lineLength.addingReportingOverflow(1)
+        let (newByteCount, totalOverflow) = data.count.addingReportingOverflow(addition)
+        guard !lineOverflow, !newlineOverflow, !totalOverflow,
+              newByteCount <= limits.maximumDocumentByteCount else {
+            throw CanonicalPropertyListError.outputTooLarge
+        }
+        for _ in 0..<indentation {
             data.append(0x09) // tab
         }
         data.append(contentsOf: line.utf8)
