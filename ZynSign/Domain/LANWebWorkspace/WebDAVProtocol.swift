@@ -201,10 +201,15 @@ enum WebDAVProtocol {
             let action = item.isDirectory
                 ? ""
                 : "<a href=\"\(safeHref)\" download style=\"margin-right:10px;color:#0a84ff;text-decoration:none;\">Download</a>"
+            // With the drive off the listener answers uploads only, so the page
+            // does not render a control the server would refuse.
+            let deleteControl = webdavEnabled
+                ? "<button data-href=\"\(safeHref)\" onclick=\"delItem(this.dataset.href)\" style=\"background:#ff453a;color:#fff;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;\">Delete</button>"
+                : ""
             return """
             <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid #2c2c2e;">
               <div><strong>\(safeLabel)</strong> <span style="opacity:.65;font-size:12px;">(\(badge))</span></div>
-              <div>\(action)<button data-href="\(safeHref)" onclick="delItem(this.dataset.href)" style="background:#ff453a;color:#fff;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;">Delete</button></div>
+              <div>\(action)\(deleteControl)</div>
             </div>
             """
         }.joined(separator: "\n")
