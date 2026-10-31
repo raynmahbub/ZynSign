@@ -53,17 +53,17 @@ struct DEREntitlementsBlob: Equatable, Hashable {
             return v
         }
         guard magic == Self.magic else { throw EntitlementsError.invalidDERMagic }
-        // Declared length is checked for overflow and for consistency with
-        // the actual bytes *before* the payload is copied. A mismatch is
-        // framing, a declared value past the budget is a payload limit — the
-        // two are distinguished for diagnostics.
-        let (payloadLength, overflow) = declared.addingReportingOverflow(-Self.headerLength)
-        guard !overflow else { throw EntitlementsError.invalidBlobFraming }
-        guard declared >= Self.headerLength, declared == bytes.count else { throw EntitlementsError.invalidBlobFraming }
-        guard payloadLength >= 0, payloadLength <= Self.maximumPayloadLength else {
-            throw EntitlementsError.payloadTooLarge
-        }
+        // Error precedence is deliberate: after magic, reject a declared
+        // total length beyond the supported frame maximum as payloadTooLarge,
+        // even when the supplied bytes are shorter. For an in-range declared
+        // length, a mismatch with available bytes is invalidBlobFraming.
+        // Declarations shorter than the header are always invalid framing.
+        guard declared >= Self.headerLength else { throw EntitlementsError.invalidBlobFraming }
         guard declared <= Self.maximumFramedLength else { throw EntitlementsError.payloadTooLarge }
+        guard declared == bytes.count else { throw EntitlementsError.invalidBlobFraming }
+        let (payloadLength, overflow) = declared.subtractingReportingOverflow(Self.headerLength)
+        guard !overflow else { throw EntitlementsError.invalidBlobFraming }
+        guard payloadLength <= Self.maximumPayloadLength else { throw EntitlementsError.payloadTooLarge }
         // Only now is the payload slice copied; the allocation size has been
         // proved to be within the 1 MiB policy.
         self.payload = Data(bytes.dropFirst(Self.headerLength))

@@ -52,10 +52,11 @@ enum EntitlementCanonicalValidator {
     /// Validates a value tree against the canonical policy, counting nodes
     /// and enforcing depth, string, data and collection bounds.
     ///
-    /// This is the single node-counting implementation consumed by both the
-    /// canonical model (`CodeSigningEntitlements`) and the DER decoder's
-    /// budget checks: every value node is counted once, depth is incremented
-    /// for children, and collection sizes are checked.
+    /// This traversal counts model value nodes for
+    /// `CodeSigningEntitlements`. The profile decoder, DER decoder and XML
+    /// serializer each maintain their own bounded traversal counter; they use
+    /// the same semantics (value nodes only, excluding dictionary keys and
+    /// the implicit root dictionary) but do not call a shared counter.
     static func validateValue(
         _ value: ProvisioningProfileValue,
         depth: Int,

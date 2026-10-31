@@ -19,10 +19,11 @@ final class DEREntitlementCorrectnessTests: XCTestCase {
 
     // MARK: - Finding 1: XML and DER semantic consistency
 
-    func testCanonicalStringPolicyRejectsSameInputsInXMLAndDER() throws {
-        // NUL, prohibited controls, lone surrogates and FFFE/FFFF are not
-        // valid XML Char and are therefore not representable in the canonical
-        // entitlement model — XML and DER must reject the same set.
+    func testXMLInvalidScalarAndControlCasesAreRejectedAtTheirBoundaries() throws {
+        // Swift strings can represent these XML-invalid controls/noncharacters,
+        // but cannot represent unpaired surrogate Unicode scalars. Exercise
+        // model validation and the XML serializer directly without claiming an
+        // unreachable DER-serializer path through CodeSigningEntitlements.
         let invalidStrings = [
             "a\u{0}b",           // NUL
             "a\u{01}b",          // SOH
@@ -32,26 +33,24 @@ final class DEREntitlementCorrectnessTests: XCTestCase {
             "a\u{0C}b",          // Form feed
             "a\u{FFFE}b",        // Noncharacter
             "a\u{FFFF}b",
-            // A lone surrogate is not a case that can be written here: Swift's
-            // `String` cannot hold one, so the model is never handed one. It is
-            // the DER and XML decode boundaries that must refuse the encoding,
-            // and that is where the surrogate case belongs.
         ]
         for text in invalidStrings {
-            XCTAssertThrowsError(try CodeSigningEntitlements(values: ["k": .string(text)]),
-                                 "string \(text.debugDescription) should be rejected") { error in
-                guard let e = error as? EntitlementsError else { return XCTFail("wrong error type") }
-                XCTAssertTrue(e == .invalidXMLString || e == .invalidKey, "expected invalid string, got \(e)")
+            XCTAssertThrowsError(try CodeSigningEntitlements(values: ["k": .string(text)])) { error in
+                XCTAssertEqual(error as? EntitlementsError, .invalidXMLString)
             }
-            // DER serializer must also refuse, not silently coerce.
-            if let entitlements = try? CodeSigningEntitlements(values: ["valid": .boolean(true)]) {
-                // Build a direct value that bypasses model validation to test
-                // serializer's own defense-in-depth (real would be notRepresentable).
-                let invalidValue = ProvisioningProfileValue.string(text)
-                XCTAssertThrowsError(try DEREntitlementsSerializer().serialize(
-                    CodeSigningEntitlements(values: ["k": invalidValue])
-                ))
+            XCTAssertThrowsError(try CanonicalPropertyListXMLSerializer().serialize(
+                root: .dictionary(["k": .string(text)])
+            )) { error in
+                XCTAssertEqual(error as? CanonicalPropertyListError, .invalidString)
             }
+        }
+    }
+
+    func testMalformedUTF8DERStringIsRejectedAtDecoderBoundary() throws {
+        // SET { SEQUENCE { UTF8String "k", UTF8String [invalid 0xC0] } }.
+        let malformedUTF8 = Data([0x31, 0x08, 0x30, 0x06, 0x0C, 0x01, 0x6B, 0x0C, 0x01, 0xC0])
+        XCTAssertThrowsError(try DEREntitlementsDecoder().decode(malformedUTF8)) { error in
+            XCTAssertEqual(error as? EntitlementsError, .malformedDEREncoding)
         }
     }
 
@@ -176,10 +175,15 @@ final class DEREntitlementCorrectnessTests: XCTestCase {
         // Empty and short blobs are framing, not payload length.
         XCTAssertThrowsError(try DEREntitlementsBlob(existingBlob: Data())) { XCTAssertEqual($0 as? EntitlementsError, .invalidBlobFraming) }
         XCTAssertThrowsError(try DEREntitlementsBlob(existingBlob: Data(repeating: 0, count: 7))) { XCTAssertEqual($0 as? EntitlementsError, .invalidBlobFraming) }
-        // Declared length past budget is payloadTooLarge before payload copy.
+        // Precedence: any declared total length above the supported maximum is
+        // payloadTooLarge, even when only the eight-byte header is available.
+        let oversizedDeclared = Data([0xFA, 0xDE, 0x71, 0x72, 0x00, 0x10, 0x00, 0x09])
+        XCTAssertThrowsError(try DEREntitlementsBlob(existingBlob: oversizedDeclared)) {
+            XCTAssertEqual($0 as? EntitlementsError, .payloadTooLarge)
+        }
         let hugeDeclared = Data([0xFA, 0xDE, 0x71, 0x72, 0xFF, 0xFF, 0xFF, 0xFF])
         XCTAssertThrowsError(try DEREntitlementsBlob(existingBlob: hugeDeclared)) { XCTAssertEqual($0 as? EntitlementsError, .payloadTooLarge) }
-        // Declared != actual is framing.
+        // An ordinary, in-range declared/actual mismatch is framing.
         let valid = try DEREntitlementsSerializer().blob(try CodeSigningEntitlements(values: ["k": .boolean(true)]))
         var truncatedDeclared = valid.bytes
         truncatedDeclared[7] += 1 // increase declared by 1, now bytes.count != declared
@@ -310,6 +314,86 @@ final class DEREntitlementCorrectnessTests: XCTestCase {
         XCTAssertThrowsError(try decoder.decode(deepDER)) { XCTAssertEqual($0 as? EntitlementsError, .resourceLimitExceeded) }
     }
 
+    func testNestedModelValidationPreservesSuppliedLimits() throws {
+        let value: ProvisioningProfileValue = .array([
+            .dictionary(["d": .array([.string("ok")])])
+        ])
+        let accepted = ProvisioningProfileParsingLimits(
+            maximumNestingDepth: 4, maximumValueNodeCount: 4,
+            maximumStringByteCount: 2, maximumDataByteCount: 8, maximumCollectionCount: 4
+        )
+        XCTAssertNoThrow(try CodeSigningEntitlements(values: ["k": value], limits: accepted))
+
+        let tighterStringBound = ProvisioningProfileParsingLimits(
+            maximumNestingDepth: 4, maximumValueNodeCount: 4,
+            maximumStringByteCount: 1, maximumDataByteCount: 8, maximumCollectionCount: 4
+        )
+        XCTAssertThrowsError(try CodeSigningEntitlements(values: ["k": value], limits: tighterStringBound)) {
+            XCTAssertEqual($0 as? EntitlementsError, .resourceLimitExceeded)
+        }
+    }
+
+    func testNodeLimitExcludesDictionaryKeysAndImplicitRootAcrossDecoders() throws {
+        let parsingLimits = ProvisioningProfileParsingLimits(
+            maximumNestingDepth: 4, maximumValueNodeCount: 3,
+            maximumStringByteCount: 32, maximumDataByteCount: 32, maximumCollectionCount: 4
+        )
+        let values: [String: ProvisioningProfileValue] = [
+            "first-key": .boolean(true),
+            "second-key": .integer(2),
+            "third-key": .string("v"),
+        ]
+        // Three scalar values exactly meet the limit. Counting either three
+        // dictionary keys or the implicit root dictionary would exceed it.
+        let model = try CodeSigningEntitlements(values: values, limits: parsingLimits)
+        XCTAssertEqual(try ProvisioningProfileValue.decodeEntitlementDictionary(
+            ["first-key": true, "second-key": 2, "third-key": "v"], limits: parsingLimits
+        ).count, 3)
+        let der = try DEREntitlementsSerializer(limits: parsingLimits).serialize(model)
+        XCTAssertEqual(try DEREntitlementsDecoder(limits: parsingLimits).decode(der), model)
+        let xmlLimits = CanonicalPropertyListLimits(
+            maximumNestingDepth: 4, maximumNodeCount: 3,
+            maximumStringByteCount: 32, maximumDocumentByteCount: 1024
+        )
+        let xml = try EntitlementsCanonicalSerializer(limits: xmlLimits).serialize(model)
+        XCTAssertEqual(try EntitlementsPlistParser.parse(xml, limits: parsingLimits), model)
+    }
+
+    func testCanonicalXMLOutputLimitIsEnforcedIncrementally() throws {
+        let entitlements = try CodeSigningEntitlements(values: ["key": .string("value")])
+        let full = try EntitlementsCanonicalSerializer().serialize(entitlements)
+        let exactLimit = CanonicalPropertyListLimits(
+            maximumNestingDepth: 32, maximumNodeCount: 50_000,
+            maximumStringByteCount: 16 * 1_024, maximumDocumentByteCount: full.count
+        )
+        XCTAssertNoThrow(try EntitlementsCanonicalSerializer(limits: exactLimit).serialize(entitlements))
+        let tooSmall = CanonicalPropertyListLimits(
+            maximumNestingDepth: 32, maximumNodeCount: 50_000,
+            maximumStringByteCount: 16 * 1_024, maximumDocumentByteCount: full.count - 1
+        )
+        XCTAssertThrowsError(try EntitlementsCanonicalSerializer(limits: tooSmall).serialize(entitlements)) {
+            XCTAssertEqual($0 as? EntitlementsError, .payloadTooLarge)
+        }
+
+        let dataClaims = try CodeSigningEntitlements(values: ["payload": .data(Data(repeating: 0xAB, count: 114))])
+        let dataXML = try EntitlementsCanonicalSerializer().serialize(dataClaims)
+        let lines = String(decoding: dataXML, as: UTF8.self).components(separatedBy: "\n")
+        let dataStart = try XCTUnwrap(lines.firstIndex(of: "\t<data>"))
+        let dataEnd = try XCTUnwrap(lines[(dataStart + 1)...].firstIndex(of: "\t</data>"))
+        let base64Lines = Array(lines[(dataStart + 1)..<dataEnd])
+        XCTAssertEqual(base64Lines.map { $0.utf8.count - 2 }, [76, 76])
+        XCTAssertEqual(try EntitlementsPlistParser.parse(dataXML), dataClaims)
+
+        let oversizedData = try CodeSigningEntitlements(values: ["payload": .data(Data(repeating: 0xAB, count: 1_025))])
+        let smallDocument = CanonicalPropertyListLimits(
+            maximumNestingDepth: 32, maximumNodeCount: 50_000,
+            maximumStringByteCount: 16 * 1_024, maximumDocumentByteCount: 1_024
+        )
+        XCTAssertThrowsError(try EntitlementsCanonicalSerializer(limits: smallDocument).serialize(oversizedData)) {
+            XCTAssertEqual($0 as? EntitlementsError, .payloadTooLarge)
+        }
+    }
+
     func testDefaultNodeBoundaryIsSharedBetweenXMLAndDER() throws {
         // 50k node limit is shared: one outer array + 5 inner arrays + 49994 leaves = 50000
         let leaf = ProvisioningProfileValue.boolean(true)
@@ -362,10 +446,6 @@ final class DEREntitlementCorrectnessTests: XCTestCase {
         XCTAssertThrowsError(try DEREntitlementsDecoder().decode(unsupportedBytes)) { XCTAssertEqual($0 as? EntitlementsError, .unsupportedValueType) }
         // Malformed DER (truncated)
         XCTAssertThrowsError(try DEREntitlementsDecoder().decode(Data([0x31, 0x03, 0x30, 0x01]))) { XCTAssertEqual($0 as? EntitlementsError, .malformedDEREncoding) }
-        // DER/XML semantic mismatch is detected in SigningMetadataPreparation before key use
-        let xmlMismatch = try CodeSigningEntitlements(values: ["k": .string("a\u{0}b")]) // not valid, so throw invalidXMLString first
-        // Instead, construct mismatch via tampering: create entitlements with valid string, then manually craft DER that decodes to different string
-        _ = xmlMismatch // placeholder to prove policy exists; actual mismatch test is in SigningMetadataIntegrationTests
     }
 
     func testDERVerificationDiagnosticsForEachFailureMode() throws {
@@ -475,12 +555,11 @@ final class DEREntitlementCorrectnessTests: XCTestCase {
 
     // MARK: - Finding 5: Cryptographic regression — real key where available
 
-    func testRealKeySignAndVerifyRejectsTampering() throws {
-        // This test uses the fixed-vector identity for deterministic CI on
-        // Linux, but also exercises the real Security primitive where it
-        // exists (Apple platforms). The fixed-vector test below proves the
-        // pipeline's cryptographic boundary is wired; the Apple test proves
-        // real RSA mathematics.
+    func testFixedVectorIdentityVerifiesDERBindingAndRejectsTampering() throws {
+        // This uses NestedSigningTestIdentityStore and
+        // NestedSigningTestVerifier, so it checks signing orchestration and
+        // DER/slot/digest binding only; it does not prove RSA verification.
+        // Real Security.framework RSA coverage lives in MachOSigningAppleTests.
         let store = try NestedSigningTestIdentityStore()
         let engine = SignMachOUseCase(identities: store, digest: digest, verifier: NestedSigningTestVerifier())
         let claims = try CodeSigningEntitlements(values: ["get-task-allow": .boolean(true), "aps-environment": .string("development")])

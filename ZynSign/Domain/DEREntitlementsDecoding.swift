@@ -39,9 +39,9 @@ struct DEREntitlementsDecoder {
     /// Total payload size, declared lengths and collection counts are validated
     /// before any value allocation. Integer overflow on length fields is
     /// treated as malformed, and trailing bytes after the outer SET are
-    /// refused. Node depth and count share the single canonical policy with
-    /// the model validation so XML, DER and the canonical model consume the
-    /// same budget.
+    /// refused. The DER decoder maintains its own traversal counter with the
+    /// same node semantics as model, XML and profile decoding: value nodes
+    /// count, while dictionary keys and the implicit root dictionary do not.
     func decode(_ payload: Data) throws -> CodeSigningEntitlements {
         guard !payload.isEmpty else { throw EntitlementsError.emptyPayload }
         guard payload.count <= DEREntitlementsBlob.maximumPayloadLength else { throw EntitlementsError.payloadTooLarge }
